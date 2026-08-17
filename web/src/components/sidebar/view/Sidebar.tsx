@@ -79,8 +79,6 @@ function Sidebar({
     editingSession,
     editingSessionName,
     searchFilter,
-    projectFilter,
-    setProjectFilter,
     conversationResults,
     isSearching,
     searchProgress,
@@ -203,7 +201,6 @@ function Sidebar({
     loadingMoreProjects,
     activeSessions,
     attentionSessionIds,
-    forceExpanded: projectFilter === 'active',
     isProjectStarred,
     onEditingNameChange: setEditingName,
     onToggleProject: toggleProject,
@@ -287,8 +284,6 @@ function Sidebar({
               setSearchFilter('');
               clearConversationResults();
             }}
-            projectFilter={projectFilter}
-            onProjectFilterChange={setProjectFilter}
             conversationResults={conversationResults}
             isSearching={isSearching}
             searchProgress={searchProgress}

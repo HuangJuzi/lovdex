@@ -1,12 +1,9 @@
-import { Activity, Folder, FolderPlus, Plus, RefreshCw, Search, Star, X, PanelLeftClose } from 'lucide-react';
-import type { LucideIcon } from 'lucide-react';
+import { FolderPlus, Plus, RefreshCw, Search, X, PanelLeftClose } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
 import { Button, Input } from '../../../../shared/view/ui';
 import { LOVDEXCLI_WORDMARK_FONT_FAMILY } from '../../../../constants/branding';
 import { IS_PLATFORM } from '../../../../constants/config';
-import { cn } from '../../../../lib/utils';
-import type { SidebarProjectFilter } from '../../types/types';
 
 const MOD_KEY =
   typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl';
@@ -20,8 +17,6 @@ type SidebarHeaderProps = {
   searchFilter: string;
   onSearchFilterChange: (value: string) => void;
   onClearSearchFilter: () => void;
-  projectFilter: SidebarProjectFilter;
-  onProjectFilterChange: (filter: SidebarProjectFilter) => void;
   onRefresh: () => void;
   isRefreshing: boolean;
   onCreateProject: () => void;
@@ -38,8 +33,6 @@ export default function SidebarHeader({
   searchFilter,
   onSearchFilterChange,
   onClearSearchFilter,
-  projectFilter,
-  onProjectFilterChange,
   onRefresh,
   isRefreshing,
   onCreateProject,
@@ -48,7 +41,6 @@ export default function SidebarHeader({
 }: SidebarHeaderProps) {
   const showSearchTools = (projectsCount > 0 || runningSessionsCount > 0) && !isLoading;
   const searchPlaceholder = t('search.placeholder');
-  const runningBadgeText = runningSessionsCount > 99 ? '99+' : String(runningSessionsCount);
 
   const LogoBlock = () => (
     <div className="flex min-w-0 items-center gap-2.5">
@@ -63,45 +55,6 @@ export default function SidebarHeader({
       >
         {t('app.title')}
       </h1>
-    </div>
-  );
-
-  const filterButtons: { value: SidebarProjectFilter; label: string; icon: LucideIcon }[] = [
-    { value: 'all', label: t('filter.all'), icon: Folder },
-    { value: 'active', label: t('filter.active'), icon: Activity },
-    { value: 'favorited', label: t('filter.favorited'), icon: Star },
-  ];
-
-  const FilterToggle = () => (
-    <div className="flex rounded-xl border border-border/70 bg-muted/60 p-[3px]">
-      {filterButtons.map(({ value, label, icon: Icon }) => {
-        const isActive = projectFilter === value;
-        const showBadge = value === 'active' && runningSessionsCount > 0;
-        return (
-          <button
-            key={value}
-            onClick={() => onProjectFilterChange(value)}
-            aria-pressed={isActive}
-            className={cn(
-              "flex-1 flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-normal transition-all",
-              isActive
-                ? "bg-card text-foreground shadow-[0_2px_0_rgba(30,27,50,0.10),0_4px_10px_rgba(35,33,41,0.06)]"
-                : "text-muted-foreground hover:text-foreground",
-              value === 'active' && isActive && "ring-1 ring-emerald-500/15",
-            )}
-          >
-            <span className="relative flex items-center justify-center">
-              <Icon className={cn("h-3 w-3", showBadge && "text-emerald-500")} />
-              {showBadge && (
-                <span className="absolute -right-2.5 -top-2 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-emerald-500 px-0.5 text-[8px] font-semibold leading-none text-white shadow-sm ring-1 ring-background">
-                  {runningBadgeText}
-                </span>
-              )}
-            </span>
-            {label}
-          </button>
-        );
-      })}
     </div>
   );
 
@@ -164,8 +117,6 @@ export default function SidebarHeader({
         {/* Search bar */}
         {showSearchTools && (
           <div className="mt-2.5 space-y-2">
-            {/* Project filter */}
-            <FilterToggle />
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/50" />
               <Input
@@ -239,7 +190,6 @@ export default function SidebarHeader({
         {/* Mobile search */}
         {showSearchTools && (
           <div className="mt-2.5 space-y-2">
-            <FilterToggle />
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/50" />
               <Input

@@ -6,7 +6,6 @@ import { ScrollArea } from '../../../../shared/view/ui';
 import type { Project } from '../../../../types/app';
 import type { ReleaseInfo } from '../../../../types/sharedTypes';
 import type { ConversationSearchResults, SearchProgress } from '../../hooks/useSidebarController';
-import type { SidebarProjectFilter } from '../../types/types';
 
 import SidebarAssistant from './SidebarAssistant';
 import SidebarFooter from './SidebarFooter';
@@ -53,8 +52,6 @@ type SidebarContentProps = {
   searchFilter: string;
   onSearchFilterChange: (value: string) => void;
   onClearSearchFilter: () => void;
-  projectFilter: SidebarProjectFilter;
-  onProjectFilterChange: (filter: SidebarProjectFilter) => void;
   conversationResults: ConversationSearchResults | null;
   isSearching: boolean;
   searchProgress: SearchProgress | null;
@@ -89,8 +86,6 @@ export default function SidebarContent({
   searchFilter,
   onSearchFilterChange,
   onClearSearchFilter,
-  projectFilter,
-  onProjectFilterChange,
   conversationResults,
   isSearching,
   searchProgress,
@@ -125,8 +120,6 @@ export default function SidebarContent({
         searchFilter={searchFilter}
         onSearchFilterChange={onSearchFilterChange}
         onClearSearchFilter={onClearSearchFilter}
-        projectFilter={projectFilter}
-        onProjectFilterChange={onProjectFilterChange}
         onRefresh={onRefresh}
         isRefreshing={isRefreshing}
         onCreateProject={onCreateProject}

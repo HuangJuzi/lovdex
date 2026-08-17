@@ -2,7 +2,6 @@ import type { LoadingProgress, Project, ProjectSession, LLMProvider } from '../.
 import type { SessionActivityMap } from '../../../hooks/useSessionProtection';
 
 export type ProjectSortOrder = 'name' | 'date';
-export type SidebarProjectFilter = 'all' | 'active' | 'favorited';
 
 export type SessionWithProvider = ProjectSession & {
   __provider: LLMProvider;

@@ -7,7 +7,6 @@ import type { SessionActivityMap } from '../../../hooks/useSessionProtection';
 import type {
   DeleteProjectConfirmation,
   ProjectSortOrder,
-  SidebarProjectFilter,
   SessionDeleteConfirmation,
   SessionWithProvider,
 } from '../types/types';
@@ -118,7 +117,6 @@ export function useSidebarController({
   const [deleteConfirmation, setDeleteConfirmation] = useState<DeleteProjectConfirmation | null>(null);
   const [sessionDeleteConfirmation, setSessionDeleteConfirmation] = useState<SessionDeleteConfirmation | null>(null);
   const [showVersionModal, setShowVersionModal] = useState(false);
-  const [projectFilter, setProjectFilter] = useState<SidebarProjectFilter>('all');
   const [conversationResults, setConversationResults] = useState<ConversationSearchResults | null>(null);
   const [isSearching, setIsSearching] = useState(false);
   const [searchProgress, setSearchProgress] = useState<SearchProgress | null>(null);
@@ -522,42 +520,10 @@ export function useSidebarController({
     return sortProjects(visibleProjects, projectSortOrder, activeSessionIds, currentTime);
   }, [projectSortOrder, projectsWithResolvedStarState, activeSessionIds, currentTime]);
 
-  const runningProjects = useMemo(() => {
-    if (activeSessionIds.size === 0) {
-      return [];
-    }
-
-    return sortedProjects.reduce<Project[]>((acc, project) => {
-      const sessions = (project.sessions ?? []).filter((session) => activeSessionIds.has(String(session.id)));
-      const runningCount = sessions.length;
-
-      if (runningCount === 0) {
-        return acc;
-      }
-
-      acc.push({
-        ...project,
-        sessions,
-        sessionMeta: {
-          ...project.sessionMeta,
-          total: runningCount,
-          hasMore: false,
-        },
-      });
-      return acc;
-    }, []);
-  }, [activeSessionIds, sortedProjects]);
-
-  const filteredProjects = useMemo(() => {
-    const baseList =
-      projectFilter === 'active'
-        ? runningProjects
-        : projectFilter === 'favorited'
-          ? sortedProjects.filter((project) => resolveProjectStarState(project.projectId))
-          : sortedProjects;
-
-    return filterProjects(baseList, debouncedSearchQuery);
-  }, [projectFilter, runningProjects, sortedProjects, resolveProjectStarState, debouncedSearchQuery]);
+  const filteredProjects = useMemo(
+    () => filterProjects(sortedProjects, debouncedSearchQuery),
+    [sortedProjects, debouncedSearchQuery],
+  );
 
   const startEditing = useCallback((project: Project) => {
     // `editingProject` is keyed by projectId so it stays stable across
@@ -784,8 +750,6 @@ export function useSidebarController({
     setEditingName,
     setEditingSession,
     setEditingSessionName,
-    projectFilter,
-    setProjectFilter,
     conversationResults,
     isSearching,
     searchProgress,
