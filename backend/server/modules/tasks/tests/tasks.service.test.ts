@@ -693,7 +693,8 @@ test('updateTask: no session name sync without a linked session', async () => {
   assert.deepEqual(named, []);
 });
 
-test('updateTask: skips session name sync for a blank or unchanged title', async () => {
+test('updateTask: skips session name sync for a blank or trim-unchanged title', async () => {
+  // 空白新标题（清空标题）→ 跳过。stub 会原样持久化空白标题，但同步不触发。
   const { db } = makeDbStub();
   db.linkSession('t1', 's1');
   const named: { sessionId: string; customName: string }[] = [];
@@ -706,7 +707,50 @@ test('updateTask: skips session name sync for a blank or unchanged title', async
     broadcast: () => {},
     deps: { projectsDb: makeProjectStub('/p'), sessionsDb: sessions },
   });
-  await svc.updateTask('t1', { title: '   ' }); // 空白 → 跳过
-  await svc.updateTask('t1', { title: 'x' });    // 未变化 → 跳过
+  await svc.updateTask('t1', { title: '   ' });
+  assert.deepEqual(named, []);
+
+  // 去空白后标题实质未变（' x ' vs 已存储的 'x'）→ 跳过。用新 stub 保证存储标题仍为 'x'。
+  const { db: db2 } = makeDbStub();
+  db2.linkSession('t1', 's1');
+  const named2: { sessionId: string; customName: string }[] = [];
+  const sessions2 = {
+    updateSessionCustomName: (sessionId: string, customName: string) => {
+      named2.push({ sessionId, customName });
+    },
+  } as unknown as typeof import('@/modules/database/index.js').sessionsDb;
+  const svc2 = createTasksService(db2, {
+    broadcast: () => {},
+    deps: { projectsDb: makeProjectStub('/p'), sessionsDb: sessions2 },
+  });
+  await svc2.updateTask('t1', { title: ' x ' });
+  assert.deepEqual(named2, []);
+});
+
+test('updateTask: title rename alongside a project change does not sync the old session', async () => {
+  // 改项目会删会话并解链（session_id 置 null），因此标题虽变化也不得对已删会话同步名称。
+  const { db } = makeDbStub();
+  db.linkSession('t1', 's1');
+  const deleted: string[] = [];
+  const named: { sessionId: string; customName: string }[] = [];
+  const sessions = {
+    updateSessionCustomName: (sessionId: string, customName: string) => {
+      named.push({ sessionId, customName });
+    },
+  } as unknown as typeof import('@/modules/database/index.js').sessionsDb;
+  const svc = createTasksService(db, {
+    broadcast: () => {},
+    deps: {
+      projectsDb: makeProjectStub('/p', '/q'),
+      sessionsDb: sessions,
+      deleteSessionHard: async (sid: string) => {
+        deleted.push(sid);
+      },
+    },
+  });
+  const row = await svc.updateTask('t1', { title: 'renamed', projectPath: '/q' });
+  assert.equal(row?.title, 'renamed');
+  assert.equal(row?.session_id, null);
+  assert.deepEqual(deleted, ['s1']);
   assert.deepEqual(named, []);
 });
