@@ -88,7 +88,7 @@ export type OperatorToolDeps = {
  * verdict agent judges completion primarily from this "final output", so it is
  * surfaced separately (and untruncated) rather than buried in the transcript.
  */
-function lastAssistantText(messages: unknown[]): string | null {
+export function lastAssistantText(messages: unknown[]): string | null {
   let last: string | null = null;
   for (const msg of messages) {
     const m = msg as { role?: string; kind?: string; content?: string };
