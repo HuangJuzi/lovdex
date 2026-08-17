@@ -187,6 +187,15 @@ export function createSchedulerService(deps: SchedulerDeps) {
       if (updates.scheduleType !== undefined && typeof updates.scheduleType === 'string' && !isScheduleType(updates.scheduleType)) {
         throw new AppError(`invalid scheduleType: ${String(updates.scheduleType)}`, { code: 'INVALID_SCHEDULE_TYPE', statusCode: 400 });
       }
+      if (updates.cronExpr !== undefined && typeof updates.cronExpr !== 'string') {
+        throw new AppError('cronExpr must be a string', { code: 'INVALID_SCHEDULE', statusCode: 400 });
+      }
+      if (updates.intervalSeconds !== undefined && typeof updates.intervalSeconds !== 'number') {
+        throw new AppError('intervalSeconds must be a number', { code: 'INVALID_SCHEDULE', statusCode: 400 });
+      }
+      if (updates.runAt !== undefined && typeof updates.runAt !== 'string') {
+        throw new AppError('runAt must be a string', { code: 'INVALID_SCHEDULE', statusCode: 400 });
+      }
       // camelCase (route/frontend) → snake_case (DB), mirroring create().
       const cleaned: Record<string, unknown> = {};
       const keyMap: Record<string, string> = {
