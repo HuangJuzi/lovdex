@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>opencode（sst/opencode）浏览器调试能力调研报告</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --bg-soft: #161a24;
+    --bg-card: #1b2030;
+    --border: #2a3142;
+    --text: #e6e9f0;
+    --text-dim: #9aa3b5;
+    --accent: #6366f1;
+    --accent-2: #22d3ee;
+    --green: #34d399;
+    --yellow: #fbbf24;
+    --red: #f87171;
+    --code-bg: #0d0f16;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.75;
+    font-size: 15px;
+  }
+  .layout { display: flex; max-width: 1400px; margin: 0 auto; }
+  nav.sidebar {
+    position: sticky; top: 0; height: 100vh; overflow-y: auto;
+    width: 280px; flex-shrink: 0; padding: 28px 20px;
+    border-right: 1px solid var(--border);
+    background: var(--bg-soft);
+  }
+  nav.sidebar .brand { font-size: 18px; font-weight: 700; margin-bottom: 4px; }
+  nav.sidebar .sub { font-size: 12px; color: var(--text-dim); margin-bottom: 20px; }
+  nav.sidebar a {
+    display: block; color: var(--text-dim); text-decoration: none;
+    font-size: 13.5px; padding: 6px 10px; border-radius: 6px; margin-bottom: 2px;
+  }
+  nav.sidebar a:hover { background: var(--bg-card); color: var(--text); }
+  nav.sidebar a.active { color: var(--accent-2); background: var(--bg-card); }
+  nav.sidebar .group { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: #5b6478; margin: 16px 0 6px; padding-left: 10px; }
+  main { flex: 1; min-width: 0; padding: 40px 48px 80px; max-width: 980px; }
+  .hero { padding: 24px 0 32px; border-bottom: 1px solid var(--border); margin-bottom: 36px; }
+  .hero h1 { font-size: 32px; font-weight: 800; letter-spacing: -.02em; line-height: 1.3; }
+  .hero h1 span { background: linear-gradient(90deg, var(--accent), var(--accent-2)); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+  .hero .meta { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 8px; }
+  .badge { display: inline-block; font-size: 12px; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--border); color: var(--text-dim); background: var(--bg-card); }
+  .badge.green { color: var(--green); border-color: rgba(52,211,153,.35); }
+  .badge.cyan { color: var(--accent-2); border-color: rgba(34,211,238,.35); }
+  .badge.yellow { color: var(--yellow); border-color: rgba(251,191,36,.35); }
+  .badge.red { color: var(--red); border-color: rgba(248,113,113,.35); }
+
+  h2 { font-size: 22px; font-weight: 700; margin: 48px 0 16px; padding-top: 8px; display: flex; align-items: center; gap: 10px; }
+  h2 .num {
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    color: #fff; font-size: 14px; width: 28px; height: 28px; border-radius: 8px;
+    display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  h3 { font-size: 17px; font-weight: 600; margin: 28px 0 10px; }
+  p { margin: 10px 0; }
+  ul, ol { margin: 8px 0 8px 22px; }
+  li { margin: 5px 0; }
+  a { color: var(--accent-2); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code {
+    background: var(--code-bg); border: 1px solid var(--border);
+    padding: 1px 6px; border-radius: 5px; font-size: 13px;
+    font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  pre {
+    background: var(--code-bg); border: 1px solid var(--border); border-radius: 10px;
+    padding: 16px 18px; overflow-x: auto; margin: 12px 0; font-size: 13px; line-height: 1.6;
+  }
+  pre code { background: none; border: none; padding: 0; }
+
+  /* Verdict card */
+  .verdict {
+    border: 1px solid var(--border); border-left: 4px solid var(--green);
+    background: var(--bg-card); border-radius: 12px; padding: 18px 22px; margin: 18px 0;
+  }
+  .verdict.no { border-left-color: var(--red); }
+  .verdict .v-head { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 16px; }
+  .verdict .v-body { margin-top: 8px; color: var(--text-dim); font-size: 14px; }
+
+  /* Capability matrix */
+  table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 14px; }
+  th, td { border: 1px solid var(--border); padding: 9px 12px; text-align: left; vertical-align: top; }
+  th { background: var(--bg-soft); font-weight: 600; }
+  tr:nth-child(even) td { background: rgba(255,255,255,.015); }
+  .yes { color: var(--green); font-weight: 600; }
+  .no { color: var(--red); font-weight: 600; }
+  .part { color: var(--yellow); font-weight: 600; }
+
+  .card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; margin: 14px 0; }
+  .card h4 { font-size: 15px; margin-bottom: 8px; }
+  .card .tag { font-size: 12px; color: var(--accent-2); }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 900px) { .grid2 { grid-template-columns: 1fr; } nav.sidebar { display: none; } main { padding: 24px 20px; } }
+
+  .src-list { font-size: 13px; color: var(--text-dim); }
+  .src-list li { margin: 4px 0; word-break: break-all; }
+  .note { font-size: 13px; color: var(--text-dim); background: rgba(99,102,241,.08); border: 1px solid rgba(99,102,241,.25); border-radius: 10px; padding: 12px 16px; margin: 12px 0; }
+</style>
+</head>
+<body>
+<div class="layout">
+  <nav class="sidebar">
+    <div class="brand">opencode 浏览器调试调研</div>
+    <div class="sub">Deep Research Report · 2026-08-12</div>
+    <div class="group">报告</div>
+    <a href="#summary">1. 执行摘要</a>
+    <a href="#what">2. opencode 是什么</a>
+    <a href="#source">3. 浏览器能力来源</a>
+    <a href="#capability">4. 能否直接调用浏览器调试</a>
+    <a href="#compare">5. 同类工具对比</a>
+    <a href="#claude-browser">6. 补充：兼容 Claude Code 的浏览器插件</a>
+    <a href="#recommend">7. 结论与配置建议</a>
+    <a href="#method">8. 方法学与来源</a>
+  </nav>
+
+  <main>
+    <div class="hero">
+      <h1>opencode（sst/opencode）<br><span>是否支持直接调用浏览器进行调试？</span></h1>
+      <div class="meta">
+        <span class="badge green">结论：依赖插件 / MCP，非内置</span>
+        <span class="badge cyan">一手来源为主 · 对抗验证</span>
+        <span class="badge yellow">版本参考 v1.17.x / v2</span>
+        <span class="badge">生成于 2026-08-12</span>
+      </div>
+    </div>
+
+    <section id="summary">
+      <h2><span class="num">1</span> 执行摘要</h2>
+      <div class="verdict">
+        <div class="v-head">🎯 一句话结论</div>
+        <div class="v-body">
+          <strong>opencode 本身没有内置浏览器调试工具</strong>（内置 13 个工具中只有 <code>webfetch</code> / <code>websearch</code> 两个文本级 web 工具），
+          但它<strong>原生支持 MCP 与插件机制</strong>，通过接入 Playwright MCP 或第三方浏览器插件（如 <code>opencode-browser-plugin</code>、<code>@opencode-ai/browser-control</code>、<code>opencode-chromium</code>），
+          <strong>可以完整实现「打开 URL / 执行 JS / 截图 / 读 console / 网络请求 / 操作 DOM / 端到端调试」</strong>。
+        </div>
+      </div>
+      <ul>
+        <li><strong>定位</strong>：100% 开源（MIT）、provider-agnostic 的终端 AI 编码代理，由 SST 团队发布（仓库现迁移至 <code>anomalyco/opencode</code>，npm 包 <code>opencode-ai</code>），官方定位为 Claude Code 的厂商中立替代品。</li>
+        <li><strong>内置能力</strong>：bash / edit / write / read / grep / glob / lsp / apply_patch / skill / todowrite / webfetch / websearch / question。没有任何浏览器自动化工具。</li>
+        <li><strong>浏览器调试的正确姿势</strong>：在 <code>opencode.json</code> 配置 MCP server 或插件，把 Playwright/CDP 驱动的浏览器能力「挂」给 LLM。</li>
+        <li><strong>本报告结论置信度</strong>：核心结论经 25 条可证伪 claim 的 3 票对抗验证，23 条存活（2 条被杀），且用官方文档一手复核。</li>
+      </ul>
+    </section>
+
+    <section id="what">
+      <h2><span class="num">2</span> opencode 是什么</h2>
+      <h3>2.1 定位</h3>
+      <p>官方文档原文：<em>「A 100% open-source, provider-agnostic AI coding agent specifically built for terminal users.」</em>（100% 开源、与厂商无关、专为终端用户打造的 AI 编码代理）。MIT 协议，GitHub 约 196k stars。</p>
+      <ul>
+        <li>官方将其与 Claude Code 对比：<em>「very similar to Claude Code in terms of capability but with fundamental architectural differences」</em>——能力相似，但架构根本不同（开源 vs 闭源、provider 无关 vs 绑定 Anthropic、内置 LSP、server/client 结构）。</li>
+        <li>本地部署证据：本机 <code>claudecodeui</code> 封装以 <code>opencode run --format json --dir &lt;workspace&gt;</code> 无头调用（对照 v1.17.13），属于无浏览器能力的纯 agent 调用。</li>
+      </ul>
+      <h3>2.2 技术架构</h3>
+      <div class="card">
+        <ul>
+          <li><strong>Server / Client 分离</strong>：Server 跑在本机（处理 AI 调用、文件操作、状态持久化）；客户端（TUI / CLI / 桌面 App）连接 Server。</li>
+          <li><strong>内置工具集（13 个）</strong>：<code>bash</code>、<code>edit</code>、<code>write</code>、<code>read</code>、<code>grep</code>、<code>glob</code>、<code>lsp</code>（实验性）、<code>apply_patch</code>、<code>skill</code>、<code>todowrite</code>、<code>webfetch</code>、<code>websearch</code>、<code>question</code>。</li>
+          <li><strong>扩展机制三件套</strong>：① MCP server（local 子进程 + remote HTTP，见 §3）；② 插件 / Agent（markdown-frontmatter 声明）；③ 自定义工具（config 中定义的函数）。</li>
+          <li><strong>配置</strong>：项目级 <code>.opencode/opencode.json</code> 或用户级 <code>~/.opencode/opencode.json</code>，MCP 配置与 Claude Code 的 <code>mcp.servers</code> schema 兼容。</li>
+          <li><strong>会话/状态</strong>：会话存 SQLite（opencode.db），token 用量、session 元数据可被外部系统读取（本机 claudecodeui 即如此集成）。</li>
+        </ul>
+      </div>
+    </section>
+
+    <section id="source">
+      <h2><span class="num">3</span> 浏览器能力的来源：内置 vs 插件 vs MCP</h2>
+      <h3>3.1 内置工具：没有浏览器能力 ✅ 已证实</h3>
+      <p>官方 <a href="https://opencode.ai/docs/tools/">tools 文档</a>列出的 13 个内置工具中，<strong>没有任何浏览器自动化 / 截图 / DOM / console / 页面内 JS 执行工具</strong>。唯一的 web 相关工具是文本级的：</p>
+      <ul>
+        <li><code>webfetch</code> —— 「Fetch web content」：抓取并读取网页文本（HTTP 文本检索，不渲染页面）。</li>
+        <li><code>websearch</code> —— 基于 Exa AI 的网页搜索（发现/检索）。</li>
+      </ul>
+      <div class="note">官方对二者的定位是「发现/检索」（discovery/retrieval），不是浏览器驱动。GitHub Issue <a href="https://github.com/anomalyco/opencode/issues/27543">#27543</a> 仍在请求内置浏览器工具，对比对象明确写了「Claude Code has browser tool」——说明截至 2026 年中，<strong>官方内置浏览器工具仍不存在</strong>。</div>
+
+      <h3>3.2 原生 MCP 支持：接入浏览器能力的主通道 ✅ 已证实</h3>
+      <p>官方 <a href="https://opencode.ai/docs/mcp-servers/">MCP servers 文档</a>明确支持本地与远程两类 server：</p>
+      <ul>
+        <li><strong>local</strong>：子进程方式（如 <code>npx</code> 启动），<code>"type": "local"</code> + <code>"command": [...]</code>。</li>
+        <li><strong>remote</strong>：HTTP endpoint，<code>"type": "remote"</code> + <code>"url"</code>，自动处理 OAuth。</li>
+        <li>「Once added, MCP tools are automatically available to the LLM alongside built-in tools」——接入的 MCP 工具与内置工具并列可用。</li>
+      </ul>
+      <p>因此 Playwright MCP（<a href="https://playwright.dev/mcp/capabilities">playwright.dev/mcp</a>）、基于 CDP 的浏览器 MCP server 都能直接挂进 opencode。</p>
+
+      <h3>3.3 第三方插件/工具：生态补齐 ✅ 已证实</h3>
+      <div class="grid2">
+        <div class="card">
+          <h4><code>opencode-browser-plugin</code> <span class="tag">npm · Playwright 驱动</span></h4>
+          <p>提供 <code>browser_start / browser_snapshot / browser_click / browser_type</code>，以及一个多动作的 <code>browser</code> 工具（open / navigate / screenshot / click / type / evaluate / wait / close）。支持 headless/headed、ARIA-ref 元素定位、多标签、持久 profile。</p>
+          <p>配置：<code>"plugin": ["opencode-browser-plugin"]</code></p>
+        </div>
+        <div class="card">
+          <h4><code>@opencode-ai/browser-control</code> <span class="tag">npm · 官方 org · 扩展+relay</span></h4>
+          <p>「Local browser driver for trusted agents」：通过浏览器扩展 + 本地 relay，驱动用户<strong>已有的</strong> Chromium 系浏览器（Chrome/Edge）。架构：<code>Agent or CLI → local relay → browser extension → your browser</code>。</p>
+        </div>
+        <div class="card">
+          <h4><code>opencode-chromium</code> <span class="tag">npm · quindart-com · 面向 v2 + MCP</span></h4>
+          <p>Provider 中立的 Chromium 自动化，适配 OpenCode V2、MCP clients、Codex。提供 <code>browser_run / browser_observe / browser_session / browser_finalize</code>，截图、带 source map 的 console 堆栈、网络请求 drill-down、性能诊断（LCP/CLS/TBT）。</p>
+        </div>
+        <div class="card">
+          <h4><code>opencode-playwright-interactive</code> <span class="tag">github · mdc-git · 持久交互 QA</span></h4>
+          <p>通过原生 custom-tool 系统提供持久化浏览器会话：<code>ensureWebBrowser()</code> 返回 session controller，含 <code>resolveVisible / interactiveElements / click / doubleClick / hover / wheel / scroll / eval</code> 等显式页面方法，可对真实页面做 e2e 调试。</p>
+        </div>
+      </div>
+      <p>另有 <code>opencode-browser</code>（michaljach）、<code>bwb-browser</code>、<code>mare-browser-mcp</code> 等社区包，以及 Steffen025 的 debug-first Browser Skill（默认采集 console/network/errors）。</p>
+    </section>
+
+    <section id="capability">
+      <h2><span class="num">4</span> 能否「直接调用浏览器做调试」？——能力矩阵</h2>
+      <p>结论：<strong>单独用 opencode 本体 = 不支持；组合 Playwright MCP 或第三方插件 = 全部支持</strong>。逐项对照：</p>
+      <table>
+        <thead>
+          <tr><th>调试动作</th><th>opencode 内置</th><th>+ Playwright MCP（官方能力）</th><th>+ 第三方插件</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>打开 / 导航 URL</td><td class="no">✗</td><td class="yes">✓ <code>browser_navigate</code></td><td class="yes">✓ open / navigate</td></tr>
+          <tr><td>执行页面 JS</td><td class="no">✗</td><td class="yes">✓ <code>browser_evaluate</code> / <code>browser_run_code</code></td><td class="yes">✓ evaluate / run</td></tr>
+          <tr><td>截图（页面/元素/整页）</td><td class="no">✗</td><td class="yes">✓ <code>browser_take_screenshot</code></td><td class="yes">✓ png/jpeg/webp、full-page</td></tr>
+          <tr><td>读取 console 输出</td><td class="no">✗</td><td class="yes">✓ <code>browser_console_messages</code></td><td class="part">✓ 部分插件 / Skill 默认采集</td></tr>
+          <tr><td>读取网络请求</td><td class="no">✗</td><td class="yes">✓ <code>browser_network_requests</code></td><td class="yes">✓ chromium drill-down、4xx/5xx 统计</td></tr>
+          <tr><td>操作 DOM（click/type/fill/hover）</td><td class="no">✗</td><td class="yes">✓ click / hover / drag / type / fill_form</td><td class="yes">✓ click / type / interact</td></tr>
+          <tr><td>持久浏览器会话 / 多标签</td><td class="no">✗</td><td class="yes">✓ tabs / session</td><td class="yes">✓ 持久 profile</td></tr>
+          <tr><td>端到端调试真实页面</td><td class="no">✗</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+        </tbody>
+      </table>
+      <div class="note"><strong>已知边界</strong>：opencode 插件侧「managed console/network 捕获 API」并非一等公民——如 <code>opencode-playwright-interactive</code> 依赖 Playwright 常规的 <code>Runtime.enable</code> 事件，不提供独立封装的捕获 API；需要强 console/network 精确捕获时，Playwright MCP 的 <code>browser_console_messages</code> / <code>browser_network_requests</code> 更完整。</div>
+    </section>
+
+    <section id="compare">
+      <h2><span class="num">5</span> 同类工具对比</h2>
+      <table>
+        <thead>
+          <tr><th>工具</th><th>内置浏览器调试</th><th>MCP / 插件路径</th><th>备注</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>opencode</strong>（sst/anomalyco）</td>
+            <td class="no">✗ 无内置浏览器工具（截至 2026 年中，issue #27543 仍在请求）</td>
+            <td class="yes">✓ 原生 MCP（local/remote）+ 插件 + 自定义工具；生态活跃</td>
+            <td>纯文本 webfetch/websearch；浏览器能力完全依赖外部</td>
+          </tr>
+          <tr>
+            <td><strong>Claude Code</strong></td>
+            <td class="part">内置 WebFetch/WebSearch；具备浏览器能力（社区与官方均提及 browser 能力）</td>
+            <td class="yes">✓ MCP 生态最成熟（6000+ apps），官方文档推荐 Playwright MCP</td>
+            <td>闭源、绑定 Anthropic 生态；浏览器交互多走 MCP/computer use</td>
+          </tr>
+          <tr>
+            <td><strong>OpenAI Codex CLI</strong></td>
+            <td class="no">CLI 本体无浏览器自动化；云端沙箱隔离</td>
+            <td class="part">✓ 支持 MCP（<code>.codex/config.toml</code>），但生态较受限</td>
+            <td>沙箱异步执行、PR 工作流；外部服务集成面较窄</td>
+          </tr>
+          <tr>
+            <td><strong>Aider</strong></td>
+            <td class="no">✗ 无浏览器工具，纯 git-native 补丁驱动</td>
+            <td class="no">MCP 支持有限（需 bridge），浏览器生态最弱；2026 年中社区评为「maintenance mode」</td>
+            <td>适合纯代码编辑场景，不适合 e2e 浏览器调试</td>
+          </tr>
+        </tbody>
+      </table>
+      <p>横向结论：<strong>opencode、Codex、Aider 都没有「开箱即用」的浏览器调试；Claude Code 有内置 web 能力且浏览器工具最接近开箱即用，但严格的全功能 e2e 浏览器自动化在这四者中都要靠 MCP（Playwright 系）</strong>。opencode 的优势是开源 + provider 无关 + 插件生态，浏览器能力可以自由组合。</p>
+    </section>
+
+    <section id="claude-browser">
+      <h2><span class="num">6</span> 补充：兼容 Claude Code 的浏览器插件（双端方案）</h2>
+      <p><strong>关键认识：MCP 是通用标准</strong>——任何浏览器 MCP server 都可以同时接 Claude Code 与 opencode，差别只在配置位置（Claude Code 用 <code>claude mcp add</code> / <code>.mcp.json</code>；opencode 用 <code>opencode.json</code>）。因此「同时支持两者」的开源方案非常多，按形态分三类：</p>
+
+      <h3>6.1 双端兼容（Claude Code + opencode）——最契合双客户端场景</h3>
+      <table>
+        <thead><tr><th>项目</th><th>技术</th><th>亮点</th><th>双端配置</th></tr></thead>
+        <tbody>
+          <tr><td><strong>OpenChrome</strong>（shaun0927）</td><td>CDP，驱动已登录的真实 Chrome</td><td>118 工具；并行研究 lane；<code>console_capture</code>+network 捕获；<code>oc_diff</code> / <code>oc_evidence_bundle</code> 取证</td><td>CC: <code>openchrome setup</code>；opencode: <code>npx openchrome-mcp setup --client opencode</code></td></tr>
+          <tr><td><strong>bwb-browser</strong></td><td>纯 CDP，30KB 零依赖</td><td><code>browser_watch</code> 实时捕获 console/network/error 事件</td><td>CC: <code>~/.claude/settings.json</code>；opencode: <code>~/.config/opencode/opencode.json</code></td></tr>
+          <tr><td><strong>mare-browser-mcp</strong></td><td>Playwright，精简</td><td><code>browser_debug</code> 一次返回 URL+console+network；<code>browser_act</code> 动作序列</td><td>双端官方文档齐全</td></tr>
+          <tr><td><strong>ira-researcher</strong></td><td>40+ 工具，stealth 模式</td><td>支持 Claude Code / Cursor / Copilot / OpenCode / Aider 等</td><td>CC: <code>claude mcp add ira-researcher node ...</code>；opencode: <code>opencode.json</code></td></tr>
+          <tr><td><strong>@jobshimo/browser-link</strong></td><td>Chrome 扩展 + 31 工具</td><td>多客户端桥接到一个 Chrome tab；per-tool 权限</td><td><code>browser-link install --client claude</code></td></tr>
+          <tr><td><strong>@uditgoenka/better-testing</strong></td><td>Playwright snapshot+ref</td><td>CI 集成、diff 分类</td><td><code>better-testing init --agent all</code></td></tr>
+          <tr><td><strong>agent-browser-protocol</strong></td><td>C++ 原生 REST（非 MCP）</td><td>虚拟光标、元素标注、会话录制；Claude/Codex/OpenCode</td><td>REST API + CLI</td></tr>
+          <tr><td><strong>open-browser-mcp</strong></td><td>58 工具</td><td>一键安装器自动配置双端</td><td>交互式 installer</td></tr>
+        </tbody>
+      </table>
+
+      <h3>6.2 官方 / 主流 MCP（Claude Code 生态最成熟）</h3>
+      <table>
+        <thead><tr><th>项目</th><th>定位</th><th>一句话</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Playwright MCP</strong>（微软官方）</td><td>通用默认推荐</td><td>跨浏览器，accessibility tree，token 最省，21 工具覆盖导航/点击/截图/evaluate/console/network</td></tr>
+          <tr><td><strong>Chrome DevTools MCP</strong>（Google 官方）</td><td>深度调试首选</td><td>26 工具，性能审计（CWV/traces）、深网络检查、console 分析；连接已打开的 Chrome</td></tr>
+          <tr><td><strong>Claude in Chrome</strong>（Anthropic 官方扩展）</td><td>人类辅助调试</td><td>computer use，真实浏览器会话，需付费，无 headless/CI</td></tr>
+          <tr><td><strong>Puppeteer MCP</strong></td><td>轻量 / 遗留</td><td>仅 Chromium，简单截图/取文本，正被 Playwright 取代</td></tr>
+        </tbody>
+      </table>
+
+      <h3>6.3 专为 Claude Code 打造的开源浏览器插件</h3>
+      <table>
+        <thead><tr><th>项目</th><th>特色</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Glance</strong>（DebugBase）</td><td>30 工具；inline 截图；12 种断言 + JSON 测试场景；visual regression；自带 e2e-tester agent；<code>claude mcp add glance -- npx glance-mcp</code></td></tr>
+          <tr><td><strong>remix-browser</strong>（Rust）</td><td>CDP headless/headed，连接已有 Chrome（Chrome 144+ 内置 remote debugging）；网络捕获、多标签</td></tr>
+          <tr><td><strong>puppeteer-mcp-claude</strong></td><td>Puppeteer，截图内联 PNG，cookie 管理、请求拦截</td></tr>
+          <tr><td><strong>chro</strong></td><td>零依赖 CDP（Bun+Chrome），以 CC plugin marketplace 分发</td></tr>
+          <tr><td><strong>ClaudeCodeBrowser</strong></td><td>少见的 <strong>Firefox</strong> 自动化，Python API + CLI</td></tr>
+          <tr><td><strong>@vortex-browser/mcp</strong></td><td>连接本地已登录 Chrome（扩展+relay），15 工具，MIT</td></tr>
+          <tr><td><strong>browse-plugin</strong>（Browserbase）</td><td>官方插件，browse CLI 本地免 key，云端处理 CAPTCHA</td></tr>
+        </tbody>
+      </table>
+
+      <h3>6.4 选型建议与双端配置</h3>
+      <table>
+        <thead><tr><th>场景</th><th>推荐</th></tr></thead>
+        <tbody>
+          <tr><td>通用 e2e / 表单 / 跨浏览器</td><td>Playwright MCP（双端同一段 JSON）</td></tr>
+          <tr><td>调试自己前端（渲染/console/网络/性能）</td><td>Chrome DevTools MCP 或 Glance</td></tr>
+          <tr><td>真实已登录浏览器复现（双端）</td><td><strong>OpenChrome</strong>（118 工具最全）或 bwb-browser（最轻）</td></tr>
+          <tr><td>测试断言 + visual regression + 汇报</td><td>Glance（Claude Code 特化）</td></tr>
+          <tr><td>不想装 Playwright/Puppeteer 依赖</td><td>bwb-browser（30KB 纯 CDP）、chro（零依赖）</td></tr>
+        </tbody>
+      </table>
+      <pre><code># Claude Code —— Playwright MCP
+claude mcp add playwright -- npx -y @playwright/mcp@latest
+# Claude Code —— Glance
+claude mcp add glance -- npx glance-mcp</code></pre>
+      <pre><code>// opencode —— Playwright MCP（同一 server，位置不同）
+{ "mcp": { "playwright": { "type": "local",
+  "command": ["npx", "-y", "@playwright/mcp@latest"], "enabled": true } } }</code></pre>
+    </section>
+
+    <section id="recommend">
+      <h2><span class="num">7</span> 结论与配置建议</h2>
+      <h3>6.1 结论</h3>
+      <ol>
+        <li><strong>opencode 不能「直接」调用浏览器</strong>：内置工具集（13 个）里没有任何浏览器/截图/console/DOM/JS 执行工具；web 相关仅有文本级的 <code>webfetch</code> 与 <code>websearch</code>。</li>
+        <li><strong>通过 MCP 或插件可以完整获得浏览器调试能力</strong>，且 opencode 把它们当作一等公民（MCP 工具与内置工具并列可用）。</li>
+        <li><strong>推荐路径</strong>：需要严谨 e2e 调试 → Playwright MCP；需要驱动用户真实浏览器 → <code>@opencode-ai/browser-control</code>；需要轻量交互插件 → <code>opencode-browser-plugin</code>。</li>
+      </ol>
+
+      <h3>6.2 配置示例 A：Playwright MCP（推荐，能力最全）</h3>
+      <pre><code>// opencode.json（项目根目录或 ~/.opencode/opencode.json）
+{
+  "mcp": {
+    "playwright": {
+      "type": "local",
+      "command": ["npx", "-y", "@playwright/mcp@latest"],
+      "enabled": true
+    }
+  }
+}</code></pre>
+      <p>接入后 LLM 即可调用 <code>browser_navigate / browser_evaluate / browser_take_screenshot / browser_console_messages / browser_network_requests / browser_click / browser_type</code> 等做端到端调试。</p>
+
+      <h3>6.3 配置示例 B：第三方浏览器插件</h3>
+      <pre><code>// opencode.json
+{
+  "plugin": ["opencode-browser-plugin"],
+  // 或：
+  // "plugin": ["@opencode-ai/browser-control"]   // 驱动你已打开的 Chrome/Edge
+}</code></pre>
+
+      <h3>6.4 使用建议</h3>
+      <ul>
+        <li><strong>Debug-first 工作流</strong>：选能「默认采集 console + network + errors」的插件（如 Steffen025 的 Browser Skill / opencode-chromium），而不是每次手动打开抓取。</li>
+        <li><strong>注意上下文占用</strong>：官方提醒 MCP server 会占用上下文，按需启用、可用 <code>tools</code> 配置按 server 前缀精确开关。</li>
+        <li><strong>真实浏览器 vs 无头</strong>：要复现用户真实环境（已登录态、扩展、本地 localhost 服务）用 <code>browser-control</code>（驱动现有浏览器）；要可重复的 CI 式调试用 Playwright 无头。</li>
+        <li><strong>版本提示</strong>：opencode 迭代快（本机封装对照 v1.17.13，已有 v2 与 Desktop 分支）；内置工具清单以 <a href="https://opencode.ai/docs/tools/">opencode.ai/docs/tools/</a> 为准，配置前查一下当前版本文档。</li>
+      </ul>
+    </section>
+
+    <section id="method">
+      <h2><span class="num">8</span> 方法学与来源</h2>
+      <h3>7.1 方法学</h3>
+      <p>采用多源对抗式调研：问题拆解为 5 个检索角度（定位/架构、内置能力、MCP 生态、同类对比、实操配置）→ 并行 WebSearch → 去重后抓取 22 个来源 → 提取 25 条可证伪 claim → 每条 3 票对抗验证（≥2 票反驳即淘汰）→ 23 条存活、2 条被杀。另以官方文档（tools / mcp-servers / playwright.dev/mcp）与本地 claudecodeui 集成代码（<code>opencode run --format json</code>，v1.17.13）做一手复核。工作流中途因环境中断两次，最终由主会话基于缓存数据完成综合。</p>
+      <h3>7.2 主要来源</h3>
+      <ul class="src-list">
+        <li><strong>官方</strong> — <a href="https://opencode.ai/docs/tools/">opencode.ai/docs/tools</a>（内置 13 工具清单）</li>
+        <li><strong>官方</strong> — <a href="https://opencode.ai/docs/mcp-servers/">opencode.ai/docs/mcp-servers</a>（本地/远程 MCP 配置）</li>
+        <li><strong>官方</strong> — <a href="https://github.com/sst/opencode">github.com/sst/opencode</a> → 现 <a href="https://github.com/anomalyco/opencode">anomalyco/opencode</a>（README、issue #27543 请求内置浏览器工具）</li>
+        <li><strong>官方</strong> — <a href="https://playwright.dev/mcp/capabilities">playwright.dev/mcp/capabilities</a>（MCP 浏览器能力清单）</li>
+        <li><strong>插件</strong> — <a href="https://www.npmjs.com/package/opencode-browser-plugin">opencode-browser-plugin</a> · <a href="https://www.npmjs.com/package/@opencode-ai/browser-control">@opencode-ai/browser-control</a> · <a href="https://www.npmjs.com/package/opencode-chromium">opencode-chromium</a> · <a href="https://github.com/mdc-git/opencode-playwright-interactive">opencode-playwright-interactive</a></li>
+        <li><strong>社区</strong> — <a href="https://github.com/anomalyco/opencode/blob/7ad68f81/packages/web/src/content/docs/tools.mdx">tools.mdx 快照</a>、<a href="https://github.com/ruvnet/metaharness/blob/main/docs/adrs/ADR-036-host-opencode.md">metaharness ADR-036</a>、<a href="https://deepwiki.com/sst/opencode/5-tools-system">deepwiki 工具系统</a>、<a href="https://www.opencode.asia/recipes/browser-automation/">opencode.asia browser-automation recipe</a>、<a href="https://parallel.ai/articles/opencode-vs-claude-code-a-2026-comparison-for-developers">parallel.ai 2026 对比</a></li>
+        <li><strong>补充（第 6 节）</strong> — <a href="https://github.com/DebugBase/glance">Glance</a>、<a href="https://github.com/shaun0927/openchrome">OpenChrome</a>、<a href="https://www.npmjs.com/package/bwb-browser">bwb-browser</a>、<a href="https://www.npmjs.com/package/mare-browser-mcp">mare-browser-mcp</a>、<a href="https://www.npmjs.com/package/ira-researcher">ira-researcher</a>、<a href="https://www.npmjs.com/package/@jobshimo/browser-link">browser-link</a>、<a href="https://www.npmjs.com/package/@uditgoenka/better-testing">better-testing</a>、<a href="https://github.com/theredsix/agent-browser-protocol">agent-browser-protocol</a>、<a href="https://www.npmjs.com/package/open-browser-setup">open-browser-mcp</a>、<a href="https://github.com/hkd987/remix-browser">remix-browser</a>、<a href="https://github.com/jaenster/puppeteer-mcp-claude">puppeteer-mcp-claude</a>、<a href="https://github.com/niquola/chro">chro</a>、<a href="https://github.com/nanogenomic/ClaudeCodeBrowser">ClaudeCodeBrowser</a>、<a href="https://www.npmjs.com/package/@vortex-browser/mcp">@vortex-browser/mcp</a>、<a href="https://github.com/browserbase/browse-plugin">browse-plugin</a>、<a href="https://github.com/DeliciousBuding/codex-browser-bridge">codex-browser-bridge</a></li>
+      </ul>
+      <div class="note">时间敏感声明：opencode 迭代极快，以上结论基于 2026-08-12 可获取的公开资料；「无内置浏览器工具」是 issue 驱动的现状，不排除后续版本内置。引用一手资料时请以最新官方文档为准。</div>
+    </section>
+  </main>
+</div>
+</body>
+</html>

@@ -1,0 +1,473 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lovdex 按钮统一 · 10 版方案</title>
+<style>
+  /* ============ 主题变量（对齐 App 实际主题） ============ */
+  :root {
+    --bg: #f4f2ed;       /* --background  44 22% 96% */
+    --card: #ffffff;     /* --card        0 0% 100%   */
+    --fg: #0d0b08;       /* --foreground  36 25% 4%   */
+    --muted: #eae6dd;    /* --muted       44 15% 91%  */
+    --muted-fg: #7a766f; /* --muted-foreground        */
+    --border: #e4e0d6;   /* --border      44 14% 87%  */
+    --primary: #2f6bed;  /* --primary     221.2 83.2% 53.3% */
+    --primary-fg: #f8fafc;
+    --blue: #2563eb;
+    --amber: #d97706;
+    --green: #059669;
+  }
+  .dark {
+    --bg: #141414;       /* --background  0 0% 8%  */
+    --card: #1f1f1f;     /* --card        0 0% 12% */
+    --fg: #eeebe1;
+    --muted: #2b2b2b;    /* --muted       0 0% 17% */
+    --muted-fg: #9a9a9a;
+    --border: #333333;
+    --primary: #6ea1f7;  /* --primary     217.2 91.2% 59.8% */
+    --primary-fg: #141414;
+    --blue: #7aa5ff;
+    --amber: #e8a33d;
+    --green: #3dd68c;
+  }
+
+  * { box-sizing: border-box; }
+  html.dark { color-scheme: dark; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+      "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    padding: 28px max(16px, calc((100vw - 1080px) / 2)) 60px;
+    transition: background .25s, color .25s;
+  }
+
+  header.page {
+    display: flex; align-items: flex-end; justify-content: space-between; gap: 16px;
+    margin-bottom: 18px;
+  }
+  h1 { font-size: 20px; margin: 0 0 6px; font-weight: 700; }
+  .sub { font-size: 13px; color: var(--muted-fg); line-height: 1.6; max-width: 720px; }
+  .sub b { color: var(--fg); font-weight: 600; }
+
+  .toggleBtn {
+    flex-shrink: 0; height: 32px; padding: 0 14px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--card); color: var(--fg);
+    font-size: 13px; cursor: pointer; transition: background .15s;
+  }
+  .toggleBtn:hover { background: var(--muted); }
+
+  /* ============ 基线：所有版本统一的“尺寸” ============ */
+  .b {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    height: 32px;                /* 统一 h-8 */
+    padding: 0 12px;
+    border-radius: 6px;          /* 默认 rounded-md，个别版本覆盖 */
+    font-size: 13px;
+    font-weight: 450;
+    font-family: inherit;
+    white-space: nowrap;
+    cursor: pointer;
+    vertical-align: middle;
+    outline: none;
+    transition: background .15s, border-color .15s, color .15s,
+                box-shadow .15s, transform .1s;
+  }
+  .b:focus-visible { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px color-mix(in srgb, var(--primary) 60%, transparent); }
+  .b .ic { width: 14px; height: 14px; flex-shrink: 0; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); flex-shrink: 0; }
+  .lbl { line-height: 1; }
+
+  /* 默认（= v1）中性描边 */
+  .b {
+    border: 1px solid var(--border);
+    background: var(--card);
+    color: var(--fg);
+  }
+  .b:hover { background: var(--muted); }
+  .b:active { transform: translateY(1px); }
+
+  /* ============ 预览画布 ============ */
+  .variant {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+    margin-bottom: 18px;
+  }
+  .vHead { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+  .vTag {
+    font-size: 11px; font-weight: 600; letter-spacing: .04em;
+    padding: 2px 8px; border-radius: 999px; color: var(--primary-fg);
+    background: var(--primary);
+  }
+  .vTitle { font-size: 15px; font-weight: 700; }
+  .vNote { font-size: 12px; color: var(--muted-fg); line-height: 1.5; }
+  .vNote code { background: var(--muted); padding: 1px 5px; border-radius: 4px; font-size: 11px; }
+
+  .canvas { background: var(--bg); border-radius: 8px; padding: 12px; }
+  .toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .label { font-size: 11px; color: var(--muted-fg); margin: 10px 0 6px; letter-spacing: .03em; }
+  .label:first-child { margin-top: 0; }
+
+  /* 模拟侧栏 footer：Change Password + Sign Out 并排一行 */
+  .authwrap { display: inline-flex; flex-direction: column; gap: 6px; }
+  .sidebar { width: 288px; padding: 10px; background: var(--card); border: 1px solid var(--border); border-radius: 10px; }
+  .authrow { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .authrow .b { width: 100%; padding: 0 6px; }
+  .authrow .b .lbl { overflow: hidden; text-overflow: ellipsis; }
+
+  /* ============ 各版本差异 ============ */
+
+  /* v1 · 中性描边（推荐）—— 全部中性描边，新建任务=实心主色 */
+  .v1 .new { background: var(--primary); color: var(--primary-fg); border-color: transparent; }
+  .v1 .new:hover { background: var(--primary); filter: brightness(.94); }
+
+  /* v2 · 全等中性 —— 取消一切强调，六按钮完全一致 */
+  .v2 .new { background: var(--card); color: var(--fg); border: 1px solid var(--border); }
+  .v2 .dot { display: none; }
+  .v2 .b { font-weight: 450; }
+
+  /* v3 · 柔和彩底 —— 角色色（返回=蓝/主页=琥珀），形状尺寸统一 */
+  .v3 .back1 { background: color-mix(in srgb, var(--blue) 8%, var(--card)); border-color: color-mix(in srgb, var(--blue) 30%, var(--border)); color: var(--blue); }
+  .v3 .home  { background: color-mix(in srgb, var(--amber) 10%, var(--card)); border-color: color-mix(in srgb, var(--amber) 32%, var(--border)); color: var(--amber); }
+  .v3 .back1:hover, .v3 .home:hover { background: var(--card); }
+  .v3 .new { background: var(--primary); color: var(--primary-fg); border-color: transparent; }
+  .v3 .new:hover { filter: brightness(.94); }
+
+  /* v4 · 胶囊圆角 —— 圆角拉满，中性描边 + 主色实心 */
+  .v4 .b { border-radius: 999px; padding: 0 14px; }
+  .v4 .new { background: var(--primary); color: var(--primary-fg); border-color: transparent; }
+  .v4 .new:hover { filter: brightness(.94); }
+
+  /* v5 · 幽灵无边框 —— 最轻量，hover 才浮现；新建任务=主色文字 */
+  .v5 .b { border-color: transparent; background: transparent; color: var(--muted-fg); }
+  .v5 .b:hover { background: var(--muted); color: var(--fg); }
+  .v5 .ic { stroke-width: 1.5; }
+  .v5 .new { color: var(--primary); font-weight: 600; }
+  .v5 .new:hover { background: color-mix(in srgb, var(--primary) 10%, transparent); color: var(--primary); }
+
+  /* v6 · 单色主色系 —— 全按钮统一走品牌蓝，描边+实心 */
+  .v6 .b { border: 1px solid color-mix(in srgb, var(--primary) 35%, var(--border)); background: transparent; color: var(--primary); }
+  .v6 .b:hover { background: color-mix(in srgb, var(--primary) 8%, transparent); }
+  .v6 .new { background: var(--primary); color: var(--primary-fg); border-color: transparent; }
+  .v6 .new:hover { filter: brightness(.94); }
+
+  /* v7 · 浅灰填充 —— 无边框的“嵌入型”工具按钮 */
+  .v7 .b { border-color: transparent; background: var(--muted); }
+  .v7 .b:hover { background: color-mix(in srgb, var(--fg) 9%, var(--muted)); }
+  .v7 .new { background: var(--primary); color: var(--primary-fg); }
+  .v7 .new:hover { filter: brightness(.94); }
+
+  /* v8 · 图标优先 —— 次要按钮方形图标+悬停文字，新建任务保留整按钮 */
+  .v8 .b:not(.new) { width: 32px; padding: 0; }
+  .v8 .b:not(.new) .lbl { display: none; }
+  .v8 .b:not(.new) .ic { width: 17px; height: 17px; }
+  .v8 .b:not(.new) .dot { display: none; }
+  .v8 .new { background: var(--primary); color: var(--primary-fg); border-color: transparent; }
+  .v8 .new:hover { filter: brightness(.94); }
+  .v8 .authrow .b { width: 32px; }
+  .v8 .authrow .b .lbl { display: none; }
+
+  /* v9 · 渐变现代 —— 柔和投影 + 圆角加大，主色新任务渐变 */
+  .v9 .b { border-radius: 8px; box-shadow: 0 1px 2px rgba(0,0,0,.05); }
+  .v9 .b:hover { border-color: color-mix(in srgb, var(--primary) 45%, var(--border)); }
+  .dark .v9 .b { box-shadow: 0 1px 2px rgba(0,0,0,.3); }
+  .v9 .ic { stroke-width: 2; }
+  .v9 .new { background: linear-gradient(135deg, #3b7dff, #2a5bd8); color: #fff; border-color: transparent;
+    box-shadow: 0 2px 10px rgba(47, 107, 237, .35); }
+  .dark .v9 .new { background: linear-gradient(135deg, #79a9ff, #4d7df0); color: #141414;
+    box-shadow: 0 2px 12px rgba(110, 161, 247, .35); }
+  .v9 .new:hover { filter: brightness(1.05); }
+
+  /* v10 · 分段式工具栏 —— 连成一体的控制组 */
+  .v10 .toolbar { gap: 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--card); }
+  .v10 .b { border: none; border-radius: 0; background: transparent; }
+  .v10 .b + .b { border-left: 1px solid var(--border); }
+  .v10 .b:hover { background: var(--muted); }
+  .v10 .new { background: var(--primary); color: var(--primary-fg); }
+  .v10 .new:hover { filter: brightness(.94); }
+  .v10 .authrow { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; gap: 0; background: var(--card); }
+  .v10 .authrow .b { border-radius: 0; background: transparent; border-left: none; }
+  .v10 .authrow .b + .b { border-left: 1px solid var(--border); }
+
+  .legend { font-size: 12px; color: var(--muted-fg); margin-top: 14px; line-height: 1.7; }
+  .legend b { color: var(--fg); }
+  footer { margin-top: 24px; font-size: 12px; color: var(--muted-fg); line-height: 1.8; }
+</style>
+</head>
+<body>
+<svg style="display:none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <symbol id="i-arrow-left" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="m12 19-7-7 7-7"/><path d="M5 12h14"/></symbol>
+  <symbol id="i-home" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="i-convert" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></symbol>
+  <symbol id="i-terminal" viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+  <symbol id="i-key" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M2 18v3c0 .6.4 1 1 1h4v-2h3v-3h2l1.4-1.4a6.5 6.5 0 1 0-4-4Z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/></symbol>
+  <symbol id="i-logout" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></symbol>
+</svg>
+
+<header class="page">
+  <div>
+    <h1>Lovdex 按钮统一 · 10 版方案</h1>
+    <div class="sub">
+      统一对象：<b>新建任务 · 终端 · 返回任务面板 · 返回主页 · 查看任务 · 转为任务</b>（六按钮样式/尺寸）
+      以及侧栏 <b>Change Password / Sign Out 并排一行</b>。<br>
+      10 版共享一个尺寸基线：<b>高 32px · 字号 13px · 图标 14px · 描边/圆角/RGB 对齐 App 主题</b>——
+      差异只在风格层，落地时可在共享 Button 组件上通过一个开关切版本。
+      每版下方都附有「Change Password + Sign Out」并排行预览（按默认侧栏宽 288px）。
+    </div>
+  </div>
+  <button class="toggleBtn" id="toggleDark">🌓 切换深色 / 浅色</button>
+</header>
+
+<!-- 通用按钮骨架 -->
+<template id="btn-tpl">
+  <button class="b" type="button"></button>
+</template>
+
+<!-- ============ 各版本 ============ -->
+
+<!-- v1 -->
+<section class="variant v1">
+  <div class="vHead"><span class="vTag">V1</span><span class="vTitle">中性描边（推荐）</span>
+    <span class="vNote">全部统一为中性描边；新建任务是唯一实心主色 CTA。改动最小、主次清晰。<br>落地：返回按钮去掉蓝/琥珀色 → 与终端/查看/转为任务共用同一 outline。</span>
+  </div>
+  <div class="canvas">
+    <div class="toolbar">
+      <button class="b back1" aria-label="返回任务面板" title="返回任务面板"><svg class="ic"><use href="#i-arrow-left"/></svg><span class="lbl">返回任务面板</span></button>
+      <button class="b home" aria-label="返回主页" title="返回主页"><svg class="ic"><use href="#i-home"/></svg><span class="lbl">返回主页</span></button>
+      <button class="b view" aria-label="查看任务" title="查看任务"><span class="dot"></span><svg class="ic"><use href="#i-eye"/></svg><span class="lbl">查看任务</span></button>
+      <button class="b conv" aria-label="转为任务" title="转为任务"><svg class="ic"><use href="#i-convert"/></svg><span class="lbl">转为任务</span></button>
+      <button class="b term" aria-label="终端" title="终端 (Ctrl+`)"><svg class="ic"><use href="#i-terminal"/></svg><span class="lbl">终端</span></button>
+      <button class="b new" aria-label="新建任务"><svg class="ic"><use href="#i-plus"/></svg><span class="lbl">新建任务</span></button>
+    </div>
+    <div class="label">Change Password · Sign Out 并排一行（侧栏 footer，宽 288px）</div>
+    <div class="sidebar"><div class="authrow">
+      <button class="b" title="Change Password"><svg class="ic"><use href="#i-key"/></svg><span class="lbl">Change Password</span></button>
+      <button class="b" title="Sign Out"><svg class="ic"><use href="#i-logout"/></svg><span class="lbl">Sign Out</span></button>
+    </div></div>
+  </div>
+</section>
+
+<!-- v2 -->
+<section class="variant v2">
+  <div class="vHead"><span class="vTag">V2</span><span class="vTitle">全等中性</span>
+    <span class="vNote">连新建任务也是中性描边，六按钮 100% 一致、无任何强调色。最“平”但页面缺主操作层级。<br>适合 <code>新建任务</code> 不再是最重要入口的界面策略。</span>
+  </div>
+  <div class="canvas">
+    <div class="toolbar">
+      <button class="b back1" aria-label="返回任务面板"><svg class="ic"><use href="#i-arrow-left"/></svg><span class="lbl">返回任务面板</span></button>
+      <button class="b home" aria-label="返回主页"><svg class="ic"><use href="#i-home"/></svg><span class="lbl">返回主页</span></button>
+      <button class="b view" aria-label="查看任务"><span class="dot"></span><svg class="ic"><use href="#i-eye"/></svg><span class="lbl">查看任务</span></button>
+      <button class="b conv" aria-label="转为任务"><svg class="ic"><use href="#i-convert"/></svg><span class="lbl">转为任务</span></button>
+      <button class="b term" aria-label="终端"><svg class="ic"><use href="#i-terminal"/></svg><span class="lbl">终端</span></button>
+      <button class="b new" aria-label="新建任务"><svg class="ic"><use href="#i-plus"/></svg><span class="lbl">新建任务</span></button>
+    </div>
+    <div class="label">Change Password · Sign Out</div>
+    <div class="sidebar"><div class="authrow">
+      <button class="b"><svg class="ic"><use href="#i-key"/></svg><span class="lbl">Change Password</span></button>
+      <button class="b"><svg class="ic"><use href="#i-logout"/></svg><span class="lbl">Sign Out</span></button>
+    </div></div>
+  </div>
+</section>
+
+<!-- v3 -->
+<section class="variant v3">
+  <div class="vHead"><span class="vTag">V3</span><span class="vTitle">柔和彩底</span>
+    <span class="vNote">保留返回=蓝 / 主页=琥珀的角色色（改为浅色底 + 彩色文字），学 Vue/新版 Linear 的“同类色不喧哗”。形状尺寸与其它按钮完全一致。</span>
+  </div>
+  <div class="canvas">
+    <div class="toolbar">
+      <button class="b back1"><svg class="ic"><use href="#i-arrow-left"/></svg><span class="lbl">返回任务面板</span></button>
+      <button class="b home"><svg class="ic"><use href="#i-home"/></svg><span class="lbl">返回主页</span></button>
+      <button class="b view"><span class="dot"></span><svg class="ic"><use href="#i-eye"/></svg><span class="lbl">查看任务</span></button>
+      <button class="b conv"><svg class="ic"><use href="#i-convert"/></svg><span class="lbl">转为任务</span></button>
+      <button class="b term"><svg class="ic"><use href="#i-terminal"/></svg><span class="lbl">终端</span></button>
+      <button class="b new"><svg class="ic"><use href="#i-plus"/></svg><span class="lbl">新建任务</span></button>
+    </div>
+    <div class="label">Change Password · Sign Out</div>
+    <div class="sidebar"><div class="authrow">
+      <button class="b"><svg class="ic"><use href="#i-key"/></svg><span class="lbl">Change Password</span></button>
+      <button class="b"><svg class="ic"><use href="#i-logout"/></svg><span class="lbl">Sign Out</span></button>
+    </div></div>
+  </div>
+</section>
+
+<!-- v4 -->
+<section class="variant v4">
+  <div class="vHead"><span class="vTag">V4</span><span class="vTitle">胶囊圆角</span>
+    <span class="vNote">统一 pill 形 <code>rounded-full</code>，中性描边 + 主色实心。更圆润亲和，与当前 <code>rounded-md</code> 体系是明显差异。</span>
+  </div>
+  <div class="canvas">
+    <div class="toolbar">
+      <button class="b back1"><svg class="ic"><use href="#i-arrow-left"/></svg><span class="lbl">返回任务面板</span></button>
+      <button class="b home"><svg class="ic"><use href="#i-home"/></svg><span class="lbl">返回主页</span></button>
+      <button class="b view"><span class="dot"></span><svg class="ic"><use href="#i-eye"/></svg><span class="lbl">查看任务</span></button>
+      <button class="b conv"><svg class="ic"><use href="#i-convert"/></svg><span class="lbl">转为任务</span></button>
+      <button class="b term"><svg class="ic"><use href="#i-terminal"/></svg><span class="lbl">终端</span></button>
+      <button class="b new"><svg class="ic"><use href="#i-plus"/></svg><span class="lbl">新建任务</span></button>
+    </div>
+    <div class="label">Change Password · Sign Out</div>
+    <div class="sidebar"><div class="authrow">
+      <button class="b"><svg class="ic"><use href="#i-key"/></svg><span class="lbl">Change Password</span></button>
+      <button class="b"><svg class="ic"><use href="#i-logout"/></svg><span class="lbl">Sign Out</span></button>
+    </div></div>
+  </div>
+</section>
+
+<!-- v5 -->
+<section class="variant v5">
+  <div class="vHead"><span class="vTag">V5</span><span class="vTitle">幽灵无边框</span>
+    <span class="vNote">最轻量的方向：常态透明、hover 才浮现底；新建任务=主色文字加粗。线条更细（<code>stroke-width 1.5</code>）展示“图标可重设计”。</span>
+  </div>
+  <div class="canvas">
+    <div class="toolbar">
+      <button class="b back1"><svg class="ic"><use href="#i-arrow-left"/></svg><span class="lbl">返回任务面板</span></button>
+      <button class="b home"><svg class="ic"><use href="#i-home"/></svg><span class="lbl">返回主页</span></button>
+      <button class="b view"><span class="dot"></span><svg class="ic"><use href="#i-eye"/></svg><span class="lbl">查看任务</span></button>
+      <button class="b conv"><svg class="ic"><use href="#i-convert"/></svg><span class="lbl">转为任务</span></button>
+      <button class="b term"><svg class="ic"><use href="#i-terminal"/></svg><span class="lbl">终端</span></button>
+      <button class="b new"><svg class="ic"><use href="#i-plus"/></svg><span class="lbl">新建任务</span></button>
+    </div>
+    <div class="label">Change Password · Sign Out</div>
+    <div class="sidebar"><div class="authrow">
+      <button class="b"><svg class="ic"><use href="#i-key"/></svg><span class="lbl">Change Password</span></button>
+      <button class="b"><svg class="ic"><use href="#i-logout"/></svg><span class="lbl">Sign Out</span></button>
+    </div></div>
+  </div>
+</section>
+
+<!-- v6 -->
+<section class="variant v6">
+  <div class="vHead"><span class="vTag">V6</span><span class="vTitle">单色主色系</span>
+    <span class="vNote">全按钮统一走品牌蓝：次要=蓝色描边透明底，新建=蓝实心。强品牌、强一致，弱化了“返回/主页”的导航语义色。</span>
+  </div>
+  <div class="canvas">
+    <div class="toolbar">
+      <button class="b back1"><svg class="ic"><use href="#i-arrow-left"/></svg><span class="lbl">返回任务面板</span></button>
+      <button class="b home"><svg class="ic"><use href="#i-home"/></svg><span class="lbl">返回主页</span></button>
+      <button class="b view"><span class="dot"></span><svg class="ic"><use href="#i-eye"/></svg><span class="lbl">查看任务</span></button>
+      <button class="b conv"><svg class="ic"><use href="#i-convert"/></svg><span class="lbl">转为任务</span></button>
+      <button class="b term"><svg class="ic"><use href="#i-terminal"/></svg><span class="lbl">终端</span></button>
+      <button class="b new"><svg class="ic"><use href="#i-plus"/></svg><span class="lbl">新建任务</span></button>
+    </div>
+    <div class="label">Change Password · Sign Out</div>
+    <div class="sidebar"><div class="authrow">
+      <button class="b"><svg class="ic"><use href="#i-key"/></svg><span class="lbl">Change Password</span></button>
+      <button class="b"><svg class="ic"><use href="#i-logout"/></svg><span class="lbl">Sign Out</span></button>
+    </div></div>
+  </div>
+</section>
+
+<!-- v7 -->
+<section class="variant v7">
+  <div class="vHead"><span class="vTag">V7</span><span class="vTitle">浅灰填充</span>
+    <span class="vNote">无边框“嵌入型”<code>bg-muted/50</code> 风格，像 VS Code / Linear 的工具按钮，视觉最轻、不跟内容抢枪。</span>
+  </div>
+  <div class="canvas">
+    <div class="toolbar">
+      <button class="b back1"><svg class="ic"><use href="#i-arrow-left"/></svg><span class="lbl">返回任务面板</span></button>
+      <button class="b home"><svg class="ic"><use href="#i-home"/></svg><span class="lbl">返回主页</span></button>
+      <button class="b view"><span class="dot"></span><svg class="ic"><use href="#i-eye"/></svg><span class="lbl">查看任务</span></button>
+      <button class="b conv"><svg class="ic"><use href="#i-convert"/></svg><span class="lbl">转为任务</span></button>
+      <button class="b term"><svg class="ic"><use href="#i-terminal"/></svg><span class="lbl">终端</span></button>
+      <button class="b new"><svg class="ic"><use href="#i-plus"/></svg><span class="lbl">新建任务</span></button>
+    </div>
+    <div class="label">Change Password · Sign Out</div>
+    <div class="sidebar"><div class="authrow">
+      <button class="b"><svg class="ic"><use href="#i-key"/></svg><span class="lbl">Change Password</span></button>
+      <button class="b"><svg class="ic"><use href="#i-logout"/></svg><span class="lbl">Sign Out</span></button>
+    </div></div>
+  </div>
+</section>
+
+<!-- v8 -->
+<section class="variant v8">
+  <div class="vHead"><span class="vTag">V8</span><span class="vTitle">图标优先</span>
+    <span class="vNote">次要按钮收敛为 32×32 方形图标（hover/title 显示文字），新建任务保留“＋ 新建任务”。头部最紧凑，是“图标重设计”自由度最大的一版。</span>
+  </div>
+  <div class="canvas">
+    <div class="toolbar">
+      <button class="b back1" title="返回任务面板" aria-label="返回任务面板"><svg class="ic"><use href="#i-arrow-left"/></svg><span class="lbl">返回任务面板</span></button>
+      <button class="b home" title="返回主页" aria-label="返回主页"><svg class="ic"><use href="#i-home"/></svg><span class="lbl">返回主页</span></button>
+      <button class="b view" title="查看任务" aria-label="查看任务"><span class="dot"></span><svg class="ic"><use href="#i-eye"/></svg><span class="lbl">查看任务</span></button>
+      <button class="b conv" title="转为任务" aria-label="转为任务"><svg class="ic"><use href="#i-convert"/></svg><span class="lbl">转为任务</span></button>
+      <button class="b term" title="终端 (Ctrl+`)" aria-label="终端"><svg class="ic"><use href="#i-terminal"/></svg><span class="lbl">终端</span></button>
+      <button class="b new" aria-label="新建任务"><svg class="ic"><use href="#i-plus"/></svg><span class="lbl">新建任务</span></button>
+    </div>
+    <div class="label">Change Password · Sign Out（图标优先同样应用于侧栏）</div>
+    <div class="sidebar"><div class="authrow">
+      <button class="b" title="Change Password" aria-label="Change Password"><svg class="ic"><use href="#i-key"/></svg><span class="lbl">Change Password</span></button>
+      <button class="b" title="Sign Out" aria-label="Sign Out"><svg class="ic"><use href="#i-logout"/></svg><span class="lbl">Sign Out</span></button>
+    </div></div>
+  </div>
+</section>
+
+<!-- v9 -->
+<section class="variant v9">
+  <div class="vHead"><span class="vTag">V9</span><span class="vTitle">渐变现代</span>
+    <span class="vNote">圆角加大 + 柔和投影，新建任务用蓝色渐变 + 光晕。更“产品化”/更重的一版；图标统一 <code>stroke 2</code> 圆角端点，呈现现代图标处理。</span>
+  </div>
+  <div class="canvas">
+    <div class="toolbar">
+      <button class="b back1"><svg class="ic"><use href="#i-arrow-left"/></svg><span class="lbl">返回任务面板</span></button>
+      <button class="b home"><svg class="ic"><use href="#i-home"/></svg><span class="lbl">返回主页</span></button>
+      <button class="b view"><span class="dot"></span><svg class="ic"><use href="#i-eye"/></svg><span class="lbl">查看任务</span></button>
+      <button class="b conv"><svg class="ic"><use href="#i-convert"/></svg><span class="lbl">转为任务</span></button>
+      <button class="b term"><svg class="ic"><use href="#i-terminal"/></svg><span class="lbl">终端</span></button>
+      <button class="b new"><svg class="ic"><use href="#i-plus"/></svg><span class="lbl">新建任务</span></button>
+    </div>
+    <div class="label">Change Password · Sign Out</div>
+    <div class="sidebar"><div class="authrow">
+      <button class="b"><svg class="ic"><use href="#i-key"/></svg><span class="lbl">Change Password</span></button>
+      <button class="b"><svg class="ic"><use href="#i-logout"/></svg><span class="lbl">Sign Out</span></button>
+    </div></div>
+  </div>
+</section>
+
+<!-- v10 -->
+<section class="variant v10">
+  <div class="vHead"><span class="vTag">V10</span><span class="vTitle">分段式工具栏</span>
+    <span class="vNote">六按钮连成一组：返回类导航 + 动作类 用分隔线串联成控制组，新建任务收尾做实心段。最“工具条”的一版，承载多按钮时不碎。</span>
+  </div>
+  <div class="canvas">
+    <div class="toolbar">
+      <button class="b back1"><svg class="ic"><use href="#i-arrow-left"/></svg><span class="lbl">返回任务面板</span></button>
+      <button class="b home"><svg class="ic"><use href="#i-home"/></svg><span class="lbl">返回主页</span></button>
+      <button class="b view"><span class="dot"></span><svg class="ic"><use href="#i-eye"/></svg><span class="lbl">查看任务</span></button>
+      <button class="b conv"><svg class="ic"><use href="#i-convert"/></svg><span class="lbl">转为任务</span></button>
+      <button class="b term"><svg class="ic"><use href="#i-terminal"/></svg><span class="lbl">终端</span></button>
+      <button class="b new"><svg class="ic"><use href="#i-plus"/></svg><span class="lbl">新建任务</span></button>
+    </div>
+    <div class="label">Change Password · Sign Out（分段式同样应用于侧栏）</div>
+    <div class="sidebar"><div class="authrow">
+      <button class="b"><svg class="ic"><use href="#i-key"/></svg><span class="lbl">Change Password</span></button>
+      <button class="b"><svg class="ic"><use href="#i-logout"/></svg><span class="lbl">Sign Out</span></button>
+    </div></div>
+  </div>
+</section>
+
+<div class="legend">
+  <b>尺寸基线（10 版统一）：</b> 高 32px · 文字 13px · 图标 14px · 六按钮 + 鉴权行全部同高。
+  当前代码里它们是 h-8（终端/查看/转为/新建）与 h-9（返回按钮）混用、返回按钮自带蓝/琥珀 lass 覆写的状态；统一后由一个共享 <code>Button</code> 变体承载。
+</div>
+
+<footer>
+  落地建议：选 V1（调用面最小，只改 TaskBackNav 两个按钮 + 统一 h-8），或先选风格再从 V1 平滑迁移。
+  Change Password / Sign Out 改为 <code>&lt;div class="flex ..."&gt;</code> 双按钮一行，各占 flex-1，文字过长时 <code>truncate</code>。
+</footer>
+
+<script>
+  const toggle = document.getElementById('toggleDark');
+  toggle.addEventListener('click', () => {
+    const dark = document.documentElement.classList.toggle('dark');
+    toggle.textContent = dark ? '☀️ 切换浅色 / 深色' : '🌓 切换深色 / 浅色';
+  });
+</script>
+</body>
+</html>

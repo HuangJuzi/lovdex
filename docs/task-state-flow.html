@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Lovdex 任务状态流转图</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+  :root {
+    --bg: #0f1115;
+    --card: #1b1f27;
+    --ink: #e7e9ee;
+    --muted: #9aa3b2;
+    --accent: #6aa9ff;
+    --amber: #f5b942;
+    --red: #ff7a7a;
+    --line: #2a2f3a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+    line-height: 1.6;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 40px 24px 80px; }
+  header h1 { font-size: 24px; margin: 0 0 6px; }
+  header .sub { color: var(--muted); font-size: 14px; margin-bottom: 28px; }
+  .panel {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 28px;
+    margin-bottom: 28px;
+  }
+  .panel h2 { font-size: 18px; margin: 0 0 16px; color: var(--accent); }
+  .mermaid {
+    display: flex; justify-content: center;
+    background: #ffffff; border-radius: 10px; padding: 24px;
+  }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }
+  .case h3 { font-size: 15px; margin: 0 0 10px; color: var(--amber); }
+  .case p { color: var(--muted); font-size: 14px; margin: 0 0 10px; }
+  .code {
+    font-family: "SFMono-Regular", Consolas, Menlo, monospace;
+    font-size: 12.5px;
+    background: #11151c; border: 1px solid var(--line); border-radius: 8px;
+    padding: 12px 14px; color: #c8d3e6; overflow-x: auto; white-space: pre;
+  }
+  .warn {
+    border-left: 3px solid var(--red);
+    background: #1a1216;
+    padding: 12px 16px; border-radius: 8px;
+    color: #e7e9ee; font-size: 14px; margin-bottom: 16px;
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+  th { color: var(--accent); font-weight: 600; }
+  .tag { display: inline-block; font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); }
+  .tag-user { color: #7bd88f; border-color: #2f5d3a; }
+  .tag-engine { color: var(--accent); border-color: #2a4a7a; }
+  .note { color: var(--muted); font-size: 13px; margin-top: 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Lovdex 任务状态流转图</h1>
+    <div class="sub">两层状态 · 第一层 status（4 列）驱动看板 · 第二层 sub_status（标签）细化列内状态</div>
+  </header>
+
+  <section class="panel">
+    <h2>第一层 status 流转</h2>
+    <div class="mermaid">
+stateDiagram-v2
+    [*] --> 待办 : 建任务(默认 todo)
+
+    待办 --> 进行中 : 点"开始"→建会话→running\n(引擎自动)
+    进行中 --> 评审 : session completed(引擎)
+    进行中 --> 待办 : session aborted(引擎回滚)
+    评审 --> 完成 : 手动"标记完成"
+    完成 --> 进行中 : 重开会话 running(引擎)
+
+    note right of 待办 : 触发方: 手动/引擎回滚
+    note right of 进行中 : 触发方: 引擎自动\n(状态即真相)
+    note right of 评审 : 触发方: 引擎自动\n(AI 判定 done 也留在这)
+    note right of 完成 : 触发方: 手动
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>两层状态语义</h2>
+    <h3 style="color:#6aa9ff;margin:0 0 10px;">第一层 status（4 列）</h3>
+    <table>
+      <thead><tr><th>状态</th><th>含义</th><th>触发方</th></tr></thead>
+      <tbody>
+        <tr><td>待办 Todo</td><td>可以开工，点"开始"它就跑（含原 backlog）</td><td><span class="tag tag-user">手动</span></td></tr>
+        <tr><td>进行中 In Progress</td><td>有一个会话正在真实地干这件事</td><td><span class="tag tag-engine">引擎自动</span></td></tr>
+        <tr><td>评审 Review</td><td>会话交付了，等你验收（AI 判定 done 也留在这）</td><td><span class="tag tag-engine">引擎自动</span></td></tr>
+        <tr><td>完成 Done</td><td>你确认过了</td><td><span class="tag tag-user">手动</span></td></tr>
+      </tbody>
+    </table>
+    <h3 style="color:#6aa9ff;margin:18px 0 10px;">第二层 sub_status（卡片左下角标签）</h3>
+    <table>
+      <thead><tr><th>归属列</th><th>sub_status</th><th>文案</th><th>来源</th></tr></thead>
+      <tbody>
+        <tr><td>进行中</td><td>running</td><td>会话运行中</td><td>实时派生</td></tr>
+        <tr><td>进行中</td><td>failed</td><td>执行失败</td><td>持久化</td></tr>
+        <tr><td>进行中</td><td>waiting_answer / waiting_plan / waiting_approval</td><td>等你回答 / 等你确认计划 / 等你批准</td><td>实时派生</td></tr>
+        <tr><td>进行中</td><td>only_plan / needs_review / blocked</td><td>计划待执行 / 待你决策 / 需协助</td><td>AI 判定，持久化</td></tr>
+        <tr><td>评审</td><td>pending_acceptance / done</td><td>待你验收 / 已完成</td><td>实时派生 / AI 判定</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="panel">
+    <h2>AI 判定行为</h2>
+    <div class="warn">
+      ⚠ AI 判定写入 <code>sub_status</code>（不是 status）：<b>done</b> 判定任务<b>留在评审列</b>（已完成标签，人 gate 进完成列）；
+      <b>only_plan / needs_review / blocked</b> 判定任务<b>移回进行中列</b>并打对应标签。
+    </div>
+    <div class="grid">
+      <div class="case">
+        <h3>进行中列标签（含 AI 判定移回）</h3>
+        <div class="code">in_progress + sub_status:
+  failed        执行失败   (session failed / 启动对账孤儿)
+  running       会话运行中 (默认)
+  waiting_*     等你回答/确认计划/批准 (审批浮层)
+  only_plan     计划待执行 (AI 判定 → 移回进行中)
+  needs_review  待你决策   (AI 判定 → 移回进行中)
+  blocked       需协助     (AI 判定 → 移回进行中)</div>
+      </div>
+      <div class="case">
+        <h3>评审列标签</h3>
+        <div class="code">in_review + sub_status:
+  pending_acceptance  待你验收 (默认，AI 未判定)
+  done                已完成   (AI 判定 done，人验收后进完成列)</div>
+      </div>
+    </div>
+    <p class="note">注：failed 已持久化（取代旧实时 flag）。后端启动时 reconcile 把"进行中但会话无存活 run"的任务标 failed；重试（running）会清掉 failed。</p>
+  </section>
+</div>
+
+<script>
+  mermaid.initialize({ startOnLoad: true, theme: 'default', securityLevel: 'loose' });
+</script>
+</body>
+</html>

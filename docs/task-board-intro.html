@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>任务面板 · Lovdex 产品介绍</title>
+<style>
+  :root {
+    --bg: #0b0e14;
+    --bg-soft: #11151f;
+    --card: #161b27;
+    --card-2: #1b2130;
+    --border: #232b3d;
+    --border-soft: #1d2433;
+    --text: #e6e9f0;
+    --text-soft: #9aa4b8;
+    --text-faint: #6b7589;
+    --accent: #4f8cff;
+    --accent-soft: rgba(79, 140, 255, 0.12);
+    --green: #34d399;
+    --amber: #fbbf24;
+    --red: #f87171;
+    --blue: #60a5fa;
+    --gray: #94a3b8;
+    --purple: #a78bfa;
+    --radius: 14px;
+    --radius-sm: 9px;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+    --mono: "SF Mono", "JetBrains Mono", Consolas, "Courier New", monospace;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    line-height: 1.7;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 860px; margin: 0 auto; padding: 0 24px 96px; }
+
+  /* ---------- Hero ---------- */
+  .hero {
+    padding: 72px 0 48px;
+    position: relative;
+  }
+  .hero::before {
+    content: "";
+    position: absolute;
+    top: -120px; left: 50%;
+    transform: translateX(-50%);
+    width: 560px; height: 360px;
+    background: radial-gradient(closest-side, var(--accent-soft), transparent 70%);
+    pointer-events: none;
+  }
+  .hero .eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    letter-spacing: 0.08em;
+    color: var(--accent);
+    background: var(--accent-soft);
+    border: 1px solid rgba(79,140,255,0.25);
+    padding: 5px 12px;
+    border-radius: 999px;
+    font-weight: 600;
+  }
+  .hero h1 {
+    font-size: 40px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    line-height: 1.25;
+    margin: 20px 0 16px;
+  }
+  .hero h1 .grad {
+    background: linear-gradient(100deg, #4f8cff, #a78bfa 60%, #34d399);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .hero .sub {
+    font-size: 17px;
+    color: var(--text-soft);
+    max-width: 620px;
+  }
+
+  /* ---------- Section ---------- */
+  section { margin-top: 56px; }
+  .sec-title {
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    margin-bottom: 20px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .sec-title::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: var(--border-soft);
+  }
+
+  /* ---------- Cards ---------- */
+  .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+  .grid.cols-2 { grid-template-columns: repeat(2, 1fr); }
+  @media (max-width: 640px) { .grid { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius);
+    padding: 20px 22px;
+    transition: border-color 0.2s ease, transform 0.2s ease;
+  }
+  .card:hover { border-color: var(--border); transform: translateY(-2px); }
+  .card .num {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--accent);
+    font-weight: 700;
+  }
+  .card h3 { font-size: 16px; font-weight: 700; margin: 6px 0 8px; }
+  .card p { font-size: 14px; color: var(--text-soft); }
+  .card p b { color: var(--text); font-weight: 600; }
+
+  /* ---------- Status pipeline ---------- */
+  .pipeline {
+    display: flex;
+    gap: 0;
+    margin: 8px 0 4px;
+    flex-wrap: wrap;
+  }
+  .stage {
+    flex: 1;
+    min-width: 120px;
+    background: var(--card);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-sm);
+    padding: 14px 14px 16px;
+    position: relative;
+  }
+  .stage + .stage { margin-left: -1px; border-left: 1px solid var(--border-soft); }
+  .stage .dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    margin-bottom: 10px;
+    display: inline-block;
+  }
+  .stage .name { font-size: 15px; font-weight: 700; }
+  .stage .en { font-size: 11px; color: var(--text-faint); font-family: var(--mono); margin-bottom: 6px; display: block; }
+  .stage .desc { font-size: 13px; color: var(--text-soft); line-height: 1.55; }
+  .stage .auto { font-size: 11px; margin-top: 10px; padding: 3px 8px; border-radius: 999px; display: inline-flex; align-items: center; gap: 5px; font-weight: 600; }
+  .stage .auto.user { background: rgba(148,163,184,0.12); color: var(--gray); }
+  .stage .auto.engine { background: rgba(79,140,255,0.14); color: var(--accent); }
+
+  .dot.gray { background: var(--gray); }
+  .dot.amber { background: var(--amber); }
+  .dot.blue { background: var(--blue); }
+  .dot.green { background: var(--green); }
+  .dot.purple { background: var(--purple); }
+
+  /* ---------- Highlight quote ---------- */
+  .quote {
+    background: linear-gradient(135deg, var(--card), var(--card-2));
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 28px 30px;
+    margin-top: 28px;
+  }
+  .quote .mark {
+    font-size: 32px;
+    color: var(--accent);
+    font-family: Georgia, serif;
+    line-height: 0.8;
+    display: block;
+    margin-bottom: 8px;
+    opacity: 0.7;
+  }
+  .quote p { font-size: 18px; font-weight: 600; letter-spacing: -0.01em; line-height: 1.6; }
+  .quote .note { font-size: 14px; color: var(--text-soft); margin-top: 10px; font-weight: 400; }
+
+  /* ---------- Principle list ---------- */
+  .principle {
+    background: var(--card);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius);
+    padding: 22px 24px;
+    margin-bottom: 14px;
+  }
+  .principle:last-child { margin-bottom: 0; }
+  .principle h3 { font-size: 16px; font-weight: 700; display: flex; align-items: baseline; gap: 10px; }
+  .principle h3 .k {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--accent);
+    background: var(--accent-soft);
+    border: 1px solid rgba(79,140,255,0.2);
+    padding: 2px 9px;
+    border-radius: 999px;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .principle p { font-size: 14.5px; color: var(--text-soft); margin-top: 8px; }
+
+  /* ---------- Flow (steps) ---------- */
+  .step {
+    display: flex;
+    gap: 18px;
+    padding: 18px 0;
+    border-bottom: 1px dashed var(--border-soft);
+  }
+  .step:last-child { border-bottom: none; }
+  .step .idx {
+    width: 34px; height: 34px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    background: var(--card-2);
+    border: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 15px; color: var(--accent);
+    font-family: var(--mono);
+  }
+  .step .body h3 { font-size: 16px; font-weight: 700; }
+  .step .body h3 small { font-weight: 500; color: var(--text-faint); margin-left: 8px; font-size: 13px; }
+  .step .body p { font-size: 14px; color: var(--text-soft); margin-top: 4px; }
+  .step .body p b { color: var(--text); }
+  .step .body .tag {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 999px;
+    margin-top: 8px;
+  }
+  .tag.auto { background: rgba(79,140,255,0.14); color: var(--accent); }
+  .tag.manual { background: rgba(148,163,184,0.12); color: var(--gray); }
+
+  /* ---------- Footer ---------- */
+  footer {
+    margin-top: 72px;
+    padding-top: 24px;
+    border-top: 1px solid var(--border-soft);
+    color: var(--text-faint);
+    font-size: 13px;
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  @media (max-width: 720px) {
+    .hero h1 { font-size: 30px; }
+    .hero { padding-top: 48px; }
+    .stage { min-width: 46%; }
+    .pipeline { gap: 8px; }
+    .stage + .stage { margin-left: 0; border-left: 1px solid var(--border-soft); }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- Hero -->
+  <div class="hero">
+    <span class="eyebrow">✦ Lovdex · 新功能</span>
+    <h1>任务面板<br /><span class="grad">让看板跟着代码会话走</span></h1>
+    <p class="sub">计划与执行连成一张图：每个任务背后挂着一个真实的 Claude Code / Codex 会话，任务的进度自动跟随会话的真实状态——不需要你手动记账。</p>
+  </div>
+
+  <!-- What it is -->
+  <section>
+    <div class="sec-title">它是什么</div>
+    <div class="grid">
+      <div class="card">
+        <span class="num">01</span>
+        <h3>一眼看全局</h3>
+        <p>五列看板：<b>积压 → 待做 → 进行中 → 评审中 → 已完成</b>。所有任务按状态排开，属于哪个项目、进展到哪一步，一眼可知。</p>
+      </div>
+      <div class="card">
+        <span class="num">02</span>
+        <h3>不是一个普通清单</h3>
+        <p>它不是一份要你手动维护的待办列表，而是<b>计划层与执行层合一</b>：每个"进行中"的任务背后都指着一个活会话，没有空转的任务。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Status pipeline -->
+  <section>
+    <div class="sec-title">五个状态，一句话记住</div>
+    <div class="pipeline">
+      <div class="stage">
+        <span class="dot gray"></span>
+        <div class="name">积压</div>
+        <span class="en">Backlog</span>
+        <p class="desc">记下来了，但还没排上队。</p>
+        <span class="auto user">手动</span>
+      </div>
+      <div class="stage">
+        <span class="dot amber"></span>
+        <div class="name">待做</div>
+        <span class="en">Todo</span>
+        <p class="desc">可以开工了，点"开始"它就跑。</p>
+        <span class="auto user">手动</span>
+      </div>
+      <div class="stage">
+        <span class="dot blue"></span>
+        <div class="name">进行中</div>
+        <span class="en">In Progress</span>
+        <p class="desc">有个会话正在真实地干这件事。</p>
+        <span class="auto engine">引擎自动</span>
+      </div>
+      <div class="stage">
+        <span class="dot purple"></span>
+        <div class="name">评审中</div>
+        <span class="en">In Review</span>
+        <p class="desc">AI 说干完了，等你看一眼。</p>
+        <span class="auto engine">引擎自动</span>
+      </div>
+      <div class="stage">
+        <span class="dot green"></span>
+        <div class="name">已完成</div>
+        <span class="en">Done</span>
+        <p class="desc">你确认过了，这件事到此为止。</p>
+        <span class="auto user">手动</span>
+      </div>
+    </div>
+    <div class="quote">
+      <span class="mark">“</span>
+      <p>机器的进度机器管，人的判断人来做。</p>
+      <p class="note">启动、进行中、交付，这三步由会话的真实状态自动驱动；你唯一不能外包的是最终判断——结果到底算不算完成。</p>
+    </div>
+  </section>
+
+  <!-- Flow -->
+  <section>
+    <div class="sec-title">你的完整流程</div>
+
+    <div class="step">
+      <div class="idx">1</div>
+      <div class="body">
+        <h3>建任务<small>一次性把背景说清楚</small></h3>
+        <p>写下标题和描述，指定它属于哪个项目，选定执行引擎（Claude 或 Codex，<b>创建时定好，之后不用再纠结</b>）。新任务默认落在<b>积压</b>。</p>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="idx">2</div>
+      <div class="body">
+        <h3>开工<small>点一下，AI 自动进入状态</small></h3>
+        <p>任务在<b>待做</b>时，点卡片上的 <b>"开始"</b> → 自动创建这个任务专用的对话会话、跳进会话页，并把任务标题+描述作为第一条消息发给 AI。<b>不用重新解释一遍任务</b>。</p>
+        <span class="tag manual">手动触发</span>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="idx">3</div>
+      <div class="body">
+        <h3>自动推进<small>从此进度不再由你拖</small></h3>
+        <p>会话真正跑起来 → 任务自动进入<b>进行中</b>；会话正常结束（AI 交付结果）→ 任务自动进入<b>评审中</b>；会话跑挂了且没有别的会话替它重试 → 任务<b>自动退回"待做"</b>，不被卡死在半路。</p>
+        <span class="tag auto">引擎自动</span>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="idx">4</div>
+      <div class="body">
+        <h3>评审与收尾<small>唯一必须你亲手做的判断</small></h3>
+        <p>打开任务详情，看一眼 AI 交付的结果，满意就点 <b>"标记完成"</b>。这是"评审中 → 已完成"。</p>
+        <span class="tag manual">手动确认</span>
+      </div>
+    </div>
+
+    <div class="step">
+      <div class="idx">5</div>
+      <div class="body">
+        <h3>随时回到现场<small>任务和会话永远在一起</small></h3>
+        <p>任务在"进行中"或"评审中"时，点 <b>"打开会话"</b> 就能跳回那个干活的对话页面，接着聊、接着看。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Design philosophy -->
+  <section>
+    <div class="sec-title">设计思路</div>
+
+    <div class="principle">
+      <h3><span class="k">思路 1</span>看板是计划的层，会话是执行的层，两层是一体的</h3>
+      <p>lovdex 真正的"干活"发生在对话里，看板只是把对话的状态翻译成你习惯的任务视图。所以每个"进行中"的任务背后都指着一个活会话——没有空转的任务。</p>
+    </div>
+
+    <div class="principle">
+      <h3><span class="k">思路 2</span>机器的进度机器管，人的判断人来做</h3>
+      <p>启动、进行中、交付这三步由会话的真实状态自动驱动，不需要你记账；你唯一不能外包的是最终判断——结果到底算不算完成。</p>
+    </div>
+
+    <div class="principle">
+      <h3><span class="k">思路 3</span>状态即真相，不是装饰</h3>
+      <p>因为进度是从执行现场自动读出来的，看板上显示的东西永远等于真实发生的东西，不会出现"标着进行中其实早停了"的僵尸任务。</p>
+    </div>
+
+    <div class="principle">
+      <h3><span class="k">思路 4</span>失败不静默</h3>
+      <p>会话挂了，任务自动回到池子里，而不是永远停在"进行中"骗你自己。任务不会无人认领地悬着。</p>
+    </div>
+
+    <div class="principle">
+      <h3><span class="k">思路 5</span>一个任务绑定一个引擎</h3>
+      <p>引擎在创建任务时定死（Claude / Codex），一致、可预期——不会每次开工才临时决定用谁跑。</p>
+    </div>
+  </section>
+
+  <footer>
+    <span>Lovdex · 任务面板（Task Board）</span>
+    <span>产品介绍 · 面向使用者</span>
+  </footer>
+
+</div>
+</body>
+</html>

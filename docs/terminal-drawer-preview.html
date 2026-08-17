@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Lovdex 终端抽屉 — 设计预览</title>
+<style>
+  :root {
+    --background: hsl(0 0% 8%);
+    --foreground: hsl(40 8% 93%);
+    --card: hsl(0 0% 12%);
+    --card-foreground: hsl(40 8% 93%);
+    --muted: hsl(0 0% 17%);
+    --muted-foreground: hsl(0 0% 60%);
+    --border: hsl(0 0% 17%);
+    --input: hsl(0 0% 23%);
+    --primary: hsl(217.2 91.2% 59.8%);
+    --primary-foreground: hsl(0 0% 8%);
+    --sky: #38bdf8;
+    --emerald: #10b981;
+    --term-bg: #0c0c0c;
+    --term-fg: #cccccc;
+  }
+  html.light {
+    --background: hsl(44 22% 96%);
+    --foreground: hsl(36 25% 4%);
+    --card: hsl(0 0% 100%);
+    --card-foreground: hsl(36 25% 4%);
+    --muted: hsl(44 15% 91%);
+    --muted-foreground: hsl(40 5% 44%);
+    --border: hsl(44 14% 87%);
+    --input: hsl(44 14% 80%);
+    --primary: hsl(221.2 83.2% 53.3%);
+    --primary-foreground: hsl(210 40% 98%);
+    --term-bg: #f5f4f0;
+    --term-fg: #24292e;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--background);
+    color: var(--foreground);
+    height: 100vh;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .app { display: flex; height: 100vh; }
+
+  /* ---------- Sidebar ---------- */
+  .sidebar {
+    width: 240px; flex-shrink: 0; border-right: 1px solid var(--border);
+    background: var(--card); display: flex; flex-direction: column;
+  }
+  .sidebar-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+  .logo { width: 22px; height: 22px; border-radius: 6px; background: linear-gradient(135deg, var(--sky), var(--emerald)); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 800; color: #fff; }
+  .seg { display: flex; background: var(--muted); border-radius: 8px; padding: 3px; flex: 1; }
+  .seg button { flex: 1; border: 0; background: transparent; color: var(--muted-foreground); font-size: 12px; padding: 5px 0; border-radius: 6px; cursor: pointer; font-family: inherit; }
+  .seg button.active { background: var(--emerald); color: #fff; }
+  .seg button.alt.active { background: var(--sky); }
+  .side-section { padding: 10px 12px 4px; font-size: 11px; color: var(--muted-foreground); }
+  .side-item { display: flex; align-items: center; gap: 8px; padding: 7px 12px; font-size: 13px; color: var(--muted-foreground); cursor: pointer; }
+  .side-item.active { color: var(--foreground); background: var(--muted); border-radius: 8px; margin: 0 6px; }
+  .side-item .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .side-item .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .side-spacer { flex: 1; }
+  .side-foot { padding: 10px 12px; border-top: 1px solid var(--border); font-size: 11px; color: var(--muted-foreground); display: flex; justify-content: space-between; }
+  .theme-btn { background: transparent; border: 1px solid var(--border); color: var(--muted-foreground); border-radius: 6px; padding: 3px 8px; font-size: 11px; cursor: pointer; font-family: inherit; }
+  .theme-btn:hover { color: var(--foreground); }
+
+  /* ---------- Main ---------- */
+  .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .topbar { display: flex; align-items: center; gap: 8px; padding: 8px 14px; border-bottom: 1px solid var(--border); background: var(--background); }
+  .topbar .title { font-size: 13px; font-weight: 600; flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .topbar .hint { font-size: 11px; color: var(--muted-foreground); border: 1px dashed var(--border); border-radius: 6px; padding: 2px 8px; white-space: nowrap; }
+  .term-toggle {
+    display: flex; align-items: center; gap: 6px; border: 1px solid var(--border);
+    background: var(--muted); color: var(--foreground); border-radius: 8px; padding: 5px 10px;
+    font-size: 12px; cursor: pointer; font-family: inherit; transition: all .15s ease;
+  }
+  .term-toggle:hover { border-color: var(--primary); color: var(--primary); }
+  .term-toggle.on { background: var(--primary); color: var(--primary-foreground); border-color: var(--primary); }
+  .term-toggle kbd {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background: rgba(127,127,127,.2); border-radius: 4px; padding: 0 4px; font-size: 11px;
+  }
+
+  /* ---------- Chat mock ---------- */
+  .chat { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+  .chat-body { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--muted-foreground); font-size: 13px; }
+  .chat-body .mock-box { text-align: center; max-width: 420px; }
+  .mock-box .bubble { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; margin: 8px auto; font-size: 13px; color: var(--foreground); text-align: left; width: 100%; }
+  .mock-box .bubble .who { font-size: 11px; color: var(--muted-foreground); margin-bottom: 2px; }
+  .composer { border-top: 1px solid var(--border); padding: 10px 14px; display: flex; gap: 8px; }
+  .composer .input { flex: 1; background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 9px 12px; font-size: 13px; color: var(--foreground); }
+  .composer .send { background: var(--primary); color: var(--primary-foreground); border: 0; border-radius: 8px; padding: 0 16px; font-size: 13px; cursor: pointer; }
+
+  /* ---------- Terminal drawer ---------- */
+  .drawer-root { position: fixed; inset: 0; z-index: 60; pointer-events: none; }
+  .drawer-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,.45); backdrop-filter: blur(2px); opacity: 0; transition: opacity .18s ease; pointer-events: none; }
+  .drawer {
+    position: absolute; top: 0; right: 0; height: 100%; width: min(72vw, 720px);
+    background: var(--card); border-left: 1px solid var(--border);
+    box-shadow: -12px 0 32px rgba(0,0,0,.35);
+    transform: translateX(105%); transition: transform .22s cubic-bezier(.32,.72,.35,1);
+    display: flex; flex-direction: column;
+  }
+  .drawer.open { transform: translateX(0); }
+  .drawer-root.open { pointer-events: auto; }
+  .drawer-root.open .drawer-backdrop { opacity: 1; pointer-events: auto; }
+
+  .drawer-head { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--border); background: var(--background); flex-shrink: 0; }
+  .drawer-head .t { font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+  .drawer-head .t svg { color: var(--emerald); }
+  .drawer-head .cwd { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; color: var(--muted-foreground); background: var(--muted); border-radius: 6px; padding: 2px 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 55%; }
+  .drawer-head .actions { margin-left: auto; display: flex; gap: 6px; align-items: center; }
+  .drawer-head .state-pill { font-size: 11px; color: var(--emerald); display: flex; align-items: center; gap: 4px; }
+  .drawer-head .state-pill .led { width: 6px; height: 6px; border-radius: 50%; background: var(--emerald); box-shadow: 0 0 6px var(--emerald); animation: pulse 1.2s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .4; } }
+  .drawer-head .close { background: transparent; border: 0; color: var(--muted-foreground); cursor: pointer; font-size: 16px; line-height: 1; border-radius: 6px; padding: 2px 6px; }
+  .drawer-head .close:hover { color: var(--foreground); background: var(--muted); }
+
+  .drawer-body { flex: 1; min-height: 0; padding: 0; display: flex; flex-direction: column; }
+
+  /* xterm-ish pane */
+  .term-pane { flex: 1; min-height: 0; background: var(--term-bg); color: var(--term-fg); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 13px; line-height: 1.45; padding: 12px 14px; overflow: auto; white-space: pre-wrap; word-break: break-all; }
+  .term-pane .line { min-height: 1.45em; }
+  .term-pane .prompt { color: #2ea043; }
+  html.light .term-pane .prompt { color: #1a7f37; }
+  .term-pane .path { color: #58a6ff; }
+  html.light .term-pane .path { color: #0969da; }
+  .term-pane .cmd { color: var(--term-fg); }
+  .term-pane .out { color: #8b949e; }
+  html.light .term-pane .out { color: #57606a; }
+  .term-pane .ok { color: #2ea043; }
+  .term-pane .dim { color: #6e7681; }
+  .cursor { display: inline-block; width: 7px; height: 14px; background: var(--term-fg); vertical-align: text-bottom; animation: blink 1s step-end infinite; }
+  @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0; } }
+
+  .drawer-foot { flex-shrink: 0; border-top: 1px solid var(--border); padding: 6px 12px; font-size: 11px; color: var(--muted-foreground); display: flex; gap: 14px; background: var(--background); }
+  .drawer-foot kbd { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: var(--muted); border-radius: 4px; padding: 0 4px; }
+
+  /* Toast */
+  .toast { position: fixed; bottom: 22px; left: 50%; transform: translate(-50%, 20px); background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 8px 14px; font-size: 12px; box-shadow: 0 8px 24px rgba(0,0,0,.3); opacity: 0; transition: all .2s ease; z-index: 80; pointer-events: none; }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+  .toast kbd { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: var(--muted); border-radius: 4px; padding: 0 4px; }
+
+  /* Shortcut badge on drawer open */
+  .badge { position: fixed; top: 12px; right: calc(min(72vw, 720px) + 16px); z-index: 65; background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 4px 10px; font-size: 11px; color: var(--muted-foreground); display: none; align-items: center; gap: 6px; }
+  .badge.show { display: flex; animation: fadein .2s; }
+  @keyframes fadein { from { opacity: 0; } to { opacity: 1; } }
+
+  @media (max-width: 640px) {
+    .sidebar { display: none; }
+    .drawer { width: 88vw; }
+    .badge { right: calc(88vw + 12px); }
+  }
+</style>
+</head>
+<body class="dark">
+<div class="app">
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-head">
+      <div class="logo">L</div>
+      <div class="seg">
+        <button class="active" id="segChat">💬 聊天</button>
+        <button class="alt" id="segTasks">📋 任务</button>
+      </div>
+    </div>
+    <div class="side-section">项目</div>
+    <div class="side-item active"><span class="dot" style="background:var(--sky)"></span><span class="name">lovdex-cli</span></div>
+    <div class="side-item"><span class="dot" style="background:var(--emerald)"></span><span class="name">lovdex-backend</span></div>
+    <div class="side-item"><span class="dot" style="background:#a371f7"></span><span class="name">sophnet-oss</span></div>
+    <div class="side-item"><span class="dot" style="background:#d29922"></span><span class="name">openclaw</span></div>
+    <div class="side-spacer"></div>
+    <div class="side-foot">
+      <span>⚙️ 设置</span>
+      <button class="theme-btn" id="themeToggle">🌓 主题</button>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <div class="main">
+    <div class="topbar">
+      <div class="title">lovdex-cli — 工作区</div>
+      <span class="hint">新建任务前，先 Ctrl+` 拉代码</span>
+      <button class="term-toggle" id="termToggle" title="打开终端抽屉 (Ctrl+`)">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+        终端
+        <kbd>Ctrl+`</kbd>
+      </button>
+    </div>
+
+    <div class="chat">
+      <div class="chat-body">
+        <div class="mock-box">
+          <div class="bubble">
+            <div class="who">🤖 Lovdex 助手</div>
+            好的，我先看一下项目状态，然后给出修改方案。
+          </div>
+          <div class="bubble">
+            <div class="who">👤 你</div>
+            帮我在 lovdex-cli 里加一个筛选下拉框。
+          </div>
+          <div style="font-size:12px;color:var(--muted-foreground);margin-top:10px;">← 侧滑抽屉打开时，聊天区域被遮罩覆盖</div>
+        </div>
+      </div>
+      <div class="composer">
+        <div class="input">输入消息…</div>
+        <button class="send">发送</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Shortcut badge -->
+<div class="badge" id="badge">⌨️ 关闭：<kbd>Ctrl+`</kbd> 或点遮罩</div>
+
+<!-- Terminal drawer -->
+<div class="drawer-root" id="drawerRoot">
+  <div class="drawer-backdrop" id="backdrop"></div>
+  <div class="drawer" id="drawer">
+    <div class="drawer-head">
+      <div class="t">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+        终端
+      </div>
+      <div class="cwd" id="cwd">~ (WORKSPACES_ROOT)</div>
+      <div class="actions">
+        <span class="state-pill"><span class="led"></span>已连接</span>
+        <button class="close" id="closeBtn" title="关闭">✕</button>
+      </div>
+    </div>
+    <div class="drawer-body">
+      <div class="term-pane" id="termPane"></div>
+    </div>
+    <div class="drawer-foot">
+      <span>单会话 · 关闭即退出（PTY 断开）</span>
+      <span>起始目录：<kbd>WORKSPACES_ROOT</kbd></span>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast">终端已退出，会话已断开</div>
+
+<script>
+(function(){
+  const root   = document.getElementById('drawerRoot');
+  const drawer = document.getElementById('drawer');
+  const backdrop = document.getElementById('backdrop');
+  const toggleBtn = document.getElementById('termToggle');
+  const closeBtn  = document.getElementById('closeBtn');
+  const badge   = document.getElementById('badge');
+  const toast   = document.getElementById('toast');
+  const pane    = document.getElementById('termPane');
+  const cwdEl   = document.getElementById('cwd');
+
+  let open = false;
+  let typed = 0;
+
+  /* Scripted terminal session: git pull */
+  const SCRIPT = [
+    { cls: '',  html: '<span class="prompt">zhijuhuang@lovdex</span>:<span class="path">~</span>$ <span class="cmd">cd lovdex-cli && git pull</span>' },
+    { cls: 'out', text: '' },
+    { cls: 'out', text: "remote: Enumerating objects: 18, done." },
+    { cls: 'out', text: "remote: Counting objects: 100% (18/18), done." },
+    { cls: 'out', text: "remote: Compressing objects: 100% (12/12), done." },
+    { cls: 'out', text: "Unpacking objects: 100% (18/18), 3.42 KiB | 98.00 KiB/s, done." },
+    { cls: 'out', text: "From github.com:zhijuhuang/lovdex-cli" },
+    { cls: 'out', text: "   3a9c41e..d04f2b7  main       -> origin/main" },
+    { cls: 'out', text: "Updating 3a9c41e..d04f2b7" },
+    { cls: 'out', text: "Fast-forward" },
+    { cls: 'out', text: " src/components/tasks/TaskFilterBar.tsx | 23 ++++++++++++++++++++++" },
+    { cls: 'out', text: " src/hooks/useTasks.ts                 |  4 ++--" },
+    { cls: 'out', text: " 2 files changed, 25 insertions(+), 2 deletions(-)" },
+    { cls: '',  html: '<span class="prompt">zhijuhuang@lovdex</span>:<span class="path">~/lovdex-cli</span>$ <span class="cmd">git status</span>' },
+    { cls: 'out', text: "On branch main" },
+    { cls: 'out', text: "Your branch is up to date with 'origin/main'." },
+    { cls: 'out', text: "nothing to commit, working tree clean" },
+    { cls: '',  html: '<span class="prompt">zhijuhuang@lovdex</span>:<span class="path">~/lovdex-cli</span>$ ' },
+  ];
+
+  function esc(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+  function showToast(msg){
+    toast.textContent = msg;
+    toast.classList.add('show');
+    setTimeout(()=> toast.classList.remove('show'), 2200);
+  }
+
+  function setOpen(v){
+    open = v;
+    root.classList.toggle('open', v);
+    toggleBtn.classList.toggle('on', v);
+    toggleBtn.querySelector('span') && (toggleBtn.querySelector('span').style.display='none');
+    badge.classList.toggle('show', v);
+    if(v){
+      if(!pane.dataset.started){ startTyping(); }
+      pane.scrollTop = pane.scrollHeight;
+    } else {
+      stopTyping();
+    }
+  }
+
+  /* Typing animation */
+  let timer = null;
+  function startTyping(){
+    typed = 0;
+    pane.innerHTML = '';
+    timer = setInterval(()=>{
+      if(typed >= SCRIPT.length){ clearInterval(timer); addCursor(); return; }
+      const step = SCRIPT[typed];
+      const line = document.createElement('div');
+      line.className = 'line ' + (step.cls||'');
+      line.innerHTML = step.html ? step.html : esc(step.text);
+      pane.appendChild(line);
+      typed++;
+      pane.scrollTop = pane.scrollHeight;
+    }, 420);
+  }
+  function stopTyping(){
+    if(timer){ clearInterval(timer); timer=null; }
+  }
+  function addCursor(){
+    const line = document.createElement('div');
+    line.className = 'line';
+    line.innerHTML = '<span class="prompt">zhijuhuang@lovdex</span>:<span class="path">~/lovdex-cli</span>$ <span class="cursor"></span>';
+    pane.appendChild(line);
+    pane.scrollTop = pane.scrollHeight;
+  }
+
+  toggleBtn.addEventListener('click', ()=> setOpen(!open));
+  closeBtn.addEventListener('click', ()=> { setOpen(false); showToast('终端已退出，会话已断开'); });
+  backdrop.addEventListener('click', ()=> { setOpen(false); showToast('终端已退出，会话已断开'); });
+
+  document.addEventListener('keydown', (e)=>{
+    if(e.ctrlKey && e.key === '`'){
+      e.preventDefault();
+      setOpen(!open);
+    }
+  });
+
+  /* Theme toggle */
+  document.getElementById('themeToggle').addEventListener('click', ()=>{
+    const isDark = document.body.classList.contains('dark');
+    document.body.classList.toggle('dark', !isDark);
+    document.body.classList.toggle('light', isDark);
+  });
+
+  /* Mock seg switch */
+  const segChat = document.getElementById('segChat');
+  const segTasks = document.getElementById('segTasks');
+  segChat.addEventListener('click', ()=>{ segChat.classList.add('active'); segTasks.classList.remove('active'); document.querySelector('.title').textContent='lovdex-cli — 工作区'; });
+  segTasks.addEventListener('click', ()=>{ segTasks.classList.add('active'); segChat.classList.remove('active'); document.querySelector('.title').textContent='任务看板 — 筛选/表格'; });
+})();
+</script>
+</body>
+</html>

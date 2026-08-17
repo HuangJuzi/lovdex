@@ -1,0 +1,478 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lovdex 按钮统一 · 大胆版 8 款</title>
+<style>
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+      "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    background: #0b0b10;
+    color: #e5e7eb;
+  }
+
+  /* ======== 页头 ======== */
+  .banner {
+    padding: 72px 24px 48px;
+    background:
+      radial-gradient(60% 90% at 15% 0%, rgba(139,92,246,.28), transparent 60%),
+      radial-gradient(50% 80% at 85% 10%, rgba(34,211,238,.18), transparent 60%),
+      #0b0b10;
+    text-align: center;
+  }
+  .banner h1 { font-size: 34px; margin: 0 0 10px; font-weight: 800; letter-spacing: .01em;
+    background: linear-gradient(90deg,#818cf8,#22d3ee,#f472b6); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .banner p { max-width: 620px; margin: 0 auto; font-size: 14px; line-height: 1.8; color: #9ca3af; }
+  .banner p code { background: rgba(255,255,255,.08); padding: 1px 6px; border-radius: 4px; font-size: 12px; color: #d1d5db; }
+  .banner .nav { margin-top: 18px; display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; font-size: 12px; }
+  .banner .nav a { color: #cbd5e1; text-decoration: none; border: 1px solid #333; padding: 5px 10px; border-radius: 6px; }
+  .banner .nav a:hover { background: #222; }
+
+  /* ======== 每款场景 ======== */
+  section.tk { padding: 64px 24px; }
+  .inner { max-width: 920px; margin: 0 auto; }
+  .kHead { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 22px; }
+  .kTag { font-size: 11px; font-weight: 700; letter-spacing: .08em; padding: 3px 10px; border-radius: 999px;
+    background: #fff; color: #111; }
+  .kTitle { font-size: 22px; font-weight: 800; }
+  .kNote { font-size: 12.5px; line-height: 1.7; color: rgba(148,163,184,.9); flex-basis: 100%; max-width: 640px; }
+
+  /* 按钮通用骨架（尺寸统一，风格由各场景覆盖） */
+  .b {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    height: 34px; padding: 0 13px;
+    font-size: 13px; font-weight: 600; font-family: inherit;
+    white-space: nowrap; cursor: pointer; border: 0;
+    outline: none; -webkit-tap-highlight-color: transparent;
+    transition: transform .12s, box-shadow .15s, background .15s, color .15s, border-color .15s, filter .15s;
+  }
+  .b .ic { width: 14px; height: 14px; flex-shrink: 0; stroke: currentColor; fill: none;
+    stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+
+  .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+  .label { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; margin: 22px 0 8px; opacity: .55; }
+  .label:first-child { margin-top: 0; }
+
+  /* 侧栏鉴权行（Change Password / Sign Out 并排一行） */
+  .sidebar { width: 288px; padding: 12px; border-radius: 12px; }
+  .authrow { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .authrow .b { width: 100%; padding: 0 8px; }
+  .authrow .b .lbl { overflow: hidden; text-overflow: ellipsis; }
+
+  /* ==================================================================
+     A1 · Aurora Glass  玻璃拟态
+     ================================================================== */
+  .a1 { background: linear-gradient(140deg, #312e81 0%, #6d28d9 42%, #be185d 78%, #fb7185 100%); }
+  .a1 .kTitle { color: #fff; }
+  .a1 .kNote { color: rgba(255,255,255,.75); }
+  .a1 .b {
+    background: rgba(255,255,255,.12);
+    border: 1px solid rgba(255,255,255,.28);
+    color: #fff;
+    border-radius: 10px;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.28), 0 10px 26px rgba(0,0,0,.22);
+    backdrop-filter: blur(12px) saturate(1.4);
+    -webkit-backdrop-filter: blur(12px) saturate(1.4);
+  }
+  .a1 .b:hover { background: rgba(255,255,255,.2); transform: translateY(-1px); }
+  .a1 .b:active { transform: translateY(1px); }
+  .a1 .new { background: rgba(255,255,255,.95); color: #7c3aed; border-color: transparent; font-weight: 700; }
+  .a1 .new:hover { background: #fff; box-shadow: 0 6px 18px rgba(255,255,255,.35); }
+  .a1 .view .dot { background: #86efac; box-shadow: 0 0 8px #4ade80; }
+  .a1 .sidebar { background: rgba(255,255,255,.10); border: 1px solid rgba(255,255,255,.22); backdrop-filter: blur(10px); }
+  .a1 .authrow .b { background: rgba(255,255,255,.14); }
+
+  /* ==================================================================
+     A2 · Neo-Brutalism  粗野主义
+     ================================================================== */
+  .a2 { background: #f3ead6; background-image: radial-gradient(circle, rgba(0,0,0,.05) 1px, transparent 1px); background-size: 22px 22px; }
+  .a2 .kTitle { color: #111; }
+  .a2 .kNote { color: #57534e; }
+  .a2 .b {
+    border-radius: 0;
+    height: 36px; padding: 0 14px;
+    border: 2px solid #111;
+    box-shadow: 4px 4px 0 #111;
+    color: #111;
+    font-weight: 700; letter-spacing: .02em;
+  }
+  .a2 .b:hover { transform: translate(-1px,-1px); box-shadow: 6px 6px 0 #111; }
+  .a2 .b:active { transform: translate(3px,3px); box-shadow: 1px 1px 0 #111; }
+  .a2 .b .ic { stroke-width: 2.5; }
+  .a2 .back1 { background: #7cc4ff; }
+  .a2 .home  { background: #ffd23f; }
+  .a2 .view  { background: #7ef0b3; }
+  .a2 .view .dot { background: #16a34a; }
+  .a2 .conv  { background: #c9b1ff; }
+  .a2 .term  { background: #e8e6df; }
+  .a2 .new   { background: #111011; color: #fff; }
+  .a2 .new:hover { background: #2b2a2b; }
+  .a2 .sidebar { background: #fffdf6; border: 2px solid #111; box-shadow: 4px 4px 0 #111; border-radius: 0; }
+  .a2 .authrow .b { background: #eef1f5; }
+  .a2 .authrow .b.out { background: #ffb3b3; }
+
+  /* ==================================================================
+     A3 · Dark Neon  暗夜霓虹
+     ================================================================== */
+  .a3 { background: #06080f;
+    background-image: linear-gradient(rgba(34,211,238,.05) 1px, transparent 1px), linear-gradient(90deg, rgba(34,211,238,.05) 1px, transparent 1px);
+    background-size: 44px 44px; }
+  .a3 .kTitle { color: #e2e8f0; }
+  .a3 .kNote { color: #64748b; }
+  .a3 .b {
+    background: rgba(13,18,30,.7);
+    border: 1px solid rgba(94,234,212,.25);
+    color: #a5f3fc;
+    border-radius: 8px;
+    box-shadow: inset 0 0 14px rgba(34,211,238,.06), 0 0 12px rgba(34,211,238,.06);
+    text-shadow: 0 0 10px rgba(34,211,238,.35);
+  }
+  .a3 .b:hover { border-color: rgba(94,234,212,.6); box-shadow: inset 0 0 14px rgba(34,211,238,.12), 0 0 18px rgba(34,211,238,.22); }
+  .a3 .b .ic { stroke-width: 1.75; }
+  .a3 .back1 { color: #7dd3fc; border-color: rgba(125,211,252,.3); text-shadow: 0 0 10px rgba(125,211,252,.4); }
+  .a3 .home  { color: #fcd34d; border-color: rgba(252,211,77,.3); text-shadow: 0 0 10px rgba(252,211,77,.35); }
+  .a3 .view  { color: #6ee7b7; border-color: rgba(110,231,183,.3); text-shadow: 0 0 10px rgba(110,231,183,.4); }
+  .a3 .view .dot { background: #34d399; box-shadow: 0 0 8px #34d399; }
+  .a3 .conv  { color: #c4b5fd; border-color: rgba(196,181,253,.3); text-shadow: 0 0 10px rgba(196,181,253,.35); }
+  .a3 .term  { color: #94d3ff; border-color: rgba(148,211,255,.3); }
+  .a3 .new { background: linear-gradient(180deg,#22d3ee,#2563eb); color: #02131f; border-color: transparent; font-weight: 700;
+    box-shadow: 0 0 22px rgba(34,211,238,.5), inset 0 1px 0 rgba(255,255,255,.35); text-shadow: none; }
+  .a3 .new:hover { box-shadow: 0 0 30px rgba(34,211,238,.7), inset 0 1px 0 rgba(255,255,255,.4); filter: brightness(1.08); }
+  .a3 .sidebar { background: rgba(12,17,28,.85); border: 1px solid rgba(94,234,212,.18); }
+  .a3 .authrow .b { background: rgba(15,23,42,.7); }
+  .a3 .authrow .b.out { border-color: rgba(251,113,133,.4); color: #fda4af; }
+
+  /* ==================================================================
+     A4 · Gradient Chips  双色渐变（浅底）
+     ================================================================== */
+  .a4 { background: #faf7f2; }
+  .a4 .kTitle { color: #17141f; }
+  .a4 .kNote { color: #6b6570; }
+  .a4 .b { border-radius: 10px; color: #fff; font-weight: 700; }
+  .a4 .b:hover { filter: brightness(1.08); transform: translateY(-1px); }
+  .a4 .b:active { transform: translateY(1px); }
+  .a4 .back1 { background: linear-gradient(135deg,#3b82f6,#06b6d4); box-shadow: 0 6px 16px rgba(6,182,212,.32); }
+  .a4 .home  { background: linear-gradient(135deg,#f97316,#fbbf24); box-shadow: 0 6px 16px rgba(251,191,36,.32); }
+  .a4 .view  { background: linear-gradient(135deg,#10b981,#34d399); box-shadow: 0 6px 16px rgba(16,185,129,.3); }
+  .a4 .view .dot { background: rgba(255,255,255,.9); }
+  .a4 .conv  { background: linear-gradient(135deg,#8b5cf6,#d946ef); box-shadow: 0 6px 16px rgba(139,92,246,.32); }
+  .a4 .term  { background: linear-gradient(135deg,#475569,#94a3b8); box-shadow: 0 6px 16px rgba(71,85,105,.25); }
+  .a4 .new   { background: linear-gradient(135deg,#6366f1,#a855f7); box-shadow: 0 8px 20px rgba(168,85,247,.4); }
+  .a4 .sidebar { background: #fff; border: 1px solid #ece7de; }
+  .a4 .authrow .b { background: linear-gradient(135deg,#e7e5f4,#e6e9f6); color: #4c4a6d; box-shadow: none; }
+  .a4 .authrow .b.out { background: linear-gradient(135deg,#fdecee,#ffe4e8); color: #b03a48; }
+
+  /* ==================================================================
+     A5 · Color Field  色块平铺（暗底）
+     ================================================================== */
+  .a5 { background: #16131f; }
+  .a5 .kTitle { color: #f3f0fa; }
+  .a5 .kNote { color: #8b8399; }
+  .a5 .b { border-radius: 8px; color: #fff; font-weight: 800; letter-spacing: .02em; }
+  .a5 .b:hover { transform: translateY(-2px); }
+  .a5 .b:active { transform: translateY(1px); }
+  .a5 .back1 { background: #0ea5e9; box-shadow: 0 12px 30px rgba(14,165,233,.35); }
+  .a5 .home  { background: #f59e0b; box-shadow: 0 12px 30px rgba(245,158,11,.32); }
+  .a5 .view  { background: #22c55e; box-shadow: 0 12px 30px rgba(34,197,94,.32); }
+  .a5 .view .dot { background: rgba(255,255,255,.85); }
+  .a5 .conv  { background: #a855f7; box-shadow: 0 12px 30px rgba(168,85,247,.35); }
+  .a5 .term  { background: #52525b; box-shadow: 0 12px 30px rgba(82,82,91,.3); }
+  .a5 .new   { background: #f0abfc; color: #16131f; box-shadow: 0 14px 34px rgba(240,171,252,.4); }
+  .a5 .sidebar { background: #1d1a26; border: 1px solid #2c2838; }
+  .a5 .authrow .b { background: #2a2636; box-shadow: none; }
+  .a5 .authrow .b.out { background: #3d1f29; color: #fda4af; }
+
+  /* ==================================================================
+     A6 · Cut-Corner  切角几何
+     ================================================================== */
+  .a6 { background: #efe6d6; }
+  .a6 .kTitle { color: #17120b; }
+  .a6 .kNote { color: #5f5748; }
+  .a6 .b {
+    background: #1c1a17; color: #f5f1e8;
+    border-radius: 0;
+    clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 10px 100%, 0 calc(100% - 10px));
+    margin: 3px 6px 3px 0;
+  }
+  .a6 .b:hover { background: #312d28; }
+  .a6 .b:active { transform: translate(1px,1px); }
+  .a6 .b .ic { stroke-width: 2.25; }
+  .a6 .back1 { background: #0f4c5c; }
+  .a6 .home  { background: #9a3412; }
+  .a6 .view  { background: #14532d; }
+  .a6 .view .dot { background: #4ade80; }
+  .a6 .conv  { background: #4c1d95; }
+  .a6 .term  { background: #292524; }
+  .a6 .new   { background: linear-gradient(135deg,#a3e635,#34d399); color: #101505; }
+  .a6 .new:hover { filter: brightness(1.05); }
+  .a6 .sidebar { background: #fbf5e9; border: 2px solid #1c1a17; }
+  .a6 .authrow .b { background: #1c1a17; border: 0; border-radius: 0; color: #f5f1e8; clip-path: none; margin: 0; }
+  .a6 .authrow .b.out { background: #b91c1c; }
+
+  /* ==================================================================
+     A7 · Gradient Ring  渐变光环（深底）
+     ================================================================== */
+  .a7 { background: #0b0b12;
+    background-image: radial-gradient(60% 80% at 20% 0%, rgba(120,80,255,.14), transparent 60%),
+                      radial-gradient(50% 70% at 90% 100%, rgba(34,211,238,.1), transparent 60%); }
+  .a7 .kTitle { color: #eef0f6; }
+  .a7 .kNote { color: #787f94; }
+  .a7 .b {
+    border-radius: 999px;
+    color: #dbe1ef;
+    background:
+      linear-gradient(#101018, #101018) padding-box,
+      conic-gradient(from 210deg, #22d3ee, #8b5cf6, #f472b6, #22d3ee) border-box;
+    border: 1.5px solid transparent;
+  }
+  .a7 .b:hover { filter: brightness(1.25); }
+  .a7 .view .dot { background: #4ade80; box-shadow: 0 0 8px #4ade80; }
+  .a7 .new { background: linear-gradient(135deg,#22d3ee,#8b5cf6); color: #08070f; border: 0; font-weight: 700;
+    box-shadow: 0 0 20px rgba(139,92,246,.45), inset 0 1px 0 rgba(255,255,255,.4); }
+  .a7 .sidebar { background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.1); }
+  .a7 .authrow .b { background: none; background-image: none; border: 1px solid rgba(139,92,246,.35); color: #b9c0d8; }
+  .a7 .authrow .b.out { border-color: rgba(244,114,182,.45); }
+
+  /* ==================================================================
+     A8 · Chunky 3D  立体厚板（浅底）
+     ================================================================== */
+  .a8 { background: #ecebf1;
+    background-image: radial-gradient(rgba(255,255,255,.9) 1px, transparent 1px); background-size: 18px 18px; }
+  .a8 .kTitle { color: #191822; }
+  .a8 .kNote { color: #5d5b6b; }
+  .a8 .b {
+    border-radius: 12px;
+    background: linear-gradient(180deg,#ffffff,#f3f1f6);
+    color: #232129;
+    border: 1px solid rgba(30,27,50,.08);
+    box-shadow: 0 4px 0 #cbc9d4, 0 10px 20px rgba(35,33,41,.12);
+  }
+  .a8 .b:hover { transform: translateY(-2px); box-shadow: 0 6px 0 #cbc9d4, 0 14px 26px rgba(35,33,41,.16); }
+  .a8 .b:active { transform: translateY(3px); box-shadow: 0 1px 0 #cbc9d4, 0 3px 8px rgba(35,33,41,.1); }
+  .a8 .new { background: linear-gradient(180deg,#5b8cff,#2f5fe0); color: #fff;
+    box-shadow: 0 4px 0 #1c3fa8, 0 12px 24px rgba(47,95,224,.32); }
+  .a8 .new:hover { box-shadow: 0 6px 0 #1c3fa8, 0 16px 30px rgba(47,95,224,.4); }
+  .a8 .new:active { box-shadow: 0 1px 0 #1c3fa8, 0 3px 8px rgba(47,95,224,.25); }
+  .a8 .view .dot { background: #10b981; }
+  .a8 .sidebar { background: #f8f7fb; border: 1px solid #ddd9e6; }
+  .a8 .authrow .b { background: linear-gradient(180deg,#ffffff,#f0eef4); }
+
+  footer { padding: 32px 24px 60px; text-align: center; font-size: 12px; color: #697086; line-height: 1.8; }
+  footer b { color: #cbd5e1; }
+</style>
+</head>
+<body>
+
+<div class="banner">
+  <h1>Lovdex 按钮统一 · 大胆版</h1>
+  <p>8 个高辨识度方向，彻底抛弃“灰边框”。每个场景都是一个完整提案 —— 统一对象仍是 <code>新建任务 · 终端 · 返回任务面板 · 返回主页 · 查看任务 · 转为任务</code>，外加侧栏 <code>Change Password / Sign Out</code> 并排一行。可混搭（比如换 A3 的底色 + A4 的按钮）。</p>
+  <div class="nav">
+    <a href="#a1">A1 玻璃</a><a href="#a2">A2 粗野</a><a href="#a3">A3 霓虹</a>
+    <a href="#a4">A4 渐变</a><a href="#a5">A5 色块</a><a href="#a6">A6 切角</a>
+    <a href="#a7">A7 光环</a><a href="#a8">A8 厚板</a>
+  </div>
+</div>
+
+<!-- ================= A1 ================= -->
+<section class="tk a1" id="a1">
+  <div class="inner">
+    <div class="kHead">
+      <span class="kTag">A1</span><span class="kTitle">Aurora Glass 玻璃拟态</span>
+      <span class="kNote">主背景改成长青苔紫→玫红的渐变(Aurora)，按钮全部 frosted-glass 毛玻璃，激活态=白色实心芯片。高级感最强的一档，适合让它同时承载页面品牌色。</span>
+    </div>
+    <div class="label">工具栏</div>
+    <div class="toolbar">
+      <button class="b back1"><svg class="ic" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7"/><path d="M5 12h14"/></svg><span class="lbl">返回任务面板</span></button>
+      <button class="b home"><svg class="ic" viewBox="0 0 24 24"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg><span class="lbl">返回主页</span></button>
+      <button class="b view"><span class="dot"></span><svg class="ic" viewBox="0 0 24 24"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg><span class="lbl">查看任务</span></button>
+      <button class="b conv"><svg class="ic" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg><span class="lbl">转为任务</span></button>
+      <button class="b term"><svg class="ic" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg><span class="lbl">终端</span></button>
+      <button class="b new"><svg class="ic" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></svg><span class="lbl">新建任务</span></button>
+    </div>
+    <div class="label">Change Password · Sign Out</div>
+    <div class="sidebar"><div class="authrow">
+      <button class="b"><svg class="ic" viewBox="0 0 24 24"><path d="M2 18v3c0 .6.4 1 1 1h4v-2h3v-3h2l1.4-1.4a6.5 6.5 0 1 0-4-4Z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/></svg><span class="lbl">Change Password</span></button>
+      <button class="b out"><svg class="ic" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></svg><span class="lbl">Sign Out</span></button>
+    </div></div>
+  </div>
+</section>
+
+<!-- ================= A2 ================= -->
+<section class="tk a2" id="a2">
+  <div class="inner">
+    <div class="kHead">
+      <span class="kTag">A2</span><span class="kTitle">Neo-Brutalism 粗野主义</span>
+      <span class="kNote">复古看板风：2px 硬描边 + 4px 偏移硬阴影，功能色块直给（返回=蓝 / 主页=黄 / 查看=绿 / 转为=紫），新建任务纯黑压轴。够野、最出片，代价是和现有温和质感彻底告别。</span>
+    </div>
+    <div class="label">工具栏</div>
+    <div class="toolbar">
+      <button class="b back1"><svg class="ic" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7"/><path d="M5 12h14"/></svg><span class="lbl">返回任务面板</span></button>
+      <button class="b home"><svg class="ic" viewBox="0 0 24 24"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg><span class="lbl">返回主页</span></button>
+      <button class="b view"><span class="dot"></span><svg class="ic" viewBox="0 0 24 24"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg><span class="lbl">查看任务</span></button>
+      <button class="b conv"><svg class="ic" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg><span class="lbl">转为任务</span></button>
+      <button class="b term"><svg class="ic" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg><span class="lbl">终端</span></button>
+      <button class="b new"><svg class="ic" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></svg><span class="lbl">新建任务</span></button>
+    </div>
+    <div class="label">Change Password · Sign Out</div>
+    <div class="sidebar"><div class="authrow">
+      <button class="b"><svg class="ic" viewBox="0 0 24 24"><path d="M2 18v3c0 .6.4 1 1 1h4v-2h3v-3h2l1.4-1.4a6.5 6.5 0 1 0-4-4Z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/></svg><span class="lbl">Change Password</span></button>
+      <button class="b out"><svg class="ic" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></svg><span class="lbl">Sign Out</span></button>
+    </div></div>
+  </div>
+</section>
+
+<!-- ================= A3 ================= -->
+<section class="tk a3" id="a3">
+  <div class="inner">
+    <div class="kHead">
+      <span class="kTag">A3</span><span class="kTitle">Dark Neon 暗夜霓虹</span>
+      <span class="kNote">终端/赛博血统：近黑底 + 微网格，每个动作一条霓虹光（返回=蓝cyan / 回家=黄 / 查看=绿 / 转=紫），新建任务=青蓝渐变并自发光。和现役 Clabde CLI 气质最搭。</span>
+    </div>
+    <div class="label">工具栏</div>
+    <div class="toolbar">
+      <button class="b back1"><svg class="ic" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7"/><path d="M5 12h14"/></svg><span class="lbl">返回任务面板</span></button>
+      <button class="b home"><svg class="ic" viewBox="0 0 24 24"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg><span class="lbl">返回主页</span></button>
+      <button class="b view"><span class="dot"></span><svg class="ic" viewBox="0 0 24 24"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg><span class="lbl">查看任务</span></button>
+      <button class="b conv"><svg class="ic" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg><span class="lbl">转为任务</span></button>
+      <button class="b term"><svg class="ic" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg><span class="lbl">终端</span></button>
+      <button class="b new"><svg class="ic" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></svg><span class="lbl">新建任务</span></button>
+    </div>
+    <div class="label">Change Password · Sign Out</div>
+    <div class="sidebar"><div class="authrow">
+      <button class="b"><svg class="ic" viewBox="0 0 24 24"><path d="M2 18v3c0 .6.4 1 1 1h4v-2h3v-3h2l1.4-1.4a6.5 6.5 0 1 0-4-4Z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/></svg><span class="lbl">Change Password</span></button>
+      <button class="b out"><svg class="ic" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></svg><span class="lbl">Sign Out</span></button>
+    </div></div>
+  </div>
+</section>
+
+<!-- ================= A4 ================= -->
+<section class="tk a4" id="a4">
+  <div class="inner">
+    <div class="kHead">
+      <span class="kTag">A4</span><span class="kTitle">Gradient Chips 双色渐变（浅底）</span>
+      <span class="kNote">全员彩色：每个动作一对专属渐变色，无边框、白字加粗，配同色柔光投影。比现役活泼十倍，但仍是主流产品力风格（Linear/Figma vibe），落地成本低。</span>
+    </div>
+    <div class="label">工具栏</div>
+    <div class="toolbar">
+      <button class="b back1"><svg class="ic" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7"/><path d="M5 12h14"/></svg><span class="lbl">返回任务面板</span></button>
+      <button class="b home"><svg class="ic" viewBox="0 0 24 24"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg><span class="lbl">返回主页</span></button>
+      <button class="b view"><span class="dot"></span><svg class="ic" viewBox="0 0 24 24"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg><span class="lbl">查看任务</span></button>
+      <button class="b conv"><svg class="ic" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg><span class="lbl">转为任务</span></button>
+      <button class="b term"><svg class="ic" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg><span class="lbl">终端</span></button>
+      <button class="b new"><svg class="ic" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></svg><span class="lbl">新建任务</span></button>
+    </div>
+    <div class="label">Change Password · Sign Out</div>
+    <div class="sidebar"><div class="authrow">
+      <button class="b"><svg class="ic" viewBox="0 0 24 24"><path d="M2 18v3c0 .6.4 1 1 1h4v-2h3v-3h2l1.4-1.4a6.5 6.5 0 1 0-4-4Z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/></svg><span class="lbl">Change Password</span></button>
+      <button class="b out"><svg class="ic" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></svg><span class="lbl">Sign Out</span></button>
+    </div></div>
+  </div>
+</section>
+
+<!-- ================= A5 ================= -->
+<section class="tk a5" id="a5">
+  <div class="inner">
+    <div class="kHead">
+      <span class="kTag">A5</span><span class="kTitle">Color Field 色块平铺（暗底）</span>
+      <span class="kNote">最“海报”的一版：暗紫底 + 高饱和纯色块，块下是等比例色光投影；新建任务用荧光粉反压深色文字——视觉重锤，一眼记住。</span>
+    </div>
+    <div class="label">工具栏</div>
+    <div class="toolbar">
+      <button class="b back1"><svg class="ic" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7"/><path d="M5 12h14"/></svg><span class="lbl">返回任务面板</span></button>
+      <button class="b home"><svg class="ic" viewBox="0 0 24 24"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg><span class="lbl">返回主页</span></button>
+      <button class="b view"><span class="dot"></span><svg class="ic" viewBox="0 0 24 24"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg><span class="lbl">查看任务</span></button>
+      <button class="b conv"><svg class="ic" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg><span class="lbl">转为任务</span></button>
+      <button class="b term"><svg class="ic" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg><span class="lbl">终端</span></button>
+      <button class="b new"><svg class="ic" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></svg><span class="lbl">新建任务</span></button>
+    </div>
+    <div class="label">Change Password · Sign Out</div>
+    <div class="sidebar"><div class="authrow">
+      <button class="b"><svg class="ic" viewBox="0 0 24 24"><path d="M2 18v3c0 .6.4 1 1 1h4v-2h3v-3h2l1.4-1.4a6.5 6.5 0 1 0-4-4Z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/></svg><span class="lbl">Change Password</span></button>
+      <button class="b out"><svg class="ic" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></svg><span class="lbl">Sign Out</span></button>
+    </div></div>
+  </div>
+</section>
+
+<!-- ================= A6 ================= -->
+<section class="tk a6" id="a6">
+  <div class="inner">
+    <div class="kHead">
+      <span class="kTag">A6</span><span class="kTitle">Cut-Corner 切角几何</span>
+      <span class="kNote">工业贴纸感：墨绿油纸底 + 深色切角块（clip-path 削角），每个动作一块深色料、新建任务用酸绿→薄荷渐变。有一种“工程记录本”的手工感，非常少见。</span>
+    </div>
+    <div class="label">工具栏</div>
+    <div class="toolbar">
+      <button class="b back1"><svg class="ic" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7"/><path d="M5 12h14"/></svg><span class="lbl">返回任务面板</span></button>
+      <button class="b home"><svg class="ic" viewBox="0 0 24 24"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg><span class="lbl">返回主页</span></button>
+      <button class="b view"><span class="dot"></span><svg class="ic" viewBox="0 0 24 24"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg><span class="lbl">查看任务</span></button>
+      <button class="b conv"><svg class="ic" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg><span class="lbl">转为任务</span></button>
+      <button class="b term"><svg class="ic" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg><span class="lbl">终端</span></button>
+      <button class="b new"><svg class="ic" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></svg><span class="lbl">新建任务</span></button>
+    </div>
+    <div class="label">Change Password · Sign Out</div>
+    <div class="sidebar"><div class="authrow">
+      <button class="b"><svg class="ic" viewBox="0 0 24 24"><path d="M2 18v3c0 .6.4 1 1 1h4v-2h3v-3h2l1.4-1.4a6.5 6.5 0 1 0-4-4Z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/></svg><span class="lbl">Change Password</span></button>
+      <button class="b out"><svg class="ic" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></svg><span class="lbl">Sign Out</span></button>
+    </div></div>
+  </div>
+</section>
+
+<!-- ================= A7 ================= -->
+<section class="tk a7" id="a7">
+  <div class="inner">
+    <div class="kHead">
+      <span class="kTag">A7</span><span class="kTitle">Gradient Ring 渐变光环（深底）</span>
+      <span class="kNote">雾黑底上的胶囊按钮各带一圈会转的渐变光环（conic-gradient），新建任务是实心渐变发光体。低亮度、高完成度，是最耐看的一档深色。</span>
+    </div>
+    <div class="label">工具栏</div>
+    <div class="toolbar">
+      <button class="b back1"><svg class="ic" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7"/><path d="M5 12h14"/></svg><span class="lbl">返回任务面板</span></button>
+      <button class="b home"><svg class="ic" viewBox="0 0 24 24"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg><span class="lbl">返回主页</span></button>
+      <button class="b view"><span class="dot"></span><svg class="ic" viewBox="0 0 24 24"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg><span class="lbl">查看任务</span></button>
+      <button class="b conv"><svg class="ic" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg><span class="lbl">转为任务</span></button>
+      <button class="b term"><svg class="ic" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg><span class="lbl">终端</span></button>
+      <button class="b new"><svg class="ic" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></svg><span class="lbl">新建任务</span></button>
+    </div>
+    <div class="label">Change Password · Sign Out</div>
+    <div class="sidebar"><div class="authrow">
+      <button class="b"><svg class="ic" viewBox="0 0 24 24"><path d="M2 18v3c0 .6.4 1 1 1h4v-2h3v-3h2l1.4-1.4a6.5 6.5 0 1 0-4-4Z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/></svg><span class="lbl">Change Password</span></button>
+      <button class="b out"><svg class="ic" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></svg><span class="lbl">Sign Out</span></button>
+    </div></div>
+  </div>
+</section>
+
+<!-- ================= A8 ================= -->
+<section class="tk a8" id="a8">
+  <div class="inner">
+    <div class="kHead">
+      <span class="kTag">A8</span><span class="kTitle">Chunky 3D 立体厚板（浅底）</span>
+      <span class="kNote">浅色点纹底 + 白卡立体厚板：底部 4px 实体底边模拟“物理按钮”，按下去真的会缩下去。像 macOS 时代的拟物，但用现代配色做干净版。</span>
+    </div>
+    <div class="label">工具栏</div>
+    <div class="toolbar">
+      <button class="b back1"><svg class="ic" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7"/><path d="M5 12h14"/></svg><span class="lbl">返回任务面板</span></button>
+      <button class="b home"><svg class="ic" viewBox="0 0 24 24"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg><span class="lbl">返回主页</span></button>
+      <button class="b view"><span class="dot"></span><svg class="ic" viewBox="0 0 24 24"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg><span class="lbl">查看任务</span></button>
+      <button class="b conv"><svg class="ic" viewBox="0 0 24 24"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg><span class="lbl">转为任务</span></button>
+      <button class="b term"><svg class="ic" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg><span class="lbl">终端</span></button>
+      <button class="b new"><svg class="ic" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></svg><span class="lbl">新建任务</span></button>
+    </div>
+    <div class="label">Change Password · Sign Out</div>
+    <div class="sidebar"><div class="authrow">
+      <button class="b"><svg class="ic" viewBox="0 0 24 24"><path d="M2 18v3c0 .6.4 1 1 1h4v-2h3v-3h2l1.4-1.4a6.5 6.5 0 1 0-4-4Z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/></svg><span class="lbl">Change Password</span></button>
+      <button class="b out"><svg class="ic" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></svg><span class="lbl">Sign Out</span></button>
+    </div></div>
+  </div>
+</section>
+
+<footer>
+  8 款都是完整方向而非微调。选定后我会把它收敛到共享 Button 组件上（一个 variant 开关切全部六处 + 鉴权行），
+  数据对比：<b>同高（34px）</b>、<b>同字号</b>、<b>图标同构</b>。也可以直接把喜欢的两三款“缝合”成一款。
+</footer>
+</body>
+</html>

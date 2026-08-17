@@ -1,0 +1,453 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lovdex 全站 chunky 风格 · 框架 mockup</title>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+      "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    background: #f4f2ed;
+    color: #1a1a1a;
+    padding: 24px max(16px, calc((100vw - 1240px)/2)) 80px;
+  }
+  a { color: inherit; }
+
+  /* ================= 设计 token（chunky 语言） ================= */
+  :root {
+    --bg: #f4f2ed;
+    --card: #ffffff;
+    --fg: #1a1a1a;
+    --muted: #efede6;
+    --muted-fg: #7a766f;
+    --border: #e6e2d8;
+    --line: rgba(20,16,12,.09);
+    --primary: #2f6bed;
+    --primary-deep: #1c3fa8;
+    --primary-soft: #eef3ff;
+    --green: #10b981;
+    --amber: #f59e0b;
+    --red: #ef4444;
+    --radius: 14px;
+    --card-edge: 0 4px 0 rgba(30,27,50,.08);
+    --card-shadow: 0 12px 28px rgba(35,33,41,.08);
+    --pop-shadow: 0 18px 40px rgba(20,17,12,.18);
+  }
+
+  /* ================= 基础组件（chunky） ================= */
+  .btn {
+    display: inline-flex; align-items: center; gap: 7px; justify-content: center;
+    height: 38px; padding: 0 16px; border: 0; cursor: pointer; white-space: nowrap;
+    font-size: 13.5px; font-weight: 600; font-family: inherit;
+    border-radius: 12px; text-decoration: none;
+    transition: transform .12s, box-shadow .15s, filter .15s, background .15s;
+  }
+  .btn:active { transform: translateY(3px); }
+  .btn .ic { width: 15px; height: 15px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .btn-card {
+    background: linear-gradient(180deg,#fff,#f5f4f0);
+    border: 1px solid var(--line); color: var(--fg);
+    box-shadow: 0 4px 0 #d8d5cd, 0 10px 20px rgba(35,33,41,.07);
+  }
+  .btn-card:hover { transform: translateY(-2px); box-shadow: 0 6px 0 #d8d5cd, 0 14px 26px rgba(35,33,41,.11); }
+  .btn-card:active { box-shadow: 0 1px 0 #d8d5cd; transform: translateY(3px); }
+  .btn-primary {
+    background: linear-gradient(180deg,#5b8cff,#2f5fe0); color: #fff;
+    box-shadow: 0 4px 0 var(--primary-deep), 0 12px 24px rgba(47,95,224,.28);
+  }
+  .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 6px 0 var(--primary-deep), 0 16px 30px rgba(47,95,224,.38); }
+  .btn-primary:active { box-shadow: 0 1px 0 var(--primary-deep); }
+  .btn-ghost { background: transparent; color: var(--muted-fg); box-shadow: none; border: 1px solid transparent; }
+  .btn-ghost:hover { background: var(--muted); color: var(--fg); }
+
+  .input {
+    width: 100%; height: 40px; padding: 0 14px; font-size: 13.5px; font-family: inherit;
+    color: var(--fg); background: #fff;
+    border: 2px solid var(--border); border-radius: 12px; outline: none;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  .input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(47,107,237,.18); }
+  textarea.input { height: auto; padding: 12px 14px; resize: vertical; line-height: 1.6; }
+  .select { appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%237a766f' stroke-width='2.5'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 12px center; padding-right: 34px; }
+
+  .label { display: block; font-size: 12px; font-weight: 600; color: var(--muted-fg); margin-bottom: 6px; letter-spacing: .02em; }
+
+  .card {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: var(--radius);
+    box-shadow: var(--card-edge), var(--card-shadow);
+  }
+  .badge {
+    display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px;
+    border-radius: 999px; font-size: 11.5px; font-weight: 600; background: var(--muted); color: var(--fg);
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; }
+
+  /* ================= 页面骨架 ================= */
+  .mock-title { font-size: 18px; font-weight: 800; margin: 30px 0 14px; display: flex; align-items: center; gap: 10px; }
+  .mock-title .no { width: 26px; height: 26px; border-radius: 8px; background: #111; color: #fff; font-size: 12px; display: inline-flex; align-items: center; justify-content: center; }
+  .mock-title small { font-size: 12px; color: var(--muted-fg); font-weight: 500; }
+
+  .frame {
+    border-radius: 18px; overflow: hidden; border: 1px solid var(--border);
+    box-shadow: 0 20px 50px rgba(20,17,12,.12);
+    background: var(--bg);
+  }
+  .app { display: flex; height: 620px; }
+  .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+
+  /* -------- 侧栏 -------- */
+  .sidebar {
+    width: 288px; flex-shrink: 0; background: #fff;
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; padding: 12px; gap: 8px;
+  }
+  .slogo { display: flex; align-items: center; gap: 9px; padding: 4px 8px 12px; border-bottom: 1px solid var(--border); }
+  .slogo .mark { width: 26px; height: 26px; border-radius: 8px; background: linear-gradient(135deg,#5b8cff,#7c3aed); box-shadow: 0 3px 0 #312e81; }
+  .slogo b { font-size: 15px; font-weight: 800; }
+  .slogo small { display: block; font-size: 10.5px; color: var(--muted-fg); font-weight: 500; }
+
+  .ssec { font-size: 10.5px; font-weight: 700; letter-spacing: .08em; color: var(--muted-fg); padding: 10px 8px 6px; }
+  .sitem {
+    display: flex; align-items: center; gap: 9px; width: 100%; padding: 8px 10px;
+    border-radius: 10px; font-size: 13px; color: var(--fg); text-decoration: none;
+    border: 1px solid transparent; background: transparent;
+    transition: background .12s, box-shadow .12s, border-color .12s;
+  }
+  .sitem:hover { background: var(--muted); }
+  .sitem.active {
+    background: #fff; border-color: var(--line);
+    box-shadow: 0 3px 0 #d8d5cd, 0 6px 14px rgba(35,33,41,.06);
+    font-weight: 600;
+  }
+  .sitem .ic { width: 15px; height: 15px; flex-shrink: 0; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; color: var(--muted-fg); }
+  .sitem.active .ic { color: var(--primary); }
+  .sitem .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sitem .cnt { font-size: 10.5px; color: var(--muted-fg); background: var(--muted); padding: 1px 7px; border-radius: 999px; }
+  .sfoot { margin-top: auto; border-top: 1px solid var(--border); padding-top: 10px; display: flex; gap: 8px; }
+  .sfoot .btn { flex: 1; height: 36px; padding: 0 8px; font-size: 12.5px; }
+  .sfoot .btn .ic { width: 14px; height: 14px; }
+
+  /* -------- 头部 -------- */
+  .headerbar {
+    display: flex; align-items: center; gap: 10px; padding: 10px 16px;
+    border-bottom: 1px solid var(--border); background: #fff;
+  }
+  .sw { display: flex; gap: 2px; background: var(--muted); border-radius: 12px; padding: 3px; }
+  .sw a {
+    display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px;
+    border-radius: 9px; font-size: 12.5px; font-weight: 600; color: var(--muted-fg); text-decoration: none;
+  }
+  .sw a.on { background: #fff; color: var(--fg); box-shadow: 0 2px 0 #d8d5cd, 0 3px 8px rgba(35,33,41,.08); }
+  .htitle { font-size: 14px; font-weight: 700; margin-left: 4px; }
+  .hspacer { flex: 1; }
+
+  /* -------- 任务看板 -------- */
+  .filterbar { display: flex; align-items: center; gap: 8px; padding: 10px 16px; background: #fff; border-bottom: 1px solid var(--border); }
+  .search { position: relative; }
+  .search .input { width: 240px; height: 36px; padding-left: 34px; font-size: 12.5px; }
+  .search .ic { position: absolute; left: 11px; top: 10px; width: 15px; height: 15px; color: var(--muted-fg); }
+  .pill { height: 28px; padding: 0 12px; border-radius: 999px; font-size: 12px; font-weight: 600; background: #fff; border: 1.5px solid var(--border); color: var(--fg); cursor: pointer; }
+  .pill.on { background: var(--primary); border-color: var(--primary); color: #fff; box-shadow: 0 2px 0 var(--primary-deep); }
+  .pill.soft.on { background: var(--primary-soft); border-color: #b9ccff; color: var(--primary); box-shadow: 0 2px 0 #c8d6ff; }
+
+  .board { flex: 1; display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; padding: 16px; overflow: auto; }
+  .col { display: flex; flex-direction: column; gap: 10px; }
+  .colhead { display: flex; align-items: center; gap: 8px; padding: 2px 4px; }
+  .colhead b { font-size: 13px; }
+  .colhead .cnt { font-size: 11px; color: var(--muted-fg); background: var(--muted); padding: 1px 8px; border-radius: 999px; }
+  .colhead .add { margin-left: auto; width: 24px; height: 24px; border-radius: 8px; background: var(--muted); color: var(--muted-fg); border: 0; font-size: 14px; cursor: pointer; }
+
+  .tcard { background: #fff; border: 1px solid var(--line); border-radius: 12px; padding: 12px; box-shadow: 0 3px 0 #d8d5cd, 0 8px 18px rgba(35,33,41,.05); cursor: pointer; transition: transform .1s, box-shadow .12s; }
+  .tcard:hover { transform: translateY(-2px); box-shadow: 0 5px 0 #d8d5cd, 0 12px 22px rgba(35,33,41,.09); }
+  .tcard .row1 { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .tcard .prio { font-size: 10.5px; font-weight: 700; padding: 1px 7px; border-radius: 6px; }
+  .tcard .title { font-size: 13.5px; font-weight: 600; line-height: 1.45; }
+  .tcard .desc { font-size: 12px; color: var(--muted-fg); line-height: 1.5; margin-top: 4px; }
+  .tcard .foot { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 11px; color: var(--muted-fg); }
+  .tcard .foot .proj { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tcard .foot .sp { flex: 1; }
+  .avatar { width: 18px; height: 18px; border-radius: 6px; background: linear-gradient(135deg,#a5b4fc,#818cf8); display: inline-block; }
+
+  .addcard { border: 2px dashed var(--border); border-radius: 12px; height: 46px; display: flex; align-items: center; justify-content: center; color: var(--muted-fg); font-size: 12.5px; background: transparent; cursor: pointer; }
+
+  /* -------- 任务详情 -------- */
+  .detail { flex: 1; overflow: auto; padding: 22px 28px; }
+  .dbadge-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .dtitle { font-size: 22px; font-weight: 800; margin: 12px 0 6px; line-height: 1.35; }
+  .dmeta { display: flex; gap: 16px; color: var(--muted-fg); font-size: 12.5px; flex-wrap: wrap; }
+  .dgrid { display: grid; grid-template-columns: 1.6fr 1fr; gap: 16px; margin-top: 20px; }
+  .dpanel { padding: 18px; }
+  .dpanel h3 { font-size: 13px; font-weight: 700; margin-bottom: 10px; display: flex; align-items: center; gap: 7px; }
+  .dpanel p.body { font-size: 13px; color: #444; line-height: 1.7; }
+  .drow { display: flex; justify-content: space-between; font-size: 12.5px; padding: 9px 0; border-bottom: 1px solid var(--border); }
+  .drow:last-child { border-bottom: 0; }
+  .drow span:first-child { color: var(--muted-fg); }
+  .chip { display: inline-flex; align-items: center; gap: 6px; background: var(--primary-soft); color: var(--primary); border-radius: 8px; padding: 4px 9px; font-size: 12px; font-weight: 600; }
+
+  /* -------- 聊天 -------- */
+  .chatbody { flex: 1; overflow: auto; background: var(--bg); padding: 18px 24px; display: flex; flex-direction: column; gap: 16px; }
+  .msg { max-width: 76%; border-radius: 14px; padding: 10px 14px; font-size: 13.5px; line-height: 1.7; border: 1px solid var(--border); }
+  .msg.user { align-self: flex-end; background: #fff; box-shadow: 0 3px 0 #d8d5cd, 0 6px 14px rgba(35,33,41,.05); }
+  .msg.assistant { align-self: flex-start; background: #fff; box-shadow: 0 3px 0 #d8d5cd, 0 6px 14px rgba(35,33,41,.05); }
+  .msg .sender { font-size: 11px; color: var(--muted-fg); margin-bottom: 3px; display: flex; gap: 6px; align-items: center; }
+  .msg pre { background: #faf9f5; border: 1px solid var(--border); border-radius: 10px; padding: 10px; font-size: 12px; overflow: auto; margin-top: 6px; }
+  .promptbar { background: #fff; border-top: 1px solid var(--border); padding: 12px 16px; }
+  .prompt { display: flex; align-items: flex-end; gap: 10px; background: #fff; border: 2px solid var(--border); border-radius: 14px; padding: 8px 8px 8px 14px; transition: border-color .15s, box-shadow .15s; }
+  .prompt:focus-within { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(47,107,237,.16); }
+  .prompt .ta { flex: 1; border: 0; outline: none; resize: none; font-size: 13.5px; font-family: inherit; line-height: 1.6; padding-top: 6px; min-height: 40px; }
+  .prompt .send { height: 38px; }
+
+  /* -------- 弹窗 -------- */
+  .overlay { position: absolute; inset: 0; background: rgba(20,17,12,.42); display: flex; align-items: center; justify-content: center; z-index: 30; }
+  .dialog { width: 520px; max-height: 84%; background: #fff; border: 1px solid var(--line); border-radius: 18px; box-shadow: 0 24px 60px rgba(20,17,12,.35); overflow: hidden; }
+  .dhead { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--border); }
+  .dhead b { font-size: 14px; }
+  .dclose { width: 26px; height: 26px; border-radius: 8px; border: 0; background: var(--muted); color: var(--muted-fg); cursor: pointer; }
+  .dbody { padding: 16px 18px; display: flex; flex-direction: column; gap: 14px; max-height: 60vh; overflow: auto; }
+  .dfoot { display: flex; justify-content: flex-end; gap: 10px; padding: 12px 18px; border-top: 1px solid var(--border); }
+
+  /* -------- 终端抽屉 -------- */
+  .drawer { position: absolute; left: 0; right: 0; bottom: 0; height: 240px; background: #0e1216; border-top: 3px solid #1f2933; box-shadow: 0 -18px 40px rgba(0,0,0,.3); z-index: 20; display: flex; flex-direction: column; }
+  .drawer-head { display: flex; align-items: center; gap: 10px; padding: 8px 14px; background: #161b21; color: #cbd5e1; font-size: 12px; border-bottom: 1px solid #262c33; }
+  .drawer-head .ic { width: 14px; height: 14px; color: #22d3ee; }
+  .drawer-body { flex: 1; overflow: auto; padding: 12px 14px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; line-height: 1.7; color: #9fb4c8; }
+  .drawer-body .c { color: #7dd3fc; }
+  .drawer-body .ok { color: #4ade80; }
+
+  .demo-note { font-size: 12px; color: var(--muted-fg); margin-top: 10px; line-height: 1.7; max-width: 860px; }
+  .demo-note b { color: var(--fg); }
+</style>
+</head>
+<body>
+
+<!-- ============ 头部 ============ -->
+<h1 style="font-size:22px;font-weight:800;display:flex;align-items:center;gap:12px;">Lovdex 全站 chunky 风格 · 框架 mockup
+  <span style="font-size:12px;color:#7a766f;font-weight:500;">W4 立体厚板扩展 · 白色调 · 内容区/聊天气泡暂缓</span></h1>
+<p class="demo-note">本 mockup 覆盖:侧栏、页面头、任务看板(看板/表格两视图)、任务详情、聊天框架、新建任务弹窗、终端抽屉。输入框/选择器/卡片/导航项都延展了 chunky 语言(白卡 + 硬底边 + 圆角 12-14px + 蓝主色)。对话气泡与正文排版保持现状。</p>
+
+<!-- ============ 视图 1:侧栏 ============ -->
+<div class="mock-title"><span class="no">1</span>侧栏 Sidebar <small>项目 / 会话列表 + 底部鉴权一行</small></div>
+<div class="frame" style="width:320px;">
+  <div class="sidebar" style="height:520px;border-right:0;">
+    <div class="slogo"><span class="mark"></span><span><b>Lovdex</b><small>lovdex workspace</small></span></div>
+
+    <div class="ssec">LOVDEX 助手</div>
+    <a class="sitem active"><svg class="ic" viewBox="0 0 24 24"><path d="M12 3 2 21h20Z" fill="currentColor" stroke="none"/><path d="M12 3 2 21h20Z" fill="none" stroke="currentColor"/></svg><span class="name">Lovdex 助手</span></a>
+
+    <div class="ssec">项目</div>
+    <a class="sitem"><span class="avatar" style="width:16px;height:16px;border-radius:5px;background:#a5b4fc;"></span><span class="name">lovdex-backend</span></a>
+    <a class="sitem"><span class="avatar" style="width:16px;height:16px;border-radius:5px;background:#6ee7b7;"></span><span class="name">lovdex-cli</span></a>
+    <a class="sitem"><span class="avatar" style="width:16px;height:16px;border-radius:5px;background:#fcd34d;"></span><span class="name">docs</span></a>
+
+    <div class="ssec">会话 · 最近活动</div>
+    <a class="sitem active"><span class="dot" style="background:#10b981;"></span><span class="name">修复登录超时</span><span class="cnt">3</span></a>
+    <a class="sitem"><span class="dot" style="background:#f59e0b;"></span><span class="name">终端抽屉联调</span></a>
+    <a class="sitem"><span class="dot" style="background:#a855f7;"></span><span class="name">任务看板筛选</span></a>
+    <a class="sitem"><span class="dot" style="background:#94a3b8;"></span><span class="name">operator 配置页面</span></a>
+
+    <div class="sfoot">
+      <button class="btn btn-card"><svg class="ic" viewBox="0 0 24 24"><path d="M2 18v3c0 .6.4 1 1 1h4v-2h3v-3h2l1.4-1.4a6.5 6.5 0 1 0-4-4Z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/></svg><span style="overflow:hidden;text-overflow:ellipsis;">Change Password</span></button>
+      <button class="btn btn-card"><svg class="ic" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/></svg><span style="overflow:hidden;text-overflow:ellipsis;">Sign Out</span></button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 视图 2:任务看板 ============ -->
+<div class="mock-title"><span class="no">2</span>任务看板 Task Board <small>头部(视图切换 + 新建任务 + 终端) + 筛选条 + 看板/表格</small></div>
+<div class="frame" style="position:relative;">
+  <div class="app">
+    <div class="sidebar">
+      <div class="slogo"><span class="mark"></span><span><b>Lovdex</b><small>lovdex workspace</small></span></div>
+      <div class="ssec">LOVDEX 助手</div>
+      <a class="sitem"><svg class="ic" viewBox="0 0 24 24"><path d="M12 3 2 21h20Z" fill="none" stroke="currentColor"/></svg><span class="name">Lovdex 助手</span></a>
+      <div class="ssec">项目</div>
+      <a class="sitem"><span class="avatar" style="width:16px;height:16px;border-radius:5px;background:#a5b4fc;"></span><span class="name">lovdex-backend</span></a>
+      <a class="sitem active"><span class="avatar" style="width:16px;height:16px;border-radius:5px;background:#6ee7b7;"></span><span class="name">lovdex-cli</span></a>
+      <div class="ssec">会话</div>
+      <a class="sitem active"><span class="dot" style="background:#10b981;"></span><span class="name">修复登录超时</span><span class="cnt">3</span></a>
+      <a class="sitem"><span class="dot" style="background:#94a3b8;"></span><span class="name">operator 配置</span></a>
+      <div class="sfoot">
+        <button class="btn btn-card" style="font-size:11px;">Change Password</button>
+        <button class="btn btn-card" style="font-size:11px;">Sign Out</button>
+      </div>
+    </div>
+    <div class="main">
+      <div class="headerbar">
+        <div class="sw"><a class="on">☰ 看板</a><a>▤ 表格</a></div>
+        <span class="htitle">任务</span>
+        <div class="hspacer"></div>
+        <button class="btn btn-card"><svg class="ic" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg>终端</button>
+        <button class="btn btn-primary"><svg class="ic" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="M12 5v14"/></svg>新建任务</button>
+      </div>
+      <div class="filterbar">
+        <div class="search"><svg class="ic" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg><input class="input" placeholder="搜索任务…"></div>
+        <button class="pill on">全部</button><button class="pill">进行中</button><button class="pill">待办</button><button class="pill">已完成</button>
+        <div class="hspacer"></div>
+        <button class="pill soft on">🔖 标签</button><button class="pill">优先级</button>
+      </div>
+      <div class="board">
+        <div class="col">
+          <div class="colhead"><span class="dot" style="background:#f59e0b;"></span><b>待办</b><span class="cnt">3</span><button class="add">+</button></div>
+          <div class="tcard"><div class="row1"><span class="prio" style="background:#fef3c7;color:#b45309;">P1</span><span class="cnt" style="font-size:10.5px;color:#7a766f;">🪧 新建任务</span></div><div class="title">实现 chunky 风格统一</div><div class="desc">按 W4 mockup 把任务板/详情/侧栏改成白卡厚板。</div><div class="foot"><span class="avatar"></span><span class="proj">lovdex-cli</span><span class="sp"></span>2天前</div></div>
+          <div class="tcard"><div class="row1"><span class="prio" style="background:#ede9fe;color:#6d28d9;">P2</span></div><div class="title">表格视图列宽记忆</div><div class="desc">持久化列宽到 localStorage。</div><div class="foot"><span class="avatar"></span><span class="proj">lovdex-backend</span><span class="sp"></span>昨天</div></div>
+          <div class="tcard"><div class="row1"><span class="prio" style="background:#dcfce7;color:#15803d;">P3</span></div><div class="title">文档补录</div><div class="desc"></div><div class="foot"><span class="avatar"></span><span class="proj">docs</span><span class="sp"></span>3天前</div></div>
+          <button class="addcard">＋ 添加任务</button>
+        </div>
+        <div class="col">
+          <div class="colhead"><span class="dot" style="background:#3b82f6;"></span><b>进行中</b><span class="cnt">2</span><button class="add">+</button></div>
+          <div class="tcard"><div class="row1"><span class="prio" style="background:#fef3c7;color:#b45309;">P1</span></div><div class="title">侧栏 chunky 改造</div><div class="desc">导航项激活态用白卡硬底边。</div><div class="foot"><span class="avatar"></span><span class="proj">lovdex-cli</span><span class="sp"></span>今天</div></div>
+          <div class="tcard"><div class="row1"><span class="prio" style="background:#ede9fe;color:#6d28d9;">P2</span></div><div class="title">终端抽屉收边</div><div class="desc"></div><div class="foot"><span class="avatar"></span><span class="proj">lovdex-cli</span><span class="sp"></span>今天</div></div>
+          <button class="addcard">＋ 添加任务</button>
+        </div>
+        <div class="col">
+          <div class="colhead"><span class="dot" style="background:#10b981;"></span><b>已完成</b><span class="cnt">1</span><button class="add">+</button></div>
+          <div class="tcard"><div class="row1"><span class="prio" style="background:#dcfce7;color:#15803d;">P3</span></div><div class="title">六按钮 chunky 统一</div><div class="desc"></div><div class="foot"><span class="avatar"></span><span class="proj">lovdex-cli</span><span class="sp"></span>完成 ✓</div></div>
+          <button class="addcard">＋ 添加任务</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 视图 3:任务详情 ============ -->
+<div class="mock-title"><span class="no">3</span>任务详情 Task Detail <small>返回/主页按钮 + 状态徽章 + 详情面板</small></div>
+<div class="frame" style="height:620px;">
+  <div class="app">
+    <div class="sidebar" style="width:240px;">
+      <div class="slogo"><span class="mark"></span><span><b>Lovdex</b></span></div>
+      <div class="ssec">项目</div>
+      <a class="sitem active"><span class="avatar" style="width:16px;height:16px;border-radius:5px;background:#6ee7b7;"></span><span class="name">lovdex-cli</span></a>
+      <div class="ssec">会话</div>
+      <a class="sitem"><span class="dot" style="background:#10b981;"></span><span class="name">侧栏 chunky 改造</span></a>
+      <div class="sfoot"><button class="btn btn-card" style="font-size:11px;">Sign Out</button></div>
+    </div>
+    <div class="main">
+      <div class="headerbar">
+        <div class="sw"><a>☰ 看板</a><a>▤ 表格</a></div>
+        <div class="hspacer"></div>
+        <button class="btn btn-card"><svg class="ic" viewBox="0 0 24 24"><path d="m12 19-7-7 7-7"/><path d="M5 12h14"/></svg>返回任务面板</button>
+        <button class="btn btn-card"><svg class="ic" viewBox="0 0 24 24"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>返回主页</button>
+        <button class="btn btn-card"><svg class="ic" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg>终端</button>
+      </div>
+      <div class="detail">
+        <div class="dbadge-row">
+          <span class="badge" style="background:#fef3c7;color:#b45309;"><span class="dot" style="background:#f59e0b;"></span>进行中</span>
+          <span class="badge" style="background:#ede9fe;color:#6d28d9;">P1</span>
+          <span class="badge" style="background:#dcfce7;color:#15803d;">后端</span>
+        </div>
+        <div class="dtitle">侧栏 chunky 改造</div>
+        <div class="dmeta"><span>📁 lovdex-cli</span><span>🧑 分配给我</span><span>⏳ 2026-08-14</span><span>更新于 今天 10:24</span></div>
+        <div class="dgrid">
+          <div class="card dpanel"><h3>📄 描述</h3><p class="body">把侧栏导航项、项目/会话列表、底部鉴权行按 W4 立体厚板风格重做。导航项激活态用「白卡 + 硬底边 + 轻投影」,底部 Change Password / Sign Out 并排一行。整体保持白色调。</p></div>
+          <div class="card dpanel"><h3>⚙️ 详情</h3>
+            <div class="drow"><span>执行模型</span><span class="chip">claude · opus-4.6</span></div>
+            <div class="drow"><span>会话链接</span><span>已关联 → 修复登录超时</span></div>
+            <div class="drow"><span>备注</span><span>—</span></div>
+            <div class="drow"><span>创建时间</span><span>2026-08-13 09:12</span></div>
+            <div class="drow"><span>状态流转</span><span>todo → doing</span></div>
+          </div>
+        </div>
+        <div class="card dpanel" style="margin-top:16px;"><h3>💬 会话记录</h3><p class="body" style="color:var(--muted-fg);">该任务已关联一个 Claude 会话,点开可查看执行过程。</p></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 视图 4:聊天 ============ -->
+<div class="mock-title"><span class="no">4</span>聊天框架 Chat Frame <small>头部(查看任务/转为任务 + 终端) + 消息区(保持现状) + 输入条</small></div>
+<div class="frame" style="height:620px;">
+  <div class="app">
+    <div class="sidebar" style="width:240px;">
+      <div class="slogo"><span class="mark"></span><span><b>Lovdex</b></span></div>
+      <div class="ssec">会话</div>
+      <a class="sitem active"><span class="dot" style="background:#10b981;"></span><span class="name">修复登录超时</span></a>
+      <a class="sitem"><span class="dot" style="background:#94a3b8;"></span><span class="name">终端抽屉联调</span></a>
+      <div class="sfoot"><button class="btn btn-card" style="font-size:11px;">Sign Out</button></div>
+    </div>
+    <div class="main">
+      <div class="headerbar">
+        <div class="sw"><a class="on">☰ 聊天</a></div>
+        <span class="htitle">lovdex-cli · 修复登录超时</span>
+        <div class="hspacer"></div>
+        <button class="btn btn-card"><svg class="ic" viewBox="0 0 24 24"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>查看任务</button>
+        <button class="btn btn-card"><svg class="ic" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg>终端</button>
+      </div>
+      <div class="chatbody">
+        <div class="msg assistant"><div class="sender"><span class="avatar" style="width:14px;height:14px;"></span>Claude · opus</div>我看了登录超时的日志,`fetchHistory` 用了旧的 providerSessionId。需要改成 `options.providerSessionId`。<pre>const res = await api.sessions.fetchHistory({ providerSessionId: options.providerSessionId });</pre></div>
+        <div class="msg user">对,同步器误读 path 那次也一起修掉。</div>
+        <div class="msg assistant"><div class="sender"><span class="avatar" style="width:14px;height:14px;"></span>Claude · opus</div>好,两处一起处理:providerSessionId 取值 + project_path 判空保护。</div>
+        <div class="msg user">👌</div>
+      </div>
+      <div class="promptbar">
+        <div class="prompt">
+          <textarea class="ta" rows="1" placeholder="给 Claude 发送消息…"></textarea>
+          <button class="btn btn-primary send"><svg class="ic" viewBox="0 0 24 24"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>发送</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 视图 5:新建任务弹窗 ============ -->
+<div class="mock-title"><span class="no">5</span>新建任务弹窗 New Task Dialog <small>chunky 卡片弹窗 + 硬边输入/选择</small></div>
+<div class="frame" style="height:560px;position:relative;">
+  <div class="app" style="filter:blur(1.5px) saturate(.9);">
+    <div class="main">
+      <div class="headerbar"><div class="sw"><a class="on">☰ 看板</a><a>▤ 表格</a></div><span class="htitle">任务</span><div class="hspacer"></div><button class="btn btn-primary">新建任务</button></div>
+      <div class="board">
+        <div class="col"><div class="colhead"><b>待办</b></div><div class="tcard"><div class="title">(后台)</div></div></div>
+        <div class="col"><div class="colhead"><b>进行中</b></div><div class="tcard"><div class="title">(后台)</div></div></div>
+        <div class="col"><div class="colhead"><b>已完成</b></div><div class="tcard"><div class="title">(后台)</div></div></div>
+      </div>
+    </div>
+  </div>
+  <div class="overlay">
+    <div class="dialog">
+      <div class="dhead"><b>新建任务</b><button class="dclose">✕</button></div>
+      <div class="dbody">
+        <div><label class="label">任务提示词</label><textarea class="input" rows="2" placeholder="发给 agent 执行的内容"></textarea></div>
+        <div><label class="label">名称</label><input class="input" placeholder="可选,留空自动提炼"></div>
+        <div><label class="label">项目</label><select class="input select"><option>🤖 Lovdex助手</option><option>lovdex-cli</option><option>lovdex-backend</option></select></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <div><label class="label">状态</label><select class="input select"><option>待办</option><option>进行中</option></select></div>
+          <div><label class="label">优先级</label><select class="input select"><option>P2</option><option>P1</option><option>P3</option></select></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <div><label class="label">标签</label><select class="input select"><option>后端</option><option>前端</option></select></div>
+          <div><label class="label">截止时间</label><input class="input" type="date"></div>
+        </div>
+        <div><label class="label">备注</label><input class="input" placeholder="需求来源等,可留空"></div>
+      </div>
+      <div class="dfoot"><button class="btn btn-ghost">取消</button><button class="btn btn-primary">创建</button></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 视图 6:终端抽屉 ============ -->
+<div class="mock-title"><span class="no">6</span>终端抽屉 Terminal Drawer <small>任务板 + 底部抽屉(保持暗色终端本体)</small></div>
+<div class="frame" style="height:600px;position:relative;">
+  <div class="app" style="height:600px;">
+    <div class="main">
+      <div class="headerbar"><div class="sw"><a class="on">☰ 看板</a></div><span class="htitle">任务</span><div class="hspacer"></div><button class="btn btn-primary"><svg class="ic" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg>终端</button></div>
+      <div class="board" style="padding-bottom:260px;">
+        <div class="col"><div class="colhead"><b>待办</b></div><div class="tcard"><div class="title">实现 chunky 风格统一</div></div><div class="tcard"><div class="title">表格视图列宽记忆</div></div></div>
+        <div class="col"><div class="colhead"><b>进行中</b></div><div class="tcard"><div class="title">侧栏 chunky 改造</div></div></div>
+        <div class="col"><div class="colhead"><b>已完成</b></div><div class="tcard"><div class="title">六按钮 chunky 统一</div></div></div>
+      </div>
+    </div>
+  </div>
+  <div class="drawer">
+    <div class="drawer-head"><svg class="ic" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg><span>终端 · lovdex-cli (bash)</span><span style="margin-left:auto;color:#5b6b7c;">Ctrl+` 收起</span></div>
+    <div class="drawer-body"><span class="c">lovdex-cli</span> $ npm run typecheck<br><span class="ok">✓ tsc --noEmit -p tsconfig.json</span><br><span class="c">lovdex-cli</span> $ <span style="color:#22d3ee;">▊</span></div>
+  </div>
+</div>
+
+<p class="demo-note" style="margin-top:26px;">
+  <b>落地思路:</b>把 chunky 语言下沉到共享组件 —— <code>Card</code>(白卡 + 硬底边 + 大圆角)、<code>Input/Select/Textarea</code>(2px 硬边 + focus 蓝环)、<code>Sidebar 导航项</code>(激活态白卡硬底边)、<code>Dialog</code>(chunky 卡片)、<code>Pill/FilterBar/ViewSwitcher</code>(硬边分段)。这些组件改了,页面自动跟着变;聊天气泡与正文排版不动。
+</p>
+
+</body>
+</html>

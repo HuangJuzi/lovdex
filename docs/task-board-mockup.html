@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>任务面板 · Lovdex 产品效果图</title>
+<style>
+  :root {
+    --bg: #0b0e14;
+    --bg-2: #0e1219;
+    --sidebar: #0d1017;
+    --card: #151a26;
+    --card-2: #1a2130;
+    --border: #232b3d;
+    --border-soft: #1c2333;
+    --text: #e6e9f0;
+    --text-soft: #9aa4b8;
+    --text-faint: #6b7589;
+    --accent: #4f8cff;
+    --accent-soft: rgba(79,140,255,.12);
+    --gray: #94a3b8;
+    --amber: #fbbf24;
+    --blue: #60a5fa;
+    --purple: #a78bfa;
+    --green: #34d399;
+    --red: #f87171;
+    --font: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+    --mono: "SF Mono", "JetBrains Mono", Consolas, monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--bg); color: var(--text); font-family: var(--font); line-height: 1.55; -webkit-font-smoothing: antialiased; }
+
+  /* ============ App frame ============ */
+  .app { display: flex; height: 100vh; min-height: 640px; overflow: hidden; }
+
+  /* ---- Sidebar ---- */
+  .sidebar {
+    width: 248px; flex-shrink: 0;
+    background: var(--sidebar);
+    border-right: 1px solid var(--border-soft);
+    display: flex; flex-direction: column;
+    padding: 14px 10px;
+  }
+  .logo { display: flex; align-items: center; gap: 9px; padding: 4px 8px 14px; }
+  .logo .mark {
+    width: 26px; height: 26px; border-radius: 7px;
+    background: linear-gradient(135deg, var(--accent), var(--purple));
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 800; font-size: 13px; color: #fff;
+  }
+  .logo span { font-weight: 700; font-size: 15px; letter-spacing: .02em; }
+
+  .nav { display: flex; flex-direction: column; gap: 2px; margin-bottom: 18px; }
+  .nav-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px; border-radius: 8px;
+    font-size: 13.5px; color: var(--text-soft); cursor: pointer;
+    transition: background .15s, color .15s;
+  }
+  .nav-item:hover { background: var(--card); color: var(--text); }
+  .nav-item.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  .nav-item svg { width: 15px; height: 15px; flex-shrink: 0; }
+  .nav-item .count { margin-left: auto; font-size: 11px; color: var(--text-faint); background: var(--card-2); padding: 1px 7px; border-radius: 999px; }
+
+  .side-sec {
+    font-size: 11px; letter-spacing: .07em; text-transform: uppercase;
+    color: var(--text-faint); padding: 10px 10px 6px;
+  }
+  .project-list { display: flex; flex-direction: column; gap: 1px; }
+  .project {
+    display: flex; align-items: center; gap: 9px;
+    padding: 7px 10px; border-radius: 8px; cursor: pointer;
+    font-size: 13.5px; color: var(--text-soft); transition: background .15s;
+  }
+  .project:hover { background: var(--card); color: var(--text); }
+  .project .dot { width: 8px; height: 8px; border-radius: 3px; flex-shrink: 0; }
+  .project .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .project .tcount { margin-left: auto; font-size: 11px; color: var(--text-faint); }
+  .sidebar-foot { margin-top: auto; padding: 10px 8px; font-size: 12px; color: var(--text-faint); border-top: 1px solid var(--border-soft); }
+
+  /* ---- Main ---- */
+  .main { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg-2); }
+
+  .topbar {
+    height: 52px; flex-shrink: 0;
+    border-bottom: 1px solid var(--border-soft);
+    display: flex; align-items: center; gap: 14px; padding: 0 20px;
+  }
+  .topbar .crumb { font-size: 13px; color: var(--text-faint); }
+  .topbar .crumb b { color: var(--text-soft); font-weight: 600; }
+  .spacer { flex: 1; }
+  .avatar { width: 28px; height: 28px; border-radius: 50%; background: linear-gradient(135deg, #fbbf24, #f87171); display:flex; align-items:center; justify-content:center; font-size: 12px; font-weight: 700; color:#fff; }
+
+  /* Board toolbar */
+  .board-head { padding: 20px 24px 0; display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+  .board-head h1 { font-size: 22px; font-weight: 800; letter-spacing: -0.01em; }
+  .board-head .sub { font-size: 12.5px; color: var(--text-faint); margin-top: 2px; }
+  .filter {
+    display: flex; align-items: center; gap: 8px;
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 9px; padding: 7px 12px; font-size: 13px; color: var(--text);
+    cursor: pointer; position: relative;
+  }
+  .filter svg { width: 14px; height: 14px; color: var(--text-faint); }
+  .filter .fdot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+  .btn-primary {
+    background: var(--accent); color: #fff; border: none; border-radius: 9px;
+    padding: 8px 16px; font-size: 13.5px; font-weight: 600; cursor: pointer;
+    display: flex; align-items: center; gap: 7px;
+    box-shadow: 0 2px 12px rgba(79,140,255,.25);
+  }
+  .btn-primary svg { width: 14px; height: 14px; }
+
+  /* Legend / linkage hint */
+  .legend { padding: 12px 24px 0; display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--text-faint); }
+  .legend .item { display: flex; align-items: center; gap: 6px; }
+  .pulse { width: 8px; height: 8px; border-radius: 50%; background: var(--blue); box-shadow: 0 0 0 0 rgba(96,165,250,.5); animation: pulse 1.6s infinite; }
+  @keyframes pulse { 70% { box-shadow: 0 0 0 7px rgba(96,165,250,0); } 100% { box-shadow: 0 0 0 0 rgba(96,165,250,0); } }
+  .pulse.amber { background: var(--amber); animation: pulseAmber 1.2s infinite; }
+  @keyframes pulseAmber { 70% { box-shadow: 0 0 0 7px rgba(251,191,36,0); } 100% { box-shadow: 0 0 0 0 rgba(251,191,36,0); } }
+  .live { color: var(--blue); font-weight: 600; }
+
+  /* ---- Board columns ---- */
+  .board {
+    flex: 1; overflow-x: auto; overflow-y: hidden;
+    display: flex; gap: 14px; padding: 16px 24px 20px;
+    align-items: stretch;
+  }
+  .column {
+    width: 268px; flex-shrink: 0;
+    background: var(--card); border: 1px solid var(--border-soft);
+    border-radius: 14px;
+    display: flex; flex-direction: column;
+    max-height: 100%;
+  }
+  .col-head {
+    display: flex; align-items: center; gap: 8px;
+    padding: 12px 14px 8px; flex-shrink: 0;
+  }
+  .col-head .cdot { width: 9px; height: 9px; border-radius: 50%; }
+  .col-head .cname { font-size: 13px; font-weight: 700; }
+  .col-head .ccount {
+    font-size: 11px; color: var(--text-faint); background: var(--card-2);
+    padding: 1px 7px; border-radius: 999px; font-family: var(--mono);
+  }
+  .col-head .cadd { margin-left: auto; cursor: pointer; color: var(--text-faint); font-size: 16px; line-height: 1; padding: 0 4px; border-radius: 5px; }
+  .col-head .cadd:hover { background: var(--card-2); color: var(--text); }
+  .col-body { padding: 4px 10px 12px; overflow-y: auto; display: flex; flex-direction: column; gap: 9px; flex: 1; }
+
+  /* ---- Card ---- */
+  .tcard {
+    background: var(--card-2); border: 1px solid var(--border);
+    border-radius: 11px; padding: 12px 13px; cursor: pointer;
+    transition: border-color .15s, transform .15s, box-shadow .15s;
+    position: relative;
+  }
+  .tcard:hover { border-color: #2e3a55; transform: translateY(-1px); box-shadow: 0 4px 16px rgba(0,0,0,.25); }
+  .tcard .row1 { display: flex; align-items: flex-start; gap: 8px; }
+  .tcard .st { flex-shrink: 0; margin-top: 1px; }
+  .tcard .title { font-size: 13.5px; font-weight: 600; line-height: 1.45; color: var(--text); }
+  .tcard .desc { font-size: 12px; color: var(--text-faint); margin-top: 5px; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .tcard .meta { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 11px; padding: 2px 8px; border-radius: 999px; font-weight: 600;
+  }
+  .chip .cd { width: 7px; height: 7px; border-radius: 50%; }
+  .chip.proj { background: rgba(148,163,184,.1); color: var(--text-soft); }
+  .chip.engine { background: rgba(52,211,153,.1); color: #6ee7b7; }
+  .chip.engine.codex { background: rgba(251,191,36,.1); color: #fcd34d; }
+  .chip.model { background: rgba(148,163,184,.08); color: var(--text-faint); font-family: var(--mono); font-weight: 500; }
+  .tcard .sessionline {
+    display: flex; align-items: center; gap: 6px; margin-top: 9px;
+    font-size: 11.5px; color: var(--blue); font-weight: 600;
+  }
+  .tcard .sessionline .pulse { width: 6px; height: 6px; }
+  .tcard .actions { display: flex; gap: 8px; margin-top: 10px; }
+  .btn-sm {
+    flex: 1; border: none; border-radius: 7px; padding: 6px 0;
+    font-size: 12px; font-weight: 600; cursor: pointer; text-align: center;
+  }
+  .btn-start { background: var(--accent); color: #fff; }
+  .btn-open { background: rgba(96,165,250,.12); color: var(--blue); }
+  .btn-review { background: rgba(167,139,250,.14); color: #c4b5fd; }
+  .btn-done { background: rgba(52,211,153,.14); color: var(--green); }
+  .btn-approve { background: rgba(251,191,36,.15); color: var(--amber); }
+
+  /* empty column */
+  .empty { color: var(--text-faint); font-size: 12px; text-align: center; padding: 22px 0; border: 1px dashed var(--border-soft); border-radius: 9px; }
+
+  /* ============ Detail view ============ */
+  .detail-wrap { flex: 1; overflow-y: auto; padding: 26px 32px; }
+  .detail { max-width: 760px; margin: 0 auto; }
+  .detail .back { display: inline-flex; align-items: center; gap: 7px; color: var(--text-soft); font-size: 13px; cursor: pointer; margin-bottom: 18px; }
+  .detail .back:hover { color: var(--text); }
+  .detail .back svg { width: 14px; height: 14px; }
+  .d-title { display: flex; align-items: flex-start; gap: 12px; }
+  .d-title h2 { font-size: 20px; font-weight: 800; letter-spacing: -0.01em; line-height: 1.4; }
+  .d-id { font-family: var(--mono); font-size: 12px; color: var(--text-faint); margin-top: 5px; }
+  .d-actions { margin-left: auto; display: flex; gap: 9px; }
+  .btn-mark-done { background: rgba(52,211,153,.14); color: var(--green); border: 1px solid rgba(52,211,153,.25); border-radius: 9px; padding: 8px 15px; font-size: 13px; font-weight: 600; cursor: pointer; }
+  .btn-danger { background: rgba(248,113,113,.1); color: var(--red); border: 1px solid rgba(248,113,113,.2); border-radius: 9px; padding: 8px 13px; font-size: 13px; cursor: pointer; }
+  .d-grid { display: grid; grid-template-columns: 1fr 300px; gap: 22px; margin-top: 22px; }
+  @media (max-width: 900px) { .d-grid { grid-template-columns: 1fr; } }
+
+  .d-desc {
+    background: var(--card); border: 1px solid var(--border-soft); border-radius: 12px;
+    padding: 18px; font-size: 14px; color: var(--text-soft); line-height: 1.7; min-height: 160px;
+  }
+  .d-desc .hint { font-size: 12px; color: var(--text-faint); }
+
+  .d-side { display: flex; flex-direction: column; gap: 12px; }
+  .panel { background: var(--card); border: 1px solid var(--border-soft); border-radius: 12px; padding: 15px; }
+  .panel h4 { font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--text-faint); margin-bottom: 12px; }
+  .field { margin-bottom: 13px; }
+  .field:last-child { margin-bottom: 0; }
+  .field .flabel { font-size: 11px; color: var(--text-faint); margin-bottom: 5px; }
+  .field .fval { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+  .status-picker {
+    display: flex; align-items: center; gap: 8px;
+    background: var(--card-2); border: 1px solid var(--border); border-radius: 8px;
+    padding: 7px 11px; font-size: 13px; cursor: pointer; font-weight: 600;
+  }
+  .status-picker .caret { margin-left: auto; font-size: 10px; color: var(--text-faint); }
+  .link-btn { display: flex; align-items: center; gap: 7px; color: var(--blue); font-size: 13px; font-weight: 600; background: rgba(96,165,250,.1); border: 1px solid rgba(96,165,250,.2); border-radius: 8px; padding: 7px 11px; cursor: pointer; width: 100%; }
+  .link-btn svg { width: 14px; height: 14px; }
+  .engine-tag { font-size: 12px; padding: 2px 9px; border-radius: 999px; font-weight: 600; }
+  .engine-tag.claude { background: rgba(52,211,153,.12); color: #6ee7b7; }
+  .engine-tag.codex { background: rgba(251,191,36,.12); color: #fcd34d; }
+
+  /* status icon svg */
+  .st { color: var(--gray); }
+  .st.todo { color: var(--amber); }
+  .st.in_progress { color: var(--blue); }
+  .st.in_review { color: var(--purple); }
+  .st.done { color: var(--green); }
+
+  /* view switch */
+  .view-switch { display: flex; gap: 4px; background: var(--card); border: 1px solid var(--border); border-radius: 9px; padding: 3px; }
+  .view-switch button { border: none; background: transparent; color: var(--text-faint); font-size: 12.5px; padding: 5px 13px; border-radius: 7px; cursor: pointer; font-weight: 600; }
+  .view-switch button.active { background: var(--card-2); color: var(--text); }
+
+  .toast {
+    position: fixed; bottom: 26px; left: 50%; transform: translateX(-50%);
+    background: var(--card-2); border: 1px solid var(--border); border-radius: 10px;
+    padding: 11px 18px; font-size: 13px; box-shadow: 0 8px 30px rgba(0,0,0,.4);
+    display: none; align-items: center; gap: 9px; z-index: 99; color: var(--text);
+  }
+  .toast.show { display: flex; animation: fadein .2s ease; }
+  .toast .ok { color: var(--green); font-weight: 700; }
+  @keyframes fadein { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ============ Sidebar ============ -->
+  <aside class="sidebar">
+    <div class="logo"><div class="mark">L</div><span>Lovdex</span></div>
+
+    <nav class="nav">
+      <div class="nav-item active">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
+        任务面板 <span class="count">10</span>
+      </div>
+      <div class="nav-item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+        会话
+      </div>
+      <div class="nav-item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7v10l6 3 6-3V7l-6-3-6 3z"/><path d="M9 4v16"/><path d="M15 7l6 3v10l-6-3"/><path d="M15 7V4"/></svg>
+        文件
+      </div>
+      <div class="nav-item">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1"/></svg>
+        Git
+      </div>
+    </nav>
+
+    <div class="side-sec">项目</div>
+    <div class="project-list">
+      <div class="project"><span class="dot" style="background:#4f8cff"></span><span class="name">lovdex-backend</span><span class="tcount">4</span></div>
+      <div class="project"><span class="dot" style="background:#a78bfa"></span><span class="name">lovdex-cli</span><span class="tcount">3</span></div>
+      <div class="project"><span class="dot" style="background:#34d399"></span><span class="name">multica</span><span class="tcount">2</span></div>
+      <div class="project"><span class="dot" style="background:#f87171"></span><span class="name">internal-tools</span><span class="tcount">0</span></div>
+    </div>
+
+    <div class="sidebar-foot">
+      <div style="display:flex;align-items:center;gap:8px"><span class="pulse"></span> Claude 会话运行中 · 1</div>
+    </div>
+  </aside>
+
+  <!-- ============ Main ============ -->
+  <main class="main">
+    <div class="topbar">
+      <div class="crumb"><b>工作区</b> / 任务面板</div>
+      <div class="spacer"></div>
+      <div class="view-switch">
+        <button id="sw-board" class="active" onclick="showView('board')">看板</button>
+        <button id="sw-detail" onclick="showView('detail')">任务详情</button>
+      </div>
+      <div class="avatar">黄</div>
+    </div>
+
+    <!-- ====== BOARD VIEW ====== -->
+    <div id="view-board" style="display:flex;flex-direction:column;flex:1;min-height:0">
+      <div class="board-head">
+        <div>
+          <h1>任务面板</h1>
+          <div class="sub">计划与执行连成一张图 · 状态随会话自动推进</div>
+        </div>
+        <div class="filter"><span class="fdot"></span> 全部项目 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg></div>
+        <div class="spacer"></div>
+        <button class="btn-primary" onclick="newTask()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>
+          新建任务
+        </button>
+      </div>
+
+      <div class="legend">
+        <div class="item"><span class="pulse"></span> <span class="live">引擎自动推进</span></div>
+        <div class="item"><span class="pulse amber"></span> <span style="color:var(--amber);font-weight:600">等你批准</span></div>
+        <div class="item">○ 手动操作</div>
+        <div class="item">点卡片 → 查看任务详情</div>
+      </div>
+
+      <div class="board" id="board"></div>
+    </div>
+
+    <!-- ====== DETAIL VIEW ====== -->
+    <div id="view-detail" class="detail-wrap" style="display:none">
+      <div class="detail">
+        <div class="back" onclick="showView('board')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+          返回任务面板
+        </div>
+        <div class="d-title">
+          <span id="d-icon" class="st todo"></span>
+          <div>
+            <h2 id="d-title">任务标题</h2>
+            <div class="d-id" id="d-id">lovdex-backend · #2</div>
+          </div>
+          <div class="d-actions">
+            <button class="btn-mark-done" id="d-done" onclick="markDone()">✓ 标记完成</button>
+            <button class="btn-danger" onclick="delTask()">删除</button>
+          </div>
+        </div>
+        <div class="d-grid">
+          <div>
+            <div class="d-desc" id="d-desc"></div>
+          </div>
+          <div class="d-side">
+            <div class="panel">
+              <h4>属性</h4>
+              <div class="field">
+                <div class="flabel">状态</div>
+                <div class="status-picker" id="d-status" onclick="cycleStatus()">…<span class="caret">▾</span></div>
+              </div>
+              <div class="field">
+                <div class="flabel">所属项目</div>
+                <div class="fval"><span id="d-proj-dot" class="cd" style="width:8px;height:8px;border-radius:3px"></span><span id="d-proj">project</span></div>
+              </div>
+              <div class="field">
+                <div class="flabel">执行引擎</div>
+                <div class="fval"><span class="engine-tag" id="d-engine">Claude</span><span id="d-model" style="font-family:var(--mono);font-size:12px;color:var(--text-faint)">Sonnet 4.6</span></div>
+              </div>
+              <div class="field">
+                <div class="flabel">创建于</div>
+                <div class="fval" id="d-created">—</div>
+              </div>
+            </div>
+            <div class="panel">
+              <h4>执行</h4>
+              <button class="link-btn" id="d-session" onclick="openSession()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                <span id="d-session-label">打开会话</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div class="toast" id="toast"><span class="ok">✓</span><span id="toast-msg"></span></div>
+
+<script>
+/* ---------- sample data ---------- */
+const STATUS = {
+  backlog:     { label: '积压',      color: '#94a3b8', rank: 0 },
+  todo:        { label: '待做',      color: '#fbbf24', rank: 1 },
+  in_progress: { label: '进行中',    color: '#60a5fa', rank: 2 },
+  in_review:   { label: '评审中',    color: '#a78bfa', rank: 3 },
+  done:        { label: '已完成',    color: '#34d399', rank: 4 },
+};
+const PROJECTS = { 'lovdex-backend': '#4f8cff', 'lovdex-cli': '#a78bfa', 'multica': '#34d399', 'internal-tools': '#f87171' };
+
+let tasks = [
+  { id: 1,  project: 'lovdex-backend', engine: 'claude', model: 'Sonnet 4.6', status: 'in_progress', title: '修复 WebSocket 重连抖动', desc: '断网重连时偶发重复订阅，导致 chat.send 双写。需要幂等订阅 + 重连后重放 lastSeq。', session: { state: 'running',  label: 'Claude 会话运行中' }, created: '2026-08-07 09:12' },
+  { id: 2,  project: 'lovdex-cli',     engine: 'codex',  model: 'GPT-5.1',    status: 'in_review',   title: '迁移 Vite 5 → 7', desc: '升级构建链并处理 Node 22 的 ESM 兼容问题，产出迁移后构建产物对比。', session: { state: 'review',  label: '会话已交付 · 待你验收' }, created: '2026-08-06 18:40' },
+  { id: 3,  project: 'lovdex-backend', engine: 'claude', model: 'Opus 4.8',    status: 'todo',        title: '重构 chat.send 鉴权中间件', desc: '把 API key 校验从路由内联逻辑抽成统一中间件，补齐 401 语义。', session: null, created: '2026-08-07 11:03' },
+  { id: 4,  project: 'lovdex-cli',     engine: 'claude', model: 'Sonnet 4.6',  status: 'todo',        title: '为看板列加虚拟滚动', desc: '单列超过 30 张卡时启用窗口化渲染，避免长列卡顿。', session: null, created: '2026-08-07 10:20' },
+  { id: 5,  project: 'multica',        engine: 'codex',  model: 'o4-mini',    status: 'backlog',     title: '调研 PostgreSQL 分页方案', desc: 'keyset vs offset 对比，给出 issue 列表的推荐方案。', session: null, created: '2026-08-06 15:10' },
+  { id: 6,  project: 'lovdex-backend', engine: 'claude', model: 'Haiku 4.5',   status: 'backlog',     title: '统一 API 错误码规范', desc: '整理 AppError 的 code 命名，产出对照表。', session: null, created: '2026-08-05 17:44' },
+  { id: 7,  project: 'lovdex-cli',     engine: 'codex',  model: 'GPT-5.1',    status: 'in_review',   title: '补单测覆盖率上报', desc: '接入覆盖率汇总脚本，CI 失败时在 PR 评论里附报告链接。', session: { state: 'review', label: '会话已交付 · 待你验收' }, created: '2026-08-06 20:15' },
+  { id: 8,  project: 'multica',        engine: 'claude', model: 'Sonnet 4.6', status: 'done',        title: '修登录页 token 过期跳转', desc: '401 后静默刷新失败时跳回 /login，避免白屏。', session: { state: 'done', label: '会话已完成' }, created: '2026-08-04 14:30' },
+  { id: 9,  project: 'lovdex-cli',     engine: 'claude', model: 'Opus 4.8',   status: 'done',        title: '优化侧边栏首屏渲染', desc: '项目列表懒加载 + 骨架屏，首帧减少 40%。', session: { state: 'done', label: '会话已完成' }, created: '2026-08-03 09:55' },
+  { id: 10, project: 'lovdex-backend', engine: 'claude', model: 'Sonnet 4.6', status: 'in_progress', title: '把权限批准接到任务面板', desc: '会话发出 permission.required 时，任务卡片实时亮出"等你批准"，点去批准直达会话审批弹窗。', session: { state: 'approval', label: '卡在权限请求' }, created: '2026-08-07 12:05' },
+];
+
+const ORDER = ['backlog', 'todo', 'in_progress', 'in_review', 'done'];
+let current = null;
+
+/* ---------- status icon (progress ring) ---------- */
+function statusIcon(status, size = 15) {
+  const c = STATUS[status].color;
+  const cx = 7, cy = 7, r = 6;
+  let inner = '';
+  if (status === 'backlog') {
+    let dots = '';
+    for (let i = 0; i < 16; i++) { const a = (i / 16) * Math.PI * 2 - Math.PI / 2; dots += `<circle cx="${(cx + r * Math.cos(a)).toFixed(2)}" cy="${(cy + r * Math.sin(a)).toFixed(2)}" r="0.55" fill="${c}"/>`; }
+    inner = dots;
+  } else {
+    const prog = status === 'todo' ? 0 : status === 'in_progress' ? 0.5 : status === 'in_review' ? 0.75 : 1;
+    let fill = '';
+    if (prog === 1) fill = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${c}"/>`;
+    else if (prog > 0) {
+      const endX = (cx + r * Math.sin(2 * Math.PI * prog)).toFixed(2);
+      const endY = (cy - r * Math.cos(2 * Math.PI * prog)).toFixed(2);
+      const large = prog > 0.5 ? 1 : 0;
+      fill = `<path d="M${cx},${cy} L${cx},${cy - r} A${r},${r} 0 ${large},1 ${endX},${endY} Z" fill="${c}"/>`;
+    }
+    inner = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${c}" stroke-width="1.4" stroke-dasharray="3.14 0" stroke-dashoffset="-0.7"/>` + fill;
+    if (status === 'done') inner += `<path d="M4.6 7.1 L6.2 8.7 L9.5 5.2" fill="none" stroke="#0b0e14" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>`;
+    if (status === 'in_review') inner += `<path d="M7 4.6 V6.6 M7 8 V9.2" stroke="#0b0e14" stroke-width="1.1" stroke-linecap="round"/>`;
+  }
+  return `<svg class="st ${status}" width="${size}" height="${size}" viewBox="0 0 14 14" style="color:${c}">${inner}</svg>`;
+}
+
+/* ---------- board ---------- */
+function renderBoard() {
+  const board = document.getElementById('board');
+  board.innerHTML = '';
+  ORDER.forEach(st => {
+    const items = tasks.filter(t => t.status === st);
+    const col = document.createElement('div');
+    col.className = 'column';
+    col.innerHTML = `
+      <div class="col-head">
+        <span class="cdot" style="background:${STATUS[st].color}"></span>
+        <span class="cname">${STATUS[st].label}</span>
+        <span class="ccount">${items.length}</span>
+        <span class="cadd" title="新建任务" onclick="newTask('${st}')">＋</span>
+      </div>
+      <div class="col-body">${items.length ? items.map(card).join('') : `<div class="empty">暂无任务</div>`}</div>`;
+    board.appendChild(col);
+  });
+}
+
+function card(t) {
+  const meta = `<div class="meta">
+      <span class="chip proj"><span class="cd" style="background:${PROJECTS[t.project]}"></span>${t.project}</span>
+      <span class="chip engine ${t.engine === 'codex' ? 'codex' : ''}">${t.engine === 'claude' ? '◈ Claude' : '◈ Codex'}</span>
+      <span class="chip model">${t.model}</span>
+    </div>`;
+
+  let sessionLine = '';
+  let actions = '';
+  if (t.status === 'in_progress' && t.session) {
+    if (t.session.state === 'approval') {
+      sessionLine = `<div class="sessionline" style="color:var(--amber)"><span class="pulse amber"></span>${t.session.label} · 等你批准</div>`;
+      actions = `<div class="actions"><button class="btn-sm btn-approve" onclick="approve(${t.id})">去批准</button><button class="btn-sm btn-open" onclick="openSession(${t.id})">打开会话</button></div>`;
+    } else {
+      sessionLine = `<div class="sessionline"><span class="pulse"></span>${t.session.label}</div>`;
+      actions = `<div class="actions"><button class="btn-sm btn-open" onclick="openSession(${t.id})">打开会话</button></div>`;
+    }
+  } else if (t.status === 'in_review' && t.session) {
+    sessionLine = `<div class="sessionline" style="color:#c4b5fd"><span style="width:6px;height:6px;border-radius:50%;background:#a78bfa"></span>${t.session.label}</div>`;
+    actions = `<div class="actions"><button class="btn-sm btn-review" onclick="openSession(${t.id})">打开会话</button><button class="btn-sm btn-done" onclick="markDone(${t.id})">标记完成</button></div>`;
+  } else if (t.status === 'todo') {
+    actions = `<div class="actions"><button class="btn-sm btn-start" onclick="startExec(${t.id})">▶ 开始执行</button></div>`;
+  }
+
+  return `<div class="tcard" onclick="openDetail(${t.id})">
+      <div class="row1">${statusIcon(t.status)}<div class="title">${t.title}</div></div>
+      ${t.desc ? `<div class="desc">${t.desc}</div>` : ''}
+      ${meta}
+      ${sessionLine}
+      ${actions}
+    </div>`;
+}
+
+/* ---------- interactions ---------- */
+function showView(name) {
+  document.getElementById('view-board').style.display = name === 'board' ? 'flex' : 'none';
+  document.getElementById('view-detail').style.display = name === 'detail' ? 'block' : 'none';
+  document.getElementById('sw-board').classList.toggle('active', name === 'board');
+  document.getElementById('sw-detail').classList.toggle('active', name === 'detail');
+  if (name === 'board') renderBoard();
+}
+
+function openDetail(id) {
+  const t = tasks.find(x => x.id === id); if (!t) return;
+  current = t;
+  document.getElementById('d-icon').className = `st ${t.status}`;
+  document.getElementById('d-icon').innerHTML = '';
+  document.getElementById('d-icon').outerHTML = statusIcon(t.status, 22).replace('class="st ', 'id="d-icon" class="st ');
+  document.getElementById('d-title').textContent = t.title;
+  document.getElementById('d-id').textContent = `${t.project} · #${t.id}`;
+  document.getElementById('d-desc').innerHTML = t.desc ? t.desc + '<div class="hint" style="margin-top:14px">— 任务详情页 · 效果图 —</div>' : '<div class="hint">暂无描述 · 点编辑可填写</div>';
+  document.getElementById('d-proj-dot').style.background = PROJECTS[t.project];
+  document.getElementById('d-proj').textContent = t.project;
+  const eng = document.getElementById('d-engine');
+  eng.textContent = t.engine === 'claude' ? 'Claude' : 'Codex';
+  eng.className = `engine-tag ${t.engine}`;
+  document.getElementById('d-model').textContent = t.model;
+  document.getElementById('d-created').textContent = t.created;
+  const st = document.getElementById('d-status');
+  st.innerHTML = `${statusIcon(t.status, 14)} ${STATUS[t.status].label}<span class="caret">▾</span>`;
+  const ses = document.getElementById('d-session-label');
+  const sesBtn = document.getElementById('d-session');
+  if (t.session && t.session.state === 'approval') {
+    ses.textContent = '去批准 · 权限请求';
+    sesBtn.style.background = 'rgba(251,191,36,.12)';
+    sesBtn.style.color = '#fcd34d';
+  } else {
+    sesBtn.style.background = '';
+    sesBtn.style.color = '';
+    ses.textContent = t.session ? t.session.label : '尚未关联会话 · 开始执行后生成';
+  }
+  document.getElementById('d-done').style.display = t.status === 'done' ? 'none' : 'inline-block';
+  showView('detail');
+}
+
+function cycleStatus() {
+  if (!current) return;
+  const idx = ORDER.indexOf(current.status);
+  current.status = ORDER[(idx + 1) % ORDER.length];
+  openDetail(current.id);
+  toast(`状态已改为「${STATUS[current.status].label}」`);
+}
+
+function startExec(id) {
+  const t = tasks.find(x => x.id === id); if (!t) return;
+  t.status = 'in_progress';
+  t.session = { state: 'running', label: 'Claude 会话运行中' };
+  renderBoard();
+  toast(`已创建会话并注入任务上下文 → 跳转到会话页（效果图示意）`);
+}
+function openSession(id) {
+  const t = tasks.find(x => x.id === id || (current && x.id === current.id));
+  toast(`跳转到会话页 /session/${t ? t.id : '…'}（效果图示意）`);
+}
+function approve(id) {
+  const t = tasks.find(x => x.id === id); if (!t) return;
+  toast(`跳转到会话页，审批弹窗已就位（效果图示意）`);
+}
+function markDone(id) {
+  const t = tasks.find(x => x.id === id || (current && x.id === current.id));
+  if (!t) return;
+  t.status = 'done';
+  if (t.session) t.session = { state: 'done', label: '会话已完成' };
+  renderBoard();
+  toast(`任务已标记完成 → 移至「已完成」（评审中 → 已完成）`);
+}
+function delTask() { if (!current) return; toast('已删除任务（效果图示意）'); showView('board'); }
+function newTask(st = 'backlog') { toast('打开新建任务表单：选择项目 + 执行引擎（效果图示意）'); }
+
+let toastTimer;
+function toast(msg) {
+  const el = document.getElementById('toast');
+  document.getElementById('toast-msg').textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 2600);
+}
+
+renderBoard();
+</script>
+</body>
+</html>
