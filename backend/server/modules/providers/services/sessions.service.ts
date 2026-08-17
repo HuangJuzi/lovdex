@@ -370,7 +370,13 @@ export const sessionsService = {
       jsonl_path: session.jsonl_path,
       custom_name: summary,
     });
-    sessionRenameHook?.(sessionId, summary);
+    try {
+      sessionRenameHook?.(sessionId, summary);
+    } catch (err) {
+      // A hook failure must not turn a successfully-persisted rename into a
+      // false 500 for the user — the rename is already on disk at this point.
+      console.error('[sessions] rename hook failed:', sessionId, err);
+    }
     return { sessionId, summary };
   },
 };

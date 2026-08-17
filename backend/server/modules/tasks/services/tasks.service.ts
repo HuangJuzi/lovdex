@@ -349,7 +349,14 @@ export function createTasksService(
         const trimmedTitle = typeof rest.title === 'string' ? rest.title.trim() : '';
         const previousTitle = typeof current.title === 'string' ? current.title.trim() : '';
         if (trimmedTitle && previousTitle && trimmedTitle !== previousTitle && row.session_id) {
-          opts.deps?.sessionsDb?.updateSessionCustomName(row.session_id, trimmedTitle);
+          try {
+            opts.deps?.sessionsDb?.updateSessionCustomName(row.session_id, trimmedTitle);
+          } catch (err) {
+            // Mirror backfillSessionNames' per-row guard: a session-name write
+            // failure must not fail the whole task update — the task title is
+            // already committed. Log and continue.
+            console.error(`[tasks] sync session name failed for session ${row.session_id}`, err);
+          }
         }
         emit({ kind: 'task_upserted', task: row, actor: 'user' });
       }

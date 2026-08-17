@@ -261,16 +261,9 @@ const tasksService = createTasksService(tasksDb, {
 setTaskLinkage(tasksService);
 
 // Session rename → linked task title sync (bidirectional name consistency).
-// Wrapped in try/catch so a hook failure (e.g. a DB write error) never turns a
-// successfully-persisted rename into a fake 500 for the user — the rename has
-// already succeeded by the time the hook runs.
-setSessionRenameHook((sessionId, name) => {
-    try {
-        tasksService.syncTaskTitleFromSession(sessionId, name);
-    } catch (err) {
-        console.error('[tasks] sync task title from session rename failed:', sessionId, err);
-    }
-});
+// The hook fires only after the rename persisted; sync failures are caught at
+// the invocation site (sessions.service renameSessionById).
+setSessionRenameHook((sessionId, name) => tasksService.syncTaskTitleFromSession(sessionId, name));
 
 // On startup, mark any in_progress task whose linked session is no longer
 // running as failed. A run that died without a terminal session_status (backend
