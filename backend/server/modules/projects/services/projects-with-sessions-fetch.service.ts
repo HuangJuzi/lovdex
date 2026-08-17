@@ -203,12 +203,13 @@ export async function getProjectsWithSessions(
     await sessionSynchronizerService.synchronizeSessions();
   }
 
-  const projectRows = projectsDb.getProjectPaths() as Array<{
+  const projectRows = (projectsDb.getProjectPaths() as Array<{
     project_id: string;
     project_path: string;
     custom_project_name?: string | null;
     isStarred?: number;
-  }>;
+    is_explicit?: number;
+  }>).filter((row) => Boolean(row.is_explicit));
   const totalProjects = projectRows.length;
   const projects: ProjectListItem[] = [];
   let processedProjects = 0;
@@ -299,12 +300,13 @@ export async function getArchivedProjectsWithSessions(
     await sessionSynchronizerService.synchronizeSessions();
   }
 
-  const projectRows = projectsDb.getArchivedProjectPaths() as Array<{
+  const projectRows = (projectsDb.getArchivedProjectPaths() as Array<{
     project_id: string;
     project_path: string;
     custom_project_name?: string | null;
     isStarred?: number;
-  }>;
+    is_explicit?: number;
+  }>).filter((row) => Boolean(row.is_explicit));
 
   const archivedProjects: ArchivedProjectListItem[] = [];
 
