@@ -36,6 +36,7 @@ import { buildOperatorTools } from './modules/operators/operator.tools.js';
 import { getOperatorConfig } from './modules/operators/operator.config.js';
 import { isTaskStatus } from './modules/database/repositories/tasks.db.js';
 import { z } from 'zod';
+import { appConfig } from './modules/config/config.js';
 
 const activeSessions = new Map();
 const pendingToolApprovals = new Map();
@@ -242,14 +243,22 @@ function mapCliOptionsToSDK(options = {}) {
     sdkOptions.resume = sessionId;
   }
 
-  // Workflow feature toggles (see docs/superpowers/specs/2026-08-05-workflow-adaptation-design.md §5).
-  // Unset → SDK default (enabled). Only flip when the env explicitly says 'false'.
-  if (process.env.WORKFLOWS_ENABLED !== undefined) {
-    sdkOptions.enableWorkflows = process.env.WORKFLOWS_ENABLED !== 'false';
-  }
-  if (process.env.ULTRACODE_KEYWORD_TRIGGER !== undefined) {
-    sdkOptions.workflowKeywordTriggerEnabled = process.env.ULTRACODE_KEYWORD_TRIGGER !== 'false';
-  }
+  // Workflow feature toggles — now sourced from app.config (server.workflowsEnabled /
+  // server.ultracodeKeywordTrigger), replacing the WORKFLOWS_ENABLED /
+  // ULTRACODE_KEYWORD_TRIGGER env vars (see merge-config design).
+  // Semantics vs the old env logic:
+  //   - workflowsEnabled default true → we explicitly enable. Old env unset left the
+  //     option unset (SDK default = enabled); old env 'true' explicitly enabled. Both
+  //     now map to the same explicit `true`, so the default behavior is unchanged.
+  //     `?? true` guards a hand-edited `null` in app.config.json.
+  //   - ultracodeKeywordTrigger default '' → disabled until a trigger keyword is
+  //     configured. Old env unset fell through to the SDK's own default of enabled
+  //     ("Default: true"); gating it behind a configured keyword ('' → false) makes
+  //     the ultracode trigger explicitly opt-in at the platform level, which is the
+  //     intended design change.
+  const cfg = appConfig().get();
+  sdkOptions.enableWorkflows = cfg.server.workflowsEnabled ?? true;
+  sdkOptions.workflowKeywordTriggerEnabled = (cfg.server.ultracodeKeywordTrigger ?? '') !== '';
 
   return sdkOptions;
 }
@@ -360,6 +369,11 @@ function extractTokenBudget(sdkMessage) {
     return null;
   }
 
+  // Context window budget now comes from app.config (server.contextWindow, default
+  // null). `null ?? 160000` yields 160000 — equivalent to the old
+  // `parseInt(process.env.CONTEXT_WINDOW, 10) || 160000` for the unset/default case.
+  const contextWindow = appConfig().get().server.contextWindow ?? 160000;
+
   const messageUsage = sdkMessage.message?.usage || sdkMessage.usage;
   if (messageUsage && typeof messageUsage === 'object') {
     const directInputTokens = readNumber(messageUsage.input_tokens ?? messageUsage.inputTokens);
@@ -369,7 +383,6 @@ function extractTokenBudget(sdkMessage) {
     const inputTokens = directInputTokens + cacheTokens;
     const outputTokens = readNumber(messageUsage.output_tokens ?? messageUsage.outputTokens);
     const totalUsed = inputTokens + outputTokens;
-    const contextWindow = parseInt(process.env.CONTEXT_WINDOW, 10) || 160000;
 
     return {
       used: totalUsed,
@@ -401,7 +414,6 @@ function extractTokenBudget(sdkMessage) {
   const inputTokens = readNumber(modelData.cumulativeInputTokens ?? modelData.inputTokens);
   const outputTokens = readNumber(modelData.cumulativeOutputTokens ?? modelData.outputTokens);
   const totalUsed = inputTokens + outputTokens;
-  const contextWindow = parseInt(process.env.CONTEXT_WINDOW, 10) || 160000;
 
   return {
     used: totalUsed,
