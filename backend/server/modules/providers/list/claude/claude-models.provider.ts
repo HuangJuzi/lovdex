@@ -37,7 +37,8 @@ const envHaiku = resolveEnvModel('ANTHROPIC_DEFAULT_HAIKU_MODEL');
 // /v1/models endpoint expose it. Let the operator declare which model ids
 // carry a 1M context via app.config providers.claude.oneMillionModels
 // (comma-separated); matching options get a `[1m]` tag in their label /
-// description. Read fresh per call so config edits apply without a restart.
+// description. The set is read when this module's model options are built
+// (module import), so edits to oneMillionModels apply on restart.
 function loadOneMillionModels(): Set<string> {
   return new Set(
     (appConfig().get().providers.claude.oneMillionModels ?? '')

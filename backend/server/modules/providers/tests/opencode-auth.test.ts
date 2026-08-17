@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
+import { mkdtempSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -52,11 +53,27 @@ const patchEnvCredentials = (value: string | undefined): (() => void) => {
   };
 };
 
+/**
+ * Points LOVDEX_DATA_DIR at an ephemeral temp dir so the process-wide
+ * appConfig() singleton (created on first call from a provider under test)
+ * never reads the operator's real ~/.lovdex/data/app.config.json. Returns a
+ * restore fn for the finally block.
+ */
+const isolateDataDir = (): (() => void) => {
+  const saved = process.env.LOVDEX_DATA_DIR;
+  process.env.LOVDEX_DATA_DIR = mkdtempSync(path.join(os.tmpdir(), 'lovdex-auth-'));
+  return () => {
+    if (saved === undefined) delete process.env.LOVDEX_DATA_DIR;
+    else process.env.LOVDEX_DATA_DIR = saved;
+  };
+};
+
 test('opencode auth reports installed+authenticated when auth.json has providers', async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'opencode-auth-'));
   const authDir = path.join(tempRoot, '.local', 'share', 'opencode');
   await fs.mkdir(authDir, { recursive: true });
   await fs.writeFile(path.join(authDir, 'auth.json'), JSON.stringify({ sophnet: { type: 'api', key: 'sk-x' } }), 'utf8');
+  const restoreDataDir = isolateDataDir();
   const restore = patchHomeDir(tempRoot);
   const restoreEnv = patchEnvCredentials(undefined);
   try {
@@ -69,11 +86,13 @@ test('opencode auth reports installed+authenticated when auth.json has providers
   } finally {
     restoreEnv();
     restore();
+    restoreDataDir();
   }
 });
 
 test('opencode auth reports not authenticated when auth.json is missing and no env credentials', async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'opencode-auth-'));
+  const restoreDataDir = isolateDataDir();
   const restore = patchHomeDir(tempRoot);
   const restoreEnv = patchEnvCredentials(undefined);
   try {
@@ -85,11 +104,13 @@ test('opencode auth reports not authenticated when auth.json is missing and no e
   } finally {
     restoreEnv();
     restore();
+    restoreDataDir();
   }
 });
 
 test('opencode auth authenticates via a provider API-key env var when auth.json is missing', async () => {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'opencode-auth-'));
+  const restoreDataDir = isolateDataDir();
   const restore = patchHomeDir(tempRoot);
   const restoreEnv = patchEnvCredentials('sk-test-env');
   try {
@@ -103,5 +124,6 @@ test('opencode auth authenticates via a provider API-key env var when auth.json 
   } finally {
     restoreEnv();
     restore();
+    restoreDataDir();
   }
 });

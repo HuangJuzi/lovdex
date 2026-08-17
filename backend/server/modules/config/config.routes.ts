@@ -1,12 +1,15 @@
 import { Router } from 'express';
 
 import type { AppConfigApi } from './config.js';
+import { syncProviderEnv } from './env-sync.js';
 
 /**
  * Config HTTP API.
  *   GET /api/config — masked config, ANONYMOUS (login page needs it).
  *   PUT /api/config — partial update, requires JWT auth (authenticateToken
- *   middleware applied at mount time in server/index.js).
+ *   middleware applied at mount time in server/index.js). Runtime writes
+ *   re-sync provider env so save takes effect without a restart for new
+ *   sessions.
  */
 
 /** GET / — masked view of the whole config. */
@@ -18,7 +21,12 @@ export function buildConfigReadRouter(deps: { cfg: AppConfigApi }): Router {
   return router;
 }
 
-/** PUT / — deep-merge a partial update, persist atomically, return masked. */
+/**
+ * PUT / — deep-merge a partial update, persist atomically, then re-sync
+ * provider env so freshly-saved credentials are immediately available to
+ * subsequently-spawned SDK child processes (they snapshot env at spawn —
+ * save takes effect for new sessions without a restart), return masked.
+ */
 export function buildConfigWriteRouter(deps: { cfg: AppConfigApi }): Router {
   const router = Router();
   router.put('/', (req, res) => {
@@ -27,7 +35,7 @@ export function buildConfigWriteRouter(deps: { cfg: AppConfigApi }): Router {
       return res.status(400).json({ error: 'config body must be a JSON object' });
     }
     try {
-      deps.cfg.update(stripMaskedPlaceholders(body));
+      syncProviderEnv(deps.cfg.update(stripMaskedPlaceholders(body)));
       res.json(deps.cfg.getMasked());
     } catch (err) {
       // update() failures are persist/IO faults (EACCES, disk full, corrupt

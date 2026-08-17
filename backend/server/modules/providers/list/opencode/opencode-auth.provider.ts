@@ -55,9 +55,21 @@ export class OpenCodeProviderAuth implements IProviderAuth {
   }
 
   /**
-   * Reads OpenCode's auth store or falls back to provider API key environment variables.
+   * Checks credentials by precedence: app.config apiKeys, then OpenCode's
+   * auth store (~/.local/share/opencode/auth.json), then provider API key
+   * environment variables.
    */
   private async checkCredentials(): Promise<OpenCodeCredentialsStatus> {
+    // app.config apiKeys take precedence over host env vars and a local
+    // auth.json (matches claude/qoder, where config wins over a stale or
+    // outdated credential store). Checked first so a config credential
+    // overrides credentials left behind in ~/.local/share/opencode/auth.json.
+    const apiKeys = appConfig().get().providers.opencode.apiKeys ?? {};
+    const configuredKey = OPENCODE_ENV_CREDENTIAL_KEYS.find((k) => apiKeys[k]?.trim());
+    if (configuredKey) {
+      return { authenticated: true, email: configuredKey, method: 'config' };
+    }
+
     try {
       const authPath = path.join(os.homedir(), '.local', 'share', 'opencode', 'auth.json');
       const content = await readFile(authPath, 'utf8');
@@ -90,13 +102,6 @@ export class OpenCodeProviderAuth implements IProviderAuth {
           error: error instanceof Error ? error.message : 'Failed to read OpenCode auth',
         };
       }
-    }
-
-    // app.config apiKeys take precedence over auth.json / host env vars.
-    const apiKeys = appConfig().get().providers.opencode.apiKeys ?? {};
-    const configuredKey = OPENCODE_ENV_CREDENTIAL_KEYS.find((k) => apiKeys[k]?.trim());
-    if (configuredKey) {
-      return { authenticated: true, email: configuredKey, method: 'config' };
     }
 
     const envCredential = OPENCODE_ENV_CREDENTIAL_KEYS.find((key) => process.env[key]?.trim());

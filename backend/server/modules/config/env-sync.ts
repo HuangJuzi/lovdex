@@ -16,26 +16,28 @@ export function syncProviderEnv(cfg: AppConfig): void {
   // opencode — a per-env credential map that can reference keys shared with
   // other providers (e.g. ANTHROPIC_API_KEY). Process it FIRST so the
   // dedicated per-provider fields below (claude.apiKey, qoder.PAT, ...) always
-  // take precedence on a key collision.
+  // take precedence on a key collision. Values are trimmed so whitespace-only
+  // entries don't become junk env keys the auth logic (which trims) won't
+  // believe in.
   for (const [key, value] of Object.entries(providers.opencode.apiKeys)) {
-    if (value) process.env[key] = value;
+    if (value?.trim()) process.env[key] = value.trim();
   }
 
   // claude
-  if (providers.claude.apiKey) process.env.ANTHROPIC_API_KEY = providers.claude.apiKey;
-  if (providers.claude.authToken) process.env.ANTHROPIC_AUTH_TOKEN = providers.claude.authToken;
-  if (providers.claude.cliPath && providers.claude.cliPath !== 'claude') {
-    process.env.CLAUDE_CLI_PATH = providers.claude.cliPath;
+  if (providers.claude.apiKey?.trim()) process.env.ANTHROPIC_API_KEY = providers.claude.apiKey.trim();
+  if (providers.claude.authToken?.trim()) process.env.ANTHROPIC_AUTH_TOKEN = providers.claude.authToken.trim();
+  if (providers.claude.cliPath?.trim() && providers.claude.cliPath.trim() !== 'claude') {
+    process.env.CLAUDE_CLI_PATH = providers.claude.cliPath.trim();
   }
   // qoder
-  if (providers.qoder.personalAccessToken) {
-    process.env.QODER_PERSONAL_ACCESS_TOKEN = providers.qoder.personalAccessToken;
+  if (providers.qoder.personalAccessToken?.trim()) {
+    process.env.QODER_PERSONAL_ACCESS_TOKEN = providers.qoder.personalAccessToken.trim();
   }
   // binaries
-  if (providers.codex.binPath && providers.codex.binPath !== 'codex') {
-    process.env.CODEX_PATH_OVERRIDE = providers.codex.binPath;
+  if (providers.codex.binPath?.trim() && providers.codex.binPath.trim() !== 'codex') {
+    process.env.CODEX_PATH_OVERRIDE = providers.codex.binPath.trim();
   }
-  if (providers.opencode.binPath && providers.opencode.binPath !== 'opencode') {
-    process.env.OPENCODE_BIN = providers.opencode.binPath;
+  if (providers.opencode.binPath?.trim() && providers.opencode.binPath.trim() !== 'opencode') {
+    process.env.OPENCODE_BIN = providers.opencode.binPath.trim();
   }
 }
