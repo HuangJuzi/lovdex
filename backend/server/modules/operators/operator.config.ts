@@ -43,6 +43,9 @@ const KEY = 'operator_config';
 
 /** Returns the current operator config, merged over safe defaults. */
 export function getOperatorConfig(): OperatorConfig {
+  // Config first, env fallback: DEFAULT_OPERATOR_CONFIG.workspace already reads
+  // from appConfig(); the env var stays as a per-process override that wins when
+  // explicitly set (non-empty after trim).
   const workspace =
     process.env.LOVDEX_OPERATOR_WORKSPACE?.trim() || DEFAULT_OPERATOR_CONFIG.workspace;
   const base: OperatorConfig = { ...DEFAULT_OPERATOR_CONFIG, workspace };
