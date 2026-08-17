@@ -5,22 +5,35 @@ import { Button } from '../../shared/view/ui';
 import { BackToTasksButton } from '../tasks/TaskBackNav';
 
 /**
- * Provider 凭据 + 运行参数设置页。
+ * Provider 凭据 + 运行参数设置。
+ *
+ * 表单主体是 <ProviderSettingsForm />：既被 /settings/providers 路由页渲染，
+ * 也被侧边栏齿轮打开的模态 <SettingsDialog /> 渲染，两个入口共用同一份
+ * draft 加载/保存逻辑。
  *
  * 后端 `GET /api/config`（匿名、密钥打码）读、`PUT /api/config`（需登录）写。
  * GET 回来的密钥是打码占位（`••••abcd`）；PUT 时后端 `stripMaskedPlaceholders`
- * 会丢弃任何以 `••••` 开头的字段，因此这里可以把整个 draft 原样 PUT，打码字段
- * 自动保留真实值 —— 前端无需特殊处理，只发 draft。
+ * 会丢弃任何以 `••••` 开头的字段，因此这里可以把整个 draft 原样 PUT。
  *
- * 保存后后端会 re-sync process.env（Task 9），新起的 session 立即用上新凭据；
- * 但端口 / host / 数据库路径需重启后端才生效。
+ * 保存后后端 re-sync process.env（权威语义），模型 / Base URL / 凭据对新起的
+ * session 立即生效；端口 / host / 数据库路径需重启后端才生效。
  */
 
 const MASK_PREFIX = '••••';
 
 // ---- config shape (partial; we only touch what the page edits) ----
 type ProvidersConfig = {
-  claude?: { cliPath?: string; apiKey?: string; authToken?: string; oneMillionModels?: string };
+  claude?: {
+    cliPath?: string;
+    apiKey?: string;
+    authToken?: string;
+    baseUrl?: string;
+    defaultModel?: string;
+    haikuModel?: string;
+    opusModel?: string;
+    sonnetModel?: string;
+    oneMillionModels?: string;
+  };
   codex?: { binPath?: string; apiKey?: string };
   opencode?: { binPath?: string };
   qoder?: { personalAccessToken?: string };
@@ -168,7 +181,8 @@ function Section({
   );
 }
 
-export function ProviderSettingsPage() {
+/** 设置表单主体：路由页与模态共用（draft 加载 / 保存 / 渲染）。 */
+export function ProviderSettingsForm() {
   const [draft, setDraft] = useState<AppConfig | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -230,7 +244,7 @@ export function ProviderSettingsPage() {
       }
       const cfg = (await res.json()) as AppConfig;
       setDraft(cfg);
-      setSavedMsg('已保存。端口 / 数据库路径 / host 修改需重启后端生效。');
+      setSavedMsg('已保存。模型 / Base URL / 凭据对新会话立即生效；端口 / 数据库路径 / host 修改需重启后端生效。');
     } catch (err) {
       setSaveError((err as Error).message ?? '保存失败');
     } finally {
@@ -240,13 +254,16 @@ export function ProviderSettingsPage() {
 
   if (loadError) {
     return (
-      <div className="flex h-dvh flex-col items-center justify-center gap-3 bg-background">
+      <div className="flex flex-col items-center gap-3 py-10">
         <div className="text-sm text-muted-foreground">加载配置失败</div>
         <Button size="sm" onClick={() => window.location.reload()}>
           重试
         </Button>
       </div>
     );
+  }
+  if (!draft) {
+    return <div className="py-10 text-center text-sm text-muted-foreground">加载中…</div>;
   }
 
   const claude = draft?.providers?.claude ?? {};
@@ -256,122 +273,155 @@ export function ProviderSettingsPage() {
   const server = draft?.server ?? {};
 
   return (
+    <div className="flex flex-col gap-6">
+      <p className="text-xs text-muted-foreground">
+        密钥以打码形式显示（<code>••••</code> 开头）；留空或保持打码占位则不改动真实值。
+        Base URL / 凭据 / 模型保存后对新会话立即生效；某字段留空并保存 = 清除该配置
+        （回退到 claude 自身认证链）。
+      </p>
+
+      <Section title="Claude" provider="claude">
+        <TextField
+          label="CLI 路径 (cliPath)"
+          value={claude.cliPath ?? ''}
+          placeholder="claude"
+          onChange={(v) => patchProvider('claude', 'cliPath', v)}
+        />
+        <SecretField
+          label="API Key (apiKey)"
+          value={claude.apiKey ?? ''}
+          onChange={(v) => patchProvider('claude', 'apiKey', v)}
+        />
+        <SecretField
+          label="Auth Token (authToken)"
+          value={claude.authToken ?? ''}
+          onChange={(v) => patchProvider('claude', 'authToken', v)}
+        />
+        <TextField
+          label="Base URL (baseUrl)"
+          value={claude.baseUrl ?? ''}
+          placeholder="https://api.anthropic.com"
+          onChange={(v) => patchProvider('claude', 'baseUrl', v)}
+        />
+        <TextField
+          label="默认模型 (defaultModel)"
+          value={claude.defaultModel ?? ''}
+          placeholder="DeepSeek-V4-Flash-0731"
+          onChange={(v) => patchProvider('claude', 'defaultModel', v)}
+        />
+        <TextField
+          label="Opus 模型 (opusModel)"
+          value={claude.opusModel ?? ''}
+          placeholder="DeepSeek-V4-Pro-0813"
+          onChange={(v) => patchProvider('claude', 'opusModel', v)}
+        />
+        <TextField
+          label="Sonnet 模型 (sonnetModel)"
+          value={claude.sonnetModel ?? ''}
+          placeholder="claude-opus-4-8"
+          onChange={(v) => patchProvider('claude', 'sonnetModel', v)}
+        />
+        <TextField
+          label="Haiku 模型 (haikuModel)"
+          value={claude.haikuModel ?? ''}
+          placeholder="DeepSeek-V4-Flash-0731"
+          onChange={(v) => patchProvider('claude', 'haikuModel', v)}
+        />
+        <TextField
+          label="百万上下文模型 (oneMillionModels)"
+          value={claude.oneMillionModels ?? ''}
+          placeholder="逗号分隔的模型名，留空关闭"
+          onChange={(v) => patchProvider('claude', 'oneMillionModels', v)}
+        />
+      </Section>
+
+      <Section title="Codex" provider="codex">
+        <TextField
+          label="可执行路径 (binPath)"
+          value={codex.binPath ?? ''}
+          placeholder="codex"
+          onChange={(v) => patchProvider('codex', 'binPath', v)}
+        />
+        <SecretField
+          label="API Key (apiKey)"
+          value={codex.apiKey ?? ''}
+          onChange={(v) => patchProvider('codex', 'apiKey', v)}
+        />
+      </Section>
+
+      <Section title="OpenCode" provider="opencode">
+        <TextField
+          label="可执行路径 (binPath)"
+          value={opencode.binPath ?? ''}
+          placeholder="opencode"
+          onChange={(v) => patchProvider('opencode', 'binPath', v)}
+        />
+      </Section>
+
+      <Section title="Qoder" provider="qoder">
+        <SecretField
+          label="Personal Access Token (personalAccessToken)"
+          value={qoder.personalAccessToken ?? ''}
+          onChange={(v) => patchProvider('qoder', 'personalAccessToken', v)}
+        />
+      </Section>
+
+      <Section title="运行参数">
+        <p className="-mt-1 text-xs text-muted-foreground">
+          端口 / host 修改需重启后端才生效。
+        </p>
+        <div>
+          <label className="mb-1 block text-xs text-muted-foreground">端口 (server.port)</label>
+          <input
+            type="number"
+            min={1}
+            max={65535}
+            className="h-9 w-full rounded-md border border-border bg-muted px-2 py-1.5 text-sm text-foreground"
+            value={server.port ?? ''}
+            onChange={(e) => {
+              const n = Number(e.target.value);
+              patchServer('port', Number.isFinite(n) ? n : 0);
+            }}
+          />
+        </div>
+        <TextField
+          label="Host (server.host)"
+          value={server.host ?? ''}
+          placeholder="0.0.0.0"
+          onChange={(v) => patchServer('host', v)}
+        />
+        <TextField
+          label="CORS Origin (server.corsOrigin)"
+          value={server.corsOrigin ?? ''}
+          placeholder="*"
+          onChange={(v) => patchServer('corsOrigin', v)}
+        />
+      </Section>
+
+      {/* 保存栏 */}
+      <div className="flex items-center gap-3">
+        <Button onClick={() => void save()} disabled={saving}>
+          {saving ? '保存中…' : '保存'}
+        </Button>
+        {savedMsg && !saveError && (
+          <span className="text-xs text-green-600 dark:text-green-400">{savedMsg}</span>
+        )}
+        {saveError && <span className="text-xs text-red-500">{saveError}</span>}
+      </div>
+    </div>
+  );
+}
+
+/** 路由页入口：/settings/providers（深链 / 返回按钮保留）。 */
+export function ProviderSettingsPage() {
+  return (
     <div className="h-dvh overflow-y-auto bg-background">
       <header className="pwa-header-safe sticky top-0 z-10 flex flex-shrink-0 items-center gap-2 border-b border-border/60 bg-background px-3 py-1.5 sm:px-4 sm:py-2">
         <BackToTasksButton />
         <h1 className="ml-2 text-sm font-semibold text-foreground">Provider 设置</h1>
       </header>
-
       <div className="mx-auto max-w-3xl px-4 py-6 sm:p-6">
-        {!draft ? (
-          <div className="text-sm text-muted-foreground">加载中…</div>
-        ) : (
-          <div className="flex flex-col gap-6">
-            <p className="text-xs text-muted-foreground">
-              密钥以打码形式显示（<code>••••</code> 开头）；留空或保持打码占位则不改动真实值。
-              保存后新起的会话立即生效。
-            </p>
-
-            <Section title="Claude" provider="claude">
-              <TextField
-                label="CLI 路径 (cliPath)"
-                value={claude.cliPath ?? ''}
-                placeholder="claude"
-                onChange={(v) => patchProvider('claude', 'cliPath', v)}
-              />
-              <SecretField
-                label="API Key (apiKey)"
-                value={claude.apiKey ?? ''}
-                onChange={(v) => patchProvider('claude', 'apiKey', v)}
-              />
-              <SecretField
-                label="Auth Token (authToken)"
-                value={claude.authToken ?? ''}
-                onChange={(v) => patchProvider('claude', 'authToken', v)}
-              />
-              <TextField
-                label="百万上下文模型 (oneMillionModels)"
-                value={claude.oneMillionModels ?? ''}
-                placeholder="逗号分隔的模型名，留空关闭"
-                onChange={(v) => patchProvider('claude', 'oneMillionModels', v)}
-              />
-            </Section>
-
-            <Section title="Codex" provider="codex">
-              <TextField
-                label="可执行路径 (binPath)"
-                value={codex.binPath ?? ''}
-                placeholder="codex"
-                onChange={(v) => patchProvider('codex', 'binPath', v)}
-              />
-              <SecretField
-                label="API Key (apiKey)"
-                value={codex.apiKey ?? ''}
-                onChange={(v) => patchProvider('codex', 'apiKey', v)}
-              />
-            </Section>
-
-            <Section title="OpenCode" provider="opencode">
-              <TextField
-                label="可执行路径 (binPath)"
-                value={opencode.binPath ?? ''}
-                placeholder="opencode"
-                onChange={(v) => patchProvider('opencode', 'binPath', v)}
-              />
-            </Section>
-
-            <Section title="Qoder" provider="qoder">
-              <SecretField
-                label="Personal Access Token (personalAccessToken)"
-                value={qoder.personalAccessToken ?? ''}
-                onChange={(v) => patchProvider('qoder', 'personalAccessToken', v)}
-              />
-            </Section>
-
-            <Section title="运行参数">
-              <p className="-mt-1 text-xs text-muted-foreground">
-                端口 / host 修改需重启后端才生效。
-              </p>
-              <div>
-                <label className="mb-1 block text-xs text-muted-foreground">端口 (server.port)</label>
-                <input
-                  type="number"
-                  min={1}
-                  max={65535}
-                  className="h-9 w-full rounded-md border border-border bg-muted px-2 py-1.5 text-sm text-foreground"
-                  value={server.port ?? ''}
-                  onChange={(e) => {
-                    const n = Number(e.target.value);
-                    patchServer('port', Number.isFinite(n) ? n : 0);
-                  }}
-                />
-              </div>
-              <TextField
-                label="Host (server.host)"
-                value={server.host ?? ''}
-                placeholder="0.0.0.0"
-                onChange={(v) => patchServer('host', v)}
-              />
-              <TextField
-                label="CORS Origin (server.corsOrigin)"
-                value={server.corsOrigin ?? ''}
-                placeholder="*"
-                onChange={(v) => patchServer('corsOrigin', v)}
-              />
-            </Section>
-
-            {/* 保存栏 */}
-            <div className="flex items-center gap-3">
-              <Button onClick={() => void save()} disabled={saving}>
-                {saving ? '保存中…' : '保存'}
-              </Button>
-              {savedMsg && !saveError && (
-                <span className="text-xs text-green-600 dark:text-green-400">{savedMsg}</span>
-              )}
-              {saveError && <span className="text-xs text-red-500">{saveError}</span>}
-            </div>
-          </div>
-        )}
+        <ProviderSettingsForm />
       </div>
     </div>
   );
