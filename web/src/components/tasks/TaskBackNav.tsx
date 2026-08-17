@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { cn } from '../../lib/utils';
 import { Button } from '../../shared/view/ui';
 
-/** 「← 返回任务面板」chunky 按钮，供 OperatorSettingsPage 头部复用。 */
+/** 「← 返回任务面板」chunky 按钮，供 SettingsPage 头部复用。 */
 export function BackToTasksButton({ className }: { className?: string }) {
   const navigate = useNavigate();
   return (
