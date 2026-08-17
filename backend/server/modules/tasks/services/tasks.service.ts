@@ -350,6 +350,16 @@ export function createTasksService(
       emit({ kind: 'task_deleted', taskId, actor: 'user' });
     },
 
+    deleteTasks(taskIds: string[]): number {
+      let deleted = 0;
+      for (const taskId of taskIds) {
+        resolveDb.deleteTask(taskId);
+        emit({ kind: 'task_deleted', taskId, actor: 'user' });
+        deleted += 1;
+      }
+      return deleted;
+    },
+
     moveTask(taskId: string, status: TaskStatus, beforeId: string | null, afterId: string | null): TaskRow | null {
       if (!isTaskStatus(status)) {
         throw new AppError(`invalid status: ${String(status)}`, { code: 'INVALID_STATUS', statusCode: 400 });

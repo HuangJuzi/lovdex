@@ -166,6 +166,27 @@ test('deleteTask broadcasts task_deleted', () => {
   assert.equal(db.getTask('t1'), null);
 });
 
+test('deleteTasks deletes each id and broadcasts task_deleted per id', () => {
+  const events: unknown[] = [];
+  const { db } = makeDbStub();
+  const svc = createTasksService(db, { broadcast: (e) => events.push(e) });
+  const n = svc.deleteTasks(['t1', 'missing']);
+  assert.equal(n, 2);
+  assert.equal(events.length, 2);
+  assert.equal((events[0] as { taskId: string }).taskId, 't1');
+  assert.equal((events[1] as { taskId: string }).taskId, 'missing');
+  assert.equal(db.getTask('t1'), null);
+});
+
+test('deleteTasks with an empty list is a no-op', () => {
+  const events: unknown[] = [];
+  const { db } = makeDbStub();
+  const svc = createTasksService(db, { broadcast: (e) => events.push(e) });
+  assert.equal(svc.deleteTasks([]), 0);
+  assert.equal(events.length, 0);
+  assert.equal(db.getTask('t1')?.task_id, 't1');
+});
+
 test('startExecution links a session and returns its id', () => {
   const { db, calls } = makeDbStub();
   const svc = createTasksService(db, { broadcast: () => {} });
