@@ -12,6 +12,8 @@ import { OperatorSettingsPage } from './components/operators/OperatorSettingsPag
 import { ProviderSettingsPage } from './components/settings/ProviderSettingsPage';
 import { AssistantPanel } from './components/operators/AssistantPanel';
 import { TerminalDrawerProvider } from './hooks/useTerminalDrawer';
+import { SettingsDialogProvider } from './hooks/useSettingsDialog';
+import { SettingsDialog } from './components/settings/SettingsDialog';
 import i18n from './i18n/config.js';
 
 const DEPLOYMENT_ASSET_DIRECTORIES = new Set(['assets', 'static', 'icons', 'images']);
@@ -125,17 +127,20 @@ export default function App() {
         <AuthGate>
           <WebSocketProvider>
             <Router basename={routerBasename}>
-              <TerminalDrawerProvider>
-                <Routes>
-                  <Route path="/" element={<AppContent />} />
-                  <Route path="/session/:sessionId" element={<AppContent />} />
-                  <Route path="/tasks" element={<TaskBoardPage />} />
-                  <Route path="/task/:taskId" element={<TaskDetailPage />} />
-                  <Route path="/assistant" element={<AssistantPanel />} />
-                  <Route path="/settings/operator" element={<OperatorSettingsPage />} />
-                  <Route path="/settings/providers" element={<ProviderSettingsPage />} />
-                </Routes>
-              </TerminalDrawerProvider>
+              <SettingsDialogProvider>
+                <TerminalDrawerProvider>
+                  <Routes>
+                    <Route path="/" element={<AppContent />} />
+                    <Route path="/session/:sessionId" element={<AppContent />} />
+                    <Route path="/tasks" element={<TaskBoardPage />} />
+                    <Route path="/task/:taskId" element={<TaskDetailPage />} />
+                    <Route path="/assistant" element={<AssistantPanel />} />
+                    <Route path="/settings/operator" element={<OperatorSettingsPage />} />
+                    <Route path="/settings/providers" element={<ProviderSettingsPage />} />
+                  </Routes>
+                  <SettingsDialog />
+                </TerminalDrawerProvider>
+              </SettingsDialogProvider>
             </Router>
           </WebSocketProvider>
         </AuthGate>
