@@ -131,31 +131,36 @@ function SecretField({
   label,
   value,
   onChange,
+  revealable = true,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
+  /** 非 revealable 时始终明文显示掩码（如 first6****last6），不带显示/隐藏切换。 */
+  revealable?: boolean;
 }) {
   const [show, setShow] = useState(false);
-  const isMasked = value.startsWith(MASK_PREFIX);
+  const isMasked = value.startsWith(MASK_PREFIX) || value.includes('****');
   return (
     <div>
       <label className="mb-1 block text-xs text-muted-foreground">{label}</label>
       <div className="flex items-center gap-2">
         <input
-          type={show ? 'text' : 'password'}
+          type={revealable && !show ? 'password' : 'text'}
           className="h-9 min-w-0 flex-1 rounded-md border border-border bg-muted px-2 py-1.5 text-sm text-foreground"
           value={value}
           placeholder={isMasked ? '已配置（留空不变）' : ''}
           onChange={(e) => onChange(e.target.value)}
         />
-        <button
-          type="button"
-          onClick={() => setShow((s) => !s)}
-          className="h-9 flex-shrink-0 rounded-md border border-border px-2 text-xs text-muted-foreground hover:bg-muted"
-        >
-          {show ? '隐藏' : '显示'}
-        </button>
+        {revealable && (
+          <button
+            type="button"
+            onClick={() => setShow((s) => !s)}
+            className="h-9 flex-shrink-0 rounded-md border border-border px-2 text-xs text-muted-foreground hover:bg-muted"
+          >
+            {show ? '隐藏' : '显示'}
+          </button>
+        )}
       </div>
     </div>
   );
@@ -275,27 +280,16 @@ export function ProviderSettingsForm() {
   return (
     <div className="flex flex-col gap-6">
       <p className="text-xs text-muted-foreground">
-        密钥以打码形式显示（<code>••••</code> 开头）；留空或保持打码占位则不改动真实值。
-        Base URL / 凭据 / 模型保存后对新会话立即生效；某字段留空并保存 = 清除该配置
-        （回退到 claude 自身认证链）。
+        API Key 只显示首尾各 6 位（<code>开头6位****结尾6位</code>），不支持显示完整值；保持占位即不改动。
+        Base URL / 凭据 / 模型保存后对新会话立即生效；某字段留空并保存 = 清除该配置。
       </p>
 
       <Section title="Claude" provider="claude">
-        <TextField
-          label="CLI 路径 (cliPath)"
-          value={claude.cliPath ?? ''}
-          placeholder="claude"
-          onChange={(v) => patchProvider('claude', 'cliPath', v)}
-        />
         <SecretField
           label="API Key (apiKey)"
           value={claude.apiKey ?? ''}
           onChange={(v) => patchProvider('claude', 'apiKey', v)}
-        />
-        <SecretField
-          label="Auth Token (authToken)"
-          value={claude.authToken ?? ''}
-          onChange={(v) => patchProvider('claude', 'authToken', v)}
+          revealable={false}
         />
         <TextField
           label="Base URL (baseUrl)"
@@ -346,6 +340,7 @@ export function ProviderSettingsForm() {
           label="API Key (apiKey)"
           value={codex.apiKey ?? ''}
           onChange={(v) => patchProvider('codex', 'apiKey', v)}
+          revealable={false}
         />
       </Section>
 
