@@ -293,6 +293,23 @@ export const api = {
     bySession: (sessionId) => authenticatedFetch(`/api/tasks/by-session/${encodeURIComponent(sessionId)}`),
   },
 
+  scheduledTasks: {
+    list: (params = {}) => {
+      const qs = new URLSearchParams();
+      if (params.projectPath) qs.set('projectPath', params.projectPath);
+      if (params.enabled !== undefined) qs.set('enabled', params.enabled ? 'true' : 'false');
+      const s = qs.toString();
+      return authenticatedFetch(`/api/scheduled-tasks${s ? `?${s}` : ''}`);
+    },
+    create: (body) => authenticatedFetch('/api/scheduled-tasks', { method: 'POST', body: JSON.stringify(body) }),
+    get: (scheduleId) => authenticatedFetch(`/api/scheduled-tasks/${encodeURIComponent(scheduleId)}`),
+    update: (scheduleId, body) => authenticatedFetch(`/api/scheduled-tasks/${encodeURIComponent(scheduleId)}`, { method: 'PATCH', body: JSON.stringify(body) }),
+    remove: (scheduleId) => authenticatedFetch(`/api/scheduled-tasks/${encodeURIComponent(scheduleId)}`, { method: 'DELETE' }),
+    runNow: (scheduleId) => authenticatedFetch(`/api/scheduled-tasks/${encodeURIComponent(scheduleId)}/run-now`, { method: 'POST' }),
+    enable: (scheduleId) => authenticatedFetch(`/api/scheduled-tasks/${encodeURIComponent(scheduleId)}/enable`, { method: 'POST' }),
+    disable: (scheduleId) => authenticatedFetch(`/api/scheduled-tasks/${encodeURIComponent(scheduleId)}/disable`, { method: 'POST' }),
+  },
+
   // Operator Agent configuration (auto-verdict, auto-move, model, concurrency).
   operator: {
     settings: () => authenticatedFetch('/api/operator/settings'),
