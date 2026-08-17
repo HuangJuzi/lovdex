@@ -87,3 +87,12 @@ test('empty auth.jwtSecret on disk is injected AND persisted', () => {
   const onDisk = JSON.parse(fs.readFileSync(file, 'utf8'));
   assert.ok(onDisk.auth.jwtSecret.length >= 32, 'injected secret must be persisted to disk');
 });
+
+test('auth code and jwtSecret use zero-hint mask', () => {
+  const dir = tmpDir();
+  const cfg = createAppConfig({ dataDir: dir });
+  cfg.update({ auth: { code: '123456', jwtSecret: 'abcdef1234567890' } });
+  const masked = cfg.getMasked();
+  assert.strictEqual(masked.auth.code, '••••');
+  assert.strictEqual(masked.auth.jwtSecret, '••••');
+});

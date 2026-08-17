@@ -1,6 +1,5 @@
 import { Router } from 'express';
 
-import { maskConfig } from './config.js';
 import type { AppConfigApi } from './config.js';
 
 /**
@@ -14,7 +13,7 @@ import type { AppConfigApi } from './config.js';
 export function buildConfigReadRouter(deps: { cfg: AppConfigApi }): Router {
   const router = Router();
   router.get('/', (_req, res) => {
-    res.json(maskConfig(deps.cfg.get()));
+    res.json(deps.cfg.getMasked());
   });
   return router;
 }
@@ -28,10 +27,14 @@ export function buildConfigWriteRouter(deps: { cfg: AppConfigApi }): Router {
       return res.status(400).json({ error: 'config body must be a JSON object' });
     }
     try {
-      const next = deps.cfg.update(stripMaskedPlaceholders(body));
-      res.json(maskConfig(next));
+      deps.cfg.update(stripMaskedPlaceholders(body));
+      res.json(deps.cfg.getMasked());
     } catch (err) {
-      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+      // update() failures are persist/IO faults (EACCES, disk full, corrupt
+      // file, ...) — a server-side error. Never mislabel as a client 400 or
+      // surface raw fs text.
+      console.error('config write failed:', err);
+      res.status(500).json({ error: 'config write failed' });
     }
   });
   return router;

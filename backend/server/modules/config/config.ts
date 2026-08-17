@@ -54,6 +54,12 @@ export type AppConfig = typeof DEFAULT_APP_CONFIG;
 const SENSITIVE_KEYS = new Set([
   'apiKey', 'authToken', 'personalAccessToken', 'jwtSecret', 'code',
 ]);
+/**
+ * Keys masked with a zero-hint marker (no tail) because they're user-guessable
+ * (login code / JWT secret) and the config is served anonymously — revealing
+ * the last 4 chars of a 6-digit code leaves only ~100 brute-force combos.
+ */
+const ZERO_HINT_KEYS = new Set(['code', 'jwtSecret']);
 
 /**
  * Keys whose object VALUES are all secrets (e.g. `providers.opencode.apiKeys`,
@@ -91,6 +97,12 @@ export function maskConfig(value: unknown, key?: string): unknown {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value)) out[k] = maskSecret(v);
     return out;
+  }
+  // Zero-hint keys never reveal a tail: the login code / JWT secret is
+  // user-guessable and this config is served to anonymous clients. Empty
+  // values still serialize as '' rather than the mask.
+  if (key && ZERO_HINT_KEYS.has(key)) {
+    return typeof value === 'string' && value.length > 0 ? '••••' : '';
   }
   if (Array.isArray(value)) return value.map((v) => maskConfig(v));
   if (typeof value === 'object' && value !== null) {
