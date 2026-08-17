@@ -72,7 +72,7 @@ export const PRIORITY_META: Record<TaskPriority, { label: string; color: string 
   P3: { label: 'P3 低', color: '#6b7280' },
 };
 
-export const LABEL_ORDER: TaskLabel[] = ['bug', 'feature', 'optimization', 'refactor', 'docs', 'other'];
+export const LABEL_ORDER: TaskLabel[] = ['bug', 'feature', 'optimization', 'refactor', 'docs', 'other', 'reminder'];
 
 export const LABEL_META: Record<TaskLabel, { label: string; color: string }> = {
   bug: { label: 'BUG', color: '#ef4444' },
@@ -81,6 +81,7 @@ export const LABEL_META: Record<TaskLabel, { label: string; color: string }> = {
   refactor: { label: '重构', color: '#a855f7' },
   docs: { label: '文档', color: '#0891b2' },
   other: { label: '其他', color: '#6b7280' },
+  reminder: { label: '提醒', color: '#f59e0b' },
 };
 
 /** Executor 引擎徽标展示（任务卡 / 表格行共用文案与配色）。 */

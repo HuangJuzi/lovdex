@@ -89,7 +89,7 @@ export type SubStatus =
   | 'blocked';
 export type TaskEngine = 'claude' | 'codex' | 'opencode' | 'qoder';
 export type TaskPriority = 'P0' | 'P1' | 'P2' | 'P3';
-export type TaskLabel = 'bug' | 'feature' | 'optimization' | 'refactor' | 'docs' | 'other';
+export type TaskLabel = 'bug' | 'feature' | 'optimization' | 'refactor' | 'docs' | 'other' | 'reminder';
 
 export interface Task {
   task_id: string;
@@ -116,6 +116,8 @@ export interface Task {
   is_operator: number; // 0 | 1 — 1 = Lovdex 助手任务
   label: TaskLabel;
   remark: string | null;
+  /** 定时任务来源：关联 scheduled_tasks.schedule_id（由定时任务创建的任务才有值）。 */
+  source_schedule_id: string | null;
   created_at: string;
   updated_at: string;
   /**
@@ -132,6 +134,32 @@ export interface Task {
    * ExitPlanMode→"等你确认计划", other→"等你批准". Null when not pending.
    */
   pending_tool?: string | null;
+}
+
+export type ScheduledTaskScheduleType = 'once' | 'interval' | 'cron';
+
+export interface ScheduledTask {
+  schedule_id: string;
+  title: string;
+  description: string | null;
+  project_path: string | null;
+  executor_provider: TaskEngine;
+  executor_model: string | null;
+  priority: TaskPriority;
+  label: TaskLabel;
+  is_operator: number; // 0 | 1
+  auto_run: number;    // 0 | 1
+  schedule_type: ScheduledTaskScheduleType;
+  cron_expr: string | null;
+  interval_seconds: number | null;
+  run_at: string | null;
+  timezone: string;
+  next_run_at: string;
+  last_run_at: string | null;
+  last_task_id: string | null;
+  enabled: number;     // 0 | 1
+  created_at: string;
+  updated_at: string;
 }
 
 export interface TaskUpsertedEvent {
