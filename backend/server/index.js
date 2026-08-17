@@ -62,6 +62,8 @@ import { sessionsService } from './modules/providers/services/sessions.service.j
 import { validateApiKey, authenticateToken, authenticateWebSocket } from './middleware/auth.js';
 import { IS_PLATFORM } from './constants/config.js';
 import { c } from './utils/colors.js';
+import { appConfig as getAppConfig } from './modules/config/config.js';
+import { buildConfigReadRouter, buildConfigWriteRouter } from './modules/config/config.routes.js';
 
 const __dirname = getModuleDir(import.meta.url);
 // The server source runs from /server, while the compiled output runs from /dist-server/server.
@@ -195,6 +197,12 @@ app.use('/api', validateApiKey);
 // API-key check above still applies; login/me themselves require no token.
 app.use('/api/auth', authRoutes);
 
+// Config HTTP API. GET is anonymous (the login page must read public settings
+// like server.isPlatform before a token exists); PUT requires a valid JWT.
+const cfgStore = getAppConfig();
+app.use('/api/config', buildConfigReadRouter({ cfg: cfgStore }));
+app.use('/api/config', authenticateToken, buildConfigWriteRouter({ cfg: cfgStore }));
+
 // Projects API Routes
 app.use('/api/projects', authenticateToken, projectModuleRoutes);
 
@@ -315,9 +323,7 @@ app.use('/api/worktrees', authenticateToken, worktreesRoutes);
 // Operator settings API (protected) — read/update operator automation config.
 app.use('/api/operator/settings', authenticateToken, buildOperatorRouter());
 
-// API Routes (protected)
-// /api/config endpoint removed - no longer needed
-// Frontend now uses window.location for WebSocket URLs
+// Frontend now uses window.location for WebSocket URLs.
 
 const expandWorkspacePath = (inputPath) => {
     if (!inputPath) return inputPath;
