@@ -7,7 +7,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { EMPTY_TASK_FILTER } from './taskFilter';
 import { TaskFilterBar } from './TaskFilterBar';
 
-test('filter bar renders the project multi-select and no assistant toggle', () => {
+test('filter bar renders the project multi-select trigger and no assistant toggle', () => {
   const html = renderToStaticMarkup(
     React.createElement(TaskFilterBar, {
       projectOptions: [{ value: '/p', label: 'proj' }],
@@ -16,8 +16,6 @@ test('filter bar renders the project multi-select and no assistant toggle', () =
     }),
   );
   assert.match(html, /全部项目/);
-  assert.match(html, /Lovdex助手/);
-  assert.match(html, /proj/);
   assert.match(html, /创建时间/);
   assert.match(html, /最近活动/);
   assert.doesNotMatch(html, /只看助手/);

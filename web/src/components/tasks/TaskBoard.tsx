@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Clock, LayoutGrid, Plus, Table } from 'lucide-react';
+import { Clock, LayoutGrid, Plus, Table, X } from 'lucide-react';
 
 import { useWebSocket } from '../../contexts/WebSocketContext';
 import { useTasks } from '../../hooks/useTasks';
@@ -39,7 +39,7 @@ import { LABEL_META, LABEL_ORDER, PRIORITY_META, PRIORITY_ORDER, STATUS_META, ST
 import { TaskFilterBar } from './TaskFilterBar';
 import { ScheduledTasksPanel } from './ScheduledTasksPanel';
 import { TaskTableView } from './TaskTableView';
-import { EMPTY_TASK_FILTER, filterTasks, normalizeTaskFilter, type TaskFilter } from './taskFilter';
+import { EMPTY_TASK_FILTER, filterTasks, normalizeTaskFilter } from './taskFilter';
 
 export function TaskBoardPage() {
   const navigate = useNavigate();
@@ -233,6 +233,9 @@ export function TaskBoardPage() {
       });
   }, [creating, newEngine]);
 
+  // 创建的任务被当前筛选排除时留存提示；筛选调到能显示它（或手动关闭）后消失。
+  const [hiddenCreated, setHiddenCreated] = useState<Task | null>(null);
+
   function resetCreateForm() {
     setNewPrompt('');
     setNewName('');
@@ -278,6 +281,7 @@ export function TaskBoardPage() {
         console.error('createTask failed', err?.error?.message ?? res.status);
         return;
       }
+      const created = (await res.json()) as Task;
       setCreating(false);
       setNewPrompt('');
       setNewName('');
@@ -286,6 +290,8 @@ export function TaskBoardPage() {
       setNewLabel('other');
       setNewRemark('');
       void refresh();
+      // 新任务没被当前筛选（项目/日期范围）落下时，明确提示用户，否则会以为没建上。
+      if (filterTasks([created], filter, now).length === 0) setHiddenCreated(created);
     } catch (err) {
       console.error('createTask failed', err);
     }
@@ -366,6 +372,11 @@ export function TaskBoardPage() {
       console.error('changeProject failed', err);
     }
   }
+
+  // 新建任务仍被筛选排除时展示提示条；筛选调到能显示它之后自动消失。
+  const filterStillHidesNewTask = hiddenCreated
+    ? filterTasks([hiddenCreated], filter, now).length === 0
+    : false;
 
   return (
     <div className="flex h-dvh flex-col bg-background">
@@ -582,6 +593,28 @@ export function TaskBoardPage() {
           ) : (
           <>
           <TaskFilterBar projectOptions={projectOptions} filter={filter} onChange={setFilter} />
+          {filterStillHidesNewTask && hiddenCreated && (
+            <div className="flex flex-shrink-0 items-center gap-3 border-b border-border/60 bg-amber-500/10 px-3 py-2 sm:px-4">
+              <span className="min-w-0 flex-1 truncate text-sm text-foreground">
+                任务「{hiddenCreated.title}」已创建，但当前筛选未包含它，因此列表中没有显示。
+              </span>
+              <button
+                type="button"
+                onClick={() => setFilter(EMPTY_TASK_FILTER)}
+                className="shrink-0 rounded-lg bg-primary/10 px-2.5 py-1 text-sm font-semibold text-primary hover:bg-primary/20"
+              >
+                清除筛选
+              </button>
+              <button
+                type="button"
+                aria-label="关闭提示"
+                onClick={() => setHiddenCreated(null)}
+                className="shrink-0 text-muted-foreground hover:text-foreground"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          )}
           {selected.size > 0 && (
             <div className="flex flex-shrink-0 items-center gap-3 border-b border-border/60 bg-muted/40 px-3 py-2 sm:px-4">
               <span className="text-sm font-medium">已选 {selected.size} 项</span>

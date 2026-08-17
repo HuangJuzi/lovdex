@@ -5,9 +5,10 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
 import { ASSISTANT_OPTION_VALUE } from './projectOptions';
-import { ProjectMultiSelect } from './ProjectMultiSelect';
+import { ProjectMultiSelect, ProjectMultiSelectPanel } from './ProjectMultiSelect';
 
-test('renders the trigger summary and all option labels', () => {
+// 面板置于 portal（仅在 open 时渲染），SSR 关闭态只出触发器。
+test('renders the trigger summary', () => {
   const html = renderToStaticMarkup(
     React.createElement(ProjectMultiSelect, {
       projectOptions: [{ value: '/p', label: 'proj' }],
@@ -17,10 +18,6 @@ test('renders the trigger summary and all option labels', () => {
   );
   assert.match(html, /项目/);
   assert.match(html, /全部项目/);
-  assert.match(html, /Lovdex助手/);
-  assert.match(html, /proj/);
-  assert.match(html, /全选/);
-  assert.match(html, /清空/);
 });
 
 test('shows a single selected label and the multi summary', () => {
@@ -46,13 +43,16 @@ test('shows a single selected label and the multi summary', () => {
   assert.match(many, /2 个项目/);
 });
 
-test('renders the assistant sentinel as an option', () => {
+test('panel lists the assistant sentinel, projects and the action buttons', () => {
   const html = renderToStaticMarkup(
-    React.createElement(ProjectMultiSelect, {
-      projectOptions: [],
+    React.createElement(ProjectMultiSelectPanel, {
+      projectOptions: [{ value: '/p', label: 'proj' }],
       value: [ASSISTANT_OPTION_VALUE],
       onChange: () => {},
     }),
   );
   assert.match(html, /Lovdex助手/);
+  assert.match(html, /proj/);
+  assert.match(html, /全选/);
+  assert.match(html, /清空/);
 });
