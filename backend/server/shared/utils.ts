@@ -287,6 +287,28 @@ export function normalizeProjectPath(inputPath: string): string {
 }
 
 /**
+ * Canonicalizes a project path to its real (symlink-resolved) absolute spelling.
+ *
+ * Unlike `normalizeProjectPath` (purely lexical), this resolves symlinks via
+ * `fs.realpathSync` so the same physical directory always collapses to one
+ * spelling. When the path does not exist on disk (deleted directory, or a
+ * provider-reported cwd that never materialized), it falls back to lexical
+ * normalization instead of throwing.
+ */
+export function canonicalizeProjectPath(inputPath: string): string {
+  const normalized = normalizeProjectPath(inputPath);
+  if (!normalized) {
+    return '';
+  }
+
+  try {
+    return normalizeProjectPath(fs.realpathSync(normalized));
+  } catch {
+    return normalized;
+  }
+}
+
+/**
  * Validates that a user-supplied workspace path is safe to use.
  *
  * Call this before any filesystem mutation that creates or registers projects.
