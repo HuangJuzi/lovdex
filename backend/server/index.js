@@ -64,6 +64,7 @@ import { IS_PLATFORM } from './constants/config.js';
 import { c } from './utils/colors.js';
 import { appConfig as getAppConfig } from './modules/config/config.js';
 import { buildConfigReadRouter, buildConfigWriteRouter } from './modules/config/config.routes.js';
+import { syncProviderEnv } from './modules/config/env-sync.js';
 
 const __dirname = getModuleDir(import.meta.url);
 // The server source runs from /server, while the compiled output runs from /dist-server/server.
@@ -92,6 +93,11 @@ const MAX_FILE_UPLOAD_COUNT = 20;
 // boot so port/host/fs-concurrency/cors stay stable for the process lifetime.
 const cfgStore = getAppConfig();
 const cfg = cfgStore.get();
+
+// Boot: surface provider credentials to child processes (claude/codex/opencode/
+// qoder CLIs inherit process.env). Called after the config snapshot so the
+// values come straight from app.config.json.
+syncProviderEnv(cfg);
 
 console.log('SERVER_PORT from config:', cfg.server.port);
 

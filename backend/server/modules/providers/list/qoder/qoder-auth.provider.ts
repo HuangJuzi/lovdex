@@ -6,6 +6,7 @@ import spawn from 'cross-spawn';
 
 import type { IProviderAuth } from '@/shared/interfaces.js';
 import type { ProviderAuthStatus } from '@/shared/types.js';
+import { appConfig } from '@/modules/config/config.js';
 
 type QoderCredentialsStatus = {
   authenticated: boolean;
@@ -39,6 +40,13 @@ export class QoderProviderAuth implements IProviderAuth {
   }
 
   private async checkCredentials(): Promise<QoderCredentialsStatus> {
+    // app.config PAT takes precedence; falls back to env (matches qodercli's
+    // own precedence) and then browser OAuth.
+    const cfgPat = appConfig().get().providers.qoder.personalAccessToken?.trim();
+    if (cfgPat) {
+      return { authenticated: true, email: 'personal-access-token', method: 'config' };
+    }
+
     // PAT env var takes precedence (matches qodercli's own precedence).
     const pat = process.env.QODER_PERSONAL_ACCESS_TOKEN?.trim();
     if (pat) {

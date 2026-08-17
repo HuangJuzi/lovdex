@@ -4,6 +4,7 @@ import path from 'node:path';
 
 import spawn from 'cross-spawn';
 
+import { appConfig } from '@/modules/config/config.js';
 import { resolveClaudeCodeExecutablePath } from '@/shared/claude-cli-path.js';
 import type { IProviderAuth } from '@/shared/interfaces.js';
 import type { ProviderAuthStatus } from '@/shared/types.js';
@@ -82,6 +83,11 @@ export class ClaudeProviderAuth implements IProviderAuth {
    */
   private async checkCredentials(): Promise<ClaudeCredentialsStatus> {
     const missingCredentialsError = 'Claude CLI is not authenticated. Run claude /login or configure ANTHROPIC_API_KEY.';
+
+    // app.config 为最高优先级；未配置回退 env/CLI 登录
+    const cfg = appConfig().get().providers.claude;
+    if (cfg.apiKey?.trim()) return { authenticated: true, email: 'API Key Auth', method: 'config' };
+    if (cfg.authToken?.trim()) return { authenticated: true, email: 'Auth Token', method: 'config' };
 
     if (process.env.ANTHROPIC_AUTH_TOKEN?.trim()) {
       return { authenticated: true, email: 'Auth Token', method: 'api_key' };

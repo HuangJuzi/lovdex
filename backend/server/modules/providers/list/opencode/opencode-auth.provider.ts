@@ -7,6 +7,7 @@ import spawn from 'cross-spawn';
 import type { IProviderAuth } from '@/shared/interfaces.js';
 import type { ProviderAuthStatus } from '@/shared/types.js';
 import { readObjectRecord, readOptionalString } from '@/shared/utils.js';
+import { appConfig } from '@/modules/config/config.js';
 
 type OpenCodeCredentialsStatus = {
   authenticated: boolean;
@@ -89,6 +90,13 @@ export class OpenCodeProviderAuth implements IProviderAuth {
           error: error instanceof Error ? error.message : 'Failed to read OpenCode auth',
         };
       }
+    }
+
+    // app.config apiKeys take precedence over auth.json / host env vars.
+    const apiKeys = appConfig().get().providers.opencode.apiKeys ?? {};
+    const configuredKey = OPENCODE_ENV_CREDENTIAL_KEYS.find((k) => apiKeys[k]?.trim());
+    if (configuredKey) {
+      return { authenticated: true, email: configuredKey, method: 'config' };
     }
 
     const envCredential = OPENCODE_ENV_CREDENTIAL_KEYS.find((key) => process.env[key]?.trim());

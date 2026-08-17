@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 
+import { appConfig } from '@/modules/config/config.js';
 import { sessionsDb } from '@/modules/database/index.js';
 import type { IProviderModels } from '@/shared/interfaces.js';
 import type {
@@ -34,17 +35,20 @@ const envHaiku = resolveEnvModel('ANTHROPIC_DEFAULT_HAIKU_MODEL');
 // The CLI shows a `[1m]` suffix for 1M-context models, but that metadata is
 // detected internally by claude — neither the env vars nor the proxy's
 // /v1/models endpoint expose it. Let the operator declare which model ids
-// carry a 1M context via LOVDEX_CLAUDE_1M_MODELS (comma-separated); matching
-// options get a `[1m]` tag in their label / description.
-const env1mModels = new Set(
-  (process.env.LOVDEX_CLAUDE_1M_MODELS ?? '')
-    .split(',')
-    .map((entry) => entry.trim())
-    .filter((entry) => entry.length > 0),
-);
+// carry a 1M context via app.config providers.claude.oneMillionModels
+// (comma-separated); matching options get a `[1m]` tag in their label /
+// description. Read fresh per call so config edits apply without a restart.
+function loadOneMillionModels(): Set<string> {
+  return new Set(
+    (appConfig().get().providers.claude.oneMillionModels ?? '')
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0),
+  );
+}
 
 const tag1m = (real: string | null): string =>
-  real && env1mModels.has(real) ? ' [1m]' : '';
+  real && loadOneMillionModels().has(real) ? ' [1m]' : '';
 
 const claudeOptions: ProviderModelOption[] = [
   {
