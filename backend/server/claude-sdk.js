@@ -255,10 +255,14 @@ function mapCliOptionsToSDK(options = {}) {
   //     configured. Old env unset fell through to the SDK's own default of enabled
   //     ("Default: true"); gating it behind a configured keyword ('' → false) makes
   //     the ultracode trigger explicitly opt-in at the platform level, which is the
-  //     intended design change.
+  //     intended design change. Non-string values (e.g. a hand-edited `false` in
+  //     app.config.json) are treated as disabled.
   const cfg = appConfig().get();
   sdkOptions.enableWorkflows = cfg.server.workflowsEnabled ?? true;
-  sdkOptions.workflowKeywordTriggerEnabled = (cfg.server.ultracodeKeywordTrigger ?? '') !== '';
+  // Strict string guard: `false ?? ''` → false would still satisfy `!== ''`, so a
+  // hand-edited boolean/other non-string must not accidentally enable the trigger.
+  sdkOptions.workflowKeywordTriggerEnabled =
+    typeof cfg.server.ultracodeKeywordTrigger === 'string' && cfg.server.ultracodeKeywordTrigger !== '';
 
   return sdkOptions;
 }
@@ -369,13 +373,17 @@ function extractTokenBudget(sdkMessage) {
     return null;
   }
 
-  // Context window budget now comes from app.config (server.contextWindow, default
-  // null). `null ?? 160000` yields 160000 — equivalent to the old
-  // `parseInt(process.env.CONTEXT_WINDOW, 10) || 160000` for the unset/default case.
-  const contextWindow = appConfig().get().server.contextWindow ?? 160000;
-
   const messageUsage = sdkMessage.message?.usage || sdkMessage.usage;
   if (messageUsage && typeof messageUsage === 'object') {
+    // Context window budget comes from app.config (server.contextWindow). The read
+    // is done only inside budget-building branches so the `appConfig().get()`
+    // structuredClone isn't performed for the many streamed messages that return
+    // null before reaching here (hot path). Non-number values — a hand-edited `0` /
+    // `"abc"`, or the old unset `null` default — still fall back to 160000, matching
+    // the old `parseInt(process.env.CONTEXT_WINDOW, 10) || 160000` default.
+    const serverCfg = appConfig().get().server;
+    const contextWindow = typeof serverCfg.contextWindow === 'number' ? serverCfg.contextWindow : 160000;
+
     const directInputTokens = readNumber(messageUsage.input_tokens ?? messageUsage.inputTokens);
     const cacheCreationTokens = readNumber(messageUsage.cache_creation_input_tokens ?? messageUsage.cacheCreationInputTokens ?? messageUsage.cacheCreationTokens);
     const cacheReadTokens = readNumber(messageUsage.cache_read_input_tokens ?? messageUsage.cacheReadInputTokens ?? messageUsage.cacheReadTokens);
@@ -410,6 +418,11 @@ function extractTokenBudget(sdkMessage) {
   if (!modelData || typeof modelData !== 'object') {
     return null;
   }
+
+  // Same off-hot-path config read as the messageUsage branch above; only reached
+  // for legacy modelUsage messages that actually build a budget object.
+  const serverCfg = appConfig().get().server;
+  const contextWindow = typeof serverCfg.contextWindow === 'number' ? serverCfg.contextWindow : 160000;
 
   const inputTokens = readNumber(modelData.cumulativeInputTokens ?? modelData.inputTokens);
   const outputTokens = readNumber(modelData.cumulativeOutputTokens ?? modelData.outputTokens);
