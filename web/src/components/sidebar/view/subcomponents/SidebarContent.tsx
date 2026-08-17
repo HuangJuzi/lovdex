@@ -12,6 +12,7 @@ import SidebarFooter from './SidebarFooter';
 import SidebarHeader from './SidebarHeader';
 import SidebarProjectList, { type SidebarProjectListProps } from './SidebarProjectList';
 import SidebarResizeHandle from './SidebarResizeHandle';
+import SidebarScheduledEntry from './SidebarScheduledEntry';
 
 function HighlightedSnippet({ snippet, highlights }: { snippet: string; highlights: { start: number; end: number }[] }) {
   const parts: ReactNode[] = [];
@@ -131,6 +132,8 @@ export default function SidebarContent({
         activeSessionId={activeSessionId}
         onOpenSession={onAssistantSessionSelect}
       />
+
+      <SidebarScheduledEntry />
 
       <ScrollArea className="flex-1 overflow-y-auto overscroll-contain md:px-1.5 md:py-2">
         {showConversationSearch && (
