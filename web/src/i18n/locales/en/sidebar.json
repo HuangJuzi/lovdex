@@ -39,6 +39,7 @@
     "hideSidebar": "Hide sidebar",
     "createProject": "Create new project",
     "refresh": "Refresh projects and sessions (Ctrl+R)",
+    "tasks": "Tasks",
     "renameProject": "Rename project (F2)",
     "deleteProject": "Remove project from sidebar (Delete)",
     "addToFavorites": "Add to favorites",

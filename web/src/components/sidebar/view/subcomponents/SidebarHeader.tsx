@@ -1,5 +1,6 @@
-import { FolderPlus, Plus, RefreshCw, Search, X, PanelLeftClose } from 'lucide-react';
+import { ClipboardList, FolderPlus, Plus, RefreshCw, Search, X, PanelLeftClose } from 'lucide-react';
 import type { TFunction } from 'i18next';
+import { useNavigate } from 'react-router-dom';
 
 import { Button, Input } from '../../../../shared/view/ui';
 import { LOVDEXCLI_WORDMARK_FONT_FAMILY } from '../../../../constants/branding';
@@ -39,6 +40,7 @@ export default function SidebarHeader({
   onCollapseSidebar,
   t,
 }: SidebarHeaderProps) {
+  const navigate = useNavigate();
   const showSearchTools = (projectsCount > 0 || runningSessionsCount > 0) && !isLoading;
   const searchPlaceholder = t('search.placeholder');
 
@@ -79,6 +81,15 @@ export default function SidebarHeader({
           )}
 
           <div className="flex flex-shrink-0 items-center gap-0.5">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 w-7 rounded-lg p-0 text-amber-500 hover:bg-muted hover:text-amber-500"
+              onClick={() => navigate('/tasks')}
+              title={t('tooltips.tasks')}
+            >
+              <ClipboardList className="h-3.5 w-3.5" />
+            </Button>
             <Button
               variant="ghost"
               size="sm"
@@ -171,6 +182,13 @@ export default function SidebarHeader({
           )}
 
           <div className="flex flex-shrink-0 gap-1.5">
+            <button
+              className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted/50 transition-all active:scale-95"
+              onClick={() => navigate('/tasks')}
+              title={t('tooltips.tasks')}
+            >
+              <ClipboardList className="h-4 w-4 text-amber-500" />
+            </button>
             <button
               className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted/50 transition-all active:scale-95"
               onClick={onRefresh}
