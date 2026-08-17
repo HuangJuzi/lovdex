@@ -77,6 +77,11 @@ export const TaskCard = memo(function TaskCard({
             {LABEL_META[label].label}
           </span>
         )}
+        {task.source_schedule_id && (
+          <span className="rounded-full bg-amber-500/10 px-2 py-0.5 font-semibold text-amber-600 dark:text-amber-400">
+            ⏰ 定时
+          </span>
+        )}
         {priority && PRIORITY_META[priority] && (
           <span
             className="rounded-full px-2 py-0.5 font-semibold"

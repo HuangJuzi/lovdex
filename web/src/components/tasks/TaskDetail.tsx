@@ -506,6 +506,14 @@ export function TaskDetailPage() {
                 🤖 Lovdex助手
               </span>
             )}
+            {task.source_schedule_id && (
+              <button
+                className="mt-1 ml-2 inline-flex items-center rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] font-semibold text-amber-600 hover:bg-amber-500/20 dark:text-amber-400"
+                onClick={() => navigate('/tasks?view=scheduled')}
+              >
+                ⏰ 定时
+              </button>
+            )}
             <p className="mt-1 font-mono text-xs text-muted-foreground">
               {task.project_path} · {task.task_id.slice(0, 8)}
             </p>
