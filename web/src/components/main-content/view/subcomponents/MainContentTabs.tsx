@@ -1,5 +1,4 @@
-import { ClipboardList, FolderOpen, GitBranch, MessageSquare } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { FolderOpen, GitBranch, MessageSquare } from 'lucide-react';
 import type { AppTab } from '../../../../types/app';
 import { cn } from '../../../../lib/utils';
 
@@ -10,14 +9,10 @@ type Props = {
 };
 
 /**
- * Merged workspace tabs: chat / files / git switch the in-place activeTab,
- * and the tasks item navigates to the /tasks route. This keeps a single
- * segmented control in the main-content header (Tasks stays an entry point
- * without duplicating a separate chat/tasks switcher).
+ * Workspace tabs: chat / files / git switch the in-place activeTab.
+ * The Tasks entry point now lives in the sidebar header (Lovdex row).
  */
 function MainContentTabs({ activeTab, onSelect, className }: Props) {
-  const navigate = useNavigate();
-
   const workspace: { value: 'chat' | 'files' | 'git'; label: string; icon: typeof MessageSquare }[] = [
     { value: 'chat', label: 'Chat', icon: MessageSquare },
     { value: 'files', label: 'Files', icon: FolderOpen },
@@ -49,19 +44,6 @@ function MainContentTabs({ activeTab, onSelect, className }: Props) {
           </button>
         );
       })}
-      <button
-        type="button"
-        aria-pressed={false}
-        title="Tasks"
-        onClick={() => navigate('/tasks')}
-        className={cn(
-          'flex flex-1 items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-normal transition-all',
-          'text-muted-foreground hover:text-foreground',
-        )}
-      >
-        <ClipboardList className="h-3 w-3 flex-shrink-0 text-emerald-500" />
-        Tasks
-      </button>
     </div>
   );
 }
