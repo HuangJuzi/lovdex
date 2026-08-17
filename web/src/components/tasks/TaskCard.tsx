@@ -20,6 +20,9 @@ type TaskCardProps = {
   projectOptions?: TaskProjectOption[];
   /** Called with the newly selected project path (todo tasks only). */
   onProjectChange?: (nextPath: string) => void;
+  /** 是否被批量删除选择，配合 onToggleSelect 显示复选框。 */
+  selected?: boolean;
+  onToggleSelect?: (taskId: string) => void;
 };
 
 export const TaskCard = memo(function TaskCard({
@@ -29,6 +32,8 @@ export const TaskCard = memo(function TaskCard({
   onOpenSession,
   projectOptions,
   onProjectChange,
+  selected,
+  onToggleSelect,
 }: TaskCardProps) {
   const navigate = useNavigate();
   const timeLabel = taskTimeLabel(task);
@@ -51,6 +56,16 @@ export const TaskCard = memo(function TaskCard({
         <span className="min-w-0 flex-1 break-words text-sm font-semibold text-card-foreground">
           {task.title}
         </span>
+        {onToggleSelect && (
+          <input
+            type="checkbox"
+            aria-label="选择任务"
+            checked={selected ?? false}
+            onChange={() => onToggleSelect(task.task_id)}
+            onClick={(e) => e.stopPropagation()}
+            className="mt-0.5 h-4 w-4 shrink-0 cursor-pointer accent-primary"
+          />
+        )}
       </div>
       {/* 顶部标签条：Label / 优先级 / 截止日期 */}
       <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px]">

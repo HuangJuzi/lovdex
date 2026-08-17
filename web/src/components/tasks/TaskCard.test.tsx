@@ -48,6 +48,8 @@ function render(
     onOpenSession?: () => void;
     onStart?: () => void;
     onStatusChange?: (status: Task['status']) => void;
+    selected?: boolean;
+    onToggleSelect?: (taskId: string) => void;
   } = {},
 ) {
   return renderToStaticMarkup(
@@ -112,4 +114,15 @@ test('board card renders exactly one open-session button for in_progress with on
     { onOpenSession: () => {}, onStart: () => {}, onStatusChange: () => {} },
   );
   assert.equal((html.match(/打开会话/g) || []).length, 1);
+});
+
+test('card renders a selection checkbox when onToggleSelect is provided', () => {
+  const html = render(baseTask, { selected: true, onToggleSelect: () => {} });
+  assert.match(html, /type="checkbox"/);
+  assert.match(html, /选择任务/);
+});
+
+test('card without onToggleSelect renders no checkbox', () => {
+  const html = render(baseTask);
+  assert.doesNotMatch(html, /type="checkbox"/);
 });
