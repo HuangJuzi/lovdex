@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { LayoutGrid, Plus, Table } from 'lucide-react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Clock, LayoutGrid, Plus, Table } from 'lucide-react';
 
 import { useWebSocket } from '../../contexts/WebSocketContext';
 import { useTasks } from '../../hooks/useTasks';
@@ -37,6 +37,7 @@ import { deriveTaskName } from './taskName';
 import { ASSISTANT_OPTION_VALUE, projectPathOf, taskFormProjects } from './projectOptions';
 import { LABEL_META, LABEL_ORDER, PRIORITY_META, PRIORITY_ORDER, STATUS_META, STATUS_ORDER, groupByStatus } from './taskStatus';
 import { TaskFilterBar } from './TaskFilterBar';
+import { ScheduledTasksPanel } from './ScheduledTasksPanel';
 import { TaskTableView } from './TaskTableView';
 import { EMPTY_TASK_FILTER, filterTasks, normalizeTaskFilter, type TaskFilter } from './taskFilter';
 
@@ -46,11 +47,17 @@ export function TaskBoardPage() {
   const { tasks, loading, loadError, refresh, upsert, remove } = useTasks({}, subscribe);
   const [storedFilter, setFilter] = useLocalStorage<unknown>('taskFilter', EMPTY_TASK_FILTER);
   const filter = useMemo(() => normalizeTaskFilter(storedFilter), [storedFilter]);
-  const [viewMode, setViewMode] = useLocalStorage<'board' | 'table'>('taskViewMode', 'board');
+  const [viewMode, setViewMode] = useLocalStorage<'board' | 'table' | 'scheduled'>('taskViewMode', 'board');
+  // 侧边栏「定时任务」入口带 ?view=scheduled 进来时，启动选中定时视图；仅在挂载时读一次。
+  const [searchParams] = useSearchParams();
+  useEffect(() => {
+    if (searchParams.get('view') === 'scheduled') setViewMode('scheduled');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   // 移动端强制看板：表格在手机上体验差，且「表格」按钮已隐藏（hidden sm:inline-flex）。
   // 断点 640 与 Tailwind `sm:` 对齐。
   const { isMobile } = useDeviceSettings({ mobileBreakpoint: 640 });
-  const effectiveView = isMobile ? 'board' : viewMode;
+  const effectiveView = isMobile && viewMode !== 'scheduled' ? 'board' : viewMode;
   // `now` 每分钟刷新一次：避免页面跨午夜且无任务事件时，「今天/本周/本月/今年」的
   // 日期区间边界停留在上次重算值。任务/筛选变化仍会立即重算。
   const [now, setNow] = useState(() => new Date());
@@ -392,6 +399,20 @@ export function TaskBoardPage() {
             <Table className="h-3 w-3" />
             表格
           </button>
+          <button
+            type="button"
+            aria-pressed={effectiveView === 'scheduled'}
+            onClick={() => setViewMode('scheduled')}
+            className={cn(
+              'hidden items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-normal transition-all sm:flex',
+              effectiveView === 'scheduled'
+                ? 'bg-background text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground',
+            )}
+          >
+            <Clock className="h-3 w-3" />
+            ⏰ 定时
+          </button>
         </div>
         <div className="ml-auto flex items-center gap-2">
           <Button size="toolbar" variant="chunkyPrimary" onClick={openCreateForm} disabled={creating} title="新建任务" aria-label="新建任务">
@@ -556,6 +577,10 @@ export function TaskBoardPage() {
         </div>
       ) : (
         <div className="flex min-h-0 flex-1 flex-col">
+          {effectiveView === 'scheduled' ? (
+            <ScheduledTasksPanel projectOptions={projectOptions} />
+          ) : (
+          <>
           <TaskFilterBar projectOptions={projectOptions} filter={filter} onChange={setFilter} />
           {selected.size > 0 && (
             <div className="flex flex-shrink-0 items-center gap-3 border-b border-border/60 bg-muted/40 px-3 py-2 sm:px-4">
@@ -630,6 +655,8 @@ export function TaskBoardPage() {
                 </div>
               ))}
             </div>
+          )}
+          </>
           )}
         </div>
       )}
