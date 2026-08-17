@@ -33,9 +33,16 @@ const INTERVAL_PRESETS = [
   { value: '604800', label: '每周' },
 ];
 
+function toLocalDateTimeInput(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 function toDraft(initial?: ScheduledTask | null): ScheduledTaskDraft {
   if (!initial) return EMPTY_DRAFT;
-  const runAt = initial.run_at ? new Date(initial.run_at).toISOString().slice(0, 16) : '';
+  const runAt = initial.run_at ? toLocalDateTimeInput(initial.run_at) : '';
   return {
     title: initial.title,
     description: initial.description ?? '',
