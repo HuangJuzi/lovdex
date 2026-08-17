@@ -51,7 +51,7 @@ import userRoutes from './routes/user.js';
 import authRoutes from './modules/auth/auth.routes.js';
 import providerRoutes from './modules/providers/provider.routes.js';
 import { assetsRoutes } from './modules/assets/index.js';
-import { initializeDatabase, projectsDb, sessionsDb, tasksDb } from './modules/database/index.js';
+import { initializeDatabase, projectsDb, scheduledTasksDb, sessionsDb, tasksDb } from './modules/database/index.js';
 import { buildTasksRouter, createTasksService } from './modules/tasks/index.js';
 import { createGitModule } from './modules/git/index.js';
 import { worktreesRoutes } from './modules/worktrees/index.js';
@@ -65,6 +65,8 @@ import { c } from './utils/colors.js';
 import { appConfig as getAppConfig } from './modules/config/config.js';
 import { buildConfigReadRouter, buildConfigWriteRouter } from './modules/config/config.routes.js';
 import { syncProviderEnv } from './modules/config/env-sync.js';
+import { createSchedulerService, buildSchedulerRouter } from './modules/scheduler/index.js';
+import { getOperatorConfig } from './modules/operators/operator.config.js';
 
 const __dirname = getModuleDir(import.meta.url);
 // The server source runs from /server, while the compiled output runs from /dist-server/server.
@@ -308,6 +310,20 @@ const startTaskRun = (taskId, sessionId) => {
     });
 };
 
+// Scheduled tasks: 15s tick dispatch. Missed runs during downtime are skipped
+// but surfaced as a single label=reminder task (see scheduler service). Reuses
+// broadcastTask so scheduled_task_upserted/deleted reach every WS client.
+const schedulerService = createSchedulerService({
+    scheduledTasksDb: {
+        ...scheduledTasksDb,
+        operatorWorkspacePath: getOperatorConfig().workspace,
+    },
+    tasksService,
+    createSession: createAppSession,
+    startTaskRun,
+    broadcast: broadcastTask,
+});
+
 // Wire the operator headless run deps: the real tasksService (adapted so the
 // string-typed operator tool inputs are narrowed to TaskStatus at the boundary),
 // projectsDb, sessionsService, and createSession. runOperatorHeadless (in
@@ -324,6 +340,7 @@ initOperatorHeadless({
 app.use('/api/tasks', authenticateToken, buildTasksRouter(tasksService, {
     createSession: createAppSession,
 }));
+app.use('/api/scheduled-tasks', authenticateToken, buildSchedulerRouter(schedulerService));
 
 // Git (Source Control) API Routes (protected)
 app.use('/api/git', authenticateToken, createGitModule());
@@ -1574,6 +1591,14 @@ async function startServer() {
     try {
         // Initialize authentication database
         await initializeDatabase();
+
+        // Scheduled tasks: start the 15s tick dispatch. Failure to start must
+        // not block the server — surface the error and continue.
+        try {
+            schedulerService.start();
+        } catch (error) {
+            console.error('[scheduler] start failed:', error instanceof Error ? error.message : error);
+        }
 
         // 清理 Lovdex助手 工作区里 is_operator=0 的历史残留会话（破坏性，日志兜底）。
         try {
