@@ -58,7 +58,7 @@ import { worktreesRoutes } from './modules/worktrees/index.js';
 import { buildOperatorRouter } from './modules/operators/operator.routes.js';
 import { cleanOperatorWorkspaceLegacySessions } from './modules/operators/operator-cleanup.service.js';
 import { scheduleAutoVerdict } from './modules/operators/operator-verdict.service.js';
-import { sessionsService } from './modules/providers/services/sessions.service.js';
+import { sessionsService, setSessionRenameHook } from './modules/providers/services/sessions.service.js';
 import { validateApiKey, authenticateToken, authenticateWebSocket } from './middleware/auth.js';
 import { IS_PLATFORM } from './constants/config.js';
 import { c } from './utils/colors.js';
@@ -261,6 +261,11 @@ const tasksService = createTasksService(tasksDb, {
 });
 // Wire session lifecycle → task status transitions (task↔session linkage).
 setTaskLinkage(tasksService);
+
+// Session rename → linked task title sync (bidirectional name consistency).
+// The hook fires only after the rename persisted; sync failures are caught at
+// the invocation site (sessions.service renameSessionById).
+setSessionRenameHook((sessionId, name) => tasksService.syncTaskTitleFromSession(sessionId, name));
 
 // On startup, mark any in_progress task whose linked session is no longer
 // running as failed. A run that died without a terminal session_status (backend

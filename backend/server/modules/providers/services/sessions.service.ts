@@ -84,6 +84,21 @@ function resolveProjectDisplayName(
 }
 
 /**
+ * Hook fired after a session is renamed (custom_name + disk write persisted).
+ * Wired at server startup to tasksService.syncTaskTitleFromSession so a task
+ * linked to the renamed session keeps its title in sync. Mirrors
+ * chat-run-registry's setTaskLinkage pattern (injected, not imported).
+ */
+type SessionRenameHook = (sessionId: string, name: string) => void;
+
+let sessionRenameHook: SessionRenameHook | null = null;
+
+/** Wire/unwire the post-rename hook (set once at server startup). */
+export function setSessionRenameHook(hook: SessionRenameHook | null): void {
+  sessionRenameHook = hook;
+}
+
+/**
  * Application service for provider-backed session message operations.
  *
  * Callers pass a provider id and this service resolves the concrete provider
@@ -355,6 +370,13 @@ export const sessionsService = {
       jsonl_path: session.jsonl_path,
       custom_name: summary,
     });
+    try {
+      sessionRenameHook?.(sessionId, summary);
+    } catch (err) {
+      // A hook failure must not turn a successfully-persisted rename into a
+      // false 500 for the user — the rename is already on disk at this point.
+      console.error('[sessions] rename hook failed:', sessionId, err);
+    }
     return { sessionId, summary };
   },
 };

@@ -341,7 +341,25 @@ export function createTasksService(
       }
 
       const row = resolveDb.updateTask(taskId, effective);
-      if (row) emit({ kind: 'task_upserted', task: row, actor: 'user' });
+      if (row) {
+        // 任务改名 → 关联会话名同步：新标题非空、前后标题（去空白后）实质变化、且
+        // 有 session_id 时，把会话 custom_name 同步为新标题（与 startExecution 的
+        // 命名方向一致）。旧标题为空白（仅可能来自之前的空白标题写入，该写入本身
+        // 不同步）时不视为改名，会话名保留最后的有效标题。
+        const trimmedTitle = typeof rest.title === 'string' ? rest.title.trim() : '';
+        const previousTitle = typeof current.title === 'string' ? current.title.trim() : '';
+        if (trimmedTitle && previousTitle && trimmedTitle !== previousTitle && row.session_id) {
+          try {
+            opts.deps?.sessionsDb?.updateSessionCustomName(row.session_id, trimmedTitle);
+          } catch (err) {
+            // Mirror backfillSessionNames' per-row guard: a session-name write
+            // failure must not fail the whole task update — the task title is
+            // already committed. Log and continue.
+            console.error(`[tasks] sync session name failed for session ${row.session_id}`, err);
+          }
+        }
+        emit({ kind: 'task_upserted', task: row, actor: 'user' });
+      }
       return row ? decorate(row) : null;
     },
 
@@ -392,6 +410,21 @@ export function createTasksService(
       const updated = resolveDb.getTask(taskId) ?? row;
       emit({ kind: 'task_upserted', task: updated, actor: 'user' });
       return { sessionId };
+    },
+
+    /**
+     * 会话改名 → 关联任务标题同步：把关联会话的新名字写到任务标题并广播
+     * task_upserted，让看板实时刷新。无关联任务 / 名字空白 / 未变化时为 no-op。
+     */
+    syncTaskTitleFromSession(sessionId: string, title: string): TaskRow | null {
+      const row = resolveDb.getTaskBySessionId(sessionId);
+      if (!row) return null;
+      const trimmed = title.trim();
+      if (!trimmed || trimmed === row.title) return null;
+      resolveDb.updateTask(row.task_id, { title: trimmed });
+      const updated = resolveDb.getTask(row.task_id) ?? row;
+      emit({ kind: 'task_upserted', task: updated, actor: 'user' });
+      return decorate(updated);
     },
 
     onSessionStatus(sessionId: string, state: 'running' | 'completed' | 'failed' | 'aborted'): void {
