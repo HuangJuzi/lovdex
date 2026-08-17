@@ -9,6 +9,7 @@ import AppContent from './components/app/AppContent';
 import AuthGate from './components/auth/AuthGate';
 import { TaskBoardPage, TaskDetailPage } from './components/tasks';
 import { OperatorSettingsPage } from './components/operators/OperatorSettingsPage';
+import { ProviderSettingsPage } from './components/settings/ProviderSettingsPage';
 import { AssistantPanel } from './components/operators/AssistantPanel';
 import { TerminalDrawerProvider } from './hooks/useTerminalDrawer';
 import i18n from './i18n/config.js';
@@ -132,6 +133,7 @@ export default function App() {
                   <Route path="/task/:taskId" element={<TaskDetailPage />} />
                   <Route path="/assistant" element={<AssistantPanel />} />
                   <Route path="/settings/operator" element={<OperatorSettingsPage />} />
+                  <Route path="/settings/providers" element={<ProviderSettingsPage />} />
                 </Routes>
               </TerminalDrawerProvider>
             </Router>

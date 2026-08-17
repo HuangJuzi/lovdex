@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { ArrowUpCircle, Bug, AlertTriangle, KeyRound, LogOut } from 'lucide-react';
+import { ArrowUpCircle, Bug, AlertTriangle, KeyRound, LogOut, Settings2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import type { TFunction } from 'i18next';
 import { IS_PLATFORM } from '../../../../constants/config';
 import type { ReleaseInfo } from '../../../../types/sharedTypes';
@@ -40,6 +41,7 @@ export default function SidebarFooter({
   t,
 }: SidebarFooterProps) {
   const { logout } = useAuth();
+  const navigate = useNavigate();
   const [showChangePassword, setShowChangePassword] = useState(false);
   return (
     <div className="flex-shrink-0" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0)' }}>
@@ -109,6 +111,22 @@ export default function SidebarFooter({
 
       {/* Operator Agent assistant + settings now live at the top of the sidebar
           (SidebarAssistant), so the footer is back to version banners only. */}
+
+      {/* Provider 凭据 + 运行参数设置。 */}
+      <div className="px-2 pb-1.5 pt-1">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => navigate('/settings/providers')}
+          title="Provider 设置"
+          aria-label="Provider 设置"
+          className="w-full justify-start px-2 text-xs font-normal text-muted-foreground hover:text-foreground"
+        >
+          <Settings2 />
+          <span className="truncate">Provider 设置</span>
+        </Button>
+      </div>
 
       {/* Change password + logout (OSS mode only — the login gate is backend-enforced). */}
       {!IS_PLATFORM() && (
