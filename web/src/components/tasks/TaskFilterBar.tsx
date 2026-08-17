@@ -6,6 +6,7 @@ import { Pill, PillBar } from '../../shared/view/ui';
 
 import type { TaskProjectOption } from './TaskCard';
 import { ASSISTANT_OPTION_VALUE } from './projectOptions';
+import { ProjectMultiSelect } from './ProjectMultiSelect';
 import {
   EMPTY_TASK_FILTER,
   type TaskDateField,
@@ -33,48 +34,42 @@ type TaskFilterBarProps = {
   onChange: (filter: TaskFilter) => void;
 };
 
+/** 项目维度的摘要文案：全部 / 单个标签 / N 个项目。 */
+function projectFilterLabel(filter: TaskFilter, projectOptions: TaskProjectOption[]): string {
+  const paths = filter.projectPaths;
+  if (paths.length === 0) return '全部';
+  if (paths.length === 1) {
+    const v = paths[0];
+    return v === ASSISTANT_OPTION_VALUE
+      ? '🤖 Lovdex助手'
+      : projectOptions.find((o) => o.value === v)?.label ?? v;
+  }
+  return `${paths.length} 个`;
+}
+
 /** 移动端触发行上的一句话摘要，例如「项目：全部 · 日期：今天」。 */
 function filterSummary(filter: TaskFilter, projectOptions: TaskProjectOption[]): string {
-  const projectLabel =
-    filter.projectPath === ASSISTANT_OPTION_VALUE
-      ? '🤖 Lovdex助手'
-      : filter.projectPath
-        ? projectOptions.find((o) => o.value === filter.projectPath)?.label ?? filter.projectPath
-        : '全部';
+  const projectLabel = projectFilterLabel(filter, projectOptions);
   const dateRange =
     filter.customFrom || filter.customTo
       ? `${filter.customFrom || '…'} ~ ${filter.customTo || '…'}`
       : PRESET_OPTIONS.find((p) => p.value === filter.preset)?.label ?? '全部';
-  return `项目：${projectLabel} · 日期：${dateRange}${filter.assistantOnly ? ' · 只看助手' : ''}`;
+  return `项目：${projectLabel} · 日期：${dateRange}`;
 }
 
 /**
- * Task 页筛选栏：项目下拉 + 只看助手开关 + 日期字段切换 + 快捷项 + 自定义范围。
+ * Task 页筛选栏：项目多选 + 日期字段切换 + 快捷项 + 自定义范围。
  * 移动端（<sm）默认折叠为「筛选」触发行，点开展开全部控件；
  * 桌面端（≥sm）始终展开，分组 justify-between 铺满一行。
- * 项目单选与助手开关互斥：选具体项目关闭助手；开助手则项目重置为全部。
  */
 export function TaskFilterBar({ projectOptions, filter, onChange }: TaskFilterBarProps) {
   const [open, setOpen] = useState(false);
 
   const hasFilter =
-    filter.projectPath !== '' ||
-    filter.assistantOnly ||
+    filter.projectPaths.length > 0 ||
     filter.preset !== 'all' ||
     filter.customFrom !== '' ||
     filter.customTo !== '';
-
-  const selectProject = (value: string) => {
-    onChange({ ...filter, projectPath: value, assistantOnly: false });
-  };
-
-  const toggleAssistant = () => {
-    onChange(
-      filter.assistantOnly
-        ? { ...filter, assistantOnly: false }
-        : { ...filter, projectPath: '', assistantOnly: true },
-    );
-  };
 
   const pickPreset = (preset: TaskFilterPreset) => {
     onChange({ ...filter, preset, customFrom: '', customTo: '' });
@@ -111,98 +106,74 @@ export function TaskFilterBar({ projectOptions, filter, onChange }: TaskFilterBa
             open ? 'flex flex-col px-3 pb-2 pt-1' : 'hidden sm:flex',
           )}
         >
-        {/* 左簇：项目 + 只看助手 */}
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-1.5 rounded-xl border-2 border-border bg-card px-2.5 py-1.5">
-            <span className="text-sm text-muted-foreground">项目</span>
-            <select
-              className="bg-transparent text-sm text-foreground outline-none"
-              value={filter.projectPath}
-              onChange={(e) => selectProject(e.target.value)}
-            >
-              <option value="">全部项目</option>
-              <option value={ASSISTANT_OPTION_VALUE}>🤖 Lovdex助手</option>
-              {projectOptions.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <button
-            type="button"
-            aria-pressed={filter.assistantOnly}
-            onClick={toggleAssistant}
-            className={`rounded-lg border border-border/70 px-3 py-2 text-sm transition-colors ${
-              filter.assistantOnly
-                ? 'bg-violet-500/15 text-violet-600 dark:text-violet-400'
-                : 'bg-muted/50 text-muted-foreground hover:text-foreground'
-            }`}
-          >
-            🤖 只看助手
-          </button>
-        </div>
-
-        {/* 中左簇：日期字段 */}
-        <PillBar>
-          {DATE_FIELD_OPTIONS.map((o) => (
-            <Pill
-              key={o.value}
-              isActive={filter.dateField === o.value}
-              onClick={() => onChange({ ...filter, dateField: o.value })}
-            >
-              {o.label}
-            </Pill>
-          ))}
-        </PillBar>
-
-        {/* 中右簇：快捷项 */}
-        <PillBar>
-          {PRESET_OPTIONS.map((o) => (
-            <Pill
-              key={o.value}
-              isActive={presetActive(o.value)}
-              onClick={() => pickPreset(o.value)}
-            >
-              {o.label}
-            </Pill>
-          ))}
-        </PillBar>
-
-        {/* 右簇：自定义范围 + 清除 */}
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-1.5 rounded-xl border-2 border-border bg-card px-2.5 py-1.5">
-            <span className="text-sm text-muted-foreground">从</span>
-            <input
-              type="date"
-              className={`bg-transparent text-sm text-foreground outline-none ${
-                filter.customFrom === '' ? 'date-empty' : ''
-              }`}
-              value={filter.customFrom}
-              onChange={(e) => onChange({ ...filter, preset: 'all', customFrom: e.target.value })}
-            />
-            <span className="text-sm text-muted-foreground">至</span>
-            <input
-              type="date"
-              className={`bg-transparent text-sm text-foreground outline-none ${
-                filter.customTo === '' ? 'date-empty' : ''
-              }`}
-              value={filter.customTo}
-              onChange={(e) => onChange({ ...filter, preset: 'all', customTo: e.target.value })}
+          {/* 左簇：项目多选 */}
+          <div className="flex flex-wrap items-center gap-2">
+            <ProjectMultiSelect
+              projectOptions={projectOptions}
+              value={filter.projectPaths}
+              onChange={(projectPaths) => onChange({ ...filter, projectPaths })}
             />
           </div>
 
-          {hasFilter && (
-            <button
-              type="button"
-              className="rounded-lg px-2 py-1.5 text-sm text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-              onClick={() => onChange(EMPTY_TASK_FILTER)}
-            >
-              清除筛选
-            </button>
-          )}
-        </div>
+          {/* 中左簇：日期字段 */}
+          <PillBar>
+            {DATE_FIELD_OPTIONS.map((o) => (
+              <Pill
+                key={o.value}
+                isActive={filter.dateField === o.value}
+                onClick={() => onChange({ ...filter, dateField: o.value })}
+              >
+                {o.label}
+              </Pill>
+            ))}
+          </PillBar>
+
+          {/* 中右簇：快捷项 */}
+          <PillBar>
+            {PRESET_OPTIONS.map((o) => (
+              <Pill
+                key={o.value}
+                isActive={presetActive(o.value)}
+                onClick={() => pickPreset(o.value)}
+              >
+                {o.label}
+              </Pill>
+            ))}
+          </PillBar>
+
+          {/* 右簇：自定义范围 + 清除 */}
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-1.5 rounded-xl border-2 border-border bg-card px-2.5 py-1.5">
+              <span className="text-sm text-muted-foreground">从</span>
+              <input
+                type="date"
+                className={`bg-transparent text-sm text-foreground outline-none ${
+                  filter.customFrom === '' ? 'date-empty' : ''
+                }`}
+                value={filter.customFrom}
+                onChange={(e) => onChange({ ...filter, preset: 'all', customFrom: e.target.value })}
+              />
+              <span className="text-sm text-muted-foreground">至</span>
+              <input
+                type="date"
+                className={`bg-transparent text-sm text-foreground outline-none ${
+                  filter.customTo === '' ? 'date-empty' : ''
+                }`}
+                value={filter.customTo}
+                onChange={(e) => onChange({ ...filter, preset: 'all', customTo: e.target.value })}
+              />
+            </div>
+
+            {hasFilter && (
+              <button
+                type="button"
+                className="rounded-lg px-2 py-1.5 text-sm text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                onClick={() => onChange(EMPTY_TASK_FILTER)}
+              >
+                清除筛选
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>
