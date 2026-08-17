@@ -96,3 +96,28 @@ test('auth code and jwtSecret use zero-hint mask', () => {
   assert.strictEqual(masked.auth.code, '••••');
   assert.strictEqual(masked.auth.jwtSecret, '••••');
 });
+
+test('claude provider defaults include baseUrl and model alias fields', () => {
+  const cfg = createAppConfig({ dataDir: tmpDir() });
+  const claude = cfg.get().providers.claude;
+  assert.strictEqual(claude.baseUrl, '');
+  assert.strictEqual(claude.defaultModel, '');
+  assert.strictEqual(claude.haikuModel, '');
+  assert.strictEqual(claude.opusModel, '');
+  assert.strictEqual(claude.sonnetModel, '');
+});
+
+test('claude model alias fields survive deep merge and persist', () => {
+  const dir = tmpDir();
+  const cfg = createAppConfig({ dataDir: dir });
+  cfg.update({
+    providers: { claude: { baseUrl: 'https://proxy.example/anthropic', defaultModel: 'm-default', sonnetModel: 'm-sonnet' } },
+  });
+  assert.strictEqual(cfg.get().providers.claude.baseUrl, 'https://proxy.example/anthropic');
+  assert.strictEqual(cfg.get().providers.claude.sonnetModel, 'm-sonnet');
+  // sibling untouched by partial update
+  assert.strictEqual(cfg.get().providers.claude.haikuModel, '');
+  // persisted to disk
+  const onDisk = JSON.parse(fs.readFileSync(path.join(dir, 'app.config.json'), 'utf8'));
+  assert.strictEqual(onDisk.providers.claude.defaultModel, 'm-default');
+});
