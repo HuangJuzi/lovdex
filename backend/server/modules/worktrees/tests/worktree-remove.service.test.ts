@@ -170,6 +170,7 @@ test('removeWorktree archives an active project linked to the removed path', asy
     custom_project_name: 'repo · feature/login',
     isStarred: 0,
     isArchived: 0,
+    is_explicit: 0,
   };
   const { archivedProjectIds, dependencies } = createDependencies(runner, linkedProject);
 
@@ -193,6 +194,7 @@ test('removeWorktree reports archival failure after successful Git removal', asy
     project_path: '/home/user/repo-worktrees/feature-login',
     custom_project_name: 'feature/login',
     isStarred: 0,
+    is_explicit: 0,
     isArchived: 0,
   };
   const { dependencies } = createDependencies(runner, linkedProject, new Error('archive failed'));
