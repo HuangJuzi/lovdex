@@ -58,3 +58,32 @@ test('deep merge: partial update does not clobber siblings', () => {
   assert.strictEqual(got.server.host, '0.0.0.0');
   assert.strictEqual(got.server.isPlatform, false);
 });
+
+test('getMasked masks every value inside providers.opencode.apiKeys', () => {
+  const dir = tmpDir();
+  const cfg = createAppConfig({ dataDir: dir });
+  cfg.update({
+    providers: {
+      opencode: { apiKeys: { ANTHROPIC_API_KEY: 'sk-super-secret', OPENAI_API_KEY: 'sk-other' } },
+    },
+  });
+  const masked = cfg.getMasked();
+  const apiKeys = masked.providers.opencode.apiKeys as Record<string, string>;
+  assert.deepStrictEqual(Object.keys(apiKeys).sort(), ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY']);
+  assert.strictEqual(apiKeys.ANTHROPIC_API_KEY, '••••cret');
+  assert.strictEqual(apiKeys.OPENAI_API_KEY, '••••ther');
+  const serialized = JSON.stringify(masked);
+  assert.ok(!serialized.includes('sk-super-secret'));
+  assert.ok(!serialized.includes('sk-other'));
+});
+
+test('empty auth.jwtSecret on disk is injected AND persisted', () => {
+  const dir = tmpDir();
+  const file = path.join(dir, 'app.config.json');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({ auth: { jwtSecret: '' } }, null, 2));
+  const cfg = createAppConfig({ dataDir: dir });
+  assert.ok(cfg.get().auth.jwtSecret.length >= 32);
+  const onDisk = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assert.ok(onDisk.auth.jwtSecret.length >= 32, 'injected secret must be persisted to disk');
+});

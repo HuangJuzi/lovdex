@@ -55,6 +55,13 @@ const SENSITIVE_KEYS = new Set([
   'apiKey', 'authToken', 'personalAccessToken', 'jwtSecret', 'code',
 ]);
 
+/**
+ * Keys whose object VALUES are all secrets (e.g. `providers.opencode.apiKeys`,
+ * a `Record<envVarName, key>`). Containers are masked wholesale so inner keys
+ * like `ANTHROPIC_API_KEY` don't need to match SENSITIVE_KEYS.
+ */
+const SENSITIVE_CONTAINER_KEYS = new Set(['apiKeys']);
+
 function deepMerge<T>(base: T, override: unknown): T {
   if (Array.isArray(base) || Array.isArray(override)) {
     return (override ?? base) as T;
@@ -78,6 +85,13 @@ export function maskSecret(value: unknown): string {
 
 /** Recursively replaces sensitive leaf values with a masked marker. */
 export function maskConfig(value: unknown, key?: string): unknown {
+  // Container keys (e.g. `apiKeys`) hold secrets under arbitrary inner key
+  // names, so mask every value immediately instead of recursing into them.
+  if (key && SENSITIVE_CONTAINER_KEYS.has(key) && typeof value === 'object' && value !== null) {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) out[k] = maskSecret(v);
+    return out;
+  }
   if (Array.isArray(value)) return value.map((v) => maskConfig(v));
   if (typeof value === 'object' && value !== null) {
     const out: Record<string, unknown> = {};
@@ -116,29 +130,49 @@ export function createAppConfig(options?: {
       const raw = fs.readFileSync(filePath, 'utf8');
       const parsed = JSON.parse(raw) as Partial<AppConfig>;
       const cfg = deepMerge(structuredClone(DEFAULT_APP_CONFIG), parsed) as AppConfig;
-      if (!cfg.auth.jwtSecret) cfg.auth.jwtSecret = jwtSecret;
+      if (!cfg.auth.jwtSecret) {
+        // Persisted file has no JWT secret — inject a stable random one and
+        // write it back now, so restarts don't rotate the key and invalidate
+        // existing logins.
+        cfg.auth.jwtSecret = jwtSecret;
+        persist(cfg); // hoisted function declaration — safe to call from here
+      }
       return cfg;
-    } catch {
-      // Missing or malformed → generate defaults and persist (idempotent).
+    } catch (err) {
+      // ENOENT → first boot: generate defaults and persist (idempotent).
+      // Anything else (corrupt JSON, EACCES, ...) → rotate the damaged file to
+      // `<filePath>.corrupt` so stored credentials stay recoverable, then
+      // regenerate defaults.
+      const code = (err as NodeJS.ErrnoException)?.code;
+      if (code !== 'ENOENT') {
+        if (fs.existsSync(filePath)) {
+          try {
+            fs.renameSync(filePath, `${filePath}.corrupt`);
+          } catch {
+            // Best-effort rotation; never mask the original error.
+          }
+        }
+        console.error(
+          `app.config: failed to load ${filePath} (${code ?? 'unknown'}); rotated to .corrupt`, err);
+      }
       const cfg = structuredClone(DEFAULT_APP_CONFIG) as AppConfig;
       cfg.auth.jwtSecret = jwtSecret;
-      fs.mkdirSync(dir, { recursive: true });
-      fs.writeFileSync(filePath, `${JSON.stringify(cfg, null, 2)}\n`, 'utf8');
+      persist(cfg);
       return cfg;
     }
   }
 
   function persist(cfg: AppConfig): void {
-    fs.mkdirSync(dir, { recursive: true });
+    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     const tmpPath = `${filePath}.tmp`;
-    fs.writeFileSync(tmpPath, `${JSON.stringify(cfg, null, 2)}\n`, 'utf8');
+    fs.writeFileSync(tmpPath, `${JSON.stringify(cfg, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
     fs.renameSync(tmpPath, filePath);
   }
 
   let current = load();
 
   return {
-    get: () => current,
+    get: () => structuredClone(current),
     getMasked: () => maskConfig(current) as AppConfig,
     update(partial: unknown): AppConfig {
       const next = deepMerge(structuredClone(current), partial) as AppConfig;
