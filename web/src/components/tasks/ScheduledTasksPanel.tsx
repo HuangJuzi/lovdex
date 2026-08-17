@@ -33,9 +33,10 @@ export function ScheduledTasksPanel({ projectOptions }: { projectOptions: TaskPr
   const [editing, setEditing] = useState<ScheduledTask | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [formKey, setFormKey] = useState(0);
 
-  const openNew = () => { setEditing(null); setError(null); setFormOpen(true); };
-  const openEdit = (t: ScheduledTask) => { setEditing(t); setError(null); setFormOpen(true); };
+  const openNew = () => { setEditing(null); setError(null); setFormKey((k) => k + 1); setFormOpen(true); };
+  const openEdit = (t: ScheduledTask) => { setEditing(t); setError(null); setFormKey((k) => k + 1); setFormOpen(true); };
 
   async function submit(draft: ScheduledTaskDraft) {
     setSubmitting(true);
@@ -90,7 +91,7 @@ export function ScheduledTasksPanel({ projectOptions }: { projectOptions: TaskPr
   return (
     <>
       <ScheduledTasksView tasks={tasks} projectOptions={projectOptions} onNew={openNew} onEdit={openEdit} onDelete={(t) => void remove(t)} onToggle={(t) => void toggle(t)} onRunNow={(t) => void runNow(t)} />
-      <ScheduledTaskForm key={editing?.schedule_id ?? 'new'} open={formOpen} initial={editing} projectOptions={projectOptions} submitting={submitting} error={error} onClose={() => setFormOpen(false)} onSubmit={(d) => void submit(d)} />
+      <ScheduledTaskForm key={formKey} open={formOpen} initial={editing} projectOptions={projectOptions} submitting={submitting} error={error} onClose={() => setFormOpen(false)} onSubmit={(d) => void submit(d)} />
     </>
   );
 }
