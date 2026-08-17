@@ -11,6 +11,7 @@ import {
   USER_NOTIFICATION_PREFERENCES_TABLE_SCHEMA_SQL,
   VAPID_KEYS_TABLE_SCHEMA_SQL,
 } from '@/modules/database/schema.js';
+import { canonicalizeProjectPath } from '@/shared/utils.js';
 
 const SQLITE_UUID_SQL = `
 lower(hex(randomblob(4))) || '-' ||
@@ -650,6 +651,72 @@ export function migrateProjectsExplicitColumn(db: Database): void {
   addColumnToTableIfNotExists(db, 'projects', columns, 'is_explicit', 'INTEGER DEFAULT 0');
 }
 
+/**
+ * One-time canonicalization of stored project paths.
+ *
+ * Walks every `projects` row and re-keys it to its real (symlink-resolved)
+ * path. When two rows resolve to the same physical directory (a symlink-path
+ * row and a real-path row), the duplicate is merged into the survivor: child
+ * `sessions` / `tasks` rows are repointed first (their FKs reference
+ * `projects(project_path)`), the surviving project row absorbs the doomed
+ * row's flags/name, then the doomed row is deleted.
+ */
+export function canonicalizeProjectPathsMigration(db: Database): void {
+  db.exec('PRAGMA foreign_keys = ON');
+
+  const rows = db
+    .prepare('SELECT project_id, project_path FROM projects')
+    .all() as Array<{ project_id: string; project_path: string }>;
+
+  for (const row of rows) {
+    const canonical = canonicalizeProjectPath(row.project_path);
+    if (!canonical || canonical === row.project_path) {
+      continue;
+    }
+
+    const survivor = db
+      .prepare('SELECT project_id FROM projects WHERE project_path = ?')
+      .get(canonical) as { project_id: string } | undefined;
+
+    if (survivor) {
+      const doomed = db
+        .prepare(
+          'SELECT project_id, custom_project_name, isStarred, isArchived, is_explicit FROM projects WHERE project_id = ?'
+        )
+        .get(row.project_id) as {
+        project_id: string;
+        custom_project_name: string | null;
+        isStarred: number;
+        isArchived: number;
+        is_explicit: number;
+      };
+      const keep = db
+        .prepare(
+          'SELECT project_id, custom_project_name, isStarred, isArchived, is_explicit FROM projects WHERE project_id = ?'
+        )
+        .get(survivor.project_id) as typeof doomed;
+
+      db.prepare('UPDATE sessions SET project_path = ? WHERE project_path = ?').run(canonical, row.project_path);
+      db.prepare('UPDATE tasks SET project_path = ? WHERE project_path = ?').run(canonical, row.project_path);
+      db.prepare(
+        'UPDATE projects SET custom_project_name = ?, isStarred = ?, isArchived = ?, is_explicit = ? WHERE project_id = ?'
+      ).run(
+        keep.custom_project_name ?? doomed.custom_project_name,
+        keep.isStarred || doomed.isStarred,
+        keep.isArchived || doomed.isArchived,
+        keep.is_explicit || doomed.is_explicit,
+        keep.project_id,
+      );
+      db.prepare('DELETE FROM projects WHERE project_id = ?').run(doomed.project_id);
+      continue;
+    }
+
+    // No existing canonical row: rename in place. The FK ON UPDATE CASCADE on
+    // sessions/tasks repoints child rows automatically.
+    db.prepare('UPDATE projects SET project_path = ? WHERE project_id = ?').run(canonical, row.project_id);
+  }
+}
+
 export const runMigrations = (db: Database) => {
   try {
     const usersTableInfo = db.prepare('PRAGMA table_info(users)').all() as { name: string }[];
@@ -689,6 +756,7 @@ export const runMigrations = (db: Database) => {
 
     ensureProjectsForSessionPaths(db);
     migrateProjectsExplicitColumn(db);
+    canonicalizeProjectPathsMigration(db);
 
     migrateTasksTable(db);
 
