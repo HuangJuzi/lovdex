@@ -86,7 +86,7 @@ const formatCompactSessionAge = (dateString: string, currentTime: Date): string 
  *  - `activeSessionId`（当前打开的会话）所在行高亮，提示「正在看哪一个」。
  *
  * 挂载时拉一次 + 窗口重新获焦时刷新。[+] 弹出 provider 选择框，确认后创建
- * 会话并打开；[⚙] → /settings/operator。
+ * 会话并打开；[⚙] → /settings?tab=operator。
  */
 type SidebarAssistantProps = {
   activeSessionId?: string | null;

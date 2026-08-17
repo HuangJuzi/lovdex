@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 
 import { useAuth } from '../auth/AuthGate';
 import { Button } from '../../shared/view/ui';
+
 import ChangePasswordForm from './ChangePasswordForm';
 
 /**
