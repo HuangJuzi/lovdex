@@ -1,12 +1,8 @@
-import { useState } from 'react';
-import { ArrowUpCircle, Bug, AlertTriangle, KeyRound, LogOut, Settings2 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { ArrowUpCircle, Bug, AlertTriangle, Settings2 } from 'lucide-react';
 import type { TFunction } from 'i18next';
-import { IS_PLATFORM } from '../../../../constants/config';
 import type { ReleaseInfo } from '../../../../types/sharedTypes';
-import { useAuth } from '../../../auth/AuthGate';
-import ChangePasswordDialog from '../../../auth/ChangePasswordDialog';
 import { Button } from '../../../../shared/view/ui';
-import { useSettingsDialog } from '../../../../hooks/useSettingsDialog';
 
 const GITHUB_ISSUES_URL = 'https://github.com/siteboon/claudecodeui/issues/new';
 const GITHUB_REPO_URL = 'https://github.com/siteboon/claudecodeui';
@@ -40,9 +36,7 @@ export default function SidebarFooter({
   onShowSettings,
   t,
 }: SidebarFooterProps) {
-  const { logout } = useAuth();
-  const { openSettings } = useSettingsDialog();
-  const [showChangePassword, setShowChangePassword] = useState(false);
+  const navigate = useNavigate();
   return (
     <div className="flex-shrink-0" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0)' }}>
       {/* Restart-required banner: the running server version differs from the
@@ -112,54 +106,21 @@ export default function SidebarFooter({
       {/* Operator Agent assistant + settings now live at the top of the sidebar
           (SidebarAssistant), so the footer is back to version banners only. */}
 
-      {/* Provider 凭据 + 运行参数设置。 */}
+      {/* 统一设置页入口（Provider / Operator Agent / 数据库 / 账号）。 */}
       <div className="px-2 pb-1.5 pt-1">
         <Button
           type="button"
           variant="ghost"
           size="sm"
-          onClick={openSettings}
-          title="Provider 设置"
-          aria-label="Provider 设置"
+          onClick={() => navigate('/settings')}
+          title="设置"
+          aria-label="设置"
           className="w-full justify-start px-2 text-xs font-normal text-muted-foreground hover:text-foreground"
         >
           <Settings2 />
-          <span className="truncate">Provider 设置</span>
+          <span className="truncate">设置</span>
         </Button>
       </div>
-
-      {/* Change password + logout (OSS mode only — the login gate is backend-enforced). */}
-      {!IS_PLATFORM() && (
-        <>
-          <div className="flex gap-1.5 px-2 pb-2">
-            <Button
-              type="button"
-              variant="chunky"
-              size="sm"
-              onClick={() => setShowChangePassword(true)}
-              title={t('auth:changePassword.button')}
-              aria-label={t('auth:changePassword.button')}
-              className="flex-1 px-2 text-xs"
-            >
-              <KeyRound />
-              <span className="truncate">{t('auth:changePassword.button')}</span>
-            </Button>
-            <Button
-              type="button"
-              variant="chunky"
-              size="sm"
-              onClick={logout}
-              title={t('auth:logout.button')}
-              aria-label={t('auth:logout.button')}
-              className="flex-1 px-2 text-xs"
-            >
-              <LogOut />
-              <span className="truncate">{t('auth:logout.button')}</span>
-            </Button>
-          </div>
-          <ChangePasswordDialog open={showChangePassword} onOpenChange={setShowChangePassword} />
-        </>
-      )}
 
     </div>
   );

@@ -437,7 +437,7 @@ export default function SidebarAssistant({ activeSessionId = null, onOpenSession
               className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground active:scale-90"
               onClick={(e) => {
                 e.stopPropagation();
-                navigate('/settings/operator');
+                navigate('/settings?tab=operator');
               }}
               title="Lovdex助手 设置"
               aria-label="Lovdex助手 设置"
@@ -493,13 +493,13 @@ export default function SidebarAssistant({ activeSessionId = null, onOpenSession
             className="touch:opacity-100 flex h-7 w-7 cursor-pointer items-center justify-center rounded text-muted-foreground opacity-0 transition-all duration-150 hover:bg-foreground/15 hover:text-foreground hover:ring-1 hover:ring-foreground/30 group-hover:opacity-100"
             onClick={(e) => {
               e.stopPropagation();
-              navigate('/settings/operator');
+              navigate('/settings?tab=operator');
             }}
             onKeyDown={(e) => {
               if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();
                 e.stopPropagation();
-                navigate('/settings/operator');
+                navigate('/settings?tab=operator');
               }
             }}
             title="Lovdex助手 设置"
