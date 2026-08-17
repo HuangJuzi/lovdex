@@ -33,8 +33,9 @@ const activeQoderProcesses = new Map();
 // (control_cancel), the window expires, or the run ends.
 const pendingQoderApprovals = new Map();
 
+// Default is 60000 (config: providers.qoder.toolApprovalTimeoutMs).
 const QODER_APPROVAL_TIMEOUT_MS =
-  appConfig().get().providers.qoder.toolApprovalTimeoutMs ?? 55000;
+  appConfig().get().providers.qoder.toolApprovalTimeoutMs;
 
 // Session normalization lives on the provider facet; a single module-level
 // instance is stateless beyond per-call message assembly.

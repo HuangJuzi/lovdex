@@ -45,7 +45,8 @@ const pendingToolApprovals = new Map();
 // emit a second one when its generator winds down.
 const abortedSessionIds = new Set();
 
-const TOOL_APPROVAL_TIMEOUT_MS = appConfig().get().providers.claude.toolApprovalTimeoutMs ?? 55000;
+// Default is 60000 (config: providers.claude.toolApprovalTimeoutMs).
+const TOOL_APPROVAL_TIMEOUT_MS = appConfig().get().providers.claude.toolApprovalTimeoutMs;
 
 const TOOLS_REQUIRING_INTERACTION = new Set(['AskUserQuestion', 'ExitPlanMode']);
 

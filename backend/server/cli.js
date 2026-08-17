@@ -67,8 +67,11 @@ function applyCliPortOverride(serverPort, legacyPort) {
     const cfgStore = appConfig();
     const cfg = cfgStore.get();
     const desired = serverPort || legacyPort;
-    if (desired && cfg.server.port !== Number(desired)) {
-        cfgStore.update({ server: { port: Number(desired) } });
+    const port = Number(desired);
+    // Only persist a valid numeric port — a non-numeric --port (e.g. "abc")
+    // would otherwise serialize as JSON null and corrupt server.port.
+    if (desired && Number.isFinite(port) && cfg.server.port !== port) {
+        cfgStore.update({ server: { port } });
     }
 }
 
@@ -168,8 +171,10 @@ Examples:
 Configuration:
   All runtime settings live in app.config.json (default ~/.lovdex/data),
   NOT in environment variables or a .env file. --port and --database-path
-  are persisted into that file. The only env override is AUTH_ENABLED=false
-  (safety valve to disable the login gate).
+  are persisted into that file. The primary env escape hatch is
+  AUTH_ENABLED=false (safety valve to disable the login gate). An optional
+  legacy header gate may also be enabled via the host env API_KEY (adds an
+  x-api-key check in front of /api); it is intentionally not read from config.
 
 Documentation:
   ${packageJson.homepage || 'https://github.com/siteboon/claudecodeui'}

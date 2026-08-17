@@ -9,7 +9,18 @@ import { extractTokenFromRequest, signToken, verifyToken } from '@/modules/auth/
 
 const LOCAL_USER = Object.freeze({ id: 1, username: 'local' });
 
-// Optional API key middleware (still honored when API_KEY env is set).
+// Legacy auxiliary gate — deliberately kept.
+//
+// This is a SEPARATE mechanism from the JWT login gate above: it is an optional
+// `x-api-key` header check mounted in front of /api (see index.js). It is only
+// active when the host environment sets API_KEY — it is intentionally NOT
+// sourced from app.config.json, so it stays invisible/off unless an operator
+// opts in via env. When it validates, the request is treated as an authenticated
+// local user (authenticateToken short-circuits on req.apiKeyValidated), which is
+// why it must be an explicit host-env opt-in rather than a config default.
+//
+// Note: AUTH_ENABLED is the primary escape hatch for the login gate; API_KEY is
+// this additional, legacy header gate. Both are read from host env, not config.
 const validateApiKey = (req, res, next) => {
   if (!process.env.API_KEY) {
     return next();
