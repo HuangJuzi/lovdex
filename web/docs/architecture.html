@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>lovdex-cli 系统架构图</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+  :root { --bg:#0d1117; --fg:#c9d1d9; --muted:#8b949e; --accent:#58a6ff; --border:#30363d; --card:#161b22; --code:#1f2428; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font-family:-apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif; line-height:1.6; }
+  .wrap { max-width:1100px; margin:0 auto; padding:32px 24px; }
+  h1 { font-size:1.8rem; border-bottom:1px solid var(--border); padding-bottom:12px; }
+  h2 { font-size:1.35rem; margin-top:40px; color:var(--accent); border-left:3px solid var(--accent); padding-left:10px; }
+  h3 { font-size:1.1rem; margin-top:24px; color:#f0f6fc; }
+  p, li { color:var(--fg); }
+  code { background:var(--code); padding:2px 6px; border-radius:4px; font-family:"SFMono-Regular",Consolas,monospace; font-size:0.88em; color:#f0f6fc; }
+  pre { background:var(--code); padding:14px; border-radius:6px; overflow:auto; border:1px solid var(--border); }
+  pre code { background:none; padding:0; }
+  table { width:100%; border-collapse:collapse; margin:14px 0; background:var(--card); border:1px solid var(--border); border-radius:6px; overflow:hidden; }
+  th, td { padding:8px 12px; border-bottom:1px solid var(--border); text-align:left; vertical-align:top; font-size:0.92rem; }
+  th { background:#1f2937; color:#f0f6fc; }
+  td code { font-size:0.82rem; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:8px; padding:16px 20px; margin:14px 0; }
+  .muted { color:var(--muted); }
+  .mermaid { background:#fff; border-radius:8px; padding:20px; margin:16px 0; text-align:center; }
+  .tag { display:inline-block; background:#1f6feb33; color:var(--accent); border:1px solid #1f6feb55; border-radius:4px; padding:1px 8px; font-size:0.78rem; margin-right:6px; }
+  .warn { background:#3a2a0a; border:1px solid #614a1a; }
+  ul { padding-left:22px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>lovdex-cli 系统架构图</h1>
+<p class="muted">CloudCLI / Claude Code &amp; Codex 的全栈 Web UI。单仓多包：前端 <code>src/</code>（React+Vite），后端 <code>server/</code>（Express+ws），共用 <code>shared/</code>。本文档为前后端拆仓做准备，配套 <a href="api-contract.html">接口契约文档</a>。</p>
+
+<h2>1. 全局架构</h2>
+<div class="mermaid">
+graph TD
+  subgraph Browser["浏览器 — 前端 src/"]
+    UI["React UI<br/>components/chat · sidebar · project-wizard"]
+    WSClient["WebSocketContext<br/>+ useChatRealtimeHandlers"]
+    RESTClient["utils/api.js<br/>authenticatedFetch"]
+    Store["状态层<br/>useSessionStore · useProjectsState<br/>useSessionProtection · useChatProviderState"]
+  end
+  subgraph ServerNode["Express + WS 单进程 — server/"]
+    Routes["REST 路由<br/>/api/projects · /api/providers · /api/commands<br/>/api/assets · /api/user · /api/browse-filesystem"]
+    WS["WebSocket 网关 /ws<br/>chat-websocket.service"]
+    Reg["chatRunRegistry<br/>startRun · completeRun<br/>broadcastSessionStatus · replayEvents"]
+    Prov["Provider 抽象<br/>AbstractProvider + registry<br/>{claude, codex}"]
+    Sync["SessionSynchronizer<br/>+ chokidar watch (6s 轮询)"]
+    DB[("SQLite<br/>~/.cloudcli/auth.db")]
+    Static["express.static dist/<br/>SPA fallback"]
+  end
+  subgraph RT["Provider 运行时"]
+    ClaudeRT["claude-sdk.js<br/>@anthropic-ai/claude-agent-sdk query()"]
+    CodexRT["openai-codex.js<br/>@openai/codex-sdk Codex"]
+  end
+  subgraph CLIs["外部 CLI 子进程"]
+    ClaudeCLI["claude CLI<br/>CLAUDE_CLI_PATH"]
+    CodexCLI["codex CLI<br/>CODEX_PATH_OVERRIDE"]
+  end
+  subgraph FS["文件系统"]
+    ClaudeSess["~/.claude/projects/<br/>&lt;encoded-cwd&gt;/&lt;sid&gt;/*.jsonl"]
+    CodexSess["~/.codex/sessions/<br/>&lt;thread-id&gt;/*.jsonl"]
+    Assets["~/.cloudcli/assets"]
+  end
+
+  UI --> WSClient
+  UI --> RESTClient
+  WSClient -->|chat.send / chat.abort / chat.subscribe / chat.permission-response| WS
+  WS -->|kind 帧 (NormalizedMessage)| WSClient
+  RESTClient -->|/api/*| Routes
+  WS --> Reg --> Prov
+  Prov --> ClaudeRT
+  Prov --> CodexRT
+  ClaudeRT --> ClaudeCLI
+  CodexRT --> CodexCLI
+  ClaudeCLI --> ClaudeSess
+  CodexCLI --> CodexSess
+  ClaudeRT -->|stream events| Reg
+  CodexRT -->|stream events| Reg
+  Routes --> DB
+  Reg --> DB
+  Sync --> ClaudeSess
+  Sync --> CodexSess
+  Sync --> DB
+  Sync -->|session_upserted 广播| WS
+  Routes --> Assets
+  Static --> UI
+</div>
+<p class="muted">实线 = 主调用/数据流。后端是<strong>单进程</strong>：Express + WebSocket 共用同一个 HTTP server（<code>ws</code> 的 <code>WebSocketServer({server})</code>），生产时还托管 <code>dist/</code> 静态资源。</p>
+
+<h2>2. 一次 chat.send 的完整时序</h2>
+<div class="mermaid">
+sequenceDiagram
+  participant U as 用户
+  participant C as Composer/前端
+  participant W as WebSocket /ws
+  participant R as chatRunRegistry
+  participant P as Provider 运行时
+  participant S as CLI 子进程
+  participant F as 文件系统
+  U->>C: 输入 + 发送
+  C->>W: chat.send {sessionId, content, options}
+  W->>R: startRun(appSessionId)
+  R->>W: 广播 session_status{state:running}
+  W->>P: spawn (claude-sdk / openai-codex, cwd=project_path)
+  P->>S: 启动 CLI 子进程
+  loop 流式事件
+    S-->>P: event (text/thinking/tool_use/tool_result...)
+    P-->>R: normalizeMessage → NormalizedMessage
+    R->>R: 分配 seq, 重映射 sessionId
+    R-->>W: kind 帧
+    W-->>C: 推送帧
+    C->>C: sessionStore.appendRealtime / updateStreaming
+  end
+  S->>F: 写 transcript jsonl
+  S-->>P: turn 完成
+  P-->>R: complete {exitCode}
+  R->>W: 广播 session_status{completed/failed/aborted}
+  R-->>C: complete 帧（每个 run 仅一次）
+  C->>C: refreshFromServer(sid)
+</div>
+
+<h2>3. 前端分层</h2>
+<div class="mermaid">
+graph LR
+  subgraph View["视图层 components/"]
+    Chat["chat/view<br/>ChatInterface · Composer · MessagesPane"]
+    Side["sidebar · project-creation-wizard"]
+    Tools["chat/tools (Bash·Diff·Plan 渲染)"]
+  end
+  subgraph Hooks["业务 hooks components/chat/hooks + hooks/"]
+    Comp["useChatComposerState<br/>发送/排队/斜杠/权限"]
+    Sess["useChatSessionState<br/>消息加载/订阅"]
+    RT["useChatRealtimeHandlers<br/>帧路由"]
+    Prov["useChatProviderState<br/>provider/模型/effort"]
+    Proj["useProjectsState<br/>sidebar 实时更新"]
+    Prot["useSessionProtection<br/>processing 状态唯一源"]
+  end
+  subgraph Ctx["Context / Store"]
+    WSCtx["WebSocketContext"]
+    Perm["PermissionContext"]
+    Store["useSessionStore<br/>server+realtime→merged"]
+  end
+  View --> Hooks --> Ctx
+  WSCtx -->|subscribe| RT
+  RT --> Store
+  Comp -->|chat.send/abort| WSCtx
+  Proj -->|session_upserted| Side
+</div>
+
+<h2>4. 后端分层</h2>
+<div class="mermaid">
+graph LR
+  subgraph Entry["入口"]
+    Idx["server/index.js<br/>组装中间件/路由/WS/静态"]
+  end
+  subgraph MW["中间件 middleware/"]
+    Auth["authenticateToken<br/>validateApiKey<br/>authenticateWebSocket"]
+  end
+  subgraph Routes["路由 routes/ + modules/*/routes"]
+    PR["projects · providers · assets<br/>commands · user · browse-filesystem"]
+  end
+  subgraph WSMod["modules/websocket"]
+    WSSvc["websocket-server.service /ws"]
+    ChatSvc["chat-websocket.service<br/>入站帧路由"]
+    Reg["chat-run-registry.service"]
+    Writer["ChatSessionWriter"]
+  end
+  subgraph ProvMod["modules/providers"]
+    Abs["AbstractProvider (shared/base)"]
+    Reg2["provider.registry {claude,codex}"]
+    Sub["auth · models · mcp · skills<br/>sessions · sessionSynchronizer"]
+    Watch["sessions-watcher (chokidar)"]
+  end
+  subgraph RT2["运行时"]
+    CSdk["claude-sdk.js"]
+    Co["openai-codex.js"]
+  end
+  subgraph DBMod["modules/database"]
+    Repo["SQLite + Repository"]
+  end
+  Entry --> MW --> Routes
+  Entry --> WSSvc --> ChatSvc --> Reg --> Writer
+  ChatSvc --> ProvMod
+  Reg --> Repo
+  Routes --> Repo
+  ProvMod --> RT2
+  Watch --> Sub --> Repo
+</div>
+
+<h2>5. Session 同步与跨会话广播</h2>
+<div class="mermaid">
+graph TD
+  subgraph Disk["磁盘"]
+    C1["~/.claude/projects/**/*.jsonl"]
+    C2["~/.codex/sessions/**/*.jsonl"]
+  end
+  Watch["sessions-watcher<br/>chokidar depth:6 polling 6s"]
+  SyncA["ClaudeSessionSynchronizer"]
+  SyncB["CodexSessionSynchronizer"]
+  DB[("sessions 表")]
+  Broad["chatRunRegistry.broadcastCanonicalSessionUpsert"]
+  Status["chatRunRegistry.broadcastSessionStatus"]
+  Clients["所有 connectedClients"]
+  C1 --> Watch --> SyncA --> DB
+  C2 --> Watch --> SyncB --> DB
+  DB --> Broad -->|session_upserted| Clients
+  Run["某 run 启动/结束"] --> Status -->|session_status| Clients
+</div>
+<div class="card">
+<p><span class="tag">session_upserted</span>侧边栏增量：session 同步器发现文件变更 / provider 公布原生 sessionId 时广播。</p>
+<p><span class="tag">session_status</span>跨会话生命周期：run 启动(running) + 结束(completed/failed/aborted) 时向<strong>所有</strong>客户端广播，让 A 会话能看到 B 会话的运行状态。</p>
+<p><span class="tag">notification</span>同会话内通知：Claude 的 Stop/SessionEnd/Notification hook 或工具审批，经 notification-orchestrator 只发给当前 run 的 writer。</p>
+</div>
+
+<h2>6. 运行时进程模型</h2>
+<table>
+<tr><th>模式</th><th>进程</th><th>端口</th><th>说明</th></tr>
+<tr><td>开发 <code>npm run dev</code></td><td>2 个（concurrently）</td><td>后端 <code>SERVER_PORT</code>(默认 3001) + Vite <code>VITE_PORT</code>(默认 5180)</td><td>后端 tsx 直跑源码；前端 Vite HMR，<code>/api</code> 与 <code>/ws</code> 由 vite.config.js proxy 转发到后端</td></tr>
+<tr><td>生产 <code>npm run start</code></td><td>1 个</td><td><code>SERVER_PORT</code></td><td><code>node dist-server/server/index.js</code> 同时承担 REST + WS + 托管 <code>dist/</code> 静态资源 + SPA fallback。WS 同源 <code>/ws</code></td></tr>
+</table>
+
+<h2>7. 数据目录</h2>
+<table>
+<tr><th>路径</th><th>用途</th><th>归属</th></tr>
+<tr><td><code>~/.cloudcli/auth.db</code></td><td>主数据库（sessions/projects/users/config）</td><td>后端 SQLite</td></tr>
+<tr><td><code>~/.cloudcli/assets/</code></td><td>聊天图片上传</td><td>后端</td></tr>
+<tr><td><code>~/.cloudcli/provider-models-cache.json</code></td><td>Codex 模型目录缓存（TTL 3 天）</td><td>后端</td></tr>
+<tr><td><code>~/.claude/projects/&lt;encoded-cwd&gt;/&lt;sid&gt;/*.jsonl</code></td><td>Claude session transcript（按 cwd 分桶）</td><td>claude CLI 写，后端 watch</td></tr>
+<tr><td><code>~/.codex/sessions/&lt;thread-id&gt;/*.jsonl</code></td><td>Codex session（按 thread-id，跨 cwd）</td><td>codex CLI 写，后端 watch</td></tr>
+<tr><td><code>dist/</code></td><td>前端 Vite 产物</td><td>前端构建，后端托管</td></tr>
+<tr><td><code>dist-server/</code></td><td>后端 tsc + tsc-alias 产物</td><td>后端构建</td></tr>
+</table>
+
+<h2>8. 构建边界（拆仓关键）</h2>
+<div class="card">
+<p><span class="tag">前端</span> 根 <code>tsconfig.json</code>（target ES2020, module ESNext, noEmit）+ <code>vite.config.js</code>，<code>@/*</code>→<code>src/*</code>，产物 <code>dist/</code>。</p>
+<p><span class="tag">后端</span> <code>server/tsconfig.json</code>（target ES2022, module NodeNext, outDir dist-server）+ <code>tsc-alias</code>，<code>@/*</code>→<code>server/*</code>，产物 <code>dist-server/</code>。</p>
+<p><span class="tag">共用</span> 仅 <code>shared/networkHosts.js</code>（纯 JS 运行时函数）被两边 tsconfig include 且都直接 import。<code>server/shared/</code>（types/utils/interfaces）<strong>仅后端</strong>使用；前端在 <code>src/stores/useSessionStore.ts</code> 里<strong>独立镜像</strong>了 <code>NormalizedMessage</code>/<code>MessageKind</code>，无编译期约束。</p>
+<p class="warn"><strong>⚠ 拆仓注意</strong>：<code>LLMProvider</code> 后端是 <code>'claude'|'codex'</code>，前端是 <code>'claude'|'cursor'|'codex'|'opencode'</code>，不一致；<code>NormalizedMessage</code> 两份定义需统一为一个 shared 包或显式对齐。详见 <a href="api-contract.html#shared">接口契约 §shared</a>。</p>
+</div>
+
+<h2>9. 关键文件索引</h2>
+<table>
+<tr><th>关注点</th><th>文件</th></tr>
+<tr><td>后端入口/路由挂载/静态托管</td><td><code>server/index.js</code></td></tr>
+<tr><td>WS 网关 / 入站帧路由</td><td><code>server/modules/websocket/services/chat-websocket.service.ts</code></td></tr>
+<tr><td>chatRunRegistry / 广播</td><td><code>server/modules/websocket/services/chat-run-registry.service.ts</code></td></tr>
+<tr><td>Provider 抽象 + registry</td><td><code>server/modules/providers/</code></td></tr>
+<tr><td>Claude 运行时</td><td><code>server/claude-sdk.js</code></td></tr>
+<tr><td>Codex 运行时</td><td><code>server/openai-codex.js</code></td></tr>
+<tr><td>Session 同步 + watch</td><td><code>server/modules/providers/services/sessions-watcher.service.ts</code></td></tr>
+<tr><td>消息类型 / 归一化</td><td><code>server/shared/types.ts</code> · <code>server/shared/utils.ts</code></td></tr>
+<tr><td>前端 WS 客户端</td><td><code>src/contexts/WebSocketContext.tsx</code></td></tr>
+<tr><td>前端帧路由</td><td><code>src/components/chat/hooks/useChatRealtimeHandlers.ts</code></td></tr>
+<tr><td>前端消息 store</td><td><code>src/stores/useSessionStore.ts</code></td></tr>
+<tr><td>前端 REST 封装</td><td><code>src/utils/api.js</code></td></tr>
+</table>
+
+</div>
+<script>
+  mermaid.initialize({ startOnLoad:true, theme:'neutral', flowchart:{ curve:'basis', useMaxWidth:true }, sequence:{ useMaxWidth:true } });
+</script>
+</body>
+</html>

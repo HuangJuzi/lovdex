@@ -1,0 +1,1022 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>流式调用接口文档（Codex + Claude Code）</title>
+  <style type="text/css">
+      code{white-space: pre-wrap;}
+      span.smallcaps{font-variant: small-caps;}
+      span.underline{text-decoration: underline;}
+      div.column{display: inline-block; vertical-align: top; width: 50%;}
+  </style>
+  <style type="text/css">
+a.sourceLine { display: inline-block; line-height: 1.25; }
+a.sourceLine { pointer-events: none; color: inherit; text-decoration: inherit; }
+a.sourceLine:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode { white-space: pre; position: relative; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+code.sourceCode { white-space: pre-wrap; }
+a.sourceLine { text-indent: -1em; padding-left: 1em; }
+}
+pre.numberSource a.sourceLine
+  { position: relative; left: -4em; }
+pre.numberSource a.sourceLine::before
+  { content: attr(title);
+    position: relative; left: -1em; text-align: right; vertical-align: baseline;
+    border: none; pointer-events: all; display: inline-block;
+    -webkit-touch-callout: none; -webkit-user-select: none;
+    -khtml-user-select: none; -moz-user-select: none;
+    -ms-user-select: none; user-select: none;
+    padding: 0 4px; width: 4em;
+    color: #aaaaaa;
+  }
+pre.numberSource { margin-left: 3em; border-left: 1px solid #aaaaaa;  padding-left: 4px; }
+div.sourceCode
+  { background-color: #f8f8f8; }
+@media screen {
+a.sourceLine::before { text-decoration: underline; }
+}
+code span.al { color: #ef2929; } /* Alert */
+code span.an { color: #8f5902; font-weight: bold; font-style: italic; } /* Annotation */
+code span.at { color: #c4a000; } /* Attribute */
+code span.bn { color: #0000cf; } /* BaseN */
+code span.cf { color: #204a87; font-weight: bold; } /* ControlFlow */
+code span.ch { color: #4e9a06; } /* Char */
+code span.cn { color: #000000; } /* Constant */
+code span.co { color: #8f5902; font-style: italic; } /* Comment */
+code span.cv { color: #8f5902; font-weight: bold; font-style: italic; } /* CommentVar */
+code span.do { color: #8f5902; font-weight: bold; font-style: italic; } /* Documentation */
+code span.dt { color: #204a87; } /* DataType */
+code span.dv { color: #0000cf; } /* DecVal */
+code span.er { color: #a40000; font-weight: bold; } /* Error */
+code span.ex { } /* Extension */
+code span.fl { color: #0000cf; } /* Float */
+code span.fu { color: #000000; } /* Function */
+code span.im { } /* Import */
+code span.in { color: #8f5902; font-weight: bold; font-style: italic; } /* Information */
+code span.kw { color: #204a87; font-weight: bold; } /* Keyword */
+code span.op { color: #ce5c00; font-weight: bold; } /* Operator */
+code span.ot { color: #8f5902; } /* Other */
+code span.pp { color: #8f5902; font-style: italic; } /* Preprocessor */
+code span.sc { color: #000000; } /* SpecialChar */
+code span.ss { color: #4e9a06; } /* SpecialString */
+code span.st { color: #4e9a06; } /* String */
+code span.va { color: #000000; } /* Variable */
+code span.vs { color: #4e9a06; } /* VerbatimString */
+code span.wa { color: #8f5902; font-weight: bold; font-style: italic; } /* Warning */
+  </style>
+  <style>
+    :root{
+      --bg:#0d1117; --fg:#c9d1d9; --muted:#8b949e; --accent:#58a6ff; --accent2:#7ee787;
+      --border:#30363d; --code-bg:#161b22; --code-fg:#e6edf3; --table-head:#1f2937;
+    }
+    *{box-sizing:border-box}
+    html{scroll-behavior:smooth}
+    body{
+      background:var(--bg); color:var(--fg); margin:0;
+      font:15px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",Roboto,Helvetica,Arial,sans-serif;
+    }
+    /* pandoc title header */
+    #title-block-header{
+      max-width:880px; margin:0 auto; padding:38px 56px 18px; border-bottom:1px solid var(--border);
+    }
+    #title-block-header h1.title{color:#fff; font-size:28px; margin:0 0 8px; line-height:1.25}
+    #title-block-header p.subtitle,#title-block-header .subtitle{color:var(--muted); font-size:14px; margin:0}
+    /* sidebar TOC (pandoc #TOC) */
+    #TOC{
+      position:fixed; top:0; left:0; width:248px; height:100vh; overflow-y:auto;
+      padding:28px 18px; background:#010409; border-right:1px solid var(--border);
+      font-size:13.5px;
+    }
+    #TOC ul{list-style:none; padding:0; margin:0}
+    #TOC li{margin:1px 0}
+    #TOC a{color:var(--muted); text-decoration:none; display:block; padding:4px 8px; border-radius:6px}
+    #TOC a:hover{color:var(--accent); background:rgba(88,166,255,.08)}
+    #TOC ul ul{padding-left:16px}
+    #TOC ul ul a{font-size:12.5px}
+    /* main content shifted right */
+    body{margin-left:248px}
+    main, #content-wrapper, body > *:not(#TOC):not(#title-block-header){
+      max-width:880px; margin-left:auto; margin-right:auto; padding-left:56px; padding-right:56px;
+    }
+    /* pandoc wraps body content after header in nothing special; target direct sections */
+    h1,h2,h3,h4{color:#fff; font-weight:600; line-height:1.3}
+    h1{font-size:24px; margin:32px 0 12px}
+    h2{font-size:22px; margin:44px 0 14px; padding-bottom:8px; border-bottom:1px solid var(--border); scroll-margin-top:20px}
+    h3{font-size:17px; margin:26px 0 10px; color:var(--accent); scroll-margin-top:20px}
+    h4{font-size:15px; margin:18px 0 8px; color:var(--accent2); scroll-margin-top:20px}
+    p{margin:10px 0}
+    a{color:var(--accent)}
+    strong{color:#fff}
+    /* code */
+    code{font-family:"JetBrains Mono","Fira Code",Consolas,monospace; font-size:13px}
+    :not(pre)>code{background:var(--code-bg); color:var(--code-fg); padding:2px 6px; border-radius:5px; border:1px solid var(--border)}
+    pre{background:var(--code-bg); border:1px solid var(--border); border-radius:10px; padding:16px 18px; overflow-x:auto; margin:14px 0}
+    pre code{color:var(--code-fg); line-height:1.55; background:none; border:none; padding:0}
+    /* blockquote */
+    blockquote{margin:14px 0; padding:10px 16px; border-left:3px solid var(--accent); background:rgba(88,166,255,.06); border-radius:0 8px 8px 0; color:var(--muted)}
+    blockquote p{margin:0}
+    /* tables */
+    table{border-collapse:collapse; width:100%; margin:16px 0; font-size:13.5px; display:block; overflow-x:auto}
+    thead{background:var(--table-head)}
+    th,td{border:1px solid var(--border); padding:9px 12px; text-align:left; vertical-align:top}
+    th{color:#fff; font-weight:600}
+    td code{font-size:12px}
+    tbody tr:nth-child(even){background:rgba(255,255,255,.02)}
+    ul,ol{padding-left:24px}
+    li{margin:5px 0}
+    hr{border:none; border-top:1px solid var(--border); margin:32px 0}
+    @media (max-width:880px){
+      body{margin-left:0}
+      #TOC{position:static; width:auto; height:auto; border-right:none; border-bottom:1px solid var(--border)}
+      #title-block-header{padding:24px 18px 14px}
+      main, body > *:not(#TOC):not(#title-block-header){padding-left:18px; padding-right:18px}
+    }
+  </style>
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">流式调用接口文档（Codex + Claude Code）</h1>
+<p class="subtitle">lovdex-cli · WebSocket 流式协议</p>
+</header>
+<nav id="TOC">
+<ul>
+<li><a href="#流式调用接口文档codex--claude-code">流式调用接口文档（Codex + Claude Code）</a><ul>
+<li><a href="#1-概述">1. 概述</a></li>
+<li><a href="#2-鉴权">2. 鉴权</a></li>
+<li><a href="#21-codex-可执行文件解析codex_path_override">2.1 Codex 可执行文件解析（<code>CODEX_PATH_OVERRIDE</code>）</a></li>
+<li><a href="#22-claude-code-可执行文件解析claude_cli_path">2.2 Claude Code 可执行文件解析（<code>CLAUDE_CLI_PATH</code>）</a></li>
+<li><a href="#23-codex-vs-claude-可执行文件对照">2.3 Codex vs Claude 可执行文件对照</a></li>
+<li><a href="#3-入站消息client--server">3. 入站消息（Client → Server）</a><ul>
+<li><a href="#31-chatsend--发起--续接一次流式调用">3.1 <code>chat.send</code> — 发起 / 续接一次流式调用</a></li>
+<li><a href="#32-chatabort--中止当前-run">3.2 <code>chat.abort</code> — 中止当前 run</a></li>
+<li><a href="#33-chatsubscribe--订阅会话状态--补播">3.3 <code>chat.subscribe</code> — 订阅会话状态 / 补播</a></li>
+<li><a href="#34-chatpermission-response--工具审批仅-claude">3.4 <code>chat.permission-response</code> — 工具审批（仅 Claude）</a></li>
+</ul></li>
+<li><a href="#4-出站消息server--client">4. 出站消息（Server → Client）</a><ul>
+<li><a href="#41-网关控制帧广播或按需">4.1 网关控制帧（广播或按需）</a></li>
+<li><a href="#42-流式内容帧normalizedmessage">4.2 流式内容帧（<code>NormalizedMessage</code>）</a></li>
+<li><a href="#43-终止帧-complete">4.3 终止帧 <code>complete</code></a></li>
+</ul></li>
+<li><a href="#5-服务端运行时流程">5. 服务端运行时流程</a><ul>
+<li><a href="#51-codexquerycodex">5.1 Codex（<code>queryCodex</code>）</a></li>
+<li><a href="#52-claude-codequeryclaudesdk">5.2 Claude Code（<code>queryClaudeSDK</code>）</a></li>
+</ul></li>
+<li><a href="#6-图片附件">6. 图片附件</a></li>
+<li><a href="#7-会话落盘与回灌">7. 会话落盘与回灌</a></li>
+<li><a href="#8-跨会话状态与通知新增">8. 跨会话状态与通知（新增）</a><ul>
+<li><a href="#81-session_status控制帧广播给所有连接provider-无关">8.1 <code>session_status</code>（控制帧，广播给所有连接，provider 无关）</a></li>
+<li><a href="#82-notification同会话经-writer-派发带-seq">8.2 <code>notification</code>（同会话，经 writer 派发，带 seq）</a></li>
+<li><a href="#83-两条信道的分工">8.3 两条信道的分工</a></li>
+</ul></li>
+<li><a href="#9-完整时序示例">9. 完整时序示例</a></li>
+<li><a href="#10-错误处理约定">10. 错误处理约定</a></li>
+<li><a href="#11-字段速查">11. 字段速查</a><ul>
+<li><a href="#normalizedmessage-公共字段"><code>NormalizedMessage</code> 公共字段</a></li>
+<li><a href="#complete-帧字段"><code>complete</code> 帧字段</a></li>
+<li><a href="#session_status-帧字段81"><code>session_status</code> 帧字段（§8.1）</a></li>
+<li><a href="#notification-帧字段82"><code>notification</code> 帧字段（§8.2）</a></li>
+</ul></li>
+<li><a href="#12-codex-vs-claude-全量对照">12. Codex vs Claude 全量对照</a></li>
+</ul></li>
+</ul>
+</nav>
+<h1 id="流式调用接口文档codex--claude-code">流式调用接口文档（Codex + Claude Code）</h1>
+<blockquote>
+<p>本文档描述 <code>lovdex-cli</code> 中通过 WebSocket 流式调用 OpenAI Codex 与 Anthropic Claude Code 的完整协议。 两个 provider 共用同一条 WebSocket、同一套 <code>kind</code> 协议，仅运行时与少量能力不同。 源码入口：<code>server/openai-codex.js</code>、<code>server/claude-sdk.js</code>（运行时）；<code>server/modules/websocket/services/chat-websocket.service.ts</code>（网关）；<code>server/modules/providers/list/{codex,claude}/*</code>（归一化与同步）。</p>
+</blockquote>
+<hr />
+<h2 id="1-概述">1. 概述</h2>
+<ul>
+<li><strong>传输层</strong>：单一 WebSocket 连接，路径 <code>ws(s)://&lt;host&gt;/ws</code>。</li>
+<li><strong>协议模型</strong>：请求-响应 + 服务端流式推送。客户端发一条 <code>chat.send</code>，服务端在<strong>同一条连接</strong>上持续推 <code>kind</code> 帧，直到收到终止帧 <code>complete</code>。</li>
+<li><strong>多 Provider 共道</strong>：Codex 与 Claude 共用同一 WebSocket 与同一协议，仅 <code>provider</code> 字段不同；网关按会话所属 provider 分发到对应运行时。</li>
+<li><strong>会话寻址</strong>：客户端只使用 <strong>app session id</strong>（DB 主键），永远不感知 provider 原生 id（Codex <code>thread_id</code> / Claude session uuid）。网关从 DB 解析 <code>provider_session_id</code> 后再交给 SDK。</li>
+<li><strong>顺序保证</strong>：每个流式帧携带单调递增的 <code>seq</code>（按 run 计数），客户端可据此去重、补播、渲染进度。</li>
+<li><strong>跨会话感知</strong>：服务端在 run 启动 / 完成时向<strong>所有</strong>连接广播 <code>session_status</code> 帧（见 §8），客户端无需订阅别的会话即可知道其状态。</li>
+<li><strong>可执行文件可选</strong>：Codex 默认用 SDK 捆绑二进制，可用 <code>CODEX_PATH_OVERRIDE</code> 改用外部 codex（见 §2.1）；Claude 默认即用 PATH 上的 <code>claude</code>，可用 <code>CLAUDE_CLI_PATH</code> 覆盖（见 §2.2）。</li>
+</ul>
+<hr />
+<h2 id="2-鉴权">2. 鉴权</h2>
+<p>WebSocket 升级请求需携带身份凭证，由 <code>verifyWebSocketClient</code> 校验：</p>
+<table>
+<thead>
+<tr class="header">
+<th>模式</th>
+<th>凭证来源</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>OSS</td>
+<td><code>?token=&lt;JWT&gt;</code> 查询参数 <strong>或</strong> <code>Authorization: Bearer &lt;JWT&gt;</code> 头</td>
+</tr>
+<tr class="even">
+<td>Platform</td>
+<td>自动取首个 DB 用户，无需 token</td>
+</tr>
+</tbody>
+</table>
+<p>校验失败连接被拒绝（不进入 <code>connection</code> 处理）。鉴权通过后 <code>req.user</code> 注入用户上下文，用于通知与权限隔离。</p>
+<hr />
+<h2 id="21-codex-可执行文件解析codex_path_override">2.1 Codex 可执行文件解析（<code>CODEX_PATH_OVERRIDE</code>）</h2>
+<p>运行时通过 <code>@openai/codex-sdk</code> 的 <code>new Codex(options)</code> 构造，SDK 内部 <code>spawn(this.exec.executablePath, ...)</code> 实际拉起 codex 进程。可执行文件的解析规则：</p>
+<table>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>场景</th>
+<th>解析到的二进制</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>未设置 <code>CODEX_PATH_OVERRIDE</code></td>
+<td>SDK 捆绑的平台二进制：<code>node_modules/@openai/codex-&lt;platform&gt;/vendor/&lt;triple&gt;/bin/codex</code>（由 <code>findCodexPath()</code> 经 <code>require.resolve('@openai/codex/package.json')</code> 定位，<strong>不查 PATH</strong>）</td>
+</tr>
+<tr class="even">
+<td>已设置 <code>CODEX_PATH_OVERRIDE=&lt;绝对路径&gt;</code></td>
+<td>该路径指向的 codex（原生二进制或 <code>bin/codex</code> JS shim 均可）</td>
+</tr>
+</tbody>
+</table>
+<p>实现（<code>server/openai-codex.js</code>）：</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode js"><code class="sourceCode javascript"><a class="sourceLine" id="cb1-1" title="1">codex <span class="op">=</span> <span class="kw">new</span> <span class="at">Codex</span>(</a>
+<a class="sourceLine" id="cb1-2" title="2">  <span class="va">process</span>.<span class="va">env</span>.<span class="at">CODEX_PATH_OVERRIDE</span></a>
+<a class="sourceLine" id="cb1-3" title="3">    <span class="op">?</span> <span class="op">{</span> <span class="dt">codexPathOverride</span><span class="op">:</span> <span class="va">process</span>.<span class="va">env</span>.<span class="at">CODEX_PATH_OVERRIDE</span> <span class="op">}</span></a>
+<a class="sourceLine" id="cb1-4" title="4">    : <span class="op">{}</span></a>
+<a class="sourceLine" id="cb1-5" title="5">)<span class="op">;</span></a></code></pre></div>
+<p><strong>使用方式</strong>：启动服务前导出环境变量，或写入 <code>.env</code>（由 <code>server/load-env.js</code> 自动加载）：</p>
+<div class="sourceCode" id="cb2"><pre class="sourceCode bash"><code class="sourceCode bash"><a class="sourceLine" id="cb2-1" title="1"><span class="bu">export</span> <span class="va">CODEX_PATH_OVERRIDE=</span>/home/<span class="op">&lt;</span><span class="ex">user</span><span class="op">&gt;</span>/.nvm/versions/node/<span class="op">&lt;</span>v<span class="op">&gt;</span>/bin/codex</a>
+<a class="sourceLine" id="cb2-2" title="2"><span class="ex">npm</span> run server:dev</a></code></pre></div>
+<p>适用于 npm/pnpm 全局安装、brew、官方安装器等任何外部 codex。前端无需改动。</p>
+<p><strong>坑（务必注意）</strong>：<code>Codex</code> 是 facade，构造签名是 <code>new Codex(options)</code> 解构 <code>{ codexPathOverride, env, config }</code>。只有对象形式 <code>new Codex({ codexPathOverride: path })</code> 生效；写成 <code>new Codex(path)</code> 传字符串会被当 options 解构、<code>codexPathOverride</code> 取不到，<strong>静默回退 bundled 且不报错</strong>；<code>new Codex(null)</code> 会抛 <code>TypeError: Cannot destructure property 'codexPathOverride' of 'options' as it is null</code>。</p>
+<p><strong>PATH 上的 <code>codex</code></strong>：仅 <code>codex-auth.provider.checkInstalled()</code> 用 <code>spawn.sync('codex', ['--version'])</code> 探测，结果只填 <code>auth.status.installed</code> 给前端展示，<strong>不参与 query 执行</strong>。</p>
+<hr />
+<h2 id="22-claude-code-可执行文件解析claude_cli_path">2.2 Claude Code 可执行文件解析（<code>CLAUDE_CLI_PATH</code>）</h2>
+<p>Claude 路径与 Codex <strong>相反</strong>：<code>@anthropic-ai/claude-agent-sdk</code> <strong>不捆绑二进制</strong>，默认 spawn PATH 上的 <code>claude</code>。即开箱即用走你已安装的 claude，无需任何配置。</p>
+<p>实现（<code>server/claude-sdk.js</code> → <code>mapCliOptionsToSDK</code>）：</p>
+<div class="sourceCode" id="cb3"><pre class="sourceCode js"><code class="sourceCode javascript"><a class="sourceLine" id="cb3-1" title="1"><span class="va">sdkOptions</span>.<span class="at">pathToClaudeCodeExecutable</span> <span class="op">=</span> <span class="at">resolveClaudeCodeExecutablePath</span>(<span class="va">process</span>.<span class="va">env</span>.<span class="at">CLAUDE_CLI_PATH</span>)<span class="op">;</span></a></code></pre></div>
+<p><code>resolveClaudeCodeExecutablePath</code>（<code>server/shared/claude-cli-path.ts</code>）行为：</p>
+<table>
+<thead>
+<tr class="header">
+<th>平台</th>
+<th><code>CLAUDE_CLI_PATH</code> 未设</th>
+<th><code>CLAUDE_CLI_PATH</code> 已设</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Linux/macOS</td>
+<td><code>'claude'</code>（PATH 查找）</td>
+<td>该路径原样使用</td>
+</tr>
+<tr class="even">
+<td>Windows</td>
+<td><code>'claude'</code>（经 <code>where.exe</code> 解析 wrapper → 真实 <code>.exe</code>）</td>
+<td>解析 wrapper 脚本或直指 <code>.exe</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>使用方式</strong>：默认即可用已安装的 claude。若要强制指定某个 claude（多版本/非 PATH 路径），导出环境变量或写入 <code>.env</code>：</p>
+<div class="sourceCode" id="cb4"><pre class="sourceCode bash"><code class="sourceCode bash"><a class="sourceLine" id="cb4-1" title="1"><span class="bu">export</span> <span class="va">CLAUDE_CLI_PATH=</span>/home/<span class="op">&lt;</span><span class="ex">user</span><span class="op">&gt;</span>/.nvm/versions/node/<span class="op">&lt;</span>v<span class="op">&gt;</span>/bin/claude</a>
+<a class="sourceLine" id="cb4-2" title="2"><span class="ex">npm</span> run server:dev</a></code></pre></div>
+<hr />
+<h2 id="23-codex-vs-claude-可执行文件对照">2.3 Codex vs Claude 可执行文件对照</h2>
+<table>
+<thead>
+<tr class="header">
+<th></th>
+<th>Codex</th>
+<th>Claude Code</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>SDK 捆绑二进制</td>
+<td>是</td>
+<td><strong>否</strong></td>
+</tr>
+<tr class="even">
+<td>默认可执行文件</td>
+<td>bundled 二进制（不查 PATH）</td>
+<td>PATH 上的 <code>claude</code></td>
+</tr>
+<tr class="odd">
+<td>覆盖 env</td>
+<td><code>CODEX_PATH_OVERRIDE</code>（本项目新增）</td>
+<td><code>CLAUDE_CLI_PATH</code>（SDK 原生）</td>
+</tr>
+<tr class="even">
+<td>用已安装的 CLI</td>
+<td>需显式设 env</td>
+<td><strong>默认即是</strong></td>
+</tr>
+<tr class="odd">
+<td>凭据</td>
+<td><code>~/.codex/auth.json</code></td>
+<td><code>~/.claude</code>（settings/credentials）</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="3-入站消息client--server">3. 入站消息（Client → Server）</h2>
+<p>所有入站帧为 JSON 对象，以 <code>type</code> 字段分发。</p>
+<h3 id="31-chatsend--发起--续接一次流式调用">3.1 <code>chat.send</code> — 发起 / 续接一次流式调用</h3>
+<pre class="jsonc"><code>{
+  &quot;type&quot;: &quot;chat.send&quot;,
+  &quot;sessionId&quot;: &quot;&lt;app session id&gt;&quot;,          // 必填，DB sessions.session_id
+  &quot;content&quot;: &quot;请帮我重构这个文件&quot;,           // 必填，用户 prompt（纯文本）
+  &quot;options&quot;: {                              // 选填
+    &quot;model&quot;: &quot;gpt-5.5&quot;,                     // 模型 id；缺省由 resolveResumeModel 决定
+    &quot;effort&quot;: &quot;medium&quot;,                     // low|medium|high|xhigh（须在该模型允许列表内，否则忽略）
+    &quot;permissionMode&quot;: &quot;default&quot;,            // default | acceptEdits | bypassPermissions
+    &quot;cwd&quot;: &quot;/abs/path&quot;,                     // 工作目录；缺省取会话 project_path
+    &quot;projectPath&quot;: &quot;/abs/path&quot;,             // 项目根（cwd 优先）
+    &quot;images&quot;: [                             // 图片附件，见 §6
+      { &quot;path&quot;: &quot;image-xxx.png&quot;, &quot;name&quot;: &quot;截图.png&quot;, &quot;mimeType&quot;: &quot;image/png&quot; }
+    ],
+    &quot;sessionSummary&quot;: &quot;重构讨论&quot;            // 仅用于通知展示名
+  }
+}</code></pre>
+<p><strong><code>permissionMode</code> 行为差异</strong>：</p>
+<table>
+<thead>
+<tr class="header">
+<th>permissionMode</th>
+<th>Codex（sandboxMode / approvalPolicy）</th>
+<th>Claude</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>default</code></td>
+<td><code>workspace-write</code> / <code>untrusted</code></td>
+<td><code>canUseTool</code> 回调，工具需审批（见 §3.4）</td>
+</tr>
+<tr class="even">
+<td><code>acceptEdits</code></td>
+<td><code>workspace-write</code> / <code>never</code></td>
+<td>免审批</td>
+</tr>
+<tr class="odd">
+<td><code>bypassPermissions</code></td>
+<td><code>danger-full-access</code> / <code>never</code></td>
+<td><code>bypassPermissions</code>，全部放行</td>
+</tr>
+</tbody>
+</table>
+<p><strong>服务端处理流程</strong>（provider 无关）： 1. <code>sessionsDb.getSessionById(sessionId)</code> 解析出 <code>{ provider, provider_session_id, project_path }</code>，按 <code>provider</code> 分发到 <code>queryCodex</code> / <code>queryClaudeSDK</code>。 2. <code>chatRunRegistry.startRun(...)</code> 占位 + 广播 <code>session_status{state:"running"}</code>（见 §8）；若该会话已有 run，回 <code>protocol_error{code:"RUN_IN_PROGRESS"}</code>。 3. <code>filterImagesToUploadStore(options.images)</code> 过滤图片——<strong>仅 <code>~/.cloudcli/assets</code> 直属子文件放行</strong>。 4. 调用对应运行时，进入 §5 的事件循环。</p>
+<h3 id="32-chatabort--中止当前-run">3.2 <code>chat.abort</code> — 中止当前 run</h3>
+<pre class="jsonc"><code>{ &quot;type&quot;: &quot;chat.abort&quot;, &quot;sessionId&quot;: &quot;&lt;app session id&gt;&quot; }</code></pre>
+<p>服务端按 <code>provider</code> 调用 <code>abortCodexSession</code> / <code>abortClaudeSDKSession</code>：Codex 标记 <code>aborted</code> + <code>AbortController.abort()</code>；Claude 调 <code>queryInstance.interrupt()</code>。运行时循环检测到中止信号即 <code>break</code>，<strong>不再自行发 <code>complete</code></strong>——网关代发 <code>aborted:true</code> 终止帧 + 广播 <code>session_status{state:"aborted"}</code>。无活跃 run 回 <code>protocol_error{code:"NO_ACTIVE_RUN"}</code>。</p>
+<h3 id="33-chatsubscribe--订阅会话状态--补播">3.3 <code>chat.subscribe</code> — 订阅会话状态 / 补播</h3>
+<pre class="jsonc"><code>{
+  &quot;type&quot;: &quot;chat.subscribe&quot;,
+  &quot;sessions&quot;: [ { &quot;sessionId&quot;: &quot;&lt;app id&gt;&quot;, &quot;lastSeq&quot;: 42 } ]
+}</code></pre>
+<p>可一次订阅<strong>多个</strong>会话。对每个回 <code>chat_subscribed{ sessionId, isProcessing, lastSeq, pendingPermissions }</code>，并把该 run 的实时流重新挂到当前 socket + 补播 <code>seq&gt;lastSeq</code> 的缺失帧。用于重连/切会话/跨会话观察。</p>
+<h3 id="34-chatpermission-response--工具审批仅-claude">3.4 <code>chat.permission-response</code> — 工具审批（仅 Claude）</h3>
+<pre class="jsonc"><code>{ &quot;type&quot;: &quot;chat.permission-response&quot;,
+  &quot;requestId&quot;: &quot;&lt;id&gt;&quot;, &quot;allow&quot;: true,
+  &quot;updatedInput&quot;: { }, &quot;message&quot;: &quot;...&quot;, &quot;rememberEntry&quot;: { } }</code></pre>
+<p><strong>Claude 专用</strong>。Codex 用 <code>approvalPolicy</code> 在 SDK 层自动决定，不产生交互式审批。Claude 的 <code>canUseTool</code> 回调对需要交互的工具（<code>AskUserQuestion</code>、<code>ExitPlanMode</code>）发 <code>permission_request</code>，前端决策后用本消息回传；<code>waitForToolApproval</code> 在 <code>CLAUDE_TOOL_APPROVAL_TIMEOUT_MS</code>（默认 55s）内等待。</p>
+<hr />
+<h2 id="4-出站消息server--client">4. 出站消息（Server → Client）</h2>
+<p>每个帧为 JSON 对象，<strong>统一以 <code>kind</code> 标识</strong>。所有 provider 消息帧带 <code>sessionId</code>（app id）、<code>provider</code>、<code>timestamp</code>、<code>id</code>；流式帧额外带 <code>seq</code>。</p>
+<h3 id="41-网关控制帧广播或按需">4.1 网关控制帧（广播或按需）</h3>
+<table>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>kind</th>
+<th>触发时机</th>
+<th>关键字段</th>
+<th>范围</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>chat_subscribed</code></td>
+<td><code>chat.subscribe</code> 应答</td>
+<td>isProcessing、lastSeq、pendingPermissions</td>
+<td>请求连接</td>
+</tr>
+<tr class="even">
+<td><code>session_upserted</code></td>
+<td>watcher 检测到磁盘会话变化 / provider id 落库</td>
+<td>会话元数据（侧边栏刷新）</td>
+<td><strong>所有连接</strong></td>
+</tr>
+<tr class="odd">
+<td><code>session_status</code></td>
+<td>run 启动 / 完成 / 失败 / 中止</td>
+<td>state、exitCode、startedAt、completedAt</td>
+<td><strong>所有连接</strong>（见 §8）</td>
+</tr>
+<tr class="even">
+<td><code>notification</code></td>
+<td>Claude hook（Notification/Stop/SessionEnd）/ 工具审批</td>
+<td>notificationKind、severity、message</td>
+<td>同会话连接（见 §8）</td>
+</tr>
+<tr class="odd">
+<td><code>loading_progress</code></td>
+<td>历史加载进度</td>
+<td>progress、sessionId</td>
+<td>请求连接</td>
+</tr>
+<tr class="even">
+<td><code>protocol_error</code></td>
+<td>请求非法或运行时级错误</td>
+<td>code、error、sessionId?</td>
+<td>请求连接</td>
+</tr>
+</tbody>
+</table>
+<p><code>protocol_error.code</code> 枚举：<code>SESSION_ID_REQUIRED</code> / <code>SESSION_NOT_FOUND</code> / <code>UNSUPPORTED_PROVIDER</code> / <code>RUN_IN_PROGRESS</code> / <code>NO_ACTIVE_RUN</code> / <code>UNKNOWN_MESSAGE_TYPE</code> / <code>INTERNAL_ERROR</code>。</p>
+<h3 id="42-流式内容帧normalizedmessage">4.2 流式内容帧（<code>NormalizedMessage</code>）</h3>
+<p>由各 provider 的 <code>transformCodexEvent</code> + <code>normalizeMessage('codex', ...)</code> 或 Claude SDK 消息 + <code>normalizeMessage('claude', ...)</code> 产出。中间增量态处理：Codex <code>item.started</code> 忽略、<code>agent_message</code> 的 <code>item.updated</code> 提取为 <code>stream_delta</code>；Claude 的 <code>streaming</code> content block delta 合并为 <code>stream_delta</code>。各 <code>kind</code> 形状：</p>
+<h4 id="stream_delta--stream_end--助手文本流"><code>stream_delta</code> / <code>stream_end</code> — 助手文本流</h4>
+<pre class="jsonc"><code>{ &quot;kind&quot;: &quot;stream_delta&quot;, &quot;content&quot;: &quot;增量文本&quot;, &quot;seq&quot;: 1 }
+{ &quot;kind&quot;: &quot;stream_end&quot;, &quot;seq&quot;: 2 }</code></pre>
+<h4 id="text--文本消息用户--助手"><code>text</code> — 文本消息（用户 / 助手）</h4>
+<pre class="jsonc"><code>{ &quot;kind&quot;: &quot;text&quot;, &quot;role&quot;: &quot;assistant&quot; | &quot;user&quot;, &quot;content&quot;: &quot;...&quot;, &quot;seq&quot;: 1 }</code></pre>
+<h4 id="thinking--推理过程"><code>thinking</code> — 推理过程</h4>
+<pre class="jsonc"><code>{ &quot;kind&quot;: &quot;thinking&quot;, &quot;content&quot;: &quot;...&quot;, &quot;seq&quot;: 2 }</code></pre>
+<h4 id="tool_use--工具调用统一形状按来源细分"><code>tool_use</code> — 工具调用（统一形状，按来源细分）</h4>
+<p><strong>命令执行</strong>（Codex <code>command_execution</code> / Claude <code>Bash</code> → <code>toolName:"Bash"</code>）</p>
+<pre class="jsonc"><code>{
+  &quot;kind&quot;: &quot;tool_use&quot;, &quot;toolName&quot;: &quot;Bash&quot;, &quot;toolId&quot;: &quot;&lt;id&gt;&quot;,
+  &quot;toolInput&quot;: { &quot;command&quot;: &quot;npm test&quot; },
+  &quot;output&quot;: &quot;...&quot;, &quot;exitCode&quot;: 0, &quot;status&quot;: &quot;completed&quot;,
+  &quot;seq&quot;: 3
+}</code></pre>
+<p><strong>文件变更</strong>（Codex <code>file_change</code> → <code>toolName:"FileChanges"</code>）</p>
+<pre class="jsonc"><code>{ &quot;kind&quot;: &quot;tool_use&quot;, &quot;toolName&quot;: &quot;FileChanges&quot;, &quot;toolInput&quot;: { /*changes*/ }, &quot;status&quot;: &quot;completed&quot;, &quot;seq&quot;: 4 }</code></pre>
+<p><strong>MCP 工具调用</strong>（<code>mcp_tool_call</code>，Codex/Claude 均可）</p>
+<pre class="jsonc"><code>{
+  &quot;kind&quot;: &quot;tool_use&quot;, &quot;toolName&quot;: &quot;&lt;tool&gt;&quot;, &quot;server&quot;: &quot;&lt;mcp server&gt;&quot;,
+  &quot;toolInput&quot;: { /*arguments*/ }, &quot;result&quot;: { }, &quot;error&quot;: null, &quot;status&quot;: &quot;completed&quot;,
+  &quot;seq&quot;: 5
+}</code></pre>
+<p><strong>Web 搜索</strong>（Codex <code>web_search</code> → <code>toolName:"WebSearch"</code>）</p>
+<pre class="jsonc"><code>{ &quot;kind&quot;: &quot;tool_use&quot;, &quot;toolName&quot;: &quot;WebSearch&quot;, &quot;toolInput&quot;: { &quot;query&quot;: &quot;...&quot; }, &quot;seq&quot;: 6 }</code></pre>
+<p><strong>Todo 列表</strong>（Codex <code>todo_list</code> → <code>toolName:"TodoList"</code>）</p>
+<pre class="jsonc"><code>{ &quot;kind&quot;: &quot;tool_use&quot;, &quot;toolName&quot;: &quot;TodoList&quot;, &quot;toolInput&quot;: { &quot;items&quot;: [ ] }, &quot;seq&quot;: 7 }</code></pre>
+<p><strong>未知 item 类型</strong> — 透传为 <code>tool_use</code>，<code>toolName</code> 取 <code>itemType</code>，<code>toolInput</code> 取原 item。</p>
+<h4 id="tool_result--工具结果历史回看时出现"><code>tool_result</code> — 工具结果（历史回看时出现）</h4>
+<pre class="jsonc"><code>{ &quot;kind&quot;: &quot;tool_result&quot;, &quot;toolId&quot;: &quot;&lt;id&gt;&quot;, &quot;content&quot;: &quot;...&quot;, &quot;isError&quot;: false }</code></pre>
+<h4 id="permission_request--permission_cancelled仅-claude"><code>permission_request</code> / <code>permission_cancelled</code>（仅 Claude）</h4>
+<pre class="jsonc"><code>{ &quot;kind&quot;: &quot;permission_request&quot;, &quot;requestId&quot;: &quot;&lt;id&gt;&quot;, &quot;toolName&quot;: &quot;Bash&quot;, &quot;input&quot;: { }, &quot;context&quot;: { }, &quot;seq&quot;: 8 }
+{ &quot;kind&quot;: &quot;permission_cancelled&quot;, &quot;requestId&quot;: &quot;&lt;id&gt;&quot;, &quot;reason&quot;: &quot;...&quot;, &quot;seq&quot;: 9 }</code></pre>
+<p>对应 §3.4 的 <code>chat.permission-response</code>。Codex 不产生这两帧。</p>
+<h4 id="status--token-预算turn-完成时抽取"><code>status</code> — token 预算（turn 完成时抽取）</h4>
+<pre class="jsonc"><code>{
+  &quot;kind&quot;: &quot;status&quot;, &quot;text&quot;: &quot;token_budget&quot;,
+  &quot;tokenBudget&quot;: {
+    &quot;used&quot;: 12345, &quot;total&quot;: 200000,
+    &quot;inputTokens&quot;: 10000, &quot;outputTokens&quot;: 2345,
+    &quot;cacheReadTokens&quot;: 0,          // 仅 Claude 有
+    &quot;cacheCreationTokens&quot;: 0,      // 仅 Claude 有
+    &quot;breakdown&quot;: { &quot;input&quot;: 10000, &quot;output&quot;: 2345 }
+  },
+  &quot;seq&quot;: 10
+}</code></pre>
+<h4 id="error--运行时错误非终止"><code>error</code> — 运行时错误（非终止）</h4>
+<pre class="jsonc"><code>{ &quot;kind&quot;: &quot;error&quot;, &quot;content&quot;: &quot;Turn failed&quot;, &quot;seq&quot;: 11 }</code></pre>
+<h3 id="43-终止帧-complete">4.3 终止帧 <code>complete</code></h3>
+<p>每个 run <strong>恰好一个</strong> <code>complete</code>，之后该 run 不再发任何帧。</p>
+<p><strong>正常完成</strong></p>
+<pre class="jsonc"><code>{
+  &quot;kind&quot;: &quot;complete&quot;, &quot;provider&quot;: &quot;codex&quot; | &quot;claude&quot;,
+  &quot;sessionId&quot;: &quot;&lt;app id&gt;&quot;, &quot;actualSessionId&quot;: &quot;&lt;app id&gt;&quot;,
+  &quot;exitCode&quot;: 0, &quot;success&quot;: true, &quot;aborted&quot;: false,
+  &quot;seq&quot;: 12
+}</code></pre>
+<p><strong>失败完成</strong>（<code>turn.failed</code> / Claude <code>result</code> 错误 / 异常）</p>
+<pre class="jsonc"><code>{ &quot;kind&quot;: &quot;complete&quot;, &quot;exitCode&quot;: 1, &quot;success&quot;: false, &quot;aborted&quot;: false, &quot;seq&quot;: 12 }</code></pre>
+<p>失败时通常先发一帧 <code>error</code>，再发 <code>complete</code>。未配置时 <code>error.content</code> 为 <code>"Codex CLI is not configured..."</code>（Codex）或对应 Claude 鉴权错误。</p>
+<p><strong>中止完成</strong>（由 <code>chat.abort</code> 触发，网关代发）</p>
+<pre class="jsonc"><code>{ &quot;kind&quot;: &quot;complete&quot;, &quot;exitCode&quot;: 0 | 1, &quot;success&quot;: false, &quot;aborted&quot;: true, &quot;seq&quot;: 12 }</code></pre>
+<hr />
+<h2 id="5-服务端运行时流程">5. 服务端运行时流程</h2>
+<p>两个运行时共用网关、registry、writer；差异只在 SDK 调用与 provider 原生事件。</p>
+<h3 id="51-codexquerycodex">5.1 Codex（<code>queryCodex</code>）</h3>
+<pre><code>1. resolveResumeModel(&#39;codex&#39;, sessionId, model)
+2. mapPermissionModeToCodexOptions(permissionMode)  → {sandboxMode, approvalPolicy}
+3. 校验 effort ∈ model.effort.values，否则置 undefined
+4. new Codex(CODEX_PATH_OVERRIDE ? {codexPathOverride} : {})   // 见 §2.1
+5. sessionId ? codex.resumeThread(id, opts) : codex.startThread(opts)
+6. turnInput = hasImages ? buildCodexInputItems(content, images, cwd) : content
+7. thread.runStreamed(turnInput, { signal })
+8. for await event:
+     thread.started  → 捕获 thread_id，建立 app↔provider 映射（session_created 不上送）
+     item.started/updated → 跳过/合并
+     turn.completed → 抽 token_budget 发 status 帧
+     turn.failed    → 记 terminalFailure，notifyRunFailed
+     其余           → transformCodexEvent → normalizeMessage → 逐帧上送
+     每轮检查 abort → break
+9. 未中止 → 发 complete(exitCode) + notifyRunStopped</code></pre>
+<p>线程选项：<code>{ workingDirectory, skipGitRepoCheck:true, sandboxMode, approvalPolicy, model, modelReasoningEffort }</code></p>
+<h3 id="52-claude-codequeryclaudesdk">5.2 Claude Code（<code>queryClaudeSDK</code>）</h3>
+<pre><code>1. resolveResumeModel(&#39;claude&#39;, sessionId, model)
+2. mapCliOptionsToSDK(options): pathToClaudeCodeExecutable=CLAUDE_CLI_PATH(§2.2),
+   env, cwd, permissionMode, hooks{Notification,Stop,SessionEnd}, canUseTool
+3. 校验 effort ∈ model.effort.values，resolveClaudeEffort
+4. loadMcpConfig(cwd) → sdkOptions.mcpServers
+5. buildPromptPayload(command, images, cwd)  // 图片 base64 内联
+6. query(sdkOptions) → async generator
+7. for await message:
+     system_init / result / 等 → 捕获 session uuid，建立 app↔provider 映射
+     streaming delta → 合并为 stream_delta
+     tool_use / tool_result → 归一化
+     需交互工具 → canUseTool 回调 → permission_request（§3.4）
+     hooks → notification 帧（§8）
+     每轮检查 abort → interrupt()
+8. 未中止 → 发 complete(exitCode)</code></pre>
+<p>SDK 选项要点：<code>pathToClaudeCodeExecutable</code>（默认 PATH <code>claude</code>）、<code>resume</code>、<code>permissionMode</code>、<code>hooks</code>、<code>canUseTool</code>、<code>mcpServers</code>、<code>env</code>。</p>
+<hr />
+<h2 id="6-图片附件">6. 图片附件</h2>
+<ul>
+<li><strong>存储</strong>：图片统一上传至 <code>~/.cloudcli/assets/</code>（经 <code>POST /api/assets/images</code>），前端引用时用文件名或绝对路径。</li>
+<li><strong>信任边界</strong>：网关 <code>filterImagesToUploadStore</code> 仅放行 <code>~/.cloudcli/assets</code> 的<strong>直属子文件</strong>——拒绝子目录、路径穿越、外部绝对路径。</li>
+<li><strong>喂给 provider（差异）</strong>：
+<ul>
+<li><p><strong>Codex</strong>：<code>buildCodexInputItems</code> 生成 <code>{type:"local_image", path}</code> 本地路径引用 + <code>{type:"text"}</code>，SDK 从路径读取，不经 base64。</p>
+<pre class="jsonc"><code>[ { &quot;type&quot;:&quot;local_image&quot;, &quot;path&quot;:&quot;/home/u/.cloudcli/assets/image-xxx.png&quot; },
+  { &quot;type&quot;:&quot;text&quot;, &quot;text&quot;:&quot;请帮我重构这个文件&quot; } ]</code></pre></li>
+<li><strong>Claude</strong>：<code>buildClaudeUserContent</code> 把图片读回成 base64 <code>image</code> content block 内联进 prompt。</li>
+</ul></li>
+<li>无图片时 Codex <code>turnInput</code> 为 prompt 字符串；Claude prompt 为纯文本。</li>
+</ul>
+<hr />
+<h2 id="7-会话落盘与回灌">7. 会话落盘与回灌</h2>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th></th>
+<th>Codex</th>
+<th>Claude</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>落盘位置</td>
+<td><code>~/.codex/sessions/*.jsonl</code>（含 <code>thread_id</code>）</td>
+<td><code>~/.claude/projects/&lt;encoded-path&gt;/&lt;uuid&gt;.jsonl</code></td>
+</tr>
+<tr class="even">
+<td>名称映射</td>
+<td><code>~/.codex/session_index.jsonl</code>（thread→name）</td>
+<td>文件名即 session uuid</td>
+</tr>
+<tr class="odd">
+<td>索引器</td>
+<td><code>CodexSessionSynchronizer</code></td>
+<td><code>ClaudeSessionSynchronizer</code></td>
+</tr>
+<tr class="even">
+<td>历史回看</td>
+<td><code>CodexSessionsProvider.fetchHistory</code> 读 <code>.jsonl</code></td>
+<td><code>ClaudeSessionsProvider.fetchHistory</code> 读 <code>.jsonl</code></td>
+</tr>
+</tbody>
+</table>
+<p>两者均由 <code>sessions-watcher.service</code>（chokidar）监听对应目录，增量 upsert 进 <code>sessions</code> 表并广播 <code>session_upserted</code>。历史分页契约：<code>offset=0</code> 取最近 <code>limit</code> 条，<code>offset</code> 递增向过去翻页。归一化产物为同样的 <code>NormalizedMessage</code>（<code>text</code>/<code>thinking</code>/<code>tool_use</code>/<code>tool_result</code>）。</p>
+<hr />
+<h2 id="8-跨会话状态与通知新增">8. 跨会话状态与通知（新增）</h2>
+<p>让“在 A 里知道 B 的状态 / 被通知”成为可能。两条互补信道：</p>
+<h3 id="81-session_status控制帧广播给所有连接provider-无关">8.1 <code>session_status</code>（控制帧，广播给所有连接，provider 无关）</h3>
+<p>由 <code>chatRunRegistry</code> 在 run 生命周期点向<strong>所有</strong> <code>connectedClients</code> 广播，无需订阅目标会话：</p>
+<pre class="jsonc"><code>{
+  &quot;kind&quot;: &quot;session_status&quot;,
+  &quot;sessionId&quot;: &quot;&lt;app id&gt;&quot;,
+  &quot;provider&quot;: &quot;codex&quot; | &quot;claude&quot;,
+  &quot;state&quot;: &quot;running&quot; | &quot;completed&quot; | &quot;failed&quot; | &quot;aborted&quot;,
+  &quot;exitCode&quot;: 0 | 1 | null,
+  &quot;startedAt&quot;: 1718000000000,
+  &quot;completedAt&quot;: 1718000012345,
+  &quot;timestamp&quot;: &quot;...&quot;
+}</code></pre>
+<table>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>触发点</th>
+<th>state</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>startRun</code>（run 创建后）</td>
+<td><code>running</code></td>
+</tr>
+<tr class="even">
+<td><code>complete</code> 帧过 <code>decorateAndRecordEvent</code>（正常完成）</td>
+<td><code>completed</code>（exitCode=0）/ <code>failed</code>（exitCode≠0）</td>
+</tr>
+<tr class="odd">
+<td><code>chat.abort</code> → <code>completeRun</code></td>
+<td><code>aborted</code></td>
+</tr>
+<tr class="even">
+<td>运行时崩溃 → <code>completeRunIfCurrent</code> 兜底</td>
+<td><code>failed</code>（exitCode=1）</td>
+</tr>
+</tbody>
+</table>
+<p>重复 <code>complete</code> 在 registry 顶部被去重，<code>session_status</code> 不会二次广播。帧无 <code>seq</code>、无流内容，与 <code>session_upserted</code> 同级。</p>
+<p><strong>前端处理</strong>（<code>useChatRealtimeHandlers</code>）：<code>running</code> → <code>onSessionProcessing(sid)</code>，终态 → <code>onSessionIdle(sid)</code>，<strong>跨会话</strong>更新侧栏 spinner（任意 sid，不限于当前查看的会话）。</p>
+<h3 id="82-notification同会话经-writer-派发带-seq">8.2 <code>notification</code>（同会话，经 writer 派发，带 seq）</h3>
+<p>Claude 原生 hook 触发的注意事件，经复活的 <code>notification-orchestrator</code> 派发到<strong>本会话</strong>连接（writer 派发 + 按 <code>dedupeKey</code> 5min 去重）：</p>
+<pre class="jsonc"><code>{
+  &quot;kind&quot;: &quot;notification&quot;,
+  &quot;provider&quot;: &quot;claude&quot;,
+  &quot;sessionId&quot;: &quot;&lt;app id&gt;&quot;,
+  &quot;notificationKind&quot;: &quot;action_required&quot; | &quot;session_stopped&quot; | &quot;session_ended&quot;,
+  &quot;code&quot;: &quot;agent.notification&quot; | &quot;agent.stop&quot; | &quot;agent.session_end&quot; | &quot;permission.required&quot;,
+  &quot;severity&quot;: &quot;warning&quot; | &quot;info&quot;,
+  &quot;message&quot;: &quot;Claude requires your attention.&quot;,
+  &quot;requiresUserAction&quot;: true | false,
+  &quot;meta&quot;: { &quot;message&quot; | &quot;toolName&quot;: &quot;...&quot;, &quot;sessionName&quot;: &quot;...&quot;, &quot;reason&quot;: &quot;...&quot; },
+  &quot;dedupeKey&quot;: &quot;claude:hook:notification:&lt;sid&gt;:&lt;msg&gt;&quot;,
+  &quot;seq&quot;: 13
+}</code></pre>
+<table>
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 33%" />
+<col style="width: 33%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>notificationKind</th>
+<th>触发 hook</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>action_required</code></td>
+<td><code>Notification</code></td>
+<td>Claude 需要用户注意</td>
+</tr>
+<tr class="even">
+<td><code>action_required</code></td>
+<td><code>canUseTool</code>（交互工具）</td>
+<td>等同 <code>permission_request</code> 的注意信号，<code>code:"permission.required"</code></td>
+</tr>
+<tr class="odd">
+<td><code>session_stopped</code></td>
+<td><code>Stop</code></td>
+<td>turn 结束</td>
+</tr>
+<tr class="even">
+<td><code>session_ended</code></td>
+<td><code>SessionEnd</code></td>
+<td>会话结束（run 已 complete 时为 best-effort）</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Codex 不产生 <code>notification</code> 帧</strong>（Codex SDK 无 hook）；Codex 的“完成/失败”由 <code>session_status</code> 覆盖。</p>
+<h3 id="83-两条信道的分工">8.3 两条信道的分工</h3>
+<table>
+<colgroup>
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+<col style="width: 25%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>信道</th>
+<th>范围</th>
+<th>内容</th>
+<th>触发</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>session_status</code></td>
+<td>所有连接</td>
+<td>生命周期 running/completed/failed/aborted</td>
+<td>registry，provider 无关</td>
+</tr>
+<tr class="even">
+<td><code>notification</code></td>
+<td>本会话连接</td>
+<td>agent 注意事件</td>
+<td>Claude hook（Codex 无）</td>
+</tr>
+</tbody>
+</table>
+<p><code>notifyRunFailed</code> / <code>notifyRunStopped</code> 保持 no-op——跨会话完成已由 <code>session_status</code> 承担，避免与广播重复。</p>
+<hr />
+<h2 id="9-完整时序示例">9. 完整时序示例</h2>
+<pre><code>Client                                            Server
+  │  {type:&quot;chat.send&quot;, sessionId, content, options}   │
+  │ ─────────────────────────────────────────────────► │ resolveModel / 构造 Codex|Claude
+  │  {kind:&quot;session_status&quot;, state:&quot;running&quot;}          │ ← 广播给所有连接
+  │ ◄───────────────────────────────────────────────── │
+  │  {kind:&quot;text&quot;, role:&quot;user&quot;, content, seq:1}        │
+  │ ◄───────────────────────────────────────────────── │
+  │  {kind:&quot;thinking&quot;, content:&quot;...&quot;, seq:2}           │
+  │ ◄───────────────────────────────────────────────── │
+  │  {kind:&quot;tool_use&quot;, toolName:&quot;Bash&quot;, seq:3, ...}    │  (Claude: 可能先 permission_request)
+  │ ◄───────────────────────────────────────────────── │
+  │  {kind:&quot;text&quot;, role:&quot;assistant&quot;, content, seq:4}   │
+  │ ◄───────────────────────────────────────────────── │
+  │  {kind:&quot;status&quot;, text:&quot;token_budget&quot;, seq:5}       │
+  │ ◄───────────────────────────────────────────────── │
+  │  {kind:&quot;complete&quot;, exitCode:0, success:true, seq:6}│
+  │ ◄───────────────────────────────────────────────── │
+  │  {kind:&quot;session_status&quot;, state:&quot;completed&quot;}        │ ← 广播给所有连接
+  │ ◄───────────────────────────────────────────────── │</code></pre>
+<p><strong>中止时序</strong>：</p>
+<pre><code>Client                                          Server
+  │  {type:&quot;chat.abort&quot;, sessionId}                   │
+  │ ────────────────────────────────────────────────► │ abort (Codex AbortController / Claude interrupt)
+  │  {kind:&quot;complete&quot;, aborted:true, success:false}   │
+  │ ◄───────────────────────────────────────────────── │ (运行时不再发 complete)
+  │  {kind:&quot;session_status&quot;, state:&quot;aborted&quot;}          │ ← 广播
+  │ ◄───────────────────────────────────────────────── │</code></pre>
+<hr />
+<h2 id="10-错误处理约定">10. 错误处理约定</h2>
+<table>
+<colgroup>
+<col style="width: 50%" />
+<col style="width: 50%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>场景</th>
+<th>行为</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>sessionId 不存在</td>
+<td><code>protocol_error{code:"SESSION_NOT_FOUND"}</code>，不开 run</td>
+</tr>
+<tr class="even">
+<td>该会话已有 run</td>
+<td><code>protocol_error{code:"RUN_IN_PROGRESS"}</code></td>
+</tr>
+<tr class="odd">
+<td>Codex CLI 未安装/未认证</td>
+<td><code>error{"Codex CLI is not configured..."}</code> + <code>complete{exitCode:1}</code> + <code>session_status{state:"failed"}</code></td>
+</tr>
+<tr class="even">
+<td>Claude 未认证</td>
+<td><code>error{...鉴权错误...}</code> + <code>complete{exitCode:1}</code> + <code>session_status{state:"failed"}</code></td>
+</tr>
+<tr class="odd">
+<td><code>turn.failed</code> / Claude 结果错误</td>
+<td><code>error</code> + <code>complete{exitCode:1}</code> + <code>notifyRunFailed</code> + <code>session_status{state:"failed"}</code></td>
+</tr>
+<tr class="even">
+<td>运行时异常（非 abort）</td>
+<td><code>error</code> + <code>complete{exitCode:1}</code></td>
+</tr>
+<tr class="odd">
+<td>运行时崩溃未发 complete</td>
+<td>网关 <code>completeRunIfCurrent</code> 兜底发 <code>complete{exitCode:1}</code> + <code>session_status{state:"failed"}</code></td>
+</tr>
+<tr class="even">
+<td>abort</td>
+<td>网关代发 <code>complete{aborted:true}</code> + <code>session_status{state:"aborted"}</code>，运行时静默退出</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="11-字段速查">11. 字段速查</h2>
+<h3 id="normalizedmessage-公共字段"><code>NormalizedMessage</code> 公共字段</h3>
+<table>
+<thead>
+<tr class="header">
+<th>字段</th>
+<th>类型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>id</code></td>
+<td>string</td>
+<td>消息 id（缺省由 <code>generateMessageId(kind)</code> 生成）</td>
+</tr>
+<tr class="even">
+<td><code>sessionId</code></td>
+<td>string</td>
+<td>app session id（已重映射，非 provider 原生 id）</td>
+</tr>
+<tr class="odd">
+<td><code>provider</code></td>
+<td><code>"codex"</code> | <code>"claude"</code></td>
+<td></td>
+</tr>
+<tr class="even">
+<td><code>kind</code></td>
+<td>string</td>
+<td>见 §4</td>
+</tr>
+<tr class="odd">
+<td><code>timestamp</code></td>
+<td>ISO string</td>
+<td></td>
+</tr>
+<tr class="even">
+<td><code>seq</code></td>
+<td>number</td>
+<td>仅流式帧，按 run 单调递增</td>
+</tr>
+</tbody>
+</table>
+<h3 id="complete-帧字段"><code>complete</code> 帧字段</h3>
+<table>
+<thead>
+<tr class="header">
+<th>字段</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>exitCode</code></td>
+<td>0 成功 / 1 失败（缺省 1）</td>
+</tr>
+<tr class="even">
+<td><code>success</code></td>
+<td><code>exitCode===0 &amp;&amp; !aborted</code></td>
+</tr>
+<tr class="odd">
+<td><code>aborted</code></td>
+<td>是否被 <code>chat.abort</code> 中止</td>
+</tr>
+<tr class="even">
+<td><code>actualSessionId</code></td>
+<td>app id（provider 原生 id 不外泄）</td>
+</tr>
+</tbody>
+</table>
+<h3 id="session_status-帧字段81"><code>session_status</code> 帧字段（§8.1）</h3>
+<table>
+<thead>
+<tr class="header">
+<th>字段</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>state</code></td>
+<td><code>running</code> | <code>completed</code> | <code>failed</code> | <code>aborted</code></td>
+</tr>
+<tr class="even">
+<td><code>exitCode</code></td>
+<td>终态时携带，<code>running</code> 时为 null</td>
+</tr>
+<tr class="odd">
+<td><code>startedAt</code> / <code>completedAt</code></td>
+<td>毫秒时间戳</td>
+</tr>
+</tbody>
+</table>
+<h3 id="notification-帧字段82"><code>notification</code> 帧字段（§8.2）</h3>
+<table>
+<thead>
+<tr class="header">
+<th>字段</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>notificationKind</code></td>
+<td><code>action_required</code> | <code>session_stopped</code> | <code>session_ended</code></td>
+</tr>
+<tr class="even">
+<td><code>severity</code></td>
+<td><code>warning</code> | <code>info</code></td>
+</tr>
+<tr class="odd">
+<td><code>requiresUserAction</code></td>
+<td>是否需用户操作</td>
+</tr>
+<tr class="even">
+<td><code>dedupeKey</code></td>
+<td>orchestrator 去重键</td>
+</tr>
+</tbody>
+</table>
+<hr />
+<h2 id="12-codex-vs-claude-全量对照">12. Codex vs Claude 全量对照</h2>
+<table>
+<thead>
+<tr class="header">
+<th>维度</th>
+<th>Codex</th>
+<th>Claude Code</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>SDK</td>
+<td><code>@openai/codex-sdk</code></td>
+<td><code>@anthropic-ai/claude-agent-sdk</code></td>
+</tr>
+<tr class="even">
+<td>入口</td>
+<td><code>new Codex()</code> / <code>thread.runStreamed</code></td>
+<td><code>query(sdkOptions)</code> async generator</td>
+</tr>
+<tr class="odd">
+<td>捆绑二进制</td>
+<td>是</td>
+<td>否，默认 PATH <code>claude</code></td>
+</tr>
+<tr class="even">
+<td>覆盖 env</td>
+<td><code>CODEX_PATH_OVERRIDE</code></td>
+<td><code>CLAUDE_CLI_PATH</code></td>
+</tr>
+<tr class="odd">
+<td>线程模型</td>
+<td><code>startThread</code> / <code>resumeThread(id)</code></td>
+<td><code>resume</code> 选项续接</td>
+</tr>
+<tr class="even">
+<td>session id 发现</td>
+<td><code>thread.started</code> 事件</td>
+<td>SDK 流中给出</td>
+</tr>
+<tr class="odd">
+<td>权限</td>
+<td><code>sandboxMode</code>+<code>approvalPolicy</code>（自动）</td>
+<td><code>canUseTool</code> 回调 + <code>chat.permission-response</code></td>
+</tr>
+<tr class="even">
+<td>工具审批帧</td>
+<td>无</td>
+<td><code>permission_request</code> / <code>permission_cancelled</code></td>
+</tr>
+<tr class="odd">
+<td>图片</td>
+<td><code>local_image</code> 路径引用</td>
+<td>base64 <code>image</code> block</td>
+</tr>
+<tr class="even">
+<td>hook</td>
+<td>无</td>
+<td><code>Notification</code> / <code>Stop</code> / <code>SessionEnd</code></td>
+</tr>
+<tr class="odd">
+<td><code>notification</code> 帧</td>
+<td>不产生</td>
+<td>产生（§8.2）</td>
+</tr>
+<tr class="even">
+<td><code>session_status</code> 广播</td>
+<td>✅（provider 无关）</td>
+<td>✅</td>
+</tr>
+<tr class="odd">
+<td>token 预算</td>
+<td>input/output</td>
+<td>+ cacheRead/cacheCreation</td>
+</tr>
+<tr class="even">
+<td>fork</td>
+<td>CLI <code>codex fork</code>（仅交互）</td>
+<td><code>--fork-session</code>（交互+非交互）</td>
+</tr>
+</tbody>
+</table>
+</body>
+</html>

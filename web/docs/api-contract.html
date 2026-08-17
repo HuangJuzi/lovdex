@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>lovdex-cli 前后端接口契约</title>
+<style>
+  :root { --bg:#0d1117; --fg:#c9d1d9; --muted:#8b949e; --accent:#58a6ff; --border:#30363d; --card:#161b22; --code:#1f2428; --green:#3fb950; --orange:#d29922; --red:#f85149; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg); font-family:-apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif; line-height:1.6; }
+  .layout { display:flex; }
+  #TOC { position:fixed; top:0; left:0; width:240px; height:100vh; overflow:auto; background:#010409; border-right:1px solid var(--border); padding:18px 14px; font-size:0.82rem; }
+  #TOC a { color:var(--muted); text-decoration:none; display:block; padding:3px 6px; border-radius:4px; }
+  #TOC a:hover { background:var(--card); color:var(--fg); }
+  #TOC .h2 { color:#f0f6fc; font-weight:600; margin-top:10px; }
+  .wrap { margin-left:240px; max-width:1000px; padding:32px 28px; }
+  h1 { font-size:1.7rem; border-bottom:1px solid var(--border); padding-bottom:12px; }
+  h2 { font-size:1.3rem; margin-top:42px; color:var(--accent); border-left:3px solid var(--accent); padding-left:10px; }
+  h3 { font-size:1.08rem; margin-top:26px; color:#f0f6fc; }
+  h4 { font-size:0.98rem; margin-top:18px; color:var(--orange); }
+  code { background:var(--code); padding:2px 6px; border-radius:4px; font-family:"SFMono-Regular",Consolas,monospace; font-size:0.86em; color:#f0f6fc; }
+  pre { background:var(--code); padding:14px; border-radius:6px; overflow:auto; border:1px solid var(--border); }
+  pre code { background:none; padding:0; color:#e6edf3; }
+  table { width:100%; border-collapse:collapse; margin:14px 0; background:var(--card); border:1px solid var(--border); border-radius:6px; overflow:hidden; }
+  th, td { padding:7px 11px; border-bottom:1px solid var(--border); text-align:left; vertical-align:top; font-size:0.88rem; }
+  th { background:#1f2937; color:#f0f6fc; }
+  td code { font-size:0.8rem; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:8px; padding:14px 18px; margin:14px 0; }
+  .muted { color:var(--muted); }
+  .tag { display:inline-block; background:#1f6feb33; color:var(--accent); border:1px solid #1f6feb55; border-radius:4px; padding:1px 7px; font-size:0.76rem; margin-right:5px; }
+  .gin { color:var(--green); } .gout { color:var(--orange); } .gerr { color:var(--red); }
+  .warn { background:#3a2a0a; border:1px solid #614a1a; }
+  .ok { background:#0d2818; border:1px solid #1a5e2a; }
+  ul { padding-left:22px; }
+  .sig { font-family:"SFMono-Regular",Consolas,monospace; font-size:0.82rem; color:var(--accent); }
+</style>
+</head>
+<body>
+<div class="layout">
+<nav id="TOC">
+  <div class="h2">接口契约</div>
+  <a href="#overview">1. 概述</a>
+  <a href="#auth">2. 鉴权</a>
+  <a href="#ws-in">3. WS 入站帧</a>
+  <a href="#ws-out">4. WS 出站帧</a>
+  <a href="#normalized">5. NormalizedMessage</a>
+  <a href="#rest">6. REST 全量</a>
+  <a href="#shared">7. shared 契约</a>
+  <a href="#env">8. 环境变量</a>
+  <a href="#build">9. 构建边界</a>
+  <a href="#split">10. 拆仓清单</a>
+</nav>
+<div class="wrap">
+<h1>lovdex-cli 前后端接口契约</h1>
+<p class="muted">为前后端拆仓定义的全量接口契约：WebSocket 入站/出站帧 + 全部 HTTP REST 路由 + shared 共用类型/工具 + 鉴权 + 构建边界。配套 <a href="architecture.html">系统架构图</a>。</p>
+
+<h2 id="overview">1. 概述</h2>
+<div class="card">
+<p>通信以 <strong>WebSocket <code>/ws</code></strong> 为主（流式 chat），辅以 <strong>HTTP REST <code>/api/*</code></strong>（CRUD、列表、搜索、上传）。所有 WS 帧为 JSON，通过 <code>type</code>（入站）或 <code>kind</code>（出站）字段路由。</p>
+<p><span class="tag">WS 路径</span> 固定 <code>/ws</code>，与 HTTP server 同一进程升级（<code>ws.WebSocketServer({server})</code>）。生产同源；开发经 Vite proxy <code>/ws → ws://host:SERVER_PORT</code>。</p>
+<p><span class="tag">REST 信封</span> 成功：<code>{ success: true, data: T }</code>；错误：<code>{ success: false, error: { code, message, details? } }</code>。前端读取 <code>body?.data ?? body</code>。</p>
+<p><span class="tag">sessionId 语义</span> 全程使用 <strong>app 侧 sessionId</strong>；provider 原生 sessionId（claude 的 uuid / codex 的 thread-id）<strong>不外泄</strong>，仅后端 DB 内映射。</p>
+</div>
+
+<h2 id="auth">2. 鉴权</h2>
+<table>
+<tr><th>层</th><th>逻辑</th><th>位置</th></tr>
+<tr><td><code>validateApiKey</code></td><td>仅当 <code>API_KEY</code> 环境变量设置时启用：校验 header <code>x-api-key</code>。未设置则全放行。挂载在 <code>/api</code> 之前</td><td><code>middleware/auth.js:14</code></td></tr>
+<tr><td><code>authenticateToken</code></td><td><strong>OSS 内部构建：鉴权关闭</strong>，直接注入 <code>req.user = {id:1, username:'local'}</code>。所有受保护 REST 路由用此</td><td><code>middleware/auth.js:26</code></td></tr>
+<tr><td><code>authenticateWebSocket</code></td><td>同上，返回 <code>{id:1, userId:1, username:'local'}</code></td><td><code>middleware/auth.js:34</code></td></tr>
+<tr><td>WS 握手 <code>verifyWebSocketClient</code></td><td>Platform 模式跳过 token；OSS 模式从 <code>?token=</code> 或 <code>Authorization: Bearer</code> 读 JWT（当前实现不校验）</td><td><code>websocket-auth.service.ts:18</code></td></tr>
+<tr><td><code>IS_PLATFORM</code></td><td><code>process.env.VITE_IS_PLATFORM === 'true'</code>，前后端都读</td><td><code>server/constants/config.js:5</code> · <code>src/constants/config.ts:5</code></td></tr>
+</table>
+<p class="muted">前端 <code>authenticatedFetch</code>（<code>src/utils/api.js:15</code>）自动附加 <code>Authorization: Bearer &lt;localStorage:auth-token&gt;</code>，并响应 <code>X-Refreshed-Token</code> 刷新本地 token。</p>
+
+<h2 id="ws-in">3. WebSocket 入站帧</h2>
+<p>客户端 → 服务端，JSON，按 <code>type</code> 路由（<code>chat-websocket.service.ts</code>）。</p>
+<table>
+<tr><th>type</th><th>字段</th><th>触发动作</th></tr>
+<tr><td class="gout"><code>chat.send</code></td><td><code>sessionId</code>* · <code>content</code>(string) · <code>options</code>?{model, effort, permissionMode, toolsSettings, skipPermissions, sessionSummary, images}</td><td>解析 session → <code>startRun</code> → 过滤 images（仅允许 <code>~/.cloudcli/assets</code> 下）→ 调 provider spawn → 完成后 <code>completeRunIfCurrent</code> 兜底</td></tr>
+<tr><td class="gout"><code>chat.abort</code></td><td><code>sessionId</code>*</td><td>取 run → provider abort → <code>completeRun</code> 发 <code>complete{aborted:true}</code></td></tr>
+<tr><td class="gout"><code>chat.subscribe</code></td><td><code>sessions</code>:[{sessionId, lastSeq?}]</td><td>对每个：若 processing 则 <code>attachConnection</code>；查 pending permission；回 <code>chat_subscribed</code>；重放 <code>seq &gt; lastSeq</code> 的缓冲事件</td></tr>
+<tr><td class="gout"><code>chat.permission-response</code></td><td><code>requestId</code> · <code>allow</code>(bool) · <code>updatedInput</code>? · <code>message</code>? · <code>rememberEntry</code>?</td><td>调 <code>resolveToolApproval(requestId, ...)</code>（仅 Claude 有交互式审批）</td></tr>
+</table>
+<p class="muted">非法入站 → <code>protocol_error</code> 帧，code 取 <code>UNKNOWN_MESSAGE_TYPE / SESSION_ID_REQUIRED / SESSION_NOT_FOUND / UNSUPPORTED_PROVIDER / RUN_IN_PROGRESS / NO_ACTIVE_RUN / INTERNAL_ERROR</code>。</p>
+
+<h2 id="ws-out">4. WebSocket 出站帧</h2>
+<p>服务端 → 客户端，JSON，按 <code>kind</code> 区分。每条 live 帧由 <code>decorateAndRecordEvent</code> 分配单调递增 <code>seq</code> 并把 sessionId 重映射为 app 侧 ID。</p>
+
+<h3>4.1 Provider 消息 <span class="muted">MessageKind</span></h3>
+<table>
+<tr><th>kind</th><th>关键字段</th><th>何时发</th></tr>
+<tr><td><code>text</code></td><td>role · content · images? · isCompactSummary? · isLocalCommand? · commandName?</td><td>user/assistant 文本（历史或流式）</td></tr>
+<tr><td><code>thinking</code></td><td>content</td><td>AI 推理文本（Claude thinking / Codex reasoning）</td></tr>
+<tr><td><code>tool_use</code></td><td>toolName · toolInput · toolId · toolResult?</td><td>工具调用（Codex 映射 shell_command→Bash, apply_patch→Edit）</td></tr>
+<tr><td><code>tool_result</code></td><td>toolId · content · isError · subagentTools?</td><td>工具返回结果</td></tr>
+<tr><td><code>stream_delta</code></td><td>content（≤24 字符/chunk）</td><td>Claude SDK 流式增量（Codex 不产生）</td></tr>
+<tr><td><code>stream_end</code></td><td>—</td><td>Claude SDK 流式块结束</td></tr>
+<tr><td><code>error</code></td><td>content</td><td>运行时错误（Codex turn_failed / error item）</td></tr>
+<tr><td><code>complete</code></td><td>exitCode · success · aborted · actualSessionId</td><td>运行终态，<strong>每个 run 仅一次</strong>，重复被丢弃</td></tr>
+<tr><td><code>status</code></td><td>status · summary?</td><td>运行状态更新（实践中少用）</td></tr>
+<tr><td><code>permission_request</code></td><td>requestId · toolName? · input?</td><td>Claude 工具审批请求</td></tr>
+<tr><td><code>permission_cancelled</code></td><td>requestId?</td><td>审批请求取消</td></tr>
+<tr><td><code>notification</code></td><td>notificationKind · severity · message · meta · requiresUserAction · code · dedupeKey</td><td>同会话通知（Stop/SessionEnd/Notification hook），带 dedupe，仅当前 run 客户端可见</td></tr>
+<tr><td class="muted"><code>session_created</code></td><td>newSessionId</td><td><strong>后端内部消费，不转发前端</strong>：ChatSessionWriter 拦截 → 建立映射</td></tr>
+<tr><td class="muted"><code>interactive_prompt</code> · <code>task_notification</code></td><td>—</td><td>类型已定义，暂未使用</td></tr>
+</table>
+
+<h3>4.2 网关事件 <span class="muted">GatewayEventKind</span></h3>
+<table>
+<tr><th>kind</th><th>字段</th><th>何时发</th></tr>
+<tr><td><code>chat_subscribed</code></td><td>sessionId · isProcessing · lastSeq · pendingPermissions</td><td>回复 <code>chat.subscribe</code>，权威 processing 状态 + 权限恢复</td></tr>
+<tr><td><code>session_upserted</code></td><td>sessionId · providerSessionId · provider · session{id,summary,messageCount,lastActivity} · project{projectId,path,displayName,isStarred}|null</td><td>provider 公布 sessionId / 同步器发现文件变更时，广播给<strong>所有</strong>客户端（侧边栏增量）</td></tr>
+<tr><td><code>session_status</code></td><td>sessionId · provider · state(running|completed|failed|aborted) · exitCode · startedAt · completedAt</td><td>run 启动 + 结束时广播给<strong>所有</strong>客户端（跨会话生命周期）</td></tr>
+<tr><td><code>protocol_error</code></td><td>code · error · sessionId</td><td>入站帧非法时</td></tr>
+<tr><td class="muted"><code>loading_progress</code></td><td>—</td><td>已定义，前端 sidebar 消费</td></tr>
+</table>
+
+<h2 id="normalized">5. NormalizedMessage 完整字段</h2>
+<p class="muted">定义在 <code>server/shared/types.ts:215</code>，前端镜像在 <code>src/stores/useSessionStore.ts:33</code>。</p>
+<pre><code>{
+  id: string;            // 唯一消息 ID
+  sessionId: string;     // app 侧 session ID（已重映射）
+  timestamp: string;     // ISO
+  provider: "claude" | "codex";
+  kind: MessageKind;     // 见 §4
+  seq?: number;          // 仅 live 帧有，chatRunRegistry 分配，用于 chat.subscribe 重放
+  role?: "user" | "assistant";
+  content?: string;
+  displayText?: string;
+  // Claude local-command / compact
+  commandName?: string; commandMessage?: string; commandArgs?: string;
+  isLocalCommand?: boolean; isLocalCommandStdout?: boolean; isCompactSummary?: boolean;
+  images?: unknown;
+  // 工具
+  toolName?: string; toolInput?: unknown; toolId?: string;
+  toolResult?: { content?: string; isError?: boolean; toolUseResult?: unknown };
+  isError?: boolean;
+  // 流式 / 杂项
+  text?: string; tokens?: number; canInterrupt?: boolean;
+  requestId?: string; input?: unknown; context?: unknown; reason?: string;
+  newSessionId?: string;   // session_created（内部）
+  status?: string; summary?: string; tokenBudget?: unknown;
+  subagentTools?: unknown; toolUseResult?: unknown;
+  sequence?: number; rowid?: number;
+  [key: string]: unknown;  // 开放扩展
+}</code></pre>
+
+<h2 id="rest">6. REST 全量路由</h2>
+<p class="muted">除 <code>/health</code> 外，所有 <code>/api/*</code> 经 <code>validateApiKey</code>；标注 🔒 的额外经 <code>authenticateToken</code>（当前 no-op）。SSE 端点标注 <span class="tag">SSE</span>。</p>
+
+<h3>6.1 系统 / 文件系统</h3>
+<table>
+<tr><th>Method</th><th>Path</th><th>说明</th></tr>
+<tr><td>GET</td><td><code>/health</code></td><td>{status,timestamp,installMode,version}，无鉴权</td></tr>
+<tr><td>POST 🔒</td><td><code>/api/system/update</code></td><td>系统自更新 → {success,output,message}</td></tr>
+<tr><td>GET 🔒</td><td><code>/api/browse-filesystem?path=</code></td><td>目录浏览 → {path,suggestions}</td></tr>
+<tr><td>POST 🔒</td><td><code>/api/create-folder</code></td><td>{path} → {success,path}</td></tr>
+</table>
+
+<h3>6.2 项目 <span class="muted">/api/projects</span></h3>
+<table>
+<tr><th>Method</th><th>Path</th><th>说明</th></tr>
+<tr><td>GET 🔒</td><td><code>/api/projects</code></td><td>?skipSync=1&amp;sessionsLimit=&amp;sessionsOffset= → 项目列表含 sessions</td></tr>
+<tr><td>GET 🔒</td><td><code>/api/projects/archived</code></td><td>已归档项目</td></tr>
+<tr><td>GET 🔒</td><td><code>/api/projects/:id/sessions</code></td><td>?limit=20&amp;offset=0 分页 sessions</td></tr>
+<tr><td>POST 🔒</td><td><code>/api/projects/create-project</code></td><td>{path, customName?} → {success,project,message}</td></tr>
+<tr><td>POST 🔒</td><td><code>/api/projects/migrate-legacy-stars</code></td><td>{projectIds}</td></tr>
+<tr><td>GET 🔒</td><td><code>/api/projects/clone-progress</code></td><td><span class="tag">SSE</span> Git 克隆进度（progress/complete/error）</td></tr>
+<tr><td>GET 🔒</td><td><code>/api/projects/:id/taskmaster</code></td><td>TaskMaster 详情</td></tr>
+<tr><td>PUT 🔒</td><td><code>/api/projects/:id/rename</code></td><td>{displayName}</td></tr>
+<tr><td>POST 🔒</td><td><code>/api/projects/:id/toggle-star</code></td><td>切换收藏</td></tr>
+<tr><td>POST 🔒</td><td><code>/api/projects/:id/restore</code></td><td>恢复归档</td></tr>
+<tr><td>DELETE 🔒</td><td><code>/api/projects/:id</code></td><td>?force=true 删除/归档</td></tr>
+<tr><td>GET 🔒</td><td><code>/api/projects/:id/file?filePath=</code></td><td>读文件内容（文本）</td></tr>
+<tr><td>GET 🔒</td><td><code>/api/projects/:id/files/content?path=</code></td><td>读文件（二进制流）</td></tr>
+<tr><td>PUT 🔒</td><td><code>/api/projects/:id/file</code></td><td>{filePath,content} 保存文件</td></tr>
+<tr><td>GET 🔒</td><td><code>/api/projects/:id/files</code></td><td>文件树（depth=10）</td></tr>
+<tr><td>POST 🔒</td><td><code>/api/projects/:id/files/create</code></td><td>{path,type,name}</td></tr>
+<tr><td>PUT 🔒</td><td><code>/api/projects/:id/files/rename</code></td><td>{oldPath,newName}</td></tr>
+<tr><td>DELETE 🔒</td><td><code>/api/projects/:id/files</code></td><td>{path,type}</td></tr>
+<tr><td>POST 🔒</td><td><code>/api/projects/:id/files/upload</code></td><td>multipart{files,targetPath,relativePaths,requestedFileCount}</td></tr>
+<tr><td>GET 🔒</td><td><code>/api/projects/:id/sessions/:sid/token-usage</code></td><td>{used,total,inputTokens,outputTokens,breakdown}</td></tr>
+</table>
+
+<h3>6.3 Provider <span class="muted">/api/providers</span></h3>
+<table>
+<tr><th>Method</th><th>Path</th><th>说明</th></tr>
+<tr><td>GET 🔒</td><td><code>/api/providers/:p/auth/status</code></td><td>Provider 认证状态</td></tr>
+<tr><td>GET 🔒</td><td><code>/api/providers/:p/models?bypassCache=</code></td><td>模型列表（Claude 不缓存，Codex TTL 3 天）</td></tr>
+<tr><td>POST 🔒</td><td><code>/api/providers/:p/sessions/:sid/active-model</code></td><td>{model} 修改会话活跃模型</td></tr>
+<tr><td>GET 🔒</td><td><code>/api/providers/:p/skills?workspacePath=</code></td><td>技能列表</td></tr>
+<tr><td>POST 🔒</td><td><code>/api/providers/:p/skills</code></td><td>新增技能（entries[] 或单条）</td></tr>
+<tr><td>DELETE 🔒</td><td><code>/api/providers/:p/skills/:directoryName</code></td><td>删除技能</td></tr>
+<tr><td>GET 🔒</td><td><code>/api/providers/:p/mcp/servers?scope=&amp;workspacePath=</code></td><td>MCP 服务器（有 scope 返回单 scope，无 scope 返回 {user,local,project}）</td></tr>
+<tr><td>POST 🔒</td><td><code>/api/providers/:p/mcp/servers</code></td><td>{name,transport,scope?,command?,args?,env?,url?,headers?...} upsert</td></tr>
+<tr><td>DELETE 🔒</td><td><code>/api/providers/:p/mcp/servers/:name?scope=</code></td><td>删除 MCP</td></tr>
+<tr><td>POST 🔒</td><td><code>/api/providers/mcp/servers/global</code></td><td>对所有 provider 并发 upsert</td></tr>
+<tr><td>GET 🔒</td><td><code>/api/providers/capabilities</code></td><td>能力矩阵（permission modes, supportsEffort 等）</td></tr>
+<tr><td>GET 🔒</td><td><code>/api/providers/:p/capabilities</code></td><td>单 provider 能力</td></tr>
+<tr><td>POST 🔒</td><td><code>/api/providers/sessions</code></td><td>{provider,projectPath} → 201 {sessionId,provider,projectPath} 创建会话</td></tr>
+<tr><td>GET 🔒</td><td><code>/api/providers/sessions/running</code></td><td>运行中的会话</td></tr>
+<tr><td>GET 🔒</td><td><code>/api/providers/sessions/archived</code></td><td>已归档会话</td></tr>
+<tr><td>DELETE 🔒</td><td><code>/api/providers/sessions/:sid?force=&amp;deletedFromDisk=</code></td><td>删除/归档会话</td></tr>
+<tr><td>POST 🔒</td><td><code>/api/providers/sessions/:sid/restore</code></td><td>恢复会话</td></tr>
+<tr><td>PUT 🔒</td><td><code>/api/providers/sessions/:sid</code></td><td>{summary}（≤500 字符）重命名</td></tr>
+<tr><td>GET 🔒</td><td><code>/api/providers/sessions/:sid/messages?limit=&amp;offset=</code></td><td>会话消息（分页；null=全量）</td></tr>
+<tr><td>GET 🔒</td><td><code>/api/providers/search/sessions?q=&amp;limit=50</code></td><td><span class="tag">SSE</span> 全文搜索（result/progress/done/error）</td></tr>
+</table>
+<p class="muted"><code>:p</code> ∈ {claude, codex}。前端还引用了 <code>/api/cursor/config</code>、<code>/api/taskmaster/*</code>、<code>/api/settings/credentials</code>（前端 api.js 定义，部分由同仓或外部服务提供）。</p>
+
+<h3>6.4 命令 / 资源 / 用户</h3>
+<table>
+<tr><th>Method</th><th>Path</th><th>说明</th></tr>
+<tr><td>POST 🔒</td><td><code>/api/commands/list</code></td><td>{projectPath?} → {builtIn,custom,count}（含 /clear /compact，forwardToProvider=true）</td></tr>
+<tr><td>POST 🔒</td><td><code>/api/commands/execute</code></td><td>{commandName,commandPath?,args?,context?} → builtin 结果 或 {type:"custom",content,metadata,isForwarded}</td></tr>
+<tr><td>POST 🔒</td><td><code>/api/assets/images</code></td><td>multipart{images}（≤5 个, 5MB each）→ {images:[]}</td></tr>
+<tr><td>GET 🔒</td><td><code>/api/assets/images/:filename</code></td><td>图片二进制流（SVG 强制下载）</td></tr>
+<tr><td>GET 🔒</td><td><code>/api/user/git-config</code></td><td>{success,gitName,gitEmail}</td></tr>
+<tr><td>POST 🔒</td><td><code>/api/user/git-config</code></td><td>{gitName,gitEmail}</td></tr>
+<tr><td>GET 🔒</td><td><code>/api/user/onboarding-status</code></td><td>{success,hasCompletedOnboarding}</td></tr>
+<tr><td>POST 🔒</td><td><code>/api/user/complete-onboarding</code></td><td>完成新手引导</td></tr>
+</table>
+
+<h2 id="shared">7. shared 契约</h2>
+
+<h3>7.1 真正前后端共用的运行时代码</h3>
+<div class="card ok">
+<p><code>shared/networkHosts.js</code>（纯 JS，22 行）— 唯一被两边都 import 的运行时模块。导出 <code>isWildcardHost / isLoopbackHost / normalizeLoopbackHost / getConnectableHost</code>。</p>
+<p>引用方：前端 <code>vite.config.js:4</code>、后端 <code>server/index.js:20</code>。两边 tsconfig 都 include <code>shared/</code>。</p>
+</div>
+
+<h3>7.2 仅后端使用的 shared（server/shared/）</h3>
+<table>
+<tr><th>文件</th><th>关键导出</th></tr>
+<tr><td><code>types.ts</code></td><td><code>NormalizedMessage</code> · <code>MessageKind</code>(14 种) · <code>GatewayEventKind</code> · <code>ServerEventKind</code> · <code>LLMProvider='claude'|'codex'</code> · <code>McpScope/McpTransport/ProviderMcpServer</code> · <code>ApiSuccessShape</code> · <code>ProviderAuthStatus</code> · 各 Provider 接口</td></tr>
+<tr><td><code>utils.ts</code></td><td><code>createNormalizedMessage</code> · <code>createCompleteMessage</code> · <code>AppError</code> · <code>asyncHandler</code> · <code>validateWorkspacePath</code> · <code>sliceTailPage</code> · <code>findFilesRecursivelyCreatedAfter</code> · <code>parseIncomingJsonObject</code> 等（1287 行）</td></tr>
+<tr><td><code>interfaces.ts</code></td><td><code>IProvider / IProviderModels / IProviderAuth / IProviderSkills / IProviderMcp / IProviderSessions / IProviderSessionSynchronizer</code></td></tr>
+<tr><td><code>image-attachments.ts</code></td><td>图片附件管道（Claude base64 / Codex local_image / Cursor images_input tag）</td></tr>
+<tr><td><code>claude-cli-path.ts</code></td><td><code>resolveClaudeCodeExecutablePath</code>（解析 CLAUDE_CLI_PATH）</td></tr>
+<tr><td><code>frontmatter.ts</code></td><td><code>parseFrontMatter</code></td></tr>
+</table>
+
+<h3>7.3 前端镜像 / 独立定义（不一致点）</h3>
+<div class="card warn">
+<p><strong>⚠ NormalizedMessage / MessageKind</strong>：前端在 <code>src/stores/useSessionStore.ts:15-87</code> <strong>独立重新定义</strong>（注释 <code>mirrors server/adapters/types.js</code>），无 import 关系。前端多 <code>parentToolUseId?/isFinal?</code>，<code>images</code> 类型更具体。结构相似但无编译期约束。</p>
+<p><strong>⚠ LLMProvider</strong>：后端 <code>'claude'|'codex'</code>（<code>server/shared/types.ts:68</code>）；前端 <code>'claude'|'cursor'|'codex'|'opencode'</code>（<code>src/types/app.ts:1</code>）。<strong>不一致</strong>，拆仓必须对齐。</p>
+<p><strong>⚠ ReleaseInfo</strong>：前端 <code>src/types/sharedTypes.ts</code> 独立定义，后端无对应。</p>
+</div>
+
+<h3>7.4 仅前端的 shared</h3>
+<p><code>src/shared/view/ui/</code> — 19 个 React 组件（Button/Dialog/Badge/Card/Collapsible/Tooltip/...），纯前端，后端不引用。</p>
+
+<h2 id="env">8. 环境变量</h2>
+<table>
+<tr><th>变量</th><th>归属</th><th>默认</th><th>说明</th></tr>
+<tr><td><code>SERVER_PORT</code></td><td>后端</td><td>3001</td><td>Express + WS 端口</td></tr>
+<tr><td><code>HOST</code></td><td>共用</td><td>0.0.0.0</td><td>绑定地址</td></tr>
+<tr><td><code>VITE_PORT</code></td><td>前端(dev)</td><td>5180</td><td>Vite dev server 端口；后端在无 dist/ 时重定向到此</td></tr>
+<tr><td><code>VITE_IS_PLATFORM</code></td><td>共用</td><td>false</td><td>Platform 模式开关，前后端都读</td></tr>
+<tr><td><code>VITE_CONTEXT_WINDOW</code></td><td>前端</td><td>160000</td><td>上下文窗口显示</td></tr>
+<tr><td><code>CLAUDE_CLI_PATH</code></td><td>后端</td><td>claude</td><td>Claude CLI 路径覆盖</td></tr>
+<tr><td><code>CODEX_PATH_OVERRIDE</code></td><td>后端</td><td>—</td><td>Codex CLI 路径覆盖（传给 SDK codexPathOverride）</td></tr>
+<tr><td><code>API_KEY</code></td><td>后端</td><td>—</td><td>设置后启用 x-api-key 校验</td></tr>
+<tr><td><code>JWT_SECRET</code></td><td>后端</td><td>DB 持久化</td><td>JWT 密钥（当前未实际校验）</td></tr>
+<tr><td><code>DATABASE_PATH</code></td><td>后端</td><td>~/.cloudcli/auth.db</td><td>SQLite 路径</td></tr>
+<tr><td><code>WORKSPACES_ROOT</code></td><td>后端</td><td>homedir</td><td>工作区根</td></tr>
+<tr><td><code>CONTEXT_WINDOW</code></td><td>后端</td><td>160000</td><td>Claude 上下文窗口</td></tr>
+<tr><td><code>FS_CONCURRENCY</code></td><td>后端</td><td>64</td><td>文件系统并发</td></tr>
+</table>
+
+<h2 id="build">9. 构建边界</h2>
+<table>
+<tr><th>维度</th><th>前端</th><th>后端</th></tr>
+<tr><td>tsconfig</td><td>根 <code>tsconfig.json</code></td><td><code>server/tsconfig.json</code></td></tr>
+<tr><td>target / module</td><td>ES2020 / ESNext + Bundler</td><td>ES2022 / NodeNext</td></tr>
+<tr><td><code>@/*</code> paths</td><td><code>src/*</code></td><td><code>server/*</code></td></tr>
+<tr><td>include</td><td><code>src, shared, vite.config.js</code></td><td><code>server/**, ../shared/**</code></td></tr>
+<tr><td>emit</td><td>noEmit（Vite 打包）</td><td>outDir <code>dist-server</code> + tsc-alias</td></tr>
+<tr><td>产物</td><td><code>dist/</code>（index.html + assets/*.js/css）</td><td><code>dist-server/</code>（含编译后的 server/shared/ 与根 shared/）</td></tr>
+<tr><td>构建命令</td><td><code>vite build</code></td><td><code>tsc -p server/tsconfig.json && tsc-alias</code></td></tr>
+<tr><td>dev 运行</td><td><code>vite</code>（HMR, 5180）</td><td><code>tsx server/index.js</code>（3001）</td></tr>
+<tr><td>runtime deps 重叠</td><td colspan="2"><strong>零重叠</strong>（react 系 vs express/ws/SDK 系）</td></tr>
+</table>
+
+<h2 id="split">10. 拆仓清单</h2>
+<div class="card">
+<p>当前单仓已具备拆仓条件：构建独立、产物独立、runtime 依赖零重叠。拆仓需处理：</p>
+<ol>
+<li><strong>提取 shared 包</strong>：把 <code>NormalizedMessage / MessageKind / GatewayEventKind / ServerEventKind / ApiSuccessShape / McpScope / McpTransport</code> 等协议类型 + <code>networkHosts.js</code> 提为一个独立 npm 包（如 <code>@lovdex/protocol</code>），前后端各自依赖。消除前端镜像定义。</li>
+<li><strong>对齐 LLMProvider</strong>：统一为 <code>'claude'|'codex'</code> 或显式区分"前端可选 provider"与"后端支持 provider"。前端的 cursor/opencode 走外部服务，需明确边界。</li>
+<li><strong>REST 信封统一</strong>：前后端共用 <code>ApiSuccessShape</code> 类型，前端 <code>authenticatedFetch</code> 的 <code>body?.data ?? body</code> 容错保留。</li>
+<li><strong>WS 协议固化</strong>：入站 4 种 <code>type</code> + 出站 <code>kind</code> 集合写入 shared 包，作为不可破坏契约。</li>
+<li><strong>静态托管解耦</strong>：拆仓后生产部署有两种选择 — (a) 后端继续 <code>express.static</code> 托管前端 <code>dist/</code>（同源，最简单）；(b) 前端独立部署到 CDN/Nginx，后端只提供 <code>/api</code> + <code>/ws</code>（跨域，需 CORS + WS 跨域）。当前 <code>server/index.js:145</code> 的静态托管 + SPA fallback 可作为 (a) 的参考。</li>
+<li><strong>vite proxy 仅 dev</strong>：<code>vite.config.js</code> 的 <code>/api</code>、<code>/ws</code> proxy 是开发期转发，拆仓后保留；生产用 (a) 或 (b)。</li>
+<li><strong>环境变量切分</strong>：<code>VITE_IS_PLATFORM</code> 共用，<code>SERVER_PORT/HOST</code> 后端，<code>VITE_PORT</code> 前端 dev。拆仓后各自 <code>.env</code>。</li>
+<li><strong>前端独立镜像的 NormalizedMessage 字段差异</strong>（parentToolUseId/isFinal）需并入 shared 类型或确认前端专用。</li>
+</ol>
+</div>
+
+</div>
+</div>
+</body>
+</html>

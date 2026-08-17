@@ -1,0 +1,1000 @@
+import type { IncomingMessage } from 'node:http';
+
+import type { SubStatus, TaskLabel, TaskPriority, TaskStatus } from '@/shared/task-status.js';
+
+//----------------- HTTP RESPONSE SHAPES ------------
+/**
+ * Canonical success envelope used by backend APIs that return a structured payload.
+ *
+ * Use this for route handlers that need a stable `success/data` shape so frontend
+ * consumers can parse responses consistently across endpoints.
+ */
+export type ApiSuccessShape<TData = unknown> = {
+  success: true;
+  data: TData;
+};
+
+/**
+ * Generic plain-object record used when parsing loosely typed JSON payloads.
+ *
+ * Use this only after runtime shape checks, not as a replacement for validated
+ * domain models.
+ */
+export type AnyRecord = Record<string, any>;
+
+// ---------------------------
+//----------------- WEBSOCKET TRANSPORT TYPES ------------
+/**
+ * Minimal websocket client contract used by backend broadcaster services.
+ *
+ * Any transport object added to `connectedClients` must implement these two
+ * members so shared services can safely send JSON strings and check whether the
+ * socket is still open before broadcasting.
+ */
+export type RealtimeClientConnection = {
+  readyState: number;
+  send(data: string): void;
+  /**
+   * Optional event-emitter surface (present on the `ws` WebSockets used by the
+   * chat gateway). Lets a `ChatSessionWriter` remove a subscriber from its
+   * fan-out set the moment the socket closes, so a dead tab cannot keep the
+   * run's stream pinned to itself.
+   */
+  on?(event: 'close', listener: (code?: number, reason?: unknown) => void): void;
+};
+
+/**
+ * Authenticated user payload attached to websocket upgrade requests.
+ *
+ * Platform and OSS auth flows currently use either `id` or `userId`; both are
+ * represented here so websocket handlers can resolve a stable writer user id.
+ */
+export type AuthenticatedWebSocketUser = {
+  id?: string | number;
+  userId?: string | number;
+  username?: string;
+  [key: string]: unknown;
+};
+
+/**
+ * HTTP upgrade request shape after websocket authentication succeeds.
+ *
+ * `verifyClient` populates `request.user` with the authenticated payload, and
+ * downstream websocket handlers rely on this extended request type.
+ */
+export type AuthenticatedWebSocketRequest = IncomingMessage & {
+  user?: AuthenticatedWebSocketUser;
+};
+
+// ---------------------------
+//----------------- PROVIDER MESSAGE MODEL ------------
+/**
+ * Providers supported by the unified server runtime.
+ *
+ * Use this as the source of truth whenever a function or payload needs to identify
+ * a specific LLM integration.
+ */
+export type LLMProvider = 'claude' | 'codex' | 'opencode' | 'qoder';
+
+/**
+ * One selectable model row in a provider model catalog.
+ */
+export type ProviderModelOption = {
+  value: string;
+  label: string;
+  description?: string;
+  effort?: {
+    default?: string;
+    values: {
+      value: string;
+      description?: string;
+    }[];
+  };
+};
+
+/**
+ * Provider model catalog returned by `GET /api/providers/:provider/models`.
+ */
+export type ProviderModelsDefinition = {
+  OPTIONS: ProviderModelOption[];
+  DEFAULT: string;
+};
+
+/**
+ * Cache metadata returned alongside one provider model catalog.
+ *
+ * `updatedAt` is when the current cached snapshot was last refreshed from the
+ * provider itself. `expiresAt` is the backend cache expiry timestamp, and
+ * `source` tells callers whether the current response came from in-memory cache,
+ * persisted disk cache, or a fresh provider fetch.
+ */
+export type ProviderModelsCacheInfo = {
+  updatedAt: string;
+  expiresAt: string;
+  source: 'memory' | 'disk' | 'fresh';
+};
+
+/**
+ * Full provider model lookup result returned by the backend service layer.
+ *
+ * Use this shape when a caller needs both the selectable model catalog and the
+ * cache metadata that explains how current the catalog is.
+ */
+export type ProviderModelsResult = {
+  models: ProviderModelsDefinition;
+  cache: ProviderModelsCacheInfo;
+};
+
+// ---------------------------
+//----------------- PROVIDER ACTIVE MODEL TYPES ------------
+/**
+ * Provider-neutral result for the model that is actively driving a session or
+ * provider runtime at the time of lookup.
+ *
+ * `model` must always be populated. Provider adapters should use the
+ * provider-specific lookup method requested by the caller, and only fall back
+ * to the provider catalog `DEFAULT` value when the active model cannot be read.
+ */
+export type ProviderCurrentActiveModel = {
+  model: string;
+};
+
+/**
+ * Input payload used when one session needs to use a different model on its
+ * next resumed turn.
+ *
+ * This is a backend-owned session override, not a claim that the provider has
+ * already switched the currently running session in-place. Provider adapters
+ * persist this request so the next CLI/SDK resume can inject the chosen model
+ * using the provider-specific mechanism supported by that runtime.
+ */
+export type ProviderChangeActiveModelInput = {
+  sessionId: string;
+  model: string;
+};
+
+/**
+ * Provider-neutral session model-change state.
+ *
+ * `supported` indicates whether the provider adapter supports the app's
+ * session-scoped resume override flow. `changed` is the persisted boolean the
+ * resume layer checks before forcing a model on the next resumed turn. When
+ * `changed` is `false`, `model` is `null` and the runtime should use the
+ * normal request/default model selection path.
+ */
+export type ProviderSessionActiveModelChange = {
+  provider: LLMProvider;
+  sessionId: string;
+  supported: boolean;
+  changed: boolean;
+  model: string | null;
+};
+
+/**
+ * Message/event variants emitted by provider adapters and normalized transports.
+ *
+ * Keep this union in sync with event kinds produced by provider session adapters.
+ */
+export type MessageKind =
+  | 'text'
+  | 'tool_use'
+  | 'tool_result'
+  | 'thinking'
+  | 'stream_delta'
+  | 'stream_end'
+  | 'error'
+  | 'complete'
+  | 'status'
+  | 'permission_request'
+  | 'permission_cancelled'
+  | 'session_created'
+  | 'interactive_prompt'
+  | 'task_notification'
+  | 'task_started'
+  | 'task_progress'
+  | 'tool_progress'
+  | 'background_tasks_changed';
+
+/**
+ * Event kinds added by the chat gateway layer on top of provider message kinds.
+ *
+ * These are app-level realtime events (subscription acks, sidebar deltas,
+ * project loading progress, protocol failures) that are not produced by any
+ * provider adapter. Together with `MessageKind` they form the complete set of
+ * `kind` values a websocket client can receive, so the frontend only ever
+ * needs one kind-based switch.
+ */
+export type GatewayEventKind =
+  | 'chat_subscribed'
+  | 'session_upserted'
+  | 'loading_progress'
+  | 'protocol_error';
+
+/**
+ * Complete set of `kind` values emitted to websocket clients.
+ *
+ * Every server-to-client websocket frame carries a `kind` from this union.
+ * Provider runtimes emit `MessageKind` values; gateway services emit
+ * `GatewayEventKind` values.
+ */
+export type ServerEventKind = MessageKind | GatewayEventKind;
+
+/**
+ * Provider-neutral message envelope used in REST responses and realtime channels.
+ *
+ * Every provider-specific message must be converted into this shape before being
+ * emitted outside provider-specific modules.
+ */
+export type NormalizedMessage = {
+  id: string;
+  sessionId: string;
+  timestamp: string;
+  provider: LLMProvider;
+  kind: MessageKind;
+  /**
+   * Monotonic per-run sequence number assigned by the chat run registry when a
+   * live event is forwarded to the websocket. History messages loaded over
+   * REST do not carry it. Clients use it with `chat.subscribe` to replay only
+   * the live events they missed across websocket reconnects.
+   */
+  seq?: number;
+  role?: 'user' | 'assistant';
+  content?: string;
+  /**
+   * Optional display-oriented metadata used by providers that need to expose
+   * richer transcript artifacts without introducing a brand-new message kind.
+   *
+   * Current Claude usage:
+   * - local slash commands expose parsed command fields
+   * - compact summaries are flagged so the UI can treat them differently later
+   */
+  displayText?: string;
+  commandName?: string;
+  commandMessage?: string;
+  commandArgs?: string;
+  isLocalCommand?: boolean;
+  isLocalCommandStdout?: boolean;
+  isCompactSummary?: boolean;
+  images?: unknown;
+  toolName?: string;
+  toolInput?: unknown;
+  toolId?: string;
+  toolResult?: {
+    content?: string;
+    isError?: boolean;
+    toolUseResult?: unknown;
+  };
+  isError?: boolean;
+  text?: string;
+  tokens?: number;
+  canInterrupt?: boolean;
+  requestId?: string;
+  input?: unknown;
+  context?: unknown;
+  reason?: string;
+  newSessionId?: string;
+  status?: string;
+  summary?: string;
+  /** task_started/task_progress 的人类可读描述(如 'agent:Explore')。 */
+  description?: string;
+  tokenBudget?: unknown;
+  subagentTools?: unknown;
+  toolUseResult?: unknown;
+  sequence?: number;
+  rowid?: number;
+  /** Workflow / background task linkage (task_started/task_progress/tool_progress/task_notification). */
+  taskId?: string;
+  /** task_started/tool_progress 等关联的根 tool_use id(Workflow 根或子 agent tool_use)。 */
+  toolUseId?: string;
+  /** 'local_workflow' | 'remote_agent' | 其它 SDK task_type。 */
+  taskType?: string;
+  workflowName?: string;
+  subagentType?: string;
+  skipTranscript?: boolean;
+  lastToolName?: string;
+  elapsedTimeSeconds?: number;
+  outputFile?: string;
+  /** WorkflowOutput 提顶字段(local_workflow tool_result)。 */
+  runId?: string;
+  scriptPath?: string;
+  transcriptDir?: string;
+  /** tool_progress 的父链:指向 agent 的 tool_use_id(或 Workflow 根)。 */
+  parentToolUseId?: string;
+  /** WorkflowOutput.status: 'async_launched' | 'remote_launched'。 */
+  workflowStatus?: 'async_launched' | 'remote_launched';
+  /** WorkflowOutput.sessionUrl(remote_launched 时 CCR 会话链接)。 */
+  sessionUrl?: string;
+  /** background_tasks_changed 的 level payload(REPLACE 语义)。 */
+  tasks?: Array<{ taskId: string; taskType: string; description: string }>;
+  /** Workflow 进度树聚合(由 fetchHistory 在历史回放时挂到 Workflow tool_use 上)。 */
+  workflowState?: {
+    status: string;
+    workflowName?: string | null;
+    agents: Array<{
+      taskId: string;
+      description: string;
+      lastToolName?: string | null;
+      usage?: unknown;
+      tools: Array<{ toolUseId: string; toolName: string; elapsedTimeSeconds: number }>;
+    }>;
+    notification?: { status: string; summary: string; usage?: unknown } | undefined;
+  };
+  [key: string]: unknown;
+};
+
+/**
+ * Shared options used to fetch historical provider messages.
+ *
+ * Consumers should pass provider-specific lookup hints (`projectPath`) only
+ * when the selected provider requires them.
+ *
+ * `providerSessionId` is the provider-native session id from the sessions
+ * index (transcript file name / provider database key). Provider adapters
+ * must use it — never the app-facing session id they were called with — when
+ * matching transcript rows on disk, because app-created sessions use an
+ * app-allocated id that the provider has never seen.
+ */
+export type FetchHistoryOptions = {
+  projectPath?: string;
+  limit?: number | null;
+  offset?: number;
+  providerSessionId?: string;
+};
+
+/**
+ * Standardized response payload returned from provider history readers.
+ *
+ * Use this as the contract for APIs that return paginated conversation history.
+ */
+export type FetchHistoryResult = {
+  messages: NormalizedMessage[];
+  total: number;
+  hasMore: boolean;
+  offset: number;
+  limit: number | null;
+  tokenUsage?: unknown;
+};
+
+// ---------------------------
+//----------------- PROVIDER SKILL TYPES ------------
+/**
+ * Scope where a provider skill definition was discovered.
+ *
+ * Provider skill adapters should use this to describe the origin of each
+ * skill markdown file without leaking provider-specific folder names into route
+ * contracts. `repo` is used for Codex repository lookup locations, while
+ * `project` is used for providers that treat workspace-local skills as project
+ * scoped.
+ */
+export type ProviderSkillScope = 'user' | 'project' | 'plugin' | 'repo' | 'admin' | 'system';
+
+/**
+ * Shared input accepted by provider skill listing operations.
+ *
+ * Routes pass `workspacePath` when a caller wants project/repository skills for
+ * a specific folder. Providers should fall back to the backend process cwd when
+ * this option is omitted.
+ */
+export type ProviderSkillListOptions = {
+  workspacePath?: string;
+};
+
+/**
+ * One supporting file bundled with an uploaded provider skill.
+ *
+ * `relativePath` is resolved below the installed skill directory and must never
+ * be absolute or contain traversal segments. Text files may use `utf8`; binary
+ * scripts and assets should use `base64` so JSON transport does not corrupt
+ * their bytes.
+ */
+export type ProviderSkillCreateFile = {
+  relativePath: string;
+  content: string;
+  encoding: 'utf8' | 'base64';
+};
+
+/**
+ * One skill markdown payload submitted for provider-managed installation.
+ *
+ * `content` is the raw markdown body that will be written to `SKILL.md`.
+ * `directoryName` lets callers control the target folder name explicitly when
+ * they want stable filesystem paths that differ from the markdown front matter
+ * `name` field. `fileName` is optional upload metadata used only as a final
+ * fallback when no directory name or front matter name is present. `files`
+ * carries scripts, references, and other files from a complete skill folder.
+ */
+export type ProviderSkillCreateEntry = {
+  content: string;
+  directoryName?: string;
+  fileName?: string;
+  files?: ProviderSkillCreateFile[];
+};
+
+/**
+ * Shared input accepted by provider skill creation operations.
+ *
+ * The service layer batches multiple skill definitions in one request. Each
+ * entry can contain only markdown or a complete skill folder.
+ */
+export type ProviderSkillCreateInput = {
+  entries: ProviderSkillCreateEntry[];
+};
+
+export type ProviderSkillRemoveInput = {
+  directoryName: string;
+};
+
+/**
+ * Normalized skill record returned by provider skill adapters.
+ *
+ * The `command` value is the exact invocation text the selected provider expects
+ * for this skill. Claude plugin skills use a namespaced command such as
+ * `/plugin-name:skill-name`, while Codex skills use the `$skill-name` form.
+ * `sourcePath` points to the skill markdown file that produced the record so
+ * callers can distinguish duplicate skill names across scopes.
+ */
+export type ProviderSkill = {
+  provider: LLMProvider;
+  name: string;
+  description: string;
+  command: string;
+  scope: ProviderSkillScope;
+  sourcePath: string;
+  pluginName?: string;
+  pluginId?: string;
+};
+
+/**
+ * Internal source descriptor consumed by shared provider skill discovery logic.
+ *
+ * Concrete provider adapters build these records from their native lookup rules.
+ * The shared skills provider then scans `rootDir` for child skill markdown files
+ * and uses `commandForSkill` or `commandPrefix` to produce the provider-specific
+ * invocation command. Set `recursive` only when a provider stores skills under
+ * arbitrary nested folders below the source root.
+ */
+export type ProviderSkillSource = {
+  scope: ProviderSkillScope;
+  rootDir: string;
+  recursive?: boolean;
+  commandPrefix?: '/' | '$';
+  commandForSkill?: (skillName: string) => string;
+  pluginName?: string;
+  pluginId?: string;
+};
+
+// ---------------------------
+//----------------- SHARED ERROR TYPES ------------
+/**
+ * Optional metadata used when constructing application-level errors.
+ *
+ * `statusCode` should reflect the HTTP response status, while `code` identifies
+ * the stable machine-readable error category.
+ */
+export type AppErrorOptions = {
+  code?: string;
+  statusCode?: number;
+  details?: unknown;
+};
+
+// ---------------------------
+//----------------- MCP TYPES ------------
+/**
+ * Scope where an MCP server definition is stored and resolved.
+ *
+ * `user` is global for a user account, `local` is provider-local, and `project`
+ * is tied to a specific project path.
+ */
+export type McpScope = 'user' | 'local' | 'project';
+
+/**
+ * Transport protocol used by an MCP server definition.
+ */
+export type McpTransport = 'stdio' | 'http' | 'sse';
+
+/**
+ * Normalized MCP server model exposed to frontend and route handlers.
+ *
+ * Provider adapters should map provider-native config to this structure before
+ * returning results.
+ */
+export type ProviderMcpServer = {
+  provider: LLMProvider;
+  name: string;
+  scope: McpScope;
+  transport: McpTransport;
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  cwd?: string;
+  url?: string;
+  headers?: Record<string, string>;
+  envVars?: string[];
+  bearerTokenEnvVar?: string;
+  envHttpHeaders?: Record<string, string>;
+};
+
+/**
+ * Payload for create/update MCP server operations.
+ *
+ * Routes and services should accept this type, validate it, and then persist it
+ * through provider-specific MCP repositories.
+ */
+export type UpsertProviderMcpServerInput = {
+  name: string;
+  scope?: McpScope;
+  transport: McpTransport;
+  workspacePath?: string;
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  cwd?: string;
+  url?: string;
+  headers?: Record<string, string>;
+  envVars?: string[];
+  bearerTokenEnvVar?: string;
+  envHttpHeaders?: Record<string, string>;
+};
+
+// ---------------------------
+//----------------- PROVIDER AUTH TYPES ------------
+/**
+ * Authentication status result returned by provider health checks.
+ *
+ * This shape is consumed by settings/status endpoints to report installation and
+ * credential state for each provider.
+ */
+export type ProviderAuthStatus = {
+  installed: boolean;
+  provider: LLMProvider;
+  authenticated: boolean;
+  email: string | null;
+  method: string | null;
+  error?: string;
+};
+
+// ---------------------------
+//----------------- SHARED DATABASE CREDENTIAL TYPES ------------
+/**
+ * Safe credential view returned by credential listing APIs.
+ *
+ * This intentionally excludes the raw credential secret while still exposing
+ * metadata needed for UI rendering and management operations.
+ */
+export type CredentialPublicRow = {
+  id: number;
+  credential_name: string;
+  credential_type: string;
+  description: string | null;
+  created_at: string;
+  is_active: number;
+};
+
+/**
+ * Result returned after creating a credential record.
+ *
+ * Use this return shape when callers need the created id and display metadata,
+ * but must never receive the stored secret value.
+ */
+export type CreateCredentialResult = {
+  id: number | bigint;
+  credentialName: string;
+  credentialType: string;
+};
+
+// ---------------------------
+//----------------- PROJECT PERSISTENCE TYPES ------------
+/**
+ * Canonical project row shape returned by the projects repository.
+ *
+ * Use this type whenever backend services need to pass around one database
+ * project record without leaking raw SQL row typing across modules.
+ */
+export type ProjectRepositoryRow = {
+  project_id: string;
+  project_path: string;
+  custom_project_name: string | null;
+  isStarred: number;
+  isArchived: number;
+};
+
+/**
+ * Result category returned by `projectsDb.createProjectPath`.
+ *
+ * `created` means a fresh row was inserted, `reactivated_archived` means an
+ * existing archived path was accepted and updated, and `active_conflict` means
+ * an already-active path blocked project creation.
+ */
+export type CreateProjectPathOutcome =
+  | 'created'
+  | 'reactivated_archived'
+  | 'active_conflict';
+
+/**
+ * Structured result returned by project-path upsert operations.
+ *
+ * Services should use this result to decide whether a request succeeded,
+ * should return a conflict, or needs follow-up retrieval of row metadata.
+ */
+export type CreateProjectPathResult = {
+  outcome: CreateProjectPathOutcome;
+  project: ProjectRepositoryRow | null;
+};
+
+/**
+ * Validation result for user-supplied workspace/project paths.
+ *
+ * `resolvedPath` is present only when validation succeeds. `error` is present
+ * only when validation fails and is suitable for user-facing diagnostics.
+ */
+export type WorkspacePathValidationResult = {
+  valid: boolean;
+  resolvedPath?: string;
+  error?: string;
+};
+
+// ---------------------------
+//----------------- GIT WORKTREE MANAGEMENT ------------
+/**
+ * Captured output of one completed `git` invocation.
+ *
+ * Returned by `GitCommandRunner` implementations so worktree services can read
+ * both streams without caring about process plumbing.
+ */
+export type GitCommandResult = {
+  stdout: string;
+  stderr: string;
+};
+
+/**
+ * Executes `git <args>` inside `cwd` and resolves with the captured output.
+ *
+ * All worktree services receive their git access through this contract so
+ * tests can inject a fake runner instead of spawning real processes. The
+ * promise must reject (with `stderr` attached when available) on a non-zero
+ * exit code.
+ */
+export type GitCommandRunner = (args: string[], cwd: string) => Promise<GitCommandResult>;
+
+/**
+ * One entry parsed from `git worktree list --porcelain`.
+ *
+ * This is the raw repository-level view (path/HEAD/branch/flags) before any
+ * enrichment with project links or ahead/behind counts. `branch` is null for
+ * detached-HEAD worktrees.
+ */
+export type WorktreePorcelainEntry = {
+  path: string;
+  headSha: string | null;
+  branch: string | null;
+  isDetached: boolean;
+  isLocked: boolean;
+  isPrunable: boolean;
+};
+
+/**
+ * Fully enriched worktree row served to the UI.
+ *
+ * Extends the porcelain entry with everything the Worktrees panel renders:
+ * dirty-file count, ahead/behind relative to the base branch (the branch
+ * checked out in the main worktree), last-commit metadata, and the project
+ * row linked to the worktree directory (if one was registered).
+ */
+export type WorktreeDescriptor = {
+  path: string;
+  branch: string | null;
+  headSha: string | null;
+  isMain: boolean;
+  isCurrent: boolean;
+  isLocked: boolean;
+  isDetached: boolean;
+  changedFileCount: number;
+  ahead: number;
+  behind: number;
+  lastCommitSubject: string | null;
+  lastCommitDate: string | null;
+  linkedProjectId: string | null;
+  linkedProjectArchived: boolean;
+};
+
+/**
+ * Response payload of `GET /api/worktrees`.
+ *
+ * `baseBranch` is the branch checked out in the main worktree — the merge
+ * target offered by the UI. `worktrees` always lists the main worktree first.
+ */
+export type WorktreeListResult = {
+  repositoryRoot: string;
+  baseBranch: string | null;
+  worktrees: WorktreeDescriptor[];
+};
+
+// ---------------------------
+//----------------- WORKTREE SERVICE INPUTS AND RESULTS ------------
+/**
+ * Input accepted by the worktree-listing workflow.
+ *
+ * `projectPath` may point at the main checkout or any linked worktree. The
+ * service uses Git to resolve the complete repository-level worktree list.
+ */
+export type ListWorktreesInput = {
+  projectPath: string;
+};
+
+/**
+ * Input accepted when creating a linked Git worktree.
+ *
+ * `branch` is checked out when it already exists, otherwise it is created from
+ * `baseBranch`. When `baseBranch` is omitted, the main worktree branch is used.
+ */
+export type CreateWorktreeInput = {
+  projectPath: string;
+  branch: string;
+  baseBranch?: string | null;
+};
+
+/**
+ * Result of successfully creating a linked Git worktree.
+ *
+ * `createdBranch` distinguishes a new branch from an existing branch checkout,
+ * allowing API clients to accurately describe what Git changed.
+ */
+export type CreateWorktreeResult = {
+  worktreePath: string;
+  branch: string;
+  createdBranch: boolean;
+};
+
+/**
+ * Result of atomically creating and registering a worktree for project use.
+ *
+ * The Worktrees application service compensates the Git creation if project
+ * registration fails, so routes only receive this shape after both steps pass.
+ */
+export type CreateAndOpenWorktreeResult = CreateWorktreeResult & {
+  project: WorktreeProjectView;
+};
+
+/**
+ * Input accepted when registering an existing worktree as a project.
+ *
+ * The service verifies that `worktreePath` belongs to the repository containing
+ * `projectPath` before it creates or restores any project record.
+ */
+export type OpenWorktreeInput = {
+  projectPath: string;
+  worktreePath: string;
+};
+
+/**
+ * Project view returned after a worktree is opened as a project.
+ *
+ * This deliberately mirrors the project-selection payload used by the Projects
+ * module so the frontend can switch to the worktree without another lookup.
+ */
+export type WorktreeProjectView = {
+  projectId: string;
+  path: string;
+  fullPath: string;
+  displayName: string;
+  isStarred: boolean;
+  sessions: [];
+  sessionMeta: { hasMore: false; total: 0 };
+};
+
+/**
+ * Input accepted when removing a linked Git worktree.
+ *
+ * `force` permits removal with local changes. `deleteBranch` requests
+ * best-effort branch cleanup after the worktree directory is removed.
+ */
+export type RemoveWorktreeInput = {
+  projectPath: string;
+  worktreePath: string;
+  force?: boolean;
+  deleteBranch?: boolean;
+};
+
+/**
+ * Result of removing a linked Git worktree.
+ *
+ * `archivalError` reports best-effort project archival failure after Git has
+ * already removed the worktree, allowing callers to represent partial success.
+ */
+export type RemoveWorktreeResult = {
+  removedPath: string;
+  branch: string | null;
+  branchDeleted: boolean;
+  archivedProjectId: string | null;
+  archivalError: string | null;
+};
+
+/**
+ * Input accepted when merging a linked worktree into the main worktree branch.
+ *
+ * The service verifies both worktrees are clean, supports squash and regular
+ * merges, and may remove the source worktree after a successful merge.
+ */
+export type MergeWorktreeInput = {
+  projectPath: string;
+  worktreePath: string;
+  squash?: boolean;
+  message?: string | null;
+  removeAfterMerge?: boolean;
+};
+
+/**
+ * Result of a completed worktree merge.
+ *
+ * `removedWorktree` is populated only when post-merge removal succeeds.
+ * `cleanupError` reports failed optional removal without misrepresenting the
+ * already-completed merge as a failure.
+ */
+export type MergeWorktreeResult = {
+  mergedBranch: string;
+  targetBranch: string;
+  squash: boolean;
+  removedWorktree: RemoveWorktreeResult | null;
+  cleanupError: string | null;
+};
+
+// ---------------------------
+//----------------- WORKTREE MODULE DEPENDENCY CONTRACTS ------------
+/**
+ * Filesystem capability required by the Worktrees module.
+ *
+ * Production wiring checks the real filesystem; unit tests provide a small
+ * deterministic fake so worktree creation never touches developer directories.
+ */
+export type WorktreeFileSystem = {
+  pathExists(candidatePath: string): Promise<boolean>;
+};
+
+/**
+ * Project-management boundary consumed by Worktrees workflows.
+ *
+ * The Worktrees module uses this contract instead of importing Database or
+ * Projects internals. Production adapters delegate through those modules'
+ * `index.ts` barrels, while unit tests supply in-memory functions.
+ */
+export type WorktreeProjectGateway = {
+  getProjectPathById(projectId: string): string | null;
+  getProjectByPath(projectPath: string): ProjectRepositoryRow | null;
+  createProject(input: {
+    projectPath: string;
+    customName: string;
+  }): Promise<{
+    outcome: 'created' | 'reactivated_archived';
+    project: { projectId: string };
+  }>;
+  restoreProject(projectId: string): void | Promise<void>;
+  archiveProject(projectId: string): void | Promise<void>;
+};
+
+/**
+ * Complete application-service surface used by the Worktrees HTTP router.
+ *
+ * Routes parse transport values and call these functions; they do not import
+ * repositories, filesystem adapters, Git runners, or individual service files.
+ */
+export type WorktreeServices = {
+  resolveProjectPath(projectId: string): string;
+  list(input: ListWorktreesInput): Promise<WorktreeListResult>;
+  create(input: CreateWorktreeInput): Promise<CreateWorktreeResult>;
+  createAndOpen(input: CreateWorktreeInput): Promise<CreateAndOpenWorktreeResult>;
+  open(input: OpenWorktreeInput): Promise<WorktreeProjectView>;
+  merge(input: MergeWorktreeInput): Promise<MergeWorktreeResult>;
+  remove(input: RemoveWorktreeInput): Promise<RemoveWorktreeResult>;
+};
+
+// ---------------------------
+//----------------- TASK TYPES ------------
+/**
+ * Lifecycle states a task can be in on the task board.
+ *
+ * Canonical definition lives in `@/shared/task-status.js` (the single source of
+ * truth for the two-layer status domain); re-exported here for existing
+ * consumers that import task types from this module.
+ */
+export type { TaskStatus } from '@/shared/task-status.js';
+
+/**
+ * Executor engines supported by task execution.
+ */
+export type TaskEngine = 'claude' | 'codex' | 'opencode' | 'qoder';
+
+/**
+ * Canonical task row shape returned by the tasks repository.
+ *
+ * Field names mirror the `tasks` table columns exactly (snake_case). `position`
+ * is the board sort order within a status column, and `session_id` links the
+ * task to its executing session when one exists.
+ */
+export type TaskRow = {
+  task_id: string;
+  project_path: string;
+  title: string;
+  description: string | null;
+  status: TaskStatus;
+  /**
+   * Layer-2 fine-grained badge. On raw DB rows this is the persisted subset
+   * (failed / done / only_plan / needs_review / blocked) or null; the tasks
+   * service's decorate() derives the effective realtime value (running /
+   * waiting_* / pending_acceptance) on every read.
+   */
+  sub_status: SubStatus | null;
+  executor_provider: TaskEngine;
+  executor_model: string | null;
+  position: number;
+  session_id: string | null;
+  /** 定时任务来源:关联的 scheduled_tasks.schedule_id(由定时任务创建的任务才有值)。 */
+  source_schedule_id: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+  ai_summary: string | null;
+  verdict_reason: string | null;
+  verdict_at: string | null;
+  priority: TaskPriority;
+  deadline: string | null;
+  is_operator: number; // 0 | 1 — 1 = Lovdex 助手任务
+  label: TaskLabel;
+  remark: string | null;
+  /**
+   * Realtime-only flag (never persisted): true when the linked session currently
+   * has a pending tool-approval request. Decorated by the tasks service from the
+   * chat run registry so the board can reconstruct its "等你批准" overlay on
+   * load/reconnect — absent on raw DB rows.
+   */
+  approval_pending?: boolean;
+  /**
+   * Realtime-only (never persisted): the toolName the linked session is
+   * currently waiting on, when `approval_pending` is true. Lets the board
+   * classify the wait reason by tool — AskUserQuestion→"等你回答",
+   * ExitPlanMode→"等你确认计划", other→"等你批准" — instead of a generic label.
+   * Null when not pending. Decorated by the tasks service from the run registry.
+   */
+  pending_tool?: string | null;
+};
+
+// ---------------------------
+//----------------- SCHEDULED TASK TYPES ------------
+/**
+ * How a scheduled task's trigger time is derived.
+ *
+ * - `once`: single one-shot run at `run_at`
+ * - `interval`: recurring run every `interval_seconds`
+ * - `cron`: recurring run matched against `cron_expr` in `timezone`
+ */
+export type ScheduledTaskScheduleType = 'once' | 'interval' | 'cron';
+
+/**
+ * Canonical scheduled-task row shape returned by the scheduled-tasks repository.
+ *
+ * Field names mirror the `scheduled_tasks` table columns exactly (snake_case).
+ * `is_operator` marks Lovdex 助手 tasks (1 when `project_path` is NULL).
+ */
+export type ScheduledTaskRow = {
+  schedule_id: string;
+  title: string;
+  description: string | null;
+  project_path: string | null;
+  executor_provider: string;
+  executor_model: string | null;
+  priority: string;
+  label: string;
+  is_operator: number; // 0 | 1 — project_path 为 NULL 时 1
+  auto_run: number;    // 0 | 1
+  schedule_type: ScheduledTaskScheduleType;
+  cron_expr: string | null;
+  interval_seconds: number | null;
+  run_at: string | null;
+  timezone: string;
+  next_run_at: string;
+  last_run_at: string | null;
+  last_task_id: string | null;
+  enabled: number;
+  created_at: string;
+  updated_at: string;
+};
