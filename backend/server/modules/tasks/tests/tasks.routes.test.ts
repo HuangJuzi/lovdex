@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import test, { type TestContext } from 'node:test';
 
 import express from 'express';
 
@@ -27,7 +27,7 @@ function buildTestApp(deleted: { calls: string[][] }) {
   return app;
 }
 
-function listen(t: ReturnType<typeof test>, deleted: { calls: string[][] }) {
+function listen(t: TestContext, deleted: { calls: string[][] }) {
   const server = buildTestApp(deleted).listen(0);
   t.after(() => server.close());
   const { port } = server.address() as { port: number };
