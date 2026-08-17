@@ -754,3 +754,34 @@ test('updateTask: title rename alongside a project change does not sync the old 
   assert.deepEqual(deleted, ['s1']);
   assert.deepEqual(named, []);
 });
+
+test('syncTaskTitleFromSession updates the linked task title and broadcasts', () => {
+  const { db } = makeDbStub();
+  db.linkSession('t1', 's1');
+  const events: unknown[] = [];
+  const svc = createTasksService(db, { broadcast: (e) => events.push(e) });
+  const row = svc.syncTaskTitleFromSession('s1', 'new name');
+  assert.equal(row?.title, 'new name');
+  assert.equal((db.getTask('t1') as StoredTask).title, 'new name');
+  assert.equal(events.length, 1);
+  assert.equal((events[0] as { kind: string }).kind, 'task_upserted');
+  assert.equal((events[0] as { task: { title: string } }).task.title, 'new name');
+});
+
+test('syncTaskTitleFromSession is a no-op when no task links the session', () => {
+  const { db } = makeDbStub();
+  const events: unknown[] = [];
+  const svc = createTasksService(db, { broadcast: (e) => events.push(e) });
+  assert.equal(svc.syncTaskTitleFromSession('nope', 'x'), null);
+  assert.equal(events.length, 0);
+});
+
+test('syncTaskTitleFromSession skips blank or unchanged titles', () => {
+  const { db } = makeDbStub();
+  db.linkSession('t1', 's1'); // t1 默认标题为 'x'
+  const events: unknown[] = [];
+  const svc = createTasksService(db, { broadcast: (e) => events.push(e) });
+  assert.equal(svc.syncTaskTitleFromSession('s1', '   '), null);
+  assert.equal(svc.syncTaskTitleFromSession('s1', 'x'), null);
+  assert.equal(events.length, 0);
+});

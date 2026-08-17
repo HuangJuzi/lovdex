@@ -405,6 +405,21 @@ export function createTasksService(
       return { sessionId };
     },
 
+    /**
+     * 会话改名 → 关联任务标题同步：把关联会话的新名字写到任务标题并广播
+     * task_upserted，让看板实时刷新。无关联任务 / 名字空白 / 未变化时为 no-op。
+     */
+    syncTaskTitleFromSession(sessionId: string, title: string): TaskRow | null {
+      const row = resolveDb.getTaskBySessionId(sessionId);
+      if (!row) return null;
+      const trimmed = title.trim();
+      if (!trimmed || trimmed === row.title) return null;
+      resolveDb.updateTask(row.task_id, { title: trimmed });
+      const updated = resolveDb.getTask(row.task_id) ?? row;
+      emit({ kind: 'task_upserted', task: updated, actor: 'user' });
+      return decorate(updated);
+    },
+
     onSessionStatus(sessionId: string, state: 'running' | 'completed' | 'failed' | 'aborted'): void {
       const row = resolveDb.getTaskBySessionId(sessionId);
       if (!row) return;
