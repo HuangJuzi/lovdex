@@ -3,6 +3,7 @@
 // Usage: node supervisor.mjs [start|stop|status]   (default: start)
 // Env:   MODE=dev|prod   (default: dev)
 import { spawn, spawnSync } from 'node:child_process'
+import { filterOwnedAnthropicEnv } from './env-filter.mjs'
 import {
   mkdirSync, appendFileSync, writeFileSync, readFileSync, unlinkSync,
   existsSync, statSync,
@@ -21,15 +22,13 @@ const stateFile = resolve(here, 'run.state.json')
 // every spawned child uses the same node running this supervisor.
 const nodeBin = dirname(process.execPath)
 
-// systemd user services never source ~/.bashrc, but the user's Claude Code
-// config lives there: ANTHROPIC_BASE_URL / ANTHROPIC_AUTH_TOKEN / ANTHROPIC_MODEL
-// (global exports) plus the `cc()` wrapper's body exports
-// (ANTHROPIC_DEFAULT_{HAIKU,OPUS,SONNET}_MODEL[_NAME], DISABLE_AUTOUPDATER) that
-// map model aliases to the sophnet backend. The backend spawns `claude` directly
-// via the agent SDK (not `cc`), so it would otherwise miss all of these and fail
-// to reach the API. Capture the env an interactive `cc` invocation would hand to
-// `claude`: source .bashrc, run cc()'s export lines (minus the trailing
-// `claude "$@"`), then dump env. Falls back to process.env if the capture fails.
+// systemd user services never source ~/.bashrc, and since the backend config
+// (app.config.json) is now the single source of truth for the claude provider
+// (base URL / auth token / model aliases — see env-sync), we no longer inject
+// those here at all. The `.bashrc`/cc() exports still matter for interactive
+// `claude` in a terminal; the lovdex children just don't need them. We still
+// capture the rest of the shell env (PATH, OPENAI_* for codex/opencode,
+// DISABLE_AUTOUPDATER, ...) because some of it used to live in .bashrc.
 const SHELL_ENV = (() => {
   const script = [
     'source ~/.bashrc 2>/dev/null',
@@ -53,9 +52,13 @@ const SHELL_ENV = (() => {
 })()
 
 function childEnv() {
-  // Shell-captured env wins (it carries the user's .bashrc + cc() settings),
-  // then ensure the supervisor's node bin is on PATH.
-  const base = Object.keys(SHELL_ENV).length > 0 ? { ...process.env, ...SHELL_ENV } : process.env
+  // Shell-captured env supplies non-claude host settings (PATH, OPENAI_*, ...)
+  // but the ANTHROPIC_* / CLAUDE_CLI_PATH owned by app.config are always
+  // stripped, whether they came from the shell or from our own process.env,
+  // so the backend boots clean and config alone decides.
+  const base = Object.keys(SHELL_ENV).length > 0
+    ? filterOwnedAnthropicEnv({ ...process.env, ...SHELL_ENV })
+    : filterOwnedAnthropicEnv(process.env)
   const prev = base.PATH || ''
   return { ...base, PATH: prev.includes(nodeBin) ? prev : `${nodeBin}:${prev}` }
 }
