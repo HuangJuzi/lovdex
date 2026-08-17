@@ -11,3 +11,8 @@ data/
 *.sqlite
 *.sqlite3
 .DS_Store
+
+# Supervisor runtime artifacts
+supervisor/run.pid
+supervisor/run.state.json
+supervisor/logs/

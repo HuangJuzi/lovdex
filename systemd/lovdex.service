@@ -4,9 +4,9 @@ After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=/mnt/b/workdir/github/lovdex
+WorkingDirectory=/mnt/b/workdir/github/lovdex/lovdex
 Environment=MODE=prod
-ExecStart=/home/zhijuhuang/.nvm/versions/node/v22.22.0/bin/node /mnt/b/workdir/github/lovdex/supervisor/supervisor.mjs
+ExecStart=/home/zhijuhuang/.nvm/versions/node/v22.22.0/bin/node /mnt/b/workdir/github/lovdex/lovdex/supervisor/supervisor.mjs
 Restart=always
 RestartSec=5
 
