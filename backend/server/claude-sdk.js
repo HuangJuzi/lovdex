@@ -20,7 +20,7 @@ import path from 'path';
 import { createSdkMcpServer, query } from '@anthropic-ai/claude-agent-sdk';
 
 import { buildClaudeUserContent, normalizeImageDescriptors } from './shared/image-attachments.js';
-import { CLAUDE_FALLBACK_MODELS } from './modules/providers/list/claude/claude-models.provider.js';
+import { getClaudeFallbackModels } from './modules/providers/list/claude/claude-models.provider.js';
 import { providerModelsService } from './modules/providers/services/provider-models.service.js';
 import { resolveClaudeCodeExecutablePath } from './shared/claude-cli-path.js';
 import {
@@ -50,7 +50,7 @@ const TOOL_APPROVAL_TIMEOUT_MS = appConfig().get().providers.claude.toolApproval
 
 const TOOLS_REQUIRING_INTERACTION = new Set(['AskUserQuestion', 'ExitPlanMode']);
 
-function resolveClaudeEffort(model, effort, modelsDefinition = CLAUDE_FALLBACK_MODELS) {
+function resolveClaudeEffort(model, effort, modelsDefinition = getClaudeFallbackModels()) {
   const selectedModel = modelsDefinition?.OPTIONS?.find((option) => option.value === model) || null;
   const allowedEfforts = selectedModel?.effort?.values
     ?.map((value) => value.value) || [];
@@ -214,12 +214,12 @@ function mapCliOptionsToSDK(options = {}) {
 
   sdkOptions.disallowedTools = settings.disallowedTools || [];
 
-  sdkOptions.model = options.model || CLAUDE_FALLBACK_MODELS.DEFAULT;
+  sdkOptions.model = options.model || getClaudeFallbackModels().DEFAULT;
 
   const resolvedEffort = resolveClaudeEffort(
     sdkOptions.model,
     effort,
-    options.effortModels || CLAUDE_FALLBACK_MODELS,
+    options.effortModels || getClaudeFallbackModels(),
   );
   if (resolvedEffort) {
     sdkOptions.effort = resolvedEffort;
@@ -556,7 +556,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
       sessionId,
       options.model,
     );
-    let effortModels = CLAUDE_FALLBACK_MODELS;
+    let effortModels = getClaudeFallbackModels();
     try {
       effortModels = (await providerModelsService.getProviderModels('claude')).models;
     } catch (error) {
@@ -1200,7 +1200,7 @@ ${priorVerdictContext}
       env: { ...process.env },
       pathToClaudeCodeExecutable: resolveClaudeCodeExecutablePath(process.env.CLAUDE_CLI_PATH),
       cwd: cfg.workspace,
-      model: cfg.model || CLAUDE_FALLBACK_MODELS.DEFAULT,
+      model: cfg.model || getClaudeFallbackModels().DEFAULT,
       // Closed tool set: disable ALL built-in tools so only the operator MCP
       // tools (write_task_summary, get_session_transcript, …) can run. This is
       // the safety boundary — no Bash/Edit/Write/AskUserQuestion.

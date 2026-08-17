@@ -22,110 +22,101 @@ import {
 //   5. A trailing "Custom model" entry for ANTHROPIC_MODEL itself.
 // When an env var is unset (stock Anthropic env, no proxy), the entry falls
 // back to the alias name so the option stays selectable.
-const resolveEnvModel = (varName: string): string | null => {
-  const value = process.env[varName];
-  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
-};
-
-const envDefault = resolveEnvModel('ANTHROPIC_MODEL');
-const envOpus = resolveEnvModel('ANTHROPIC_DEFAULT_OPUS_MODEL');
-const envSonnet = resolveEnvModel('ANTHROPIC_DEFAULT_SONNET_MODEL');
-const envHaiku = resolveEnvModel('ANTHROPIC_DEFAULT_HAIKU_MODEL');
-
-// The CLI shows a `[1m]` suffix for 1M-context models, but that metadata is
-// detected internally by claude — neither the env vars nor the proxy's
-// /v1/models endpoint expose it. Let the operator declare which model ids
-// carry a 1M context via app.config providers.claude.oneMillionModels
-// (comma-separated); matching options get a `[1m]` tag in their label /
-// description. The set is read when this module's model options are built
-// (module import), so edits to oneMillionModels apply on restart.
-function loadOneMillionModels(): Set<string> {
-  return new Set(
-    (appConfig().get().providers.claude.oneMillionModels ?? '')
+// Model options now come from app.config providers.claude (env is driven by
+// config authoritatively — see env-sync). Built per call so a settings-page
+// save shows up immediately in the model dropdown and effort validation
+// without a restart.
+function buildClaudeModelOptions(): ProviderModelOption[] {
+  const cfg = appConfig().get().providers.claude;
+  const oneMillion = new Set(
+    (cfg.oneMillionModels ?? '')
       .split(',')
       .map((entry) => entry.trim())
       .filter((entry) => entry.length > 0),
   );
+  const tag1m = (real: string | null): string =>
+    real && oneMillion.has(real) ? ' [1m]' : '';
+  const envDefault = cfg.defaultModel?.trim() || null;
+  const envOpus = cfg.opusModel?.trim() || null;
+  const envSonnet = cfg.sonnetModel?.trim() || null;
+  const envHaiku = cfg.haikuModel?.trim() || null;
+
+  const options: ProviderModelOption[] = [
+    {
+      value: 'default',
+      label: 'Default (recommended)',
+      description: envDefault
+        ? `Use the default model (currently ${envDefault}${tag1m(envDefault)})`
+        : 'Use the Claude Code default model',
+      effort: {
+        default: 'high',
+        values: [
+          { value: 'low' },
+          { value: 'medium' },
+          { value: 'high' },
+          { value: 'max' },
+        ],
+      },
+    },
+    {
+      value: 'opus',
+      label: `${envOpus ?? 'Opus'}${tag1m(envOpus)}`,
+      description: envOpus ? 'Custom Opus model' : 'Opus (未配置)',
+      effort: {
+        default: 'high',
+        values: [
+          { value: 'low' },
+          { value: 'medium' },
+          { value: 'high' },
+          { value: 'xhigh' },
+          { value: 'max' },
+        ],
+      },
+    },
+    {
+      value: 'sonnet',
+      label: `${envSonnet ?? 'Sonnet'}${tag1m(envSonnet)}`,
+      description: envSonnet ? 'Custom Sonnet model' : 'Sonnet (未配置)',
+      effort: {
+        default: 'high',
+        values: [
+          { value: 'low' },
+          { value: 'medium' },
+          { value: 'high' },
+          { value: 'max' },
+        ],
+      },
+    },
+    {
+      value: 'haiku',
+      label: `${envHaiku ?? 'Haiku'}${tag1m(envHaiku)}`,
+      description: envHaiku ? 'Custom Haiku model' : 'Haiku (未配置)',
+    },
+  ];
+
+  // Trailing "Custom model" entry for defaultModel (mirrors CLI item 5).
+  if (envDefault) {
+    options.push({
+      value: envDefault,
+      label: `${envDefault}${tag1m(envDefault)}`,
+      description: 'Custom model',
+      effort: {
+        default: 'high',
+        values: [
+          { value: 'low' },
+          { value: 'medium' },
+          { value: 'high' },
+          { value: 'max' },
+        ],
+      },
+    });
+  }
+  return options;
 }
 
-const tag1m = (real: string | null): string =>
-  real && loadOneMillionModels().has(real) ? ' [1m]' : '';
-
-const claudeOptions: ProviderModelOption[] = [
-  {
-    value: 'default',
-    label: 'Default (recommended)',
-    description: envDefault
-      ? `Use the default model (currently ${envDefault}${tag1m(envDefault)})`
-      : 'Use the Claude Code default model',
-    effort: {
-      default: 'high',
-      values: [
-        { value: 'low' },
-        { value: 'medium' },
-        { value: 'high' },
-        { value: 'max' },
-      ],
-    },
-  },
-  {
-    value: 'opus',
-    label: `${envOpus ?? 'Opus'}${tag1m(envOpus)}`,
-    description: envOpus ? 'Custom Opus model' : 'Opus (env 未配置)',
-    effort: {
-      default: 'high',
-      values: [
-        { value: 'low' },
-        { value: 'medium' },
-        { value: 'high' },
-        { value: 'xhigh' },
-        { value: 'max' },
-      ],
-    },
-  },
-  {
-    value: 'sonnet',
-    label: `${envSonnet ?? 'Sonnet'}${tag1m(envSonnet)}`,
-    description: envSonnet ? 'Custom Sonnet model' : 'Sonnet (env 未配置)',
-    effort: {
-      default: 'high',
-      values: [
-        { value: 'low' },
-        { value: 'medium' },
-        { value: 'high' },
-        { value: 'max' },
-      ],
-    },
-  },
-  {
-    value: 'haiku',
-    label: `${envHaiku ?? 'Haiku'}${tag1m(envHaiku)}`,
-    description: envHaiku ? 'Custom Haiku model' : 'Haiku (env 未配置)',
-  },
-];
-
-// Trailing "Custom model" entry for ANTHROPIC_MODEL (mirrors CLI item 5).
-if (envDefault) {
-  claudeOptions.push({
-    value: envDefault,
-    label: `${envDefault}${tag1m(envDefault)}`,
-    description: 'Custom model',
-    effort: {
-      default: 'high',
-      values: [
-        { value: 'low' },
-        { value: 'medium' },
-        { value: 'high' },
-        { value: 'max' },
-      ],
-    },
-  });
+export function getClaudeFallbackModels(): ProviderModelsDefinition {
+  return { OPTIONS: buildClaudeModelOptions(), DEFAULT: 'default' };
 }
-
-export const CLAUDE_FALLBACK_MODELS: ProviderModelsDefinition = {
-  OPTIONS: claudeOptions,
-  DEFAULT: 'default',
-};
 
 export const findClaudeModelOption = (model: string | undefined | null): ProviderModelOption | null => {
   const normalizedModel = typeof model === 'string' ? model.trim() : '';
@@ -133,7 +124,7 @@ export const findClaudeModelOption = (model: string | undefined | null): Provide
     return null;
   }
 
-  return CLAUDE_FALLBACK_MODELS.OPTIONS.find((option) => option.value === normalizedModel) ?? null;
+  return getClaudeFallbackModels().OPTIONS.find((option) => option.value === normalizedModel) ?? null;
 };
 type ClaudeInitEvent = {
   sessionId?: string;
@@ -257,7 +248,7 @@ export class ClaudeProviderModels implements IProviderModels {
     // const supportedModels = await queryInstance.supportedModels();
     // queryInstance.close();
     // return buildClaudeModelsDefinition(supportedModels);
-    return CLAUDE_FALLBACK_MODELS;
+    return getClaudeFallbackModels();
   }
 
   async getCurrentActiveModel(sessionId?: string): Promise<ProviderCurrentActiveModel> {
