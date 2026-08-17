@@ -31,7 +31,7 @@ type ProviderModelsApiResponse = {
 };
 
 import { TaskCard } from './TaskCard';
-import { ViewSwitcher } from './ViewSwitcher';
+import { HomeButton } from './TaskBackNav';
 import { buildTaskChatSend, TASK_RETRY_MESSAGE } from './taskExecution';
 import { deriveTaskName } from './taskName';
 import { ASSISTANT_OPTION_VALUE, projectPathOf, taskFormProjects } from './projectOptions';
@@ -304,7 +304,6 @@ export function TaskBoardPage() {
   return (
     <div className="flex h-dvh flex-col bg-background">
       <header className="pwa-header-safe flex flex-shrink-0 items-center gap-2 border-b border-border/60 bg-background px-3 py-1.5 sm:px-4 sm:py-2">
-        <ViewSwitcher active="tasks" className="w-40 flex-shrink-0 sm:w-44" />
         <div className="hidden rounded-lg bg-muted/50 p-0.5 sm:flex">
           <button
             type="button"
@@ -335,12 +334,13 @@ export function TaskBoardPage() {
             表格
           </button>
         </div>
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-2">
           <Button size="toolbar" variant="chunkyPrimary" onClick={openCreateForm} disabled={creating} title="新建任务" aria-label="新建任务">
             <Plus />
             {/* 移动端（<640px）只留 + 号 */}
             <span className="hidden sm:inline">新建任务</span>
           </Button>
+          <HomeButton />
         </div>
       </header>
       <Dialog open={creating} onOpenChange={(open) => { if (!open) closeCreateForm(); }}>
