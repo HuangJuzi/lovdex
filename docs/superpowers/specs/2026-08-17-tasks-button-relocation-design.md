@@ -24,8 +24,8 @@ Tasks 页面是任务管理器，目前入口是主内容区顶部的分段控�
   避免在 Sidebar → SidebarContent → SidebarHeader 三层穿参。
 - 桌面端按钮组（`hidden md:block`）新增 Tasks 按钮，放在最左，
   顺序变为 **[Tasks][刷新][创建][隐藏]**。样式与其它三个一致
-  （ghost、`h-7 w-7 rounded-lg p-0`、`title` tooltip），图标沿用
-  tabs 里的 `text-emerald-500`。
+  （ghost、`h-7 w-7 rounded-lg p-0`、`title` tooltip），图标用
+  amber 橙（`text-amber-500`）。
 - 移动端头部（`md:hidden`）新增 Tasks 按钮，顺序 **[Tasks][刷新][创建]**，
   样式与移动端刷新按钮一致（`h-8 w-8` muted）。
 
