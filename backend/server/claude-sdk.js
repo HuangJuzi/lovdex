@@ -45,7 +45,7 @@ const pendingToolApprovals = new Map();
 // emit a second one when its generator winds down.
 const abortedSessionIds = new Set();
 
-const TOOL_APPROVAL_TIMEOUT_MS = parseInt(process.env.CLAUDE_TOOL_APPROVAL_TIMEOUT_MS, 10) || 55000;
+const TOOL_APPROVAL_TIMEOUT_MS = appConfig().get().providers.claude.toolApprovalTimeoutMs ?? 55000;
 
 const TOOLS_REQUIRING_INTERACTION = new Set(['AskUserQuestion', 'ExitPlanMode']);
 
@@ -745,7 +745,10 @@ async function queryClaudeSDK(command, options = {}, ws) {
       return { behavior: 'deny', message: decision.message ?? 'User denied tool use' };
     };
 
-    // Query constructor reads this synchronously.
+    // In-process env set/restore (NOT app.config): the SDK's Query constructor
+    // reads CLAUDE_CODE_STREAM_CLOSE_TIMEOUT synchronously from process.env, so we
+    // temporarily set it here and restore it immediately below. This stays env
+    // manipulation because it's the SDK's own knob, not a Lovdex config value.
     const prevStreamTimeout = process.env.CLAUDE_CODE_STREAM_CLOSE_TIMEOUT;
     process.env.CLAUDE_CODE_STREAM_CLOSE_TIMEOUT = '300000';
 

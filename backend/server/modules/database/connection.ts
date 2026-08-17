@@ -15,6 +15,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
+import { appConfig } from '@/modules/config/config.js';
 import { APP_CONFIG_TABLE_SCHEMA_SQL } from '@/modules/database/schema.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -25,16 +26,19 @@ const __dirname = path.dirname(__filename);
 // ---------------------------------------------------------------------------
 
 /**
- * Resolves the database file path from environment or falls back
- * to the legacy location inside the server/database/ folder.
+ * Resolves the database file path.
  *
  * Priority:
- *   1. DATABASE_PATH environment variable (set by cli.js or load-env-vars.js)
- *   2. Legacy path: server/database/auth.db
+ *   1. DATABASE_PATH env override — explicit escape hatch used by the test
+ *      harness (isolated temp DBs) and one-off operator overrides. NOT set by
+ *      load-env.js/.env anymore; it must be set intentionally by the caller.
+ *   2. app.config.json `database.path` (default ~/.sophcode/auth.db) — the
+ *      production source of truth.
+ *   3. Legacy path: server/database/auth.db (兜底以防配置缺失).
  */
 function resolveDatabasePath(): string {
-    // process.env.DATABASE_PATH is set by load-env-vars.js to either the .env value or a default(~/.cloudcli/auth.db) in the user's home directory. 
-    return process.env.DATABASE_PATH || resolveLegacyDatabasePath();
+    if (process.env.DATABASE_PATH) return process.env.DATABASE_PATH;
+    return appConfig().get().database.path || resolveLegacyDatabasePath();
 }
 
 /**

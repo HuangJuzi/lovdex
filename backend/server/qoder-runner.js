@@ -21,6 +21,7 @@ import { spawn } from 'cross-spawn';
 
 import { normalizeImageDescriptors } from './shared/image-attachments.js';
 import { notifyRunFailed, notifyRunStopped } from './services/notification-orchestrator.js';
+import { appConfig } from './modules/config/config.js';
 import { providerAuthService } from './modules/providers/services/provider-auth.service.js';
 import { QoderSessionsProvider } from './modules/providers/list/qoder/qoder-sessions.provider.js';
 import { createCompleteMessage, createNormalizedMessage, flattenPromptForWindowsShell } from './shared/utils.js';
@@ -33,7 +34,7 @@ const activeQoderProcesses = new Map();
 const pendingQoderApprovals = new Map();
 
 const QODER_APPROVAL_TIMEOUT_MS =
-  parseInt(process.env.QODER_TOOL_APPROVAL_TIMEOUT_MS, 10) || 55000;
+  appConfig().get().providers.qoder.toolApprovalTimeoutMs ?? 55000;
 
 // Session normalization lives on the provider facet; a single module-level
 // instance is stateless beyond per-call message assembly.

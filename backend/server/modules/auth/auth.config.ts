@@ -5,6 +5,8 @@
  *
  * AUTH_ENABLED stays an env switch: setting AUTH_ENABLED=false reverts to the
  * open no-login mode (safety valve). Platform mode is exempt.
+ *
+ * AUTH_ENABLED 是唯一保留的环境变量（逃生阀），其余配置见 app.config.json。
  */
 
 import fs from 'node:fs';
