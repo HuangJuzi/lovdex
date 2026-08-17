@@ -294,7 +294,7 @@ export function ProviderSettingsForm() {
         <TextField
           label="Base URL (baseUrl)"
           value={claude.baseUrl ?? ''}
-          placeholder="https://api.anthropic.com"
+          placeholder="https://www.sophnet.com/api/open-apis/anthropic"
           onChange={(v) => patchProvider('claude', 'baseUrl', v)}
         />
         <TextField
