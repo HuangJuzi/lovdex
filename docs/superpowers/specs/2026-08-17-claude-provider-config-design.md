@@ -65,7 +65,7 @@ Date: 2026-08-17  Status: Approved
 
 ### 5. Web 设置页（ProviderSettingsPage.tsx）
 
-Claude 区块新增 5 个输入框（沿用现有 `TextField`/`SecretField` 模式）：
+**表单字段**：Claude 区块新增 5 个输入框（沿用现有 `TextField`/`SecretField` 模式）：
 
 - Base URL (baseUrl) — 文本框
 - 默认模型 (defaultModel) — 文本框，placeholder 示例如 `DeepSeek-V4-Flash-0731`
@@ -73,6 +73,15 @@ Claude 区块新增 5 个输入框（沿用现有 `TextField`/`SecretField` 模�
 - 页头提示文案更新：模型 / Base URL / 凭据保存后新会话立即生效
 
 Type 定义同步扩展。PUT 整份 draft 的既有模式不变（后端 `stripMaskedPlaceholders` 处理打码占位）。
+
+**模态弹出**（用户确认：页内浮层）：
+
+- 从 `ProviderSettingsPage` 抽取表单主体为 `ProviderSettingsForm`（draft 加载/保存、各区块、保存栏），不含页面外框
+- `/settings/providers` 路由页保留（`ProviderSettingsPage` = 页头 + 返回按钮 + 表单），支持深链/返回
+- 侧边栏底部"Provider 设置"按钮（`SidebarFooter.tsx:121` 现 `navigate('/settings/providers')`）改为打开模态：
+  - `SettingsDialog` 组件复用现有 `Dialog` 原语（`shared/view/ui/Dialog.tsx`，含 Escape/遮罩点击关闭、focus trap、body 滚动锁定），`DialogContent` 加 `max-w-3xl` + 内部滚动
+  - 模态头部用关闭（✕ / 完成）按钮替代返回按钮
+  - open 状态放一个小 zustand store（沿用 `useSessionStore` 模式）或上提至 `AppContent` 持有，侧边栏触发
 
 ## 行为语义
 
@@ -95,5 +104,6 @@ Type 定义同步扩展。PUT 整份 draft 的既有模式不变（后端 `strip
 - `supervisor/supervisor.mjs`（环境过滤）
 - `backend/server/modules/providers/list/claude/claude-models.provider.ts`（动态模型）
 - `backend/server/claude-sdk.js`（引用更新）
-- `web/src/components/settings/ProviderSettingsPage.tsx`（表单字段）
+- `web/src/components/settings/ProviderSettingsPage.tsx`（表单字段 + 抽表单组件 + 模态）
+- `web/src/components/sidebar/view/subcomponents/SidebarFooter.tsx`（齿轮按钮改为开模态）
 - 对应 tests
