@@ -58,7 +58,7 @@ import { worktreesRoutes } from './modules/worktrees/index.js';
 import { buildOperatorRouter } from './modules/operators/operator.routes.js';
 import { cleanOperatorWorkspaceLegacySessions } from './modules/operators/operator-cleanup.service.js';
 import { scheduleAutoVerdict } from './modules/operators/operator-verdict.service.js';
-import { sessionsService } from './modules/providers/services/sessions.service.js';
+import { sessionsService, setSessionRenameHook } from './modules/providers/services/sessions.service.js';
 import { validateApiKey, authenticateToken, authenticateWebSocket } from './middleware/auth.js';
 import { IS_PLATFORM } from './constants/config.js';
 import { c } from './utils/colors.js';
@@ -259,6 +259,18 @@ const tasksService = createTasksService(tasksDb, {
 });
 // Wire session lifecycle → task status transitions (task↔session linkage).
 setTaskLinkage(tasksService);
+
+// Session rename → linked task title sync (bidirectional name consistency).
+// Wrapped in try/catch so a hook failure (e.g. a DB write error) never turns a
+// successfully-persisted rename into a fake 500 for the user — the rename has
+// already succeeded by the time the hook runs.
+setSessionRenameHook((sessionId, name) => {
+    try {
+        tasksService.syncTaskTitleFromSession(sessionId, name);
+    } catch (err) {
+        console.error('[tasks] sync task title from session rename failed:', sessionId, err);
+    }
+});
 
 // On startup, mark any in_progress task whose linked session is no longer
 // running as failed. A run that died without a terminal session_status (backend
