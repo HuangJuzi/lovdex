@@ -33,6 +33,9 @@ type TaskTableViewProps = {
   onOpenSession?: (task: Task) => void;
   onProjectChange?: (task: Task, nextPath: string) => void;
   onOpenTask?: (task: Task) => void;
+  selected?: Set<string>;
+  onToggleSelect?: (taskId: string) => void;
+  onToggleSelectAll?: (taskIds: string[]) => void;
 };
 
 function ActionBtn({
@@ -69,10 +72,14 @@ export function TaskTableView({
   onOpenSession,
   onProjectChange,
   onOpenTask,
+  selected,
+  onToggleSelect,
+  onToggleSelectAll,
 }: TaskTableViewProps) {
+  const hasSelection = Boolean(onToggleSelect);
   const [sortKey, setSortKey] = useLocalStorage<TaskSortKey>('taskTableSortKey', 'created');
   const [sortDir, setSortDir] = useLocalStorage<TaskSortDir>('taskTableSortDir', 'desc');
-  const [selected, setSelected] = useLocalStorage<TaskStatus[]>('taskTableStatusFilter', [...STATUS_ORDER]);
+  const [statusFilter, setStatusFilter] = useLocalStorage<TaskStatus[]>('taskTableStatusFilter', [...STATUS_ORDER]);
   const groups = useMemo(() => groupByStatus(tasks), [tasks]);
   const now = new Date();
 
@@ -95,7 +102,7 @@ export function TaskTableView({
     );
   }
 
-  const visibleStatuses = STATUS_ORDER.filter((s) => selected.includes(s));
+  const visibleStatuses = STATUS_ORDER.filter((s) => statusFilter.includes(s));
   const hasVisibleRows = visibleStatuses.some((s) => groups[s].length > 0);
 
   return (
@@ -107,16 +114,16 @@ export function TaskTableView({
       >
         <PillBar>
           <Pill
-            isActive={selected.length === STATUS_ORDER.length}
-            onClick={() => setSelected([...STATUS_ORDER])}
+            isActive={statusFilter.length === STATUS_ORDER.length}
+            onClick={() => setStatusFilter([...STATUS_ORDER])}
           >
             全部
           </Pill>
           {STATUS_ORDER.map((status) => (
             <Pill
               key={status}
-              isActive={selected.includes(status)}
-              onClick={() => setSelected((sel) => toggleStatus(sel, status))}
+              isActive={statusFilter.includes(status)}
+              onClick={() => setStatusFilter((sel) => toggleStatus(sel, status))}
             >
               <span className="h-2 w-2 rounded-full" style={{ background: STATUS_META[status].color }} />
               {STATUS_META[status].label}
@@ -134,6 +141,17 @@ export function TaskTableView({
         >
           <thead>
             <tr>
+              {hasSelection && (
+                <th className="px-2 pb-1">
+                  <input
+                    type="checkbox"
+                    aria-label="全选"
+                    checked={tasks.length > 0 && tasks.every((t) => selected?.has(t.task_id))}
+                    onChange={() => onToggleSelectAll?.(tasks.map((t) => t.task_id))}
+                    className="h-4 w-4 cursor-pointer accent-primary"
+                  />
+                </th>
+              )}
               {COLUMNS.map((col) => {
                 const sortable = col.key !== undefined;
                 return (
@@ -160,7 +178,7 @@ export function TaskTableView({
               return (
                 <Fragment key={status}>
                   <tr>
-                    <td colSpan={9} className="px-2 pb-1">
+                    <td colSpan={hasSelection ? 10 : 9} className="px-2 pb-1">
                       <div className="flex items-center gap-2 px-2 text-sm font-semibold">
                         <span
                           className="h-2 w-2 rounded-full"
@@ -185,6 +203,8 @@ export function TaskTableView({
                       onOpenSession={onOpenSession}
                       onProjectChange={onProjectChange}
                       onOpenTask={onOpenTask}
+                      selected={selected}
+                      onToggleSelect={onToggleSelect}
                     />
                   ))}
                 </Fragment>
@@ -192,7 +212,7 @@ export function TaskTableView({
             })}
             {!hasVisibleRows && (
               <tr>
-                <td colSpan={9} className="px-4 py-16 text-center text-sm text-muted-foreground">
+                <td colSpan={hasSelection ? 10 : 9} className="px-4 py-16 text-center text-sm text-muted-foreground">
                   暂无任务
                 </td>
               </tr>
@@ -213,6 +233,8 @@ function TaskRow({
   onOpenSession,
   onProjectChange,
   onOpenTask,
+  selected,
+  onToggleSelect,
 }: {
   task: Task;
   projectOptions: TaskProjectOption[];
@@ -222,6 +244,8 @@ function TaskRow({
   onOpenSession?: (task: Task) => void;
   onProjectChange?: (task: Task, nextPath: string) => void;
   onOpenTask?: (task: Task) => void;
+  selected?: Set<string>;
+  onToggleSelect?: (taskId: string) => void;
 }) {
   const priority = task.priority ?? 'P2';
   const label = task.label ?? 'other';
@@ -234,6 +258,17 @@ function TaskRow({
       className="cursor-pointer transition-transform hover:-translate-y-px"
       onClick={() => onOpenTask?.(task)}
     >
+      {onToggleSelect && (
+        <td className="bg-card px-4 py-3 shadow-sm" onClick={(e) => e.stopPropagation()}>
+          <input
+            type="checkbox"
+            aria-label="选择任务"
+            checked={selected?.has(task.task_id) ?? false}
+            onChange={() => onToggleSelect(task.task_id)}
+            className="h-4 w-4 cursor-pointer accent-primary"
+          />
+        </td>
+      )}
       {/* 标题 + 副行（Label + 引擎·模型） */}
       <td
         className="rounded-l-lg bg-card px-4 py-3 shadow-sm"
