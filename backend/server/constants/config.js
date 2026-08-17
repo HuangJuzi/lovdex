@@ -1,5 +1,7 @@
 /**
- * Environment Flag: Is Platform
- * Indicates if the app is running in Platform mode (hosted) or OSS mode (self-hosted)
+ * Platform mode flag — now sourced from app.config.json (server.isPlatform),
+ * not the VITE_IS_PLATFORM environment variable.
  */
-export const IS_PLATFORM = process.env.VITE_IS_PLATFORM === 'true';
+import { appConfig } from '../modules/config/config.js';
+
+export const IS_PLATFORM = appConfig().get().server.isPlatform;

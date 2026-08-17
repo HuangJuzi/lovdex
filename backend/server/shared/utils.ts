@@ -29,6 +29,7 @@ import type {
   ProviderSkillSource,
   WorkspacePathValidationResult,
 } from '@/shared/types.js';
+import { appConfig } from '@/modules/config/config.js';
 
 //----------------- NORMALIZED MESSAGE HELPER INPUT TYPES ------------
 /**
@@ -105,9 +106,9 @@ export class AppError extends Error {
 /**
  * Root directory that all workspace/project paths must stay under.
  *
- * Defaults to `~` (the current user's home directory). The `WORKSPACES_ROOT`
- * env var may override it; `~` and `~/...` in the env value are expanded to
- * the home directory so the config stays portable (no absolute path).
+ * Sourced from app.config.json (workspaces.root), default `~` (the current
+ * user's home directory). `~` and `~/...` in the value are expanded to the
+ * home directory so the config stays portable (no absolute path).
  */
 const resolveWorkspaceRoot = (raw: string): string => {
   if (raw === '~') {
@@ -119,7 +120,7 @@ const resolveWorkspaceRoot = (raw: string): string => {
   return raw;
 };
 
-export const WORKSPACES_ROOT = resolveWorkspaceRoot(process.env.WORKSPACES_ROOT ?? '~');
+export const WORKSPACES_ROOT = resolveWorkspaceRoot(appConfig().get().workspaces.root);
 
 /**
  * Canonicalize a filesystem path to a `WORKSPACES_ROOT`-relative spelling when

@@ -87,7 +87,13 @@ const MAX_FILE_UPLOAD_SIZE_MB = 200;
 const MAX_FILE_UPLOAD_SIZE_BYTES = MAX_FILE_UPLOAD_SIZE_MB * 1024 * 1024;
 const MAX_FILE_UPLOAD_COUNT = 20;
 
-console.log('SERVER_PORT from env:', process.env.SERVER_PORT);
+// Config singleton (Task 5/6): server-level runtime parameters now live in
+// <DATA_DIR>/app.config.json instead of env. The snapshot below is read once at
+// boot so port/host/fs-concurrency/cors stay stable for the process lifetime.
+const cfgStore = getAppConfig();
+const cfg = cfgStore.get();
+
+console.log('SERVER_PORT from config:', cfg.server.port);
 
 function readUsageNumber(value) {
     const parsed = Number(value);
@@ -145,8 +151,8 @@ const wss = createWebSocketServer(server, {
 app.locals.wss = wss;
 
 // CORS: allow cross-origin frontends / business services to call this API.
-// CORS_ORIGIN may be "*" (default), a single origin, or a comma-separated allowlist.
-const corsOriginRaw = process.env.CORS_ORIGIN || '*';
+// corsOrigin may be "*" (default), a single origin, or a comma-separated allowlist.
+const corsOriginRaw = cfg.server.corsOrigin || '*';
 const corsOrigin = corsOriginRaw === '*'
     ? '*'
     : corsOriginRaw.split(',').map((s) => s.trim()).filter(Boolean);
@@ -199,7 +205,6 @@ app.use('/api/auth', authRoutes);
 
 // Config HTTP API. GET is anonymous (the login page must read public settings
 // like server.isPlatform before a token exists); PUT requires a valid JWT.
-const cfgStore = getAppConfig();
 app.use('/api/config', buildConfigReadRouter({ cfg: cfgStore }));
 app.use('/api/config', authenticateToken, buildConfigWriteRouter({ cfg: cfgStore }));
 
@@ -1288,7 +1293,7 @@ app.get('/api/projects/:projectId/sessions/:sessionId/token-usage', authenticate
         }
         const lines = fileContent.trim().split('\n');
 
-        const parsedContextWindow = parseInt(process.env.CONTEXT_WINDOW, 10);
+        const parsedContextWindow = typeof cfg.server.contextWindow === 'number' ? cfg.server.contextWindow : undefined;
         const contextWindow = Number.isFinite(parsedContextWindow) ? parsedContextWindow : 160000;
         let inputTokens = 0;
         let outputTokens = 0;
@@ -1390,11 +1395,9 @@ const IGNORED_DIRS = new Set([
     '.gradle', '.idea', 'coverage', '.nyc_output'
 ]);
 
-const DEFAULT_FS_CONCURRENCY = 64;
-const parsedFsConcurrency = Number.parseInt(process.env.FS_CONCURRENCY || '', 10);
-const FS_CONCURRENCY = Number.isFinite(parsedFsConcurrency) && parsedFsConcurrency > 0
-    ? parsedFsConcurrency
-    : DEFAULT_FS_CONCURRENCY;
+const FS_CONCURRENCY = Number.isFinite(cfg.runtime.fsConcurrency) && cfg.runtime.fsConcurrency > 0
+    ? cfg.runtime.fsConcurrency
+    : 64;
 let activeFsOperations = 0;
 const pendingFsOperations = [];
 
@@ -1522,8 +1525,8 @@ async function getFileTree(dirPath, maxDepth = 3, currentDepth = 0, showHidden =
     });
 }
 
-const SERVER_PORT = process.env.SERVER_PORT || 3001;
-const HOST = process.env.HOST || '0.0.0.0';
+const SERVER_PORT = cfg.server.port;
+const HOST = cfg.server.host;
 const DISPLAY_HOST = getConnectableHost(HOST);
 const LOCAL_SERVER_MARKER_PATH = path.join(os.homedir(), '.cloudcli', 'local-server.json');
 

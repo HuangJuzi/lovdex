@@ -1,6 +1,8 @@
 import path from 'path';
 import { fileURLToPath } from 'url';
 
+import { appConfig } from '../modules/config/config.js';
+
 export function getModuleDir(importMetaUrl) {
   return path.dirname(fileURLToPath(importMetaUrl));
 }
@@ -41,7 +43,6 @@ export function getAppRoot() {
 }
 
 export function getMainAgentWorkspace() {
-  return process.env.LOVDEX_MAIN_WORKSPACE
-    ? path.resolve(process.env.LOVDEX_MAIN_WORKSPACE)
-    : path.dirname(getAppRoot());
+  const mainWs = appConfig().get().workspaces.mainWorkspace;
+  return mainWs ? path.resolve(mainWs) : path.dirname(getAppRoot());
 }
