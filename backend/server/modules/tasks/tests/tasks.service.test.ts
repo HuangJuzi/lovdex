@@ -658,3 +658,55 @@ test('backfillSessionNames skips a task whose session is missing', () => {
   assert.equal(svc.backfillSessionNames(), 0);
   assert.deepEqual(updated, []);
 });
+
+test('updateTask: renaming the title syncs the linked session custom name', async () => {
+  const { db } = makeDbStub();
+  db.linkSession('t1', 's1');
+  const named: { sessionId: string; customName: string }[] = [];
+  const sessions = {
+    updateSessionCustomName: (sessionId: string, customName: string) => {
+      named.push({ sessionId, customName });
+    },
+  } as unknown as typeof import('@/modules/database/index.js').sessionsDb;
+  const svc = createTasksService(db, {
+    broadcast: () => {},
+    deps: { projectsDb: makeProjectStub('/p'), sessionsDb: sessions },
+  });
+  const row = await svc.updateTask('t1', { title: 'renamed' });
+  assert.equal(row?.title, 'renamed');
+  assert.deepEqual(named, [{ sessionId: 's1', customName: 'renamed' }]);
+});
+
+test('updateTask: no session name sync without a linked session', async () => {
+  const { db } = makeDbStub(); // t1 默认 session_id 为 null
+  const named: { sessionId: string; customName: string }[] = [];
+  const sessions = {
+    updateSessionCustomName: (sessionId: string, customName: string) => {
+      named.push({ sessionId, customName });
+    },
+  } as unknown as typeof import('@/modules/database/index.js').sessionsDb;
+  const svc = createTasksService(db, {
+    broadcast: () => {},
+    deps: { projectsDb: makeProjectStub('/p'), sessionsDb: sessions },
+  });
+  await svc.updateTask('t1', { title: 'renamed' });
+  assert.deepEqual(named, []);
+});
+
+test('updateTask: skips session name sync for a blank or unchanged title', async () => {
+  const { db } = makeDbStub();
+  db.linkSession('t1', 's1');
+  const named: { sessionId: string; customName: string }[] = [];
+  const sessions = {
+    updateSessionCustomName: (sessionId: string, customName: string) => {
+      named.push({ sessionId, customName });
+    },
+  } as unknown as typeof import('@/modules/database/index.js').sessionsDb;
+  const svc = createTasksService(db, {
+    broadcast: () => {},
+    deps: { projectsDb: makeProjectStub('/p'), sessionsDb: sessions },
+  });
+  await svc.updateTask('t1', { title: '   ' }); // 空白 → 跳过
+  await svc.updateTask('t1', { title: 'x' });    // 未变化 → 跳过
+  assert.deepEqual(named, []);
+});

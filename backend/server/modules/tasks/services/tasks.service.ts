@@ -341,7 +341,18 @@ export function createTasksService(
       }
 
       const row = resolveDb.updateTask(taskId, effective);
-      if (row) emit({ kind: 'task_upserted', task: row, actor: 'user' });
+      if (row) {
+        // 任务改名 → 关联会话名同步：新标题非空、前后标题（去空白后）实质变化、且
+        // 有 session_id 时，把会话 custom_name 同步为新标题（与 startExecution 的
+        // 命名方向一致）。旧标题为空白（仅可能来自之前的空白标题写入，该写入本身
+        // 不同步）时不视为改名，会话名保留最后的有效标题。
+        const trimmedTitle = typeof rest.title === 'string' ? rest.title.trim() : '';
+        const previousTitle = typeof current.title === 'string' ? current.title.trim() : '';
+        if (trimmedTitle && previousTitle && trimmedTitle !== previousTitle && row.session_id) {
+          opts.deps?.sessionsDb?.updateSessionCustomName(row.session_id, trimmedTitle);
+        }
+        emit({ kind: 'task_upserted', task: row, actor: 'user' });
+      }
       return row ? decorate(row) : null;
     },
 
