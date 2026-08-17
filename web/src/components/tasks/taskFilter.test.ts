@@ -6,9 +6,11 @@ import type { Task } from '../../types/app';
 import { ASSISTANT_OPTION_VALUE } from './projectOptions';
 import {
   EMPTY_TASK_FILTER,
-  type TaskFilter,
   filterTasks,
+  normalizeTaskFilter,
   resolveDateRange,
+  toggleProjectFilter,
+  type TaskFilter,
 } from './taskFilter';
 
 const mkTask = (over: Partial<Task> & { task_id: string }): Task => ({
@@ -98,25 +100,41 @@ test('resolveDateRange: to only has no lower bound', () => {
   assert.equal(range.from, Number.NEGATIVE_INFINITY);
 });
 
-test('filterTasks: project path exact match', () => {
+test('filterTasks: single project path match', () => {
   const a = mkTask({ task_id: 'a', project_path: '/p1' });
   const b = mkTask({ task_id: 'b', project_path: '/p2' });
-  const out = filterTasks([a, b], filterOf({ projectPath: '/p1' }), NOW);
+  const out = filterTasks([a, b], filterOf({ projectPaths: ['/p1'] }), NOW);
   assert.deepEqual(out.map((t) => t.task_id), ['a']);
 });
 
-test('filterTasks: assistant option keeps operator tasks', () => {
+test('filterTasks: multiple projects are OR-ed together', () => {
+  const a = mkTask({ task_id: 'a', project_path: '/p1' });
+  const b = mkTask({ task_id: 'b', project_path: '/p2' });
+  const c = mkTask({ task_id: 'c', project_path: '/p3' });
+  const out = filterTasks([a, b, c], filterOf({ projectPaths: ['/p1', '/p2'] }), NOW);
+  assert.deepEqual(out.map((t) => t.task_id), ['a', 'b']);
+});
+
+test('filterTasks: assistant sentinel keeps operator tasks', () => {
   const a = mkTask({ task_id: 'a', is_operator: 1 });
   const b = mkTask({ task_id: 'b', is_operator: 0 });
-  const out = filterTasks([a, b], filterOf({ projectPath: ASSISTANT_OPTION_VALUE }), NOW);
+  const out = filterTasks([a, b], filterOf({ projectPaths: [ASSISTANT_OPTION_VALUE] }), NOW);
   assert.deepEqual(out.map((t) => t.task_id), ['a']);
 });
 
-test('filterTasks: assistantOnly keeps only operator tasks', () => {
+test('filterTasks: assistant + a project are OR-ed together', () => {
   const a = mkTask({ task_id: 'a', is_operator: 1 });
-  const b = mkTask({ task_id: 'b', is_operator: 0 });
-  const out = filterTasks([a, b], filterOf({ assistantOnly: true }), NOW);
-  assert.deepEqual(out.map((t) => t.task_id), ['a']);
+  const b = mkTask({ task_id: 'b', project_path: '/p1' });
+  const c = mkTask({ task_id: 'c', project_path: '/p2' });
+  const out = filterTasks([a, b, c], filterOf({ projectPaths: [ASSISTANT_OPTION_VALUE, '/p1'] }), NOW);
+  assert.deepEqual(out.map((t) => t.task_id), ['a', 'b']);
+});
+
+test('filterTasks: empty projectPaths means no project filter', () => {
+  const a = mkTask({ task_id: 'a', project_path: '/p1' });
+  const b = mkTask({ task_id: 'b', is_operator: 1 });
+  const out = filterTasks([a, b], filterOf({ projectPaths: [] }), NOW);
+  assert.deepEqual(out.map((t) => t.task_id), ['a', 'b']);
 });
 
 test('filterTasks: created date range filters by created_at', () => {
@@ -155,4 +173,33 @@ test('filterTasks: no date filter keeps tasks regardless of timestamps', () => {
   const bad = mkTask({ task_id: 'a', created_at: 'not-a-date' });
   const out = filterTasks([bad], filterOf({ preset: 'all' }), NOW);
   assert.deepEqual(out.map((t) => t.task_id), ['a']);
+});
+
+test('normalizeTaskFilter: migrates legacy single projectPath', () => {
+  const out = normalizeTaskFilter({ projectPath: '/p1', preset: 'all' });
+  assert.deepEqual(out.projectPaths, ['/p1']);
+  assert.equal(out.dateField, 'created');
+});
+
+test('normalizeTaskFilter: migrates legacy assistantOnly to the sentinel', () => {
+  const out = normalizeTaskFilter({ projectPath: '', assistantOnly: true });
+  assert.deepEqual(out.projectPaths, [ASSISTANT_OPTION_VALUE]);
+});
+
+test('normalizeTaskFilter: keeps the new projectPaths shape as-is', () => {
+  const out = normalizeTaskFilter({ projectPaths: ['/p1', ASSISTANT_OPTION_VALUE], dateField: 'deadline', preset: 'week', customFrom: '', customTo: '' });
+  assert.deepEqual(out.projectPaths, ['/p1', ASSISTANT_OPTION_VALUE]);
+  assert.equal(out.dateField, 'deadline');
+  assert.equal(out.preset, 'week');
+});
+
+test('normalizeTaskFilter: null/undefined/empty falls back to defaults', () => {
+  assert.deepEqual(normalizeTaskFilter(null).projectPaths, []);
+  assert.deepEqual(normalizeTaskFilter(undefined).projectPaths, []);
+  assert.deepEqual(normalizeTaskFilter({}).projectPaths, []);
+});
+
+test('toggleProjectFilter: adds and removes a value', () => {
+  assert.deepEqual(toggleProjectFilter([], '/p1'), ['/p1']);
+  assert.deepEqual(toggleProjectFilter(['/p1', '/p2'], '/p2'), ['/p1']);
 });

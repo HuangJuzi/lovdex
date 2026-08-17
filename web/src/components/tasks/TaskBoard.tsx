@@ -38,13 +38,14 @@ import { ASSISTANT_OPTION_VALUE, projectPathOf, taskFormProjects } from './proje
 import { LABEL_META, LABEL_ORDER, PRIORITY_META, PRIORITY_ORDER, STATUS_META, STATUS_ORDER, groupByStatus } from './taskStatus';
 import { TaskFilterBar } from './TaskFilterBar';
 import { TaskTableView } from './TaskTableView';
-import { EMPTY_TASK_FILTER, filterTasks, type TaskFilter } from './taskFilter';
+import { EMPTY_TASK_FILTER, filterTasks, normalizeTaskFilter, type TaskFilter } from './taskFilter';
 
 export function TaskBoardPage() {
   const navigate = useNavigate();
   const { subscribe, sendMessage } = useWebSocket();
-  const { tasks, loading, loadError, refresh, upsert } = useTasks({}, subscribe);
-  const [filter, setFilter] = useLocalStorage<TaskFilter>('taskFilter', EMPTY_TASK_FILTER);
+  const { tasks, loading, loadError, refresh, upsert, remove } = useTasks({}, subscribe);
+  const [storedFilter, setFilter] = useLocalStorage<unknown>('taskFilter', EMPTY_TASK_FILTER);
+  const filter = useMemo(() => normalizeTaskFilter(storedFilter), [storedFilter]);
   const [viewMode, setViewMode] = useLocalStorage<'board' | 'table'>('taskViewMode', 'board');
   // 移动端强制看板：表格在手机上体验差，且「表格」按钮已隐藏（hidden sm:inline-flex）。
   // 断点 640 与 Tailwind `sm:` 对齐。
@@ -59,6 +60,64 @@ export function TaskBoardPage() {
   }, []);
   const filteredTasks = useMemo(() => filterTasks(tasks, filter, now), [tasks, filter, now]);
   const groups = useMemo(() => groupByStatus(filteredTasks), [filteredTasks]);
+
+  // 批量删除选择：跨表格/看板两个视图共享同一份 task_id 集合。
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [deleting, setDeleting] = useState(false);
+
+  const toggleSelect = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = (ids: string[]) => {
+    setSelected((prev) => {
+      if (ids.length > 0 && ids.every((id) => prev.has(id))) return new Set();
+      return new Set(ids);
+    });
+  };
+
+  const clearSelection = () => setSelected(new Set());
+
+  // 已删/已不存在的任务 id 从选择里剪掉，避免幽灵勾选。
+  useEffect(() => {
+    const ids = new Set(tasks.map((t) => t.task_id));
+    setSelected((prev) => {
+      let changed = false;
+      const next = new Set<string>();
+      for (const id of prev) {
+        if (ids.has(id)) next.add(id);
+        else changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [tasks]);
+
+  async function deleteSelected() {
+    const ids = [...selected];
+    if (ids.length === 0) return;
+    if (!window.confirm(`确定删除选中的 ${ids.length} 个任务？此操作不可恢复。`)) return;
+    setDeleting(true);
+    try {
+      const res = await api.tasks.removeMany(ids);
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        console.error('deleteSelected failed', err?.error?.message ?? res.status);
+        return;
+      }
+      // task_deleted ws 事件会从 useTasks 本地列表移除行；这里兜底本地删 + 清空选择。
+      ids.forEach((id) => remove(id));
+      clearSelection();
+    } catch (err) {
+      console.error('deleteSelected failed', err);
+    } finally {
+      setDeleting(false);
+    }
+  }
 
   // Create-task form state.
   const [creating, setCreating] = useState(false);
@@ -498,6 +557,26 @@ export function TaskBoardPage() {
       ) : (
         <div className="flex min-h-0 flex-1 flex-col">
           <TaskFilterBar projectOptions={projectOptions} filter={filter} onChange={setFilter} />
+          {selected.size > 0 && (
+            <div className="flex flex-shrink-0 items-center gap-3 border-b border-border/60 bg-muted/40 px-3 py-2 sm:px-4">
+              <span className="text-sm font-medium">已选 {selected.size} 项</span>
+              <button
+                type="button"
+                onClick={clearSelection}
+                className="text-sm text-muted-foreground hover:text-foreground"
+              >
+                取消选择
+              </button>
+              <button
+                type="button"
+                disabled={deleting}
+                onClick={() => void deleteSelected()}
+                className="ml-auto rounded-lg bg-red-500/10 px-3 py-1.5 text-sm font-semibold text-red-500 hover:bg-red-500/20 disabled:opacity-50 dark:text-red-400"
+              >
+                {deleting ? '删除中…' : '删除'}
+              </button>
+            </div>
+          )}
           {effectiveView === 'table' ? (
             <TaskTableView
               tasks={filteredTasks}
@@ -507,6 +586,9 @@ export function TaskBoardPage() {
               onOpenSession={(task) => task.session_id && navigate(`/session/${task.session_id}`)}
               onProjectChange={(task, nextPath) => changeProject(task, nextPath)}
               onOpenTask={(task) => navigate(`/task/${task.task_id}`)}
+              selected={selected}
+              onToggleSelect={toggleSelect}
+              onToggleSelectAll={toggleSelectAll}
             />
           ) : (
             <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-2 pb-3 sm:flex-row sm:gap-3 sm:overflow-x-auto sm:overflow-y-hidden sm:px-4 sm:pb-4">
@@ -540,6 +622,8 @@ export function TaskBoardPage() {
                         onOpenSession={() => task.session_id && navigate(`/session/${task.session_id}`)}
                         projectOptions={projectOptions}
                         onProjectChange={(nextPath) => changeProject(task, nextPath)}
+                        selected={selected.has(task.task_id)}
+                        onToggleSelect={toggleSelect}
                       />
                     ))}
                   </div>

@@ -6,8 +6,7 @@ export type TaskDateField = 'created' | 'deadline' | 'activity';
 export type TaskFilterPreset = 'all' | 'today' | 'week' | 'month' | 'year';
 
 export type TaskFilter = {
-  projectPath: string;
-  assistantOnly: boolean;
+  projectPaths: string[];
   dateField: TaskDateField;
   preset: TaskFilterPreset;
   customFrom: string;
@@ -15,13 +14,46 @@ export type TaskFilter = {
 };
 
 export const EMPTY_TASK_FILTER: TaskFilter = {
-  projectPath: '',
-  assistantOnly: false,
+  projectPaths: [],
   dateField: 'created',
   preset: 'all',
   customFrom: '',
   customTo: '',
 };
+
+/**
+ * 归一化持久化在 localStorage 里的筛选对象：兼容旧的 `projectPath: string` /
+ * `assistantOnly: boolean` 形状（老用户无感迁移），缺失字段补默认值。
+ */
+export function normalizeTaskFilter(raw: unknown): TaskFilter {
+  const src = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  let projectPaths: string[] = [];
+  if (Array.isArray(src.projectPaths)) {
+    projectPaths = (src.projectPaths as unknown[]).filter((v): v is string => typeof v === 'string');
+  } else {
+    const legacyPath = typeof src.projectPath === 'string' ? src.projectPath : '';
+    if (legacyPath) projectPaths = [legacyPath];
+    if (src.assistantOnly === true && !projectPaths.includes(ASSISTANT_OPTION_VALUE)) {
+      projectPaths = [ASSISTANT_OPTION_VALUE];
+    }
+  }
+  return {
+    projectPaths,
+    dateField:
+      src.dateField === 'deadline' || src.dateField === 'activity' ? src.dateField : 'created',
+    preset:
+      src.preset === 'today' || src.preset === 'week' || src.preset === 'month' || src.preset === 'year'
+        ? src.preset
+        : 'all',
+    customFrom: typeof src.customFrom === 'string' ? src.customFrom : '',
+    customTo: typeof src.customTo === 'string' ? src.customTo : '',
+  };
+}
+
+/** 勾选/取消勾选一个项目（或助手哨兵），返回新的 projectPaths 数组。 */
+export function toggleProjectFilter(paths: string[], value: string): string[] {
+  return paths.includes(value) ? paths.filter((p) => p !== value) : [...paths, value];
+}
 
 /**
  * 解析生效的日期区间（本地时区，毫秒时间戳）。返回 null 表示不过滤日期。
@@ -90,16 +122,16 @@ function taskDateValue(task: Task, field: TaskDateField): number | null {
   return Number.isNaN(ms) ? null : ms;
 }
 
-/** 按 项目 → 助手开关 → 日期 三个维度（AND）过滤任务。 */
+/** 按 项目多选 → 日期 两个维度（AND）过滤任务。 */
 export function filterTasks(tasks: Task[], filter: TaskFilter, now: Date): Task[] {
   const range = resolveDateRange(filter, now);
   return tasks.filter((task) => {
-    if (filter.projectPath === ASSISTANT_OPTION_VALUE) {
-      if (task.is_operator !== 1) return false;
-    } else if (filter.projectPath) {
-      if (task.project_path !== filter.projectPath) return false;
+    if (filter.projectPaths.length > 0) {
+      const match =
+        (filter.projectPaths.includes(ASSISTANT_OPTION_VALUE) && task.is_operator === 1) ||
+        filter.projectPaths.includes(task.project_path);
+      if (!match) return false;
     }
-    if (filter.assistantOnly && task.is_operator !== 1) return false;
     if (range) {
       const value = taskDateValue(task, filter.dateField);
       if (value === null) return false;

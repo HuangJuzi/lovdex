@@ -88,3 +88,17 @@ test('table renders status filter row with 全部 reset pill', () => {
   assert.match(html, /data-testid="status-filter"/);
   assert.match(html, /全部/);
 });
+
+test('table renders a select-all checkbox when selection is wired', () => {
+  const html = renderToStaticMarkup(
+    React.createElement(TaskTableView, {
+      tasks: [mkTask({ task_id: 't1', title: '表格任务' })],
+      projectOptions: [],
+      selected: new Set(['t1']),
+      onToggleSelect: () => {},
+      onToggleSelectAll: () => {},
+    }),
+  );
+  assert.match(html, /全选/);
+  assert.match(html, /选择任务/);
+});
