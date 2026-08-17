@@ -187,11 +187,40 @@ export function createSchedulerService(deps: SchedulerDeps) {
       if (updates.scheduleType !== undefined && typeof updates.scheduleType === 'string' && !isScheduleType(updates.scheduleType)) {
         throw new AppError(`invalid scheduleType: ${String(updates.scheduleType)}`, { code: 'INVALID_SCHEDULE_TYPE', statusCode: 400 });
       }
-      const recompute = ['cron_expr', 'interval_seconds', 'run_at', 'schedule_type', 'timezone'].some((k) => updates[k] !== undefined);
-      const cleaned: Record<string, unknown> = { ...updates };
+      // camelCase (route/frontend) → snake_case (DB), mirroring create().
+      const cleaned: Record<string, unknown> = {};
+      const keyMap: Record<string, string> = {
+        title: 'title',
+        description: 'description',
+        projectPath: 'project_path',
+        executorProvider: 'executor_provider',
+        executorModel: 'executor_model',
+        priority: 'priority',
+        label: 'label',
+        autoRun: 'auto_run',
+        scheduleType: 'schedule_type',
+        cronExpr: 'cron_expr',
+        intervalSeconds: 'interval_seconds',
+        runAt: 'run_at',
+        timezone: 'timezone',
+        enabled: 'enabled',
+      };
+      for (const [from, to] of Object.entries(keyMap)) {
+        if (updates[from] !== undefined) cleaned[to] = updates[from];
+      }
+      const recompute = ['cron_expr', 'interval_seconds', 'run_at', 'schedule_type', 'timezone'].some((k) => cleaned[k] !== undefined);
       if (recompute) {
         const merged = { ...current, ...cleaned } as ScheduledTaskRow;
-        cleaned.next_run_at = initialNextRun(merged as never, now());
+        cleaned.next_run_at = initialNextRun(
+          {
+            scheduleType: merged.schedule_type,
+            cronExpr: merged.cron_expr,
+            intervalSeconds: merged.interval_seconds,
+            runAt: merged.run_at,
+            timezone: merged.timezone,
+          },
+          now(),
+        );
       }
       const row = deps.scheduledTasksDb.updateScheduledTask(scheduleId, cleaned);
       if (row) deps.broadcast({ kind: 'scheduled_task_upserted', scheduledTask: row, timestamp: now().toISOString() });

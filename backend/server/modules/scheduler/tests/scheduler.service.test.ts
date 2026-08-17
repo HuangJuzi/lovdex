@@ -131,3 +131,19 @@ test('create validates scheduleType and computes initial next_run_at', () => {
   assert.equal(row.next_run_at, new Date(2026, 7, 14, 9, 0, 0).toISOString());
   assert.throws(() => svc.create({ title: 'bad', scheduleType: 'once' }));
 });
+
+test('update translates camelCase to snake_case and recomputes next_run_at', () => {
+  const { svc, rows } = makeService('2026-08-13T12:00:00.000Z');
+  rows.set('s1', mkRow({ schedule_id: 's1', schedule_type: 'once', run_at: '2026-08-14T01:00:00.000Z' }));
+
+  const row = svc.update('s1', { scheduleType: 'cron', cronExpr: '0 9 * * *', autoRun: 0 }) as ScheduledTaskRow;
+
+  assert.equal(rows.get('s1')?.schedule_type, 'cron');
+  assert.equal(rows.get('s1')?.cron_expr, '0 9 * * *');
+  assert.equal(rows.get('s1')?.auto_run, 0);
+  assert.ok(row.next_run_at);
+  assert.notEqual(row.next_run_at, '2026-08-13T00:00:00.000Z');
+  assert.ok(Number.isFinite(new Date(row.next_run_at).getTime()));
+  // cron 取下一个 09:00（默认 local → 本地挂钟 09:00 的 UTC 表示）
+  assert.equal(row.next_run_at, new Date(2026, 7, 14, 9, 0, 0).toISOString());
+});
