@@ -2,14 +2,12 @@ import { useEffect, useState, type ReactNode } from 'react';
 
 import { api } from '../../utils/api';
 import { Button } from '../../shared/view/ui';
-import { BackToTasksButton } from '../tasks/TaskBackNav';
 
 /**
  * Provider 凭据 + 运行参数设置。
  *
- * 表单主体是 <ProviderSettingsForm />：既被 /settings/providers 路由页渲染，
- * 也被侧边栏齿轮打开的模态 <SettingsDialog /> 渲染，两个入口共用同一份
- * draft 加载/保存逻辑。
+ * 表单主体是 <ProviderSettingsForm />：由统一设置页 /settings 的 Provider Tab
+ * 渲染（draft 加载 / 保存 / 渲染逻辑全在这里）。
  *
  * 后端 `GET /api/config`（匿名、密钥打码）读、`PUT /api/config`（需登录）写。
  * GET 回来的密钥是打码占位（`••••abcd`）；PUT 时后端 `stripMaskedPlaceholders`
@@ -406,20 +404,3 @@ export function ProviderSettingsForm() {
     </div>
   );
 }
-
-/** 路由页入口：/settings/providers（深链 / 返回按钮保留）。 */
-export function ProviderSettingsPage() {
-  return (
-    <div className="h-dvh overflow-y-auto bg-background">
-      <header className="pwa-header-safe sticky top-0 z-10 flex flex-shrink-0 items-center gap-2 border-b border-border/60 bg-background px-3 py-1.5 sm:px-4 sm:py-2">
-        <BackToTasksButton />
-        <h1 className="ml-2 text-sm font-semibold text-foreground">Provider 设置</h1>
-      </header>
-      <div className="mx-auto max-w-3xl px-4 py-6 sm:p-6">
-        <ProviderSettingsForm />
-      </div>
-    </div>
-  );
-}
-
-export default ProviderSettingsPage;

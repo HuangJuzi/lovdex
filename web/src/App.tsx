@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
+import { BrowserRouter as Router, Route, Routes, Navigate } from 'react-router-dom';
 import { I18nextProvider } from 'react-i18next';
 
 import { loadRuntimeConfig } from './constants/config';
@@ -8,12 +8,9 @@ import { WebSocketProvider } from './contexts/WebSocketContext';
 import AppContent from './components/app/AppContent';
 import AuthGate from './components/auth/AuthGate';
 import { TaskBoardPage, TaskDetailPage } from './components/tasks';
-import { OperatorSettingsPage } from './components/operators/OperatorSettingsPage';
-import { ProviderSettingsPage } from './components/settings/ProviderSettingsPage';
 import { AssistantPanel } from './components/operators/AssistantPanel';
+import SettingsPage from './components/settings/SettingsPage';
 import { TerminalDrawerProvider } from './hooks/useTerminalDrawer';
-import { SettingsDialogProvider } from './hooks/useSettingsDialog';
-import { SettingsDialog } from './components/settings/SettingsDialog';
 import i18n from './i18n/config.js';
 
 const DEPLOYMENT_ASSET_DIRECTORIES = new Set(['assets', 'static', 'icons', 'images']);
@@ -127,20 +124,18 @@ export default function App() {
         <AuthGate>
           <WebSocketProvider>
             <Router basename={routerBasename}>
-              <SettingsDialogProvider>
-                <TerminalDrawerProvider>
-                  <Routes>
-                    <Route path="/" element={<AppContent />} />
-                    <Route path="/session/:sessionId" element={<AppContent />} />
-                    <Route path="/tasks" element={<TaskBoardPage />} />
-                    <Route path="/task/:taskId" element={<TaskDetailPage />} />
-                    <Route path="/assistant" element={<AssistantPanel />} />
-                    <Route path="/settings/operator" element={<OperatorSettingsPage />} />
-                    <Route path="/settings/providers" element={<ProviderSettingsPage />} />
-                  </Routes>
-                  <SettingsDialog />
-                </TerminalDrawerProvider>
-              </SettingsDialogProvider>
+              <TerminalDrawerProvider>
+                <Routes>
+                  <Route path="/" element={<AppContent />} />
+                  <Route path="/session/:sessionId" element={<AppContent />} />
+                  <Route path="/tasks" element={<TaskBoardPage />} />
+                  <Route path="/task/:taskId" element={<TaskDetailPage />} />
+                  <Route path="/assistant" element={<AssistantPanel />} />
+                  <Route path="/settings" element={<SettingsPage />} />
+                  <Route path="/settings/providers" element={<Navigate to="/settings?tab=providers" replace />} />
+                  <Route path="/settings/operator" element={<Navigate to="/settings?tab=operator" replace />} />
+                </Routes>
+              </TerminalDrawerProvider>
             </Router>
           </WebSocketProvider>
         </AuthGate>
