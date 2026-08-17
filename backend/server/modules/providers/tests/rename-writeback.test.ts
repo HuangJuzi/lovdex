@@ -7,7 +7,7 @@ import test from 'node:test';
 import { closeConnection } from '@/modules/database/connection.js';
 import { initializeDatabase } from '@/modules/database/init-db.js';
 import { sessionsDb } from '@/modules/database/repositories/sessions.db.js';
-import { sessionsService } from '@/modules/providers/services/sessions.service.js';
+import { sessionsService, setSessionRenameHook } from '@/modules/providers/services/sessions.service.js';
 
 async function withIsolatedDb(fn: () => Promise<void>): Promise<void> {
   const prev = process.env.DATABASE_PATH;
@@ -46,5 +46,19 @@ test('renameSessionById does not throw when jsonl_path is null', async () => {
     await sessionsService.renameSessionById('p2', 'New Name');
     const row = sessionsDb.getSessionById('p2');
     assert.equal(row?.custom_name, 'New Name');
+  });
+});
+
+test('renameSessionById fires the rename hook with the session id and new name', async () => {
+  await withIsolatedDb(async () => {
+    const calls: { sessionId: string; name: string }[] = [];
+    setSessionRenameHook((sessionId, name) => calls.push({ sessionId, name }));
+    try {
+      sessionsDb.createSession('p3', 'claude', '/p', undefined, undefined, undefined, undefined, undefined);
+      await sessionsService.renameSessionById('p3', 'New Name');
+      assert.deepEqual(calls, [{ sessionId: 'p3', name: 'New Name' }]);
+    } finally {
+      setSessionRenameHook(null);
+    }
   });
 });
