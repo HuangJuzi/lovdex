@@ -42,3 +42,23 @@ test('buildSessionUpsertedEvent skips sessions whose project is not explicit', a
     assert.equal(await buildSessionUpsertedEvent('sess-discovered'), null);
   });
 });
+
+test('buildSessionUpsertedEvent broadcasts operator workspace sessions despite non-explicit project', async () => {
+  const previousWorkspace = process.env.LOVDEX_OPERATOR_WORKSPACE;
+  await withIsolatedDatabase(async (dir) => {
+    // The workspace is auto-registered (is_explicit = 0) but its sessions must
+    // still be broadcast so clients can resolve /session/:id and keep the
+    // Lovdex助手 list in sync without a full project refetch.
+    const workspace = path.join(dir, 'operator-workspace');
+    await mkdir(workspace, { recursive: true });
+    process.env.LOVDEX_OPERATOR_WORKSPACE = workspace;
+
+    projectsDb.createProjectPath(workspace);
+    sessionsDb.createSession('sess-workspace', 'claude', workspace);
+
+    assert.ok((await buildSessionUpsertedEvent('sess-workspace')) !== null);
+  }).finally(() => {
+    if (previousWorkspace === undefined) delete process.env.LOVDEX_OPERATOR_WORKSPACE;
+    else process.env.LOVDEX_OPERATOR_WORKSPACE = previousWorkspace;
+  });
+});

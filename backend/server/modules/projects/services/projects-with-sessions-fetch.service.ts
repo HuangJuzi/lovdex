@@ -7,7 +7,7 @@ import { WS_OPEN_STATE, connectedClients } from '@/modules/websocket/index.js';
 import type { RealtimeClientConnection } from '@/shared/types.js';
 import { AppError } from '@/shared/utils.js';
 import { getMainAgentWorkspace } from '@/utils/runtime-paths.js';
-import { isOperatorWorkspacePath } from '@/modules/operators/operator-workspace.service.js';
+import { isOperatorWorkspacePath, resolveOperatorWorkspaceRoot } from '@/modules/operators/operator-workspace.service.js';
 
 type SessionSummary = {
   id: string;
@@ -203,13 +203,23 @@ export async function getProjectsWithSessions(
     await sessionSynchronizerService.synchronizeSessions();
   }
 
+  // The operator workspace is a first-class project even though it is
+  // auto-registered (disk scan / session creation) instead of going through the
+  // explicit-project wizard. Filtering it out with `is_explicit` — like the
+  // other auto-discovered projects — would drop its sessions from the payload,
+  // so direct `/session/:id` opens (Lovdex助手 chats AND task-execution
+  // sessions for assistant-created tasks) could never resolve their owning
+  // project and the UI would stay stuck on "Choose Your Project".
+  const operatorWorkspaceRoot = await resolveOperatorWorkspaceRoot();
   const projectRows = (projectsDb.getProjectPaths() as Array<{
     project_id: string;
     project_path: string;
     custom_project_name?: string | null;
     isStarred?: number;
     is_explicit?: number;
-  }>).filter((row) => Boolean(row.is_explicit));
+  }>).filter((row) =>
+    Boolean(row.is_explicit) || (operatorWorkspaceRoot !== null && row.project_path === operatorWorkspaceRoot)
+  );
   const totalProjects = projectRows.length;
   const projects: ProjectListItem[] = [];
   let processedProjects = 0;
@@ -244,16 +254,17 @@ export async function getProjectsWithSessions(
 
     const isOperatorWorkspace = await isOperatorWorkspacePath(projectPath);
 
-    // The operator workspace payload must include every Lovdex助手 session so
-    // /session/:id resolution works for older conversations too — the paginated
-    // top-N used for regular projects would drop assistant sessions once the
-    // workspace accumulates non-operator (auto-verdict / task) sessions.
+    // Every non-archived workspace session must be present — not just the
+    // Lovdex助手 (operator) chats, but the non-operator task-execution /
+    // auto-verdict sessions too. Direct /session/:id opens from the task board
+    // or detail page resolve through this payload, so dropping the task
+    // sessions would land them on the "Choose Your Project" empty state.
     let sessions: SessionSummary[];
     let sessionTotal: number;
     if (isOperatorWorkspace) {
-      const operatorRows = sessionsDb.getSessionsByProjectPathOperator(projectPath) as SessionRepositoryRow[];
-      sessions = operatorRows.map(mapSessionRowToSummary);
-      sessionTotal = operatorRows.length;
+      const workspaceRows = sessionsDb.getSessionsByProjectPath(projectPath) as SessionRepositoryRow[];
+      sessions = workspaceRows.map(mapSessionRowToSummary);
+      sessionTotal = workspaceRows.length;
     } else {
       const sessionsPage = readProjectSessionsPageByPath(projectPath, {
         limit: options.sessionsLimit,

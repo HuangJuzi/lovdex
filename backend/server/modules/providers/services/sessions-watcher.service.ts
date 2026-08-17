@@ -129,14 +129,16 @@ export async function buildSessionUpsertedEvent(updatedProviderSessionId: string
 
   const projectPath = row.project_path;
   const project = projectPath ? projectsDb.getProjectPath(projectPath) : null;
-  if (project && !project.is_explicit) {
+  const isOperatorWorkspace = project ? await isOperatorWorkspacePath(project.project_path) : false;
+  // The operator workspace is auto-registered (never goes through the
+  // explicit-project wizard), but its sessions still need to reach clients so
+  // /session/:id resolution and the sidebar's Lovdex助手 list stay live.
+  if (project && !project.is_explicit && !isOperatorWorkspace) {
     return null;
   }
   const displayName = project?.custom_project_name?.trim()
     ? project.custom_project_name
     : await generateDisplayName(path.basename(projectPath ?? '') || (projectPath ?? ''), projectPath);
-
-  const isOperatorWorkspace = project ? await isOperatorWorkspacePath(project.project_path) : false;
 
   return JSON.stringify({
     kind: 'session_upserted',

@@ -167,7 +167,11 @@ export const sessionsDb = {
     const db = getConnection();
     const normalizedProjectPath = normalizeProjectPathForProvider(provider, projectPath);
 
-    projectsDb.createProjectPath(normalizedProjectPath);
+    // Operator sessions live in the Lovdex助手 workspace, which the project
+    // list must always show (even though it is auto-registered, never
+    // wizard-created) so direct /session/:id opens resolve. Registering it as
+    // explicit here keeps fresh databases aligned with that requirement.
+    projectsDb.createProjectPath(normalizedProjectPath, null, Boolean(isOperator));
 
     db.prepare(
       `INSERT INTO sessions (session_id, provider, provider_session_id, custom_name, project_path, jsonl_path, isArchived, is_operator, created_at, updated_at)
