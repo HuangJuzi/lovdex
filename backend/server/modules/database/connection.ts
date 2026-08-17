@@ -28,16 +28,16 @@ const __dirname = path.dirname(__filename);
 /**
  * Resolves the database file path.
  *
- * Priority:
- *   1. DATABASE_PATH env override — explicit escape hatch used by the test
- *      harness (isolated temp DBs) and one-off operator overrides. NOT set by
- *      load-env.js/.env anymore; it must be set intentionally by the caller.
- *   2. app.config.json `database.path` (default ~/.sophcode/auth.db) — the
- *      production source of truth.
- *   3. Legacy path: server/database/auth.db (兜底以防配置缺失).
+ * Production ALWAYS uses app.config.json `database.path` — the DATABASE_PATH
+ * env override is honored ONLY inside the node:test runner (detected via
+ * NODE_TEST_CONTEXT, set by node --test). This keeps the test harness's
+ * isolated temp-DB pattern working while a stray DATABASE_PATH in a shell /
+ * supervisor environment can never hijack a live server onto the wrong DB.
  */
 function resolveDatabasePath(): string {
-    if (process.env.DATABASE_PATH) return process.env.DATABASE_PATH;
+    if (process.env.NODE_TEST_CONTEXT && process.env.DATABASE_PATH) {
+        return process.env.DATABASE_PATH;
+    }
     return appConfig().get().database.path || resolveLegacyDatabasePath();
 }
 
