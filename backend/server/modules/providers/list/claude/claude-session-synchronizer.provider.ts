@@ -8,7 +8,6 @@ import {
   extractFirstValidJsonlData,
   findFilesRecursivelyCreatedAfter,
   normalizeSessionName,
-  normalizeToWorkspaceRoot,
   readFileTimestamps,
 } from '@/shared/utils.js';
 import type { IProviderSessionSynchronizer } from '@/shared/interfaces.js';
@@ -126,7 +125,7 @@ export class ClaudeSessionSynchronizer implements IProviderSessionSynchronizer {
       const data = rawData as Record<string, unknown>;
       const sessionId = typeof data.sessionId === 'string' ? data.sessionId : undefined;
       const projectPath =
-        typeof data.cwd === 'string' ? normalizeToWorkspaceRoot(data.cwd) : undefined;
+        typeof data.cwd === 'string' ? data.cwd : undefined;
 
       if (!sessionId || !projectPath) {
         return null;
