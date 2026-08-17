@@ -163,6 +163,29 @@ export function buildTasksRouter(tasksService: TasksService, deps: { createSessi
     }),
   );
 
+  // POST /api/tasks/batch-delete
+  router.post(
+    '/batch-delete',
+    asyncHandler(async (req, res) => {
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      const taskIds = body.taskIds;
+      if (!Array.isArray(taskIds) || taskIds.length === 0 || taskIds.length > 500) {
+        throw new AppError('invalid taskIds: expected a non-empty array of at most 500 ids', {
+          code: 'INVALID_REQUEST',
+          statusCode: 400,
+        });
+      }
+      if (!taskIds.every((id) => typeof id === 'string' && id.length > 0)) {
+        throw new AppError('invalid taskIds: every entry must be a non-empty string', {
+          code: 'INVALID_REQUEST',
+          statusCode: 400,
+        });
+      }
+      const deleted = tasksService.deleteTasks(taskIds as string[]);
+      res.json({ success: true, deleted });
+    }),
+  );
+
   // DELETE /api/tasks/:taskId
   router.delete(
     '/:taskId',

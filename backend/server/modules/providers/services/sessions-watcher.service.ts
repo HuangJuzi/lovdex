@@ -120,7 +120,7 @@ function queuePendingWatcherUpdate(
  * project-list refetch when a transcript file changes on disk. Returns `null`
  * when the id cannot be resolved to an indexed session row.
  */
-async function buildSessionUpsertedEvent(updatedProviderSessionId: string): Promise<string | null> {
+export async function buildSessionUpsertedEvent(updatedProviderSessionId: string): Promise<string | null> {
   const row = sessionsDb.getSessionByProviderSessionId(updatedProviderSessionId)
     ?? sessionsDb.getSessionById(updatedProviderSessionId);
   if (!row || row.isArchived) {
@@ -129,6 +129,9 @@ async function buildSessionUpsertedEvent(updatedProviderSessionId: string): Prom
 
   const projectPath = row.project_path;
   const project = projectPath ? projectsDb.getProjectPath(projectPath) : null;
+  if (project && !project.is_explicit) {
+    return null;
+  }
   const displayName = project?.custom_project_name?.trim()
     ? project.custom_project_name
     : await generateDisplayName(path.basename(projectPath ?? '') || (projectPath ?? ''), projectPath);

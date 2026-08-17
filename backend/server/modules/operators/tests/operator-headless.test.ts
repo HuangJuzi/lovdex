@@ -33,7 +33,13 @@ function fakeDeps() {
       getProjectPathById: () => null,
     },
     sessions: {
-      fetchHistory: () => ({ messages: [], total: 0 }),
+      // A readable transcript with a final assistant output so the headless
+      // pre-check passes; tests that need an empty/unreadable transcript
+      // override this per-test.
+      fetchHistory: () => ({
+        messages: [{ role: 'assistant', content: '已完成，测试全部通过' }],
+        total: 1,
+      }),
     },
     contextProjectPath: null,
   };
@@ -44,6 +50,19 @@ function emptyIterable() {
   return (async function* () {
     /* no messages */
   })();
+}
+
+/** Full operator config with verdict automation enabled — shared by the headless tests. */
+function fakeConfig() {
+  return {
+    enabled: true,
+    auto_verdict_enabled: true,
+    model: '',
+    workspace: '/tmp/op',
+    max_concurrent: 1,
+    verdict_prompt_override: null,
+    interactive_chat_enabled: true,
+  };
 }
 
 test('buildOperatorSdkTools includes the closed operator tool set', () => {
@@ -422,4 +441,120 @@ test('runOperatorHeadless returns early when operator disabled', async () => {
   });
 
   assert.equal(called, false, 'query was called despite enabled=false');
+});
+
+test('runOperatorHeadless skips the verdict when the transcript has no final output', async () => {
+  // Regression: with an empty transcript (no assistant text → finalOutput null),
+  // the model used to still write a verdict — and hard-coded `done` from no
+  // evidence. The headless run must not even start when there is nothing to
+  // judge; the task stays in in_review/pending_acceptance for a human.
+  let called = false;
+  const queryFn = () => {
+    called = true;
+    return emptyIterable();
+  };
+  const deps = {
+    ...fakeDeps(),
+    sessions: { fetchHistory: () => ({ messages: [], total: 0 }) },
+  };
+
+  await runOperatorHeadless({
+    sessionId: 's',
+    taskId: 't',
+    title: 'x',
+    queryFn: queryFn as never,
+    deps: deps as never,
+    config: fakeConfig(),
+  });
+
+  assert.equal(called, false, 'query was called despite an empty transcript');
+});
+
+test('runOperatorHeadless skips the verdict when the transcript fetch throws', async () => {
+  // Regression: get_session_transcript returned "Session not found" (transcript
+  // unreadable) yet the model still wrote `done`. An unreadable transcript must
+  // skip the verdict entirely rather than judge on nothing.
+  let called = false;
+  const queryFn = () => {
+    called = true;
+    return emptyIterable();
+  };
+  const deps = {
+    ...fakeDeps(),
+    sessions: {
+      fetchHistory: () => {
+        throw new Error('Session not found');
+      },
+    },
+  };
+
+  await runOperatorHeadless({
+    sessionId: 's',
+    taskId: 't',
+    title: 'x',
+    queryFn: queryFn as never,
+    deps: deps as never,
+    config: fakeConfig(),
+  });
+
+  assert.equal(called, false, 'query was called despite an unreadable transcript');
+});
+
+test('runOperatorHeadless still runs when the transcript has a final assistant output', async () => {
+  let called = false;
+  const queryFn = () => {
+    called = true;
+    return emptyIterable();
+  };
+  const deps = {
+    ...fakeDeps(),
+    sessions: {
+      fetchHistory: () => ({
+        messages: [{ role: 'assistant', content: '已完成，测试全部通过' }],
+        total: 1,
+      }),
+    },
+  };
+
+  await runOperatorHeadless({
+    sessionId: 's',
+    taskId: 't',
+    title: 'x',
+    queryFn: queryFn as never,
+    deps: deps as never,
+    config: fakeConfig(),
+  });
+
+  assert.equal(called, true, 'query was NOT called despite a readable transcript');
+});
+
+test('default verdict prompt reserves needs_review for unfinished verification / uncommitted code / user acceptance', async () => {
+  // Regression: the "polite question → done" escape hatch was over-applied, so
+  // unverified work ("要不要我跑验证？"), uncommitted code, and pending user
+  // acceptance were waved through as done. The prompt must explicitly name these
+  // as needs_review, distinct from a routine commit/push tail.
+  let captured: { prompt?: unknown; options?: Record<string, unknown> } = {};
+  const queryFn = (params: { prompt: unknown; options: Record<string, unknown> }) => {
+    captured = params;
+    return emptyIterable();
+  };
+
+  await runOperatorHeadless({
+    sessionId: 'sess-123',
+    taskId: 'task-456',
+    title: 'Fix a bug',
+    queryFn: queryFn as never,
+    deps: fakeDeps() as never,
+    config: fakeConfig(),
+  });
+
+  const prompt = String(captured.prompt);
+  assert.ok(/验证尚未真正完成|验证未真正完成/.test(prompt), `prompt should name unfinished verification as needs_review: ${prompt}`);
+  assert.ok(/尚未提交|根本没提交/.test(prompt), `prompt should name uncommitted code as needs_review: ${prompt}`);
+  assert.ok(/登录验收|人工冒烟|选方案|拍板分支/.test(prompt), `prompt should name user acceptance/decisions as needs_review: ${prompt}`);
+  assert.ok(/要不要我跑验证/.test(prompt) && /实际未完成/.test(prompt), `prompt should say "要不要我跑验证" is actually-unfinished, not a polite tail: ${prompt}`);
+
+  const options = captured.options!;
+  const sys = String(options.systemPrompt ?? '');
+  assert.ok(/验证未真正完成|尚未提交|登录验收/.test(sys), `systemPrompt should also reserve needs_review for unverified/uncommitted/acceptance: ${sys}`);
 });

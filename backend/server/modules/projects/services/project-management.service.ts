@@ -7,7 +7,7 @@ import type {
   ProjectRepositoryRow,
   WorkspacePathValidationResult,
 } from '@/shared/types.js';
-import { AppError, normalizeProjectPath, validateWorkspacePath } from '@/shared/utils.js';
+import { AppError, canonicalizeProjectPath, normalizeProjectPath, validateWorkspacePath } from '@/shared/utils.js';
 
 type CreateProjectInput = {
   projectPath: string;
@@ -54,7 +54,7 @@ const defaultDependencies: CreateProjectDependencies = {
     }
   },
   persistProjectPath: (projectPath: string, customName: string | null): CreateProjectPathResult =>
-    projectsDb.createProjectPath(projectPath, customName),
+    projectsDb.createProjectPath(projectPath, customName, true),
   getProjectByPath: (projectPath: string): ProjectRepositoryRow | null =>
     projectsDb.getProjectPath(projectPath),
 };
@@ -106,7 +106,7 @@ export async function createProject(
     });
   }
 
-  const resolvedProjectPath = normalizeProjectPath(pathValidation.resolvedPath);
+  const resolvedProjectPath = canonicalizeProjectPath(pathValidation.resolvedPath);
   await dependencies.ensureWorkspaceDirectory(resolvedProjectPath);
 
   const normalizedCustomName = resolveDisplayName(input.customName ?? null, resolvedProjectPath);

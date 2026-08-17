@@ -32,7 +32,7 @@ import {
 import { sessionsService } from './modules/providers/services/sessions.service.js';
 import { providerAuthService } from './modules/providers/services/provider-auth.service.js';
 import { createCompleteMessage, createNormalizedMessage } from './shared/utils.js';
-import { buildOperatorTools } from './modules/operators/operator.tools.js';
+import { buildOperatorTools, lastAssistantText } from './modules/operators/operator.tools.js';
 import { getOperatorConfig } from './modules/operators/operator.config.js';
 import { isTaskStatus } from './modules/database/repositories/tasks.db.js';
 import { z } from 'zod';
@@ -1151,6 +1151,26 @@ export async function runOperatorHeadless({ sessionId, taskId, title, promptOver
     return;
   }
 
+  // Pre-check: the verdict hinges on finalOutput (the newest assistant text).
+  // If the transcript is unreadable or has no final output, running the model
+  // would force it to emit a verdict from zero evidence — historically it
+  // hard-coded `done` in exactly this situation. Skip the run instead: the task
+  // stays in in_review/pending_acceptance for a human to inspect rather than
+  // being auto-labeled. Mirrors the limit the get_session_transcript tool uses
+  // for its first page so the guard agrees with what the model would read.
+  let finalOutput = null;
+  try {
+    const history = await resolvedDeps.sessions?.fetchHistory?.(sessionId, { limit: 40, offset: 0 });
+    const messages = Array.isArray(history?.messages) ? history.messages : [];
+    finalOutput = lastAssistantText(messages);
+  } catch (e) {
+    console.error('[operator-headless] transcript pre-check failed', e);
+  }
+  if (finalOutput == null) {
+    console.error('[operator-headless] no readable final output — skipping verdict', { sessionId, taskId });
+    return;
+  }
+
   // A task may already have an AI verdict from an earlier run (ai_summary /
   // verdict_at survive reopening). The prior verdict is only a weak reference:
   // each run must judge this session's actual output independently. When the
@@ -1174,16 +1194,16 @@ export async function runOperatorHeadless({ sessionId, taskId, title, promptOver
 ${priorVerdictContext}
 先读 get_session_transcript 返回的 finalOutput（最终输出，即最后一条 assistant 消息），再参考整段 transcript 佐证。判定要同时权衡三方面，不要只看结尾措辞：
 1. 实际产出质量：是否定位了根因、做了真实改动、交付物已落地（而非只给计划）。
-2. 验证结果：单测/E2E/构建等是否通过（看 finalOutput 与 transcript 里明确给出的验证结论）。
+2. 验证结果：单测/E2E/构建等是否真正通过（看 finalOutput 与 transcript 里明确给出的验证结论）。
 3. 是否真正收尾：剩余事项的性质——是 Agent 按惯例应自行完成的例行收尾（提交、推送、合入 main、重启、部署），还是必须用户亲自决策的事项（选方案、确认业务方向、授权外部操作）。
 
 判定规则（按优先级）：
-- 实际改动已落地 + 验证通过 + 仅差例行收尾（提交/推送/合入/部署，或最终输出礼貌性地问「要我提交并推送吗？」「还需要我做什么吗？」等）→ verdict = done。按 Lovdex 用户偏好，提交推送合入 main 是 Agent 的例行职责，不算用户决策门；这类礼貌性提问不否定完成度。
-- 实际改动已落地 + 验证通过 + 剩余事项确实需要用户决策（非例行收尾）→ verdict = needs_review（待你决策）。
+- 实际改动已落地 + 验证已真实完成（有测试/构建/运行结论佐证）+ 仅差例行收尾（提交/推送/合入/部署）→ verdict = done。按 Lovdex 用户偏好，提交推送合入 main 是 Agent 的例行职责，不算用户决策门；仅当工作实质完成、验证已真实通过、只差提交推送时，最终输出礼貌性地问「要我提交并推送吗？」「还需要我做什么吗？」不否定完成度。
+- 实际改动已落地 + 验证通过 + 剩余事项确实需要用户决策（非例行收尾）→ verdict = needs_review。特别注意，以下都判 needs_review 而非 done：验证尚未真正完成（只过了类型检查、没跑运行时/单测/E2E 冒烟，或 Agent 停下来问「要不要我跑验证」）；代码改动尚未提交/推送（根本没提交，不是已提交仅差推送）；最终输出在等用户登录验收、人工冒烟、选方案、拍板分支/合并处理等。
 - 只给了计划/方案、没有实际改动 → verdict = only_plan。
 - 产出错误、验证失败、卡死或必须用户介入才能继续 → verdict = blocked。
 
-注意：仅凭最终输出以问句结尾不足以判 needs_review/blocked——若工作实质完成且验证通过，礼貌性收尾提问应判 done。
+注意：仅凭最终输出以问句结尾不足以判 needs_review/blocked——若工作实质完成且验证已真实通过、仅差提交推送，礼貌性收尾提问应判 done；但「要不要我跑验证」「代码还没提交」是实际未完成，不是礼貌性收尾。
 
 调 write_task_summary 写入：summary（中文≤3句）、verdict（done|only_plan|needs_review|blocked）、reason（一句，说明判定依据，含验证结论与剩余事项性质）。`;
 
@@ -1217,7 +1237,7 @@ ${priorVerdictContext}
       // SDK's cache_control-on-middle-block bug that the preset path triggers
       // when combined with a user prompt (API 400 "Extra inputs are not
       // permitted, cache_control").
-      systemPrompt: '你是 Lovdex Operator，一个负责评估任务完成度的助手。你只能调用 lovdex-operator 工具集（list_tasks/get_task/get_session_transcript/write_task_summary 等）。不要试图编辑代码或运行 shell——这些工具不可用。判定完成度时以 get_session_transcript 的 finalOutput（最终输出，即最后一条 assistant 消息）为第一依据，并参考整段 transcript 佐证，同时权衡三方面：实际产出质量（根因定位/真实改动/交付物落地）、验证结果（单测/E2E/构建是否通过）、是否真正收尾（剩余事项是 Agent 例行收尾如提交推送合入部署，还是必须用户决策）。按 Lovdex 用户偏好，提交推送合入 main 是 Agent 的例行职责，不算用户决策门。判定规则：实际改动已落地+验证通过+仅差例行收尾（含礼貌性问「要我提交并推送吗？」「还需要我做什么吗？」）→ done；实际改动已落地+验证通过+剩余事项确需用户决策 → needs_review；只给计划无改动 → only_plan；产出错误/验证失败/卡死/需用户介入 → blocked。仅凭最终输出以问句结尾不足以判 needs_review/blocked——工作实质完成且验证通过时，礼貌性收尾提问应判 done。但注意：如果该任务此前已被判定完成（用户 prompt 中会给出现成判定记录），此前的判定只是弱参考——若本次追加工作与主任务无关且追加工作本身也已完整收尾，可维持 done，不因追加工作的存在而降级；若追加工作仍停留在计划/方案、代码未实现、或停在等 review/等用户决策，则按本次实际产出独立判定（only_plan/needs_review/blocked），不得被历史判定强行压成 done。',
+      systemPrompt: '你是 Lovdex Operator，一个负责评估任务完成度的助手。你只能调用 lovdex-operator 工具集（list_tasks/get_task/get_session_transcript/write_task_summary 等）。不要试图编辑代码或运行 shell——这些工具不可用。判定完成度时以 get_session_transcript 的 finalOutput（最终输出，即最后一条 assistant 消息）为第一依据，并参考整段 transcript 佐证，同时权衡三方面：实际产出质量（根因定位/真实改动/交付物落地）、验证结果（单测/E2E/构建是否真正通过）、是否真正收尾（剩余事项是 Agent 例行收尾如提交推送合入部署，还是必须用户决策）。按 Lovdex 用户偏好，提交推送合入 main 是 Agent 的例行职责，不算用户决策门。判定规则：实际改动已落地+验证已真实完成+仅差例行收尾（提交/推送/合入/部署）→ done，仅当工作实质完成且验证真实通过、只差提交推送时，礼貌性问「要我提交并推送吗？」不否定完成度；实际改动已落地+验证通过+剩余事项确需用户决策 → needs_review（验证未真正完成如只过类型检查没跑冒烟、代码尚未提交、等用户登录验收/选方案/拍板分支处理，都判 needs_review 而非 done）；只给计划无改动 → only_plan；产出错误/验证失败/卡死/需用户介入 → blocked。仅凭最终输出以问句结尾不足以判 needs_review/blocked——工作实质完成且验证真实通过时，礼貌性收尾提问应判 done；但「要不要我跑验证」「代码还没提交」是实际未完成，不是礼貌性收尾。但注意：如果该任务此前已被判定完成（用户 prompt 中会给出现成判定记录），此前的判定只是弱参考——若本次追加工作与主任务无关且追加工作本身也已完整收尾，可维持 done，不因追加工作的存在而降级；若追加工作仍停留在计划/方案、代码未实现、或停在等 review/等用户决策，则按本次实际产出独立判定（only_plan/needs_review/blocked），不得被历史判定强行压成 done。',
       settingSources: ['project', 'user', 'local'],
     };
 

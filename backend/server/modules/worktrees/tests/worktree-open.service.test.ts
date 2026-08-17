@@ -35,6 +35,7 @@ function createProjectRow(isArchived = false): ProjectRepositoryRow {
     custom_project_name: 'repo · feature/login',
     isStarred: 0,
     isArchived: isArchived ? 1 : 0,
+    is_explicit: 0,
   };
 }
 

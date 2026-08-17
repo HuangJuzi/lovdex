@@ -37,8 +37,8 @@ async function withTempWorkspace(run: (workspace: string, regular: string) => Pr
 
 test('getProjectsWithSessions marks the operator workspace project', async () => {
   await withTempWorkspace(async (workspace, regular) => {
-    projectsDb.createProjectPath(workspace);
-    projectsDb.createProjectPath(regular);
+    projectsDb.createProjectPath(workspace, null, true);
+    projectsDb.createProjectPath(regular, null, true);
 
     const projects = await getProjectsWithSessions({ skipSynchronization: true });
     const byPath = new Map(projects.map((p) => [p.fullPath, p]));

@@ -8,7 +8,6 @@ import {
   extractFirstValidJsonlData,
   findFilesRecursivelyCreatedAfter,
   normalizeSessionName,
-  normalizeToWorkspaceRoot,
   readFileTimestamps,
 } from '@/shared/utils.js';
 import type { IProviderSessionSynchronizer } from '@/shared/interfaces.js';
@@ -114,7 +113,7 @@ export class CodexSessionSynchronizer implements IProviderSessionSynchronizer {
       const payload = data.payload as Record<string, unknown> | undefined;
       const sessionId = typeof payload?.id === 'string' ? payload.id : undefined;
       const projectPath =
-        typeof payload?.cwd === 'string' ? normalizeToWorkspaceRoot(payload.cwd) : undefined;
+        typeof payload?.cwd === 'string' ? payload.cwd : undefined;
 
       if (!sessionId || !projectPath) {
         return null;

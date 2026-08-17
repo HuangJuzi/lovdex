@@ -1,6 +1,6 @@
 import { getConnection } from '@/modules/database/connection.js';
 import { projectsDb } from '@/modules/database/repositories/projects.db.js';
-import { normalizeProjectPath } from '@/shared/utils.js';
+import { canonicalizeProjectPath, normalizeProjectPath } from '@/shared/utils.js';
 
 export type SessionRow = {
   session_id: string;
@@ -57,7 +57,7 @@ function normalizeSessionRows(rows: SessionRow[]): SessionRow[] {
 
 function normalizeProjectPathForProvider(provider: string, projectPath: string): string {
   void provider;
-  return normalizeProjectPath(projectPath);
+  return canonicalizeProjectPath(projectPath);
 }
 
 export const sessionsDb = {

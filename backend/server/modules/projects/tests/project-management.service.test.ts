@@ -10,6 +10,7 @@ const projectRow = {
   custom_project_name: 'my-project',
   isStarred: 0,
   isArchived: 0,
+  is_explicit: 0,
 };
 
 test('createProject throws when project path is missing', async () => {

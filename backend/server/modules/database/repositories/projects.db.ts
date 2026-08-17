@@ -3,7 +3,7 @@ import path from 'node:path';
 
 import { getConnection } from '@/modules/database/connection.js';
 import type { CreateProjectPathResult, ProjectRepositoryRow } from '@/shared/types.js';
-import { normalizeProjectPath } from '@/shared/utils.js';
+import { canonicalizeProjectPath, normalizeProjectPath } from '@/shared/utils.js';
 
 function normalizeProjectDisplayName(projectPath: string, customProjectName: string | null): string {
     const trimmedCustomName = typeof customProjectName === 'string' ? customProjectName.trim() : '';
@@ -16,28 +16,40 @@ function normalizeProjectDisplayName(projectPath: string, customProjectName: str
 }
 
 export const projectsDb = {
-    createProjectPath(projectPath: string, customProjectName: string | null = null): CreateProjectPathResult {
+    createProjectPath(projectPath: string, customProjectName: string | null = null, isExplicit: boolean = false): CreateProjectPathResult {
         const db = getConnection();
-        const normalizedProjectPath = normalizeProjectPath(projectPath);
+        const normalizedProjectPath = canonicalizeProjectPath(projectPath);
         const normalizedProjectName = normalizeProjectDisplayName(normalizedProjectPath, customProjectName);
+
+        const existingProject = projectsDb.getProjectPath(normalizedProjectPath);
+        const conflictsWithActiveProject =
+            existingProject !== null
+            && existingProject.isArchived === 0
+            && (existingProject.is_explicit === 1 || !isExplicit);
+        if (conflictsWithActiveProject) {
+            return {
+                outcome: 'active_conflict',
+                project: existingProject,
+            };
+        }
+
         const attemptedId = randomUUID();
         const row = db.prepare(`
-        INSERT INTO projects (project_id, project_path, custom_project_name, isArchived)
-            VALUES (?, ?, ?, 0)
+        INSERT INTO projects (project_id, project_path, custom_project_name, isArchived, is_explicit)
+            VALUES (?, ?, ?, 0, ?)
             ON CONFLICT(project_path) DO UPDATE SET
-            isArchived = 0
-            WHERE projects.isArchived = 1
-            RETURNING project_id, project_path, custom_project_name, isStarred, isArchived
-        `).get(attemptedId, normalizedProjectPath, normalizedProjectName) as ProjectRepositoryRow | undefined;
+            isArchived = 0,
+            is_explicit = CASE WHEN excluded.is_explicit = 1 THEN 1 ELSE projects.is_explicit END
+            RETURNING project_id, project_path, custom_project_name, isStarred, isArchived, is_explicit
+        `).get(attemptedId, normalizedProjectPath, normalizedProjectName, isExplicit ? 1 : 0) as ProjectRepositoryRow | undefined;
 
         if (row) {
             return {
-                outcome: row.project_id === attemptedId ? 'created' : 'reactivated_archived',
+                outcome: existingProject && existingProject.isArchived === 1 ? 'reactivated_archived' : 'created',
                 project: row,
             };
         }
 
-        const existingProject = projectsDb.getProjectPath(normalizedProjectPath);
         return {
             outcome: 'active_conflict',
             project: existingProject,
@@ -46,9 +58,9 @@ export const projectsDb = {
 
     getProjectPath(projectPath: string): ProjectRepositoryRow | null {
         const db = getConnection();
-        const normalizedProjectPath = normalizeProjectPath(projectPath);
+        const normalizedProjectPath = canonicalizeProjectPath(projectPath);
         const row = db.prepare(`
-            SELECT project_id, project_path, custom_project_name, isStarred, isArchived
+            SELECT project_id, project_path, custom_project_name, isStarred, isArchived, is_explicit
             FROM projects
             WHERE project_path = ?
         `).get(normalizedProjectPath) as ProjectRepositoryRow | undefined;
@@ -59,7 +71,7 @@ export const projectsDb = {
     getProjectById(projectId: string): ProjectRepositoryRow | null {
         const db = getConnection();
         const row = db.prepare(`
-            SELECT project_id, project_path, custom_project_name, isStarred, isArchived
+            SELECT project_id, project_path, custom_project_name, isStarred, isArchived, is_explicit
             FROM projects
             WHERE project_id = ?
         `).get(projectId) as ProjectRepositoryRow | undefined;
@@ -89,7 +101,7 @@ export const projectsDb = {
     getProjectPaths(): ProjectRepositoryRow[] {
         const db = getConnection();
         return db.prepare(`
-            SELECT project_id, project_path, custom_project_name, isStarred, isArchived
+            SELECT project_id, project_path, custom_project_name, isStarred, isArchived, is_explicit
             FROM projects
             WHERE isArchived = 0
         `).all() as ProjectRepositoryRow[];
@@ -102,7 +114,7 @@ export const projectsDb = {
     getArchivedProjectPaths(): ProjectRepositoryRow[] {
         const db = getConnection();
         return db.prepare(`
-            SELECT project_id, project_path, custom_project_name, isStarred, isArchived
+            SELECT project_id, project_path, custom_project_name, isStarred, isArchived, is_explicit
             FROM projects
             WHERE isArchived = 1
         `).all() as ProjectRepositoryRow[];
