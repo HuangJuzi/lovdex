@@ -47,10 +47,16 @@ export function syncProviderEnv(cfg: AppConfig): void {
   // claude — authoritative: process.env matches config exactly.
   const c = providers.claude;
   setOrDelete('ANTHROPIC_BASE_URL', c.baseUrl);
-  // apiKey keeps legacy non-empty-only semantics: an empty field must not
-  // clobber an ANTHROPIC_API_KEY another provider shares via opencode.apiKeys.
-  if (c.apiKey?.trim()) process.env.ANTHROPIC_API_KEY = c.apiKey.trim();
-  setOrDelete('ANTHROPIC_AUTH_TOKEN', c.authToken);
+  // "API Key" (config apiKey) is the single UI credential: write the same value
+  // to both the API-key and auth-token slots so the CLI/proxy works whichever
+  // one it reads. Empty clears both (config is the only source). Note: this
+  // drops the old opencode.apiKeys sharing protection — an empty claude.apiKey
+  // now deletes ANTHROPIC_API_KEY even if opencode.apiKeys also wrote it.
+  setOrDelete('ANTHROPIC_API_KEY', c.apiKey);
+  setOrDelete('ANTHROPIC_AUTH_TOKEN', c.apiKey);
+  // Legacy backend-only authToken (no settings-page field) overrides AUTH_TOKEN
+  // when explicitly set — it wins over apiKey's AUTH_TOKEN write.
+  if (c.authToken?.trim()) process.env.ANTHROPIC_AUTH_TOKEN = c.authToken.trim();
   setOrDelete('ANTHROPIC_MODEL', c.defaultModel);
   // Alias aliases write BOTH the MODEL and MODEL_NAME mirrors (the CLI reads
   // the _NAME variant on new versions and the plain one on old; both must

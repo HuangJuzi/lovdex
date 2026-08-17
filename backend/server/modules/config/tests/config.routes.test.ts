@@ -83,6 +83,24 @@ test('PUT treats masked placeholder values as unchanged', async (t) => {
   assert.strictEqual(cfg.get().providers.qoder.personalAccessToken, 'real-token-value');
 });
 
+test('PUT treats masked apiKey (first6****last6) as unchanged', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lovdex-route-'));
+  const cfg = createAppConfig({ dataDir: dir });
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  cfg.update({ providers: { claude: { apiKey: 'sk-ant-real-key-abcdef' } } });
+
+  const { port } = listen(t, cfg);
+
+  // GET returns first6****last6; re-sending it must NOT overwrite the real key.
+  const res = await fetch(`http://127.0.0.1:${port}/api/config`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ providers: { claude: { apiKey: 'sk-ant****abcdef' } } }),
+  });
+  assert.strictEqual(res.status, 200);
+  assert.strictEqual(cfg.get().providers.claude.apiKey, 'sk-ant-real-key-abcdef');
+});
+
 test('PUT rejects invalid config shapes', async (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lovdex-route-'));
   const cfg = createAppConfig({ dataDir: dir });

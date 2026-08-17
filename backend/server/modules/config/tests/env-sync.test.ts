@@ -91,7 +91,17 @@ test('cleared claude fields DELETE owned env (config is the only source)', () =>
     process.env.CLAUDE_CLI_PATH = 'stale';
 
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lovdex-env-'));
-    const cfg = createAppConfig({ dataDir: dir }); // all claude fields default ''
+    const cfg = createAppConfig({ dataDir: dir });
+    // schema defaults are non-empty now (sophnet baseUrl/models) — "clear"
+    // means explicitly blanking the claude fields, not relying on defaults.
+    cfg.update({
+      providers: {
+        claude: {
+          baseUrl: '', defaultModel: '', haikuModel: '', opusModel: '', sonnetModel: '',
+          apiKey: '', authToken: '', cliPath: 'claude',
+        },
+      },
+    });
     syncProviderEnv(cfg.get());
 
     assert.strictEqual(process.env.ANTHROPIC_BASE_URL, undefined);
@@ -101,10 +111,29 @@ test('cleared claude fields DELETE owned env (config is the only source)', () =>
     assert.strictEqual(process.env.ANTHROPIC_DEFAULT_SONNET_MODEL_NAME, undefined);
     assert.strictEqual(process.env.CLAUDE_CLI_PATH, undefined);
 
-    // apiKey is legacy non-empty-only: host value survives an empty config
+    // apiKey is authoritative too: an empty config deletes it (config is the
+    // only source), so a pre-existing host value must NOT survive.
     process.env.ANTHROPIC_API_KEY = 'host-key';
     syncProviderEnv(cfg.get());
-    assert.strictEqual(process.env.ANTHROPIC_API_KEY, 'host-key');
+    assert.strictEqual(process.env.ANTHROPIC_API_KEY, undefined);
+  } finally {
+    for (const [k, v] of saved) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
+});
+
+test('claude apiKey writes both ANTHROPIC_API_KEY and ANTHROPIC_AUTH_TOKEN', () => {
+  const saved = new Map(TOUCHED_KEYS.map((k) => [k, process.env[k]]));
+  try {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lovdex-env-'));
+    const cfg = createAppConfig({ dataDir: dir });
+    cfg.update({ providers: { claude: { apiKey: 'sk-one-key' } } });
+    syncProviderEnv(cfg.get());
+
+    assert.strictEqual(process.env.ANTHROPIC_API_KEY, 'sk-one-key');
+    assert.strictEqual(process.env.ANTHROPIC_AUTH_TOKEN, 'sk-one-key');
   } finally {
     for (const [k, v] of saved) {
       if (v === undefined) delete process.env[k];

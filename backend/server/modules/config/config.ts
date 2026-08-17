@@ -30,11 +30,11 @@ export const DEFAULT_APP_CONFIG = {
       cliPath: 'claude',
       apiKey: '',
       authToken: '',
-      baseUrl: '',
-      defaultModel: '',
-      haikuModel: '',
-      opusModel: '',
-      sonnetModel: '',
+      baseUrl: 'https://www.sophnet.com/api/open-apis/anthropic',
+      defaultModel: 'DeepSeek-V4-Flash-0731',
+      haikuModel: 'DeepSeek-V4-Flash-0731',
+      opusModel: 'DeepSeek-V4-Pro-0813',
+      sonnetModel: 'claude-opus-4-8',
       oneMillionModels: '',
       streamCloseTimeoutMs: 10000,
       toolApprovalTimeoutMs: 60000,
@@ -94,6 +94,19 @@ export function maskSecret(value: unknown): string {
   return `••••${value.slice(-4)}`;
 }
 
+/**
+ * Masks an API key as `first6****last6`. Short values degrade: length <= 6 →
+ * `****`, length <= 12 → `first4****last4` (so the middle is never fully
+ * revealed). The `****` marker is what PUT's stripMaskedPlaceholders uses to
+ * treat the field as "unchanged" (see config.routes.ts).
+ */
+export function maskApiKey(value: unknown): string {
+  if (typeof value !== 'string' || value.length === 0) return '';
+  if (value.length <= 6) return '****';
+  if (value.length <= 12) return `${value.slice(0, 4)}****${value.slice(-4)}`;
+  return `${value.slice(0, 6)}****${value.slice(-6)}`;
+}
+
 /** Recursively replaces sensitive leaf values with a masked marker. */
 export function maskConfig(value: unknown, key?: string): unknown {
   // Container keys (e.g. `apiKeys`) hold secrets under arbitrary inner key
@@ -117,6 +130,7 @@ export function maskConfig(value: unknown, key?: string): unknown {
     }
     return out;
   }
+  if (key === 'apiKey') return maskApiKey(value);
   if (key && SENSITIVE_KEYS.has(key)) return maskSecret(value);
   return value;
 }

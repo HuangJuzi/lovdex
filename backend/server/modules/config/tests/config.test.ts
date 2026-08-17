@@ -97,14 +97,14 @@ test('auth code and jwtSecret use zero-hint mask', () => {
   assert.strictEqual(masked.auth.jwtSecret, '••••');
 });
 
-test('claude provider defaults include baseUrl and model alias fields', () => {
+test('claude provider defaults prefill baseUrl and model alias fields', () => {
   const cfg = createAppConfig({ dataDir: tmpDir() });
   const claude = cfg.get().providers.claude;
-  assert.strictEqual(claude.baseUrl, '');
-  assert.strictEqual(claude.defaultModel, '');
-  assert.strictEqual(claude.haikuModel, '');
-  assert.strictEqual(claude.opusModel, '');
-  assert.strictEqual(claude.sonnetModel, '');
+  assert.strictEqual(claude.baseUrl, 'https://www.sophnet.com/api/open-apis/anthropic');
+  assert.strictEqual(claude.defaultModel, 'DeepSeek-V4-Flash-0731');
+  assert.strictEqual(claude.haikuModel, 'DeepSeek-V4-Flash-0731');
+  assert.strictEqual(claude.opusModel, 'DeepSeek-V4-Pro-0813');
+  assert.strictEqual(claude.sonnetModel, 'claude-opus-4-8');
 });
 
 test('claude model alias fields survive deep merge and persist', () => {
@@ -116,8 +116,19 @@ test('claude model alias fields survive deep merge and persist', () => {
   assert.strictEqual(cfg.get().providers.claude.baseUrl, 'https://proxy.example/anthropic');
   assert.strictEqual(cfg.get().providers.claude.sonnetModel, 'm-sonnet');
   // sibling untouched by partial update
-  assert.strictEqual(cfg.get().providers.claude.haikuModel, '');
+  assert.strictEqual(cfg.get().providers.claude.haikuModel, 'DeepSeek-V4-Flash-0731');
   // persisted to disk
   const onDisk = JSON.parse(fs.readFileSync(path.join(dir, 'app.config.json'), 'utf8'));
   assert.strictEqual(onDisk.providers.claude.defaultModel, 'm-default');
+});
+
+test('apiKey masks as first6****last6 while other secrets keep tail mask', () => {
+  const dir = tmpDir();
+  const cfg = createAppConfig({ dataDir: dir });
+  cfg.update({
+    providers: { claude: { apiKey: 'sk-ant-abcdef-1234567890', authToken: 'tok-secret-value-9876' } },
+  });
+  const masked = cfg.getMasked();
+  assert.strictEqual(masked.providers.claude.apiKey, 'sk-ant****567890');
+  assert.strictEqual(masked.providers.claude.authToken, '••••9876');
 });

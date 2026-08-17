@@ -49,9 +49,10 @@ export function buildConfigWriteRouter(deps: { cfg: AppConfigApi }): Router {
 }
 
 /**
- * The masked GET response uses '••••' as a placeholder for real secrets. When a
- * client saves that shape back, masked values must not overwrite the real ones.
- * Values beginning with '••••' are treated as "unchanged" and dropped.
+ * The masked GET response uses '••••' (tail mask) or `****` (apiKey's
+ * first6****last6) as placeholders for real secrets. When a client saves that
+ * shape back, masked values must not overwrite the real ones. Values beginning
+ * with '••••' or containing '****' are treated as "unchanged" and dropped.
  */
 function stripMaskedPlaceholders(value: unknown): unknown {
   if (Array.isArray(value)) return value.map((v) => stripMaskedPlaceholders(v));
@@ -62,7 +63,7 @@ function stripMaskedPlaceholders(value: unknown): unknown {
     }
     return out;
   }
-  if (typeof value === 'string' && value.startsWith('••••')) {
+  if (typeof value === 'string' && (value.startsWith('••••') || value.includes('****'))) {
     return undefined; // drop this key entirely
   }
   return value;
