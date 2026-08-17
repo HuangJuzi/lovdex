@@ -30,6 +30,7 @@ const baseTask: Task = {
   is_operator: 0,
   label: 'other',
   remark: null,
+  source_schedule_id: null,
   created_at: '2026-08-11T00:00:00.000Z',
   updated_at: '2026-08-11T00:00:00.000Z',
 };

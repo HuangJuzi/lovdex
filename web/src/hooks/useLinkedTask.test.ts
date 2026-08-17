@@ -27,6 +27,7 @@ function mkTask(session_id: string | null): Task {
     is_operator: 0,
     label: 'other',
     remark: null,
+    source_schedule_id: null,
     created_at: '',
     updated_at: '',
     approval_pending: false,

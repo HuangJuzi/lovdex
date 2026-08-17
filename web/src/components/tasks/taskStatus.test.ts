@@ -20,6 +20,7 @@ function mkTask(task_id: string, status: Task['status']): Task {
     is_operator: 0,
     label: 'other',
     remark: null,
+    source_schedule_id: null,
     created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z',
   };
 }
@@ -53,7 +54,7 @@ test('PRIORITY_META covers all priorities', () => {
   for (const p of PRIORITY_ORDER) assert.ok(PRIORITY_META[p].label && PRIORITY_META[p].color);
 });
 test('LABEL_META covers all labels', () => {
-  assert.deepEqual(LABEL_ORDER, ['bug', 'feature', 'optimization', 'refactor', 'docs', 'other']);
+  assert.deepEqual(LABEL_ORDER, ['bug', 'feature', 'optimization', 'refactor', 'docs', 'other', 'reminder']);
   for (const l of LABEL_ORDER) assert.ok(LABEL_META[l].label && LABEL_META[l].color);
 });
 
