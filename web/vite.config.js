@@ -15,8 +15,10 @@ export default defineConfig(({ mode }) => {
   const host = normalizeLoopbackHost(configuredHost)
   
   const proxyHost = getConnectableHost(configuredHost)
-  // TODO: Remove support for legacy PORT variables in all locations in a future major release, leaving only SERVER_PORT.
-  const serverPort = env.SERVER_PORT || env.PORT || 3001
+  // Backend default port is 3188 and frontend dev server default is 5188; these
+  // are build-time defaults now that runtime config comes from GET /api/config
+  // (VITE_* env vars are gone). HOST is still read from env for network exposure.
+  const serverPort = 3188
 
   return {
     plugins: [react()],
@@ -27,7 +29,7 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       host,
-      port: parseInt(env.VITE_PORT) || 5180,
+      port: 5188,
       strictPort: true,
       proxy: {
         '/api': `http://${proxyHost}:${serverPort}`,

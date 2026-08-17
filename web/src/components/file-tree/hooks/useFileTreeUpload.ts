@@ -120,7 +120,7 @@ const uploadFormDataWithProgress = (
     xhr.open('POST', `/api/projects/${encodeURIComponent(projectId)}/files/upload`);
 
     const token = getStoredAuthToken();
-    if (!IS_PLATFORM && token) {
+    if (!IS_PLATFORM() && token) {
       xhr.setRequestHeader('Authorization', `Bearer ${token}`);
     }
 

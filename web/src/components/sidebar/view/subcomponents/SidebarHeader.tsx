@@ -113,7 +113,7 @@ export default function SidebarHeader({
         style={{}}
       >
         <div className="flex items-center justify-between gap-2">
-          {IS_PLATFORM ? (
+          {IS_PLATFORM() ? (
             <a
               href="https://cloudcli.ai/dashboard"
               className="flex min-w-0 items-center gap-2.5 transition-opacity hover:opacity-80"
@@ -207,7 +207,7 @@ export default function SidebarHeader({
         style={isPWA && isMobile ? { paddingTop: '16px' } : {}}
       >
         <div className="flex items-center justify-between">
-          {IS_PLATFORM ? (
+          {IS_PLATFORM() ? (
             <a
               href="https://cloudcli.ai/dashboard"
               className="flex min-w-0 items-center gap-2.5 transition-opacity active:opacity-70"

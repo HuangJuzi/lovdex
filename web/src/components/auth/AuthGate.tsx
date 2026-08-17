@@ -47,14 +47,14 @@ type AuthStatus = 'loading' | 'authenticated' | 'unauthenticated';
  */
 export default function AuthGate({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>(
-    IS_PLATFORM ? 'authenticated' : 'loading'
+    IS_PLATFORM() ? 'authenticated' : 'loading'
   );
   const [user, setUser] = useState<AuthUser | null>(null);
   const [bootAttempt, setBootAttempt] = useState(0);
 
   // Boot check: validate a stored token, or show the login page.
   useEffect(() => {
-    if (IS_PLATFORM) {
+    if (IS_PLATFORM()) {
       return;
     }
     let cancelled = false;
@@ -91,7 +91,7 @@ export default function AuthGate({ children }: { children: ReactNode }) {
 
   // Mid-session expiry: authenticatedFetch 401 → back to login page.
   useEffect(() => {
-    if (IS_PLATFORM) return;
+    if (IS_PLATFORM()) return;
     const onUnauthorized = () => {
       localStorage.removeItem(TOKEN_KEY);
       setUser(null);

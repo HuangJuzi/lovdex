@@ -111,7 +111,7 @@ export default function SidebarFooter({
           (SidebarAssistant), so the footer is back to version banners only. */}
 
       {/* Change password + logout (OSS mode only — the login gate is backend-enforced). */}
-      {!IS_PLATFORM && (
+      {!IS_PLATFORM() && (
         <>
           <div className="flex gap-1.5 px-2 pb-2">
             <Button

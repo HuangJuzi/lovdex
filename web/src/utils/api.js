@@ -42,7 +42,7 @@ export const authenticatedFetch = (url, options = {}) => {
     defaultHeaders['Content-Type'] = 'application/json';
   }
 
-  if (!IS_PLATFORM && token) {
+  if (!IS_PLATFORM() && token) {
     defaultHeaders['Authorization'] = `Bearer ${token}`;
   }
 
@@ -88,7 +88,7 @@ export const api = {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(!IS_PLATFORM && token ? { Authorization: `Bearer ${token}` } : {}),
+          ...(!IS_PLATFORM() && token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({ currentCode, newCode }),
       });

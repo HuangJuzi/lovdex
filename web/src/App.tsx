@@ -1,6 +1,8 @@
+import { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
 import { I18nextProvider } from 'react-i18next';
 
+import { loadRuntimeConfig } from './constants/config';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { WebSocketProvider } from './contexts/WebSocketContext';
 import AppContent from './components/app/AppContent';
@@ -102,7 +104,19 @@ function detectRouterBasename() {
 }
 
 export default function App() {
+  const [configReady, setConfigReady] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    loadRuntimeConfig().then(() => {
+      if (!cancelled) setConfigReady(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const routerBasename = detectRouterBasename();
+  if (!configReady) return null;
 
   return (
     <I18nextProvider i18n={i18n}>

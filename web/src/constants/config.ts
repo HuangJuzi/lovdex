@@ -1,38 +1,33 @@
 /**
- * Environment Flag: Is Platform
- * Indicates if the app is running in Platform mode (hosted) or OSS mode (self-hosted)
+ * Runtime config — sourced from GET /api/config at startup instead of build
+ * time env vars (VITE_IS_PLATFORM / VITE_API_BASE_URL are gone).
  */
-// Guard `import.meta.env` so this module loads safely outside a Vite context
-// (e.g. under plain `node:test` via tsx, where `import.meta.env` is undefined).
-// In Vite this is the real env object; outside Vite it falls back to `{}`,
-// preserving the OSS defaults (IS_PLATFORM=false, API_BASE_URL='').
-const ENV = (import.meta as { env?: Record<string, string | undefined> }).env ?? {};
-export const IS_PLATFORM = ENV.VITE_IS_PLATFORM === 'true';
+export const API_BASE_URL = '';
 
-/**
- * Base URL of the backend API. When non-empty, all `/api/*` requests and the
- * `/ws` WebSocket are opened against this origin (cross-origin deployment).
- * When empty (default), the frontend uses same-origin (relative paths), which
- * matches the dev proxy and the original same-origin monolith deployment.
- *
- * Set via `VITE_API_BASE_URL` at build/dev time, e.g.
- *   VITE_API_BASE_URL=http://localhost:3007
- * Trailing slash is stripped so concatenation with `/api/...` is safe.
- */
-export const API_BASE_URL = (ENV.VITE_API_BASE_URL ?? '').replace(/\/$/, '');
+type RuntimeConfig = {
+  isPlatform: boolean;
+};
 
-/**
- * For empty shell instances where no project is provided,
- * we use a default project object to ensure the shell can still function.
- * This prevents errors related to missing project data.
- *
- * `projectId` is set to a well-known sentinel ('default') because the empty
- * shell doesn't correspond to any real project row in the database; any API
- * call that routes through this placeholder must tolerate a missing match.
- */
+let runtimeConfig: RuntimeConfig = { isPlatform: false };
+
+export const IS_PLATFORM = () => runtimeConfig.isPlatform;
+
+/** Fetches server config once; safe when called outside a fetch context. */
+export async function loadRuntimeConfig(): Promise<RuntimeConfig> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/config`);
+    if (!res.ok) throw new Error(`config fetch failed: ${res.status}`);
+    const cfg = (await res.json()) as { server?: { isPlatform?: boolean } };
+    runtimeConfig = { isPlatform: cfg.server?.isPlatform === true };
+  } catch {
+    runtimeConfig = { isPlatform: false };
+  }
+  return runtimeConfig;
+}
+
 export const DEFAULT_PROJECT_FOR_EMPTY_SHELL = {
   projectId: 'default',
   displayName: 'default',
-  fullPath: IS_PLATFORM ? '/workspace' : '',
-  path: IS_PLATFORM ? '/workspace' : '',
+  fullPath: '',
+  path: '',
 };
