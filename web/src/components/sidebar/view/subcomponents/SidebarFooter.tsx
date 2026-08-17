@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import { ArrowUpCircle, Bug, AlertTriangle, KeyRound, LogOut, Settings2 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
 import type { TFunction } from 'i18next';
 import { IS_PLATFORM } from '../../../../constants/config';
 import type { ReleaseInfo } from '../../../../types/sharedTypes';
 import { useAuth } from '../../../auth/AuthGate';
 import ChangePasswordDialog from '../../../auth/ChangePasswordDialog';
 import { Button } from '../../../../shared/view/ui';
+import { useSettingsDialog } from '../../../../hooks/useSettingsDialog';
 
 const GITHUB_ISSUES_URL = 'https://github.com/siteboon/claudecodeui/issues/new';
 const GITHUB_REPO_URL = 'https://github.com/siteboon/claudecodeui';
@@ -41,7 +41,7 @@ export default function SidebarFooter({
   t,
 }: SidebarFooterProps) {
   const { logout } = useAuth();
-  const navigate = useNavigate();
+  const { openSettings } = useSettingsDialog();
   const [showChangePassword, setShowChangePassword] = useState(false);
   return (
     <div className="flex-shrink-0" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0)' }}>
@@ -118,7 +118,7 @@ export default function SidebarFooter({
           type="button"
           variant="ghost"
           size="sm"
-          onClick={() => navigate('/settings/providers')}
+          onClick={openSettings}
           title="Provider 设置"
           aria-label="Provider 设置"
           className="w-full justify-start px-2 text-xs font-normal text-muted-foreground hover:text-foreground"
