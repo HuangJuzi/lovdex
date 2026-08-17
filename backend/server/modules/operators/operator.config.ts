@@ -14,6 +14,7 @@
 
 import os from 'node:os';
 
+import { appConfig } from '@/modules/config/config.js';
 import { appConfigDb } from '@/modules/database/repositories/app-config.js';
 
 export type OperatorConfig = {
@@ -26,13 +27,14 @@ export type OperatorConfig = {
   interactive_chat_enabled: boolean;
 };
 
+const opCfg = appConfig().get().operator;
+
 export const DEFAULT_OPERATOR_CONFIG: OperatorConfig = {
   enabled: true,
   auto_verdict_enabled: true,
-  model: process.env.LOVDEX_OPERATOR_MODEL ?? '',
-  workspace:
-    process.env.LOVDEX_OPERATOR_WORKSPACE ?? `${os.homedir()}/.lovdex/operator-workspace`,
-  max_concurrent: parseInt(process.env.LOVDEX_OPERATOR_MAX_CONCURRENT ?? '2', 10),
+  model: opCfg.model ?? '',
+  workspace: opCfg.workspace || `${os.homedir()}/.lovdex/operator-workspace`,
+  max_concurrent: typeof opCfg.maxConcurrent === 'number' ? opCfg.maxConcurrent : 2,
   verdict_prompt_override: null,
   interactive_chat_enabled: true,
 };
