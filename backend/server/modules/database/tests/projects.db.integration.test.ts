@@ -70,3 +70,25 @@ test('projectsDb.createProjectPath returns active_conflict for active duplicates
     assert.equal(conflict.project?.isArchived, 0);
   });
 });
+
+test('createProjectPath promotes a non-explicit active project to explicit', async () => {
+  await withIsolatedDatabase(() => {
+    const discovered = projectsDb.createProjectPath('/workspace/promoted');
+    assert.equal(discovered.outcome, 'created');
+    assert.equal(discovered.project?.is_explicit, 0);
+
+    const promoted = projectsDb.createProjectPath('/workspace/promoted', null, true);
+    assert.equal(promoted.outcome, 'created');
+    assert.equal(promoted.project?.project_id, discovered.project?.project_id);
+    assert.equal(promoted.project?.is_explicit, 1);
+  });
+});
+
+test('createProjectPath keeps active_conflict for an already-explicit active project', async () => {
+  await withIsolatedDatabase(() => {
+    projectsDb.createProjectPath('/workspace/explicit', null, true);
+    const conflict = projectsDb.createProjectPath('/workspace/explicit', null, true);
+    assert.equal(conflict.outcome, 'active_conflict');
+    assert.equal(conflict.project?.is_explicit, 1);
+  });
+});
