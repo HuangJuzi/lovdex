@@ -2,42 +2,85 @@
  * Syncs provider credentials from app.config back into process.env.
  *
  * SDK subprocesses (claude/codex/opencode/qoder CLIs) receive credentials by
- * inheriting process.env (`sdkOptions.env = { ...process.env }`). Once the
- * source of truth moved to app.config.json we must re-surface non-empty values
- * on process.env at boot so child processes keep working unchanged. Empty
- * values are never written, so pre-existing hostenv (e.g. ANTHROPIC_AUTH_TOKEN
- * injected by systemd) stays authoritative when config leaves it blank.
+ * inheriting process.env (`sdkOptions.env = { ...process.env }`). Config is the
+ * SINGLE source of truth for the claude provider's runtime knobs, so the
+ * claude section below makes process.env match app.config authoritatively:
+ * non-empty values are (trimmed and) written, empty values DELETE their env
+ * var — a cleared field really turns the knob off, overriding hostenv (e.g.
+ * .bashrc injected by the supervisor). providers.claude.apiKey is the
+ * exception (legacy non-empty-only) so an empty field never clobbers an
+ * ANTHROPIC_API_KEY another provider shares via opencode.apiKeys. Everything
+ * else (codex/opencode/qoder) keeps the legacy non-empty-only semantics.
  */
 import type { AppConfig } from './config.js';
+
+/** Every env var owned by `providers.claude` config. The supervisor filters
+ * exactly this set out of the shell env it injects so config stays the sole
+ * source — keep in sync with supervisor/env-filter.mjs. */
+export const OWNED_ANTHROPIC_ENV = [
+  'ANTHROPIC_BASE_URL',
+  'ANTHROPIC_API_KEY',
+  'ANTHROPIC_AUTH_TOKEN',
+  'ANTHROPIC_MODEL',
+  'CLAUDE_CLI_PATH',
+  'ANTHROPIC_DEFAULT_HAIKU_MODEL',
+  'ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME',
+  'ANTHROPIC_DEFAULT_OPUS_MODEL',
+  'ANTHROPIC_DEFAULT_OPUS_MODEL_NAME',
+  'ANTHROPIC_DEFAULT_SONNET_MODEL',
+  'ANTHROPIC_DEFAULT_SONNET_MODEL_NAME',
+] as const;
 
 export function syncProviderEnv(cfg: AppConfig): void {
   const { providers } = cfg;
 
   // opencode — a per-env credential map that can reference keys shared with
   // other providers (e.g. ANTHROPIC_API_KEY). Process it FIRST so the
-  // dedicated per-provider fields below (claude.apiKey, qoder.PAT, ...) always
-  // take precedence on a key collision. Values are trimmed so whitespace-only
+  // dedicated per-provider fields below (qoder.PAT, ...) always take
+  // precedence on a key collision. Values are trimmed so whitespace-only
   // entries don't become junk env keys the auth logic (which trims) won't
-  // believe in.
+  // believe in. (Legacy: non-empty only, never deletes.)
   for (const [key, value] of Object.entries(providers.opencode.apiKeys)) {
     if (value?.trim()) process.env[key] = value.trim();
   }
 
-  // claude
-  if (providers.claude.apiKey?.trim()) process.env.ANTHROPIC_API_KEY = providers.claude.apiKey.trim();
-  if (providers.claude.authToken?.trim()) process.env.ANTHROPIC_AUTH_TOKEN = providers.claude.authToken.trim();
-  if (providers.claude.cliPath?.trim() && providers.claude.cliPath.trim() !== 'claude') {
-    process.env.CLAUDE_CLI_PATH = providers.claude.cliPath.trim();
-  }
-  // qoder
+  // claude — authoritative: process.env matches config exactly.
+  const c = providers.claude;
+  setOrDelete('ANTHROPIC_BASE_URL', c.baseUrl);
+  // apiKey keeps legacy non-empty-only semantics: an empty field must not
+  // clobber an ANTHROPIC_API_KEY another provider shares via opencode.apiKeys.
+  if (c.apiKey?.trim()) process.env.ANTHROPIC_API_KEY = c.apiKey.trim();
+  setOrDelete('ANTHROPIC_AUTH_TOKEN', c.authToken);
+  setOrDelete('ANTHROPIC_MODEL', c.defaultModel);
+  // Alias aliases write BOTH the MODEL and MODEL_NAME mirrors (the CLI reads
+  // the _NAME variant on new versions and the plain one on old; both must
+  // point at the same real model id).
+  setOrDelete('ANTHROPIC_DEFAULT_HAIKU_MODEL', c.haikuModel);
+  setOrDelete('ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME', c.haikuModel);
+  setOrDelete('ANTHROPIC_DEFAULT_OPUS_MODEL', c.opusModel);
+  setOrDelete('ANTHROPIC_DEFAULT_OPUS_MODEL_NAME', c.opusModel);
+  setOrDelete('ANTHROPIC_DEFAULT_SONNET_MODEL', c.sonnetModel);
+  setOrDelete('ANTHROPIC_DEFAULT_SONNET_MODEL_NAME', c.sonnetModel);
+  // cliPath: the default 'claude' means "resolve from PATH" — never leave an
+  // env override pointing at a stale path.
+  setOrDelete('CLAUDE_CLI_PATH', c.cliPath && c.cliPath.trim() !== 'claude' ? c.cliPath : '');
+
+  // qoder (legacy, non-empty only)
   if (providers.qoder.personalAccessToken?.trim()) {
     process.env.QODER_PERSONAL_ACCESS_TOKEN = providers.qoder.personalAccessToken.trim();
   }
-  // binaries
+  // binaries (legacy, non-empty only)
   if (providers.codex.binPath?.trim() && providers.codex.binPath.trim() !== 'codex') {
     process.env.CODEX_PATH_OVERRIDE = providers.codex.binPath.trim();
   }
   if (providers.opencode.binPath?.trim() && providers.opencode.binPath.trim() !== 'opencode') {
     process.env.OPENCODE_BIN = providers.opencode.binPath.trim();
   }
+}
+
+/** Writes a trimmed value, or deletes the env var when the value is empty. */
+function setOrDelete(key: string, value: string | undefined): void {
+  const v = typeof value === 'string' ? value.trim() : '';
+  if (v) process.env[key] = v;
+  else delete process.env[key];
 }
