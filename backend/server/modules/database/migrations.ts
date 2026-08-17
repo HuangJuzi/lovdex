@@ -641,6 +641,15 @@ const migrateTasksTable = (db: Database): void => {
   }
 };
 
+/**
+ * Adds the `is_explicit` flag that distinguishes user-created projects
+ * (wizard create-project / clone) from disk-scan auto-discovered ones.
+ */
+export function migrateProjectsExplicitColumn(db: Database): void {
+  const columns = getTableInfo(db, 'projects').map((column) => column.name);
+  addColumnToTableIfNotExists(db, 'projects', columns, 'is_explicit', 'INTEGER DEFAULT 0');
+}
+
 export const runMigrations = (db: Database) => {
   try {
     const usersTableInfo = db.prepare('PRAGMA table_info(users)').all() as { name: string }[];
@@ -679,6 +688,7 @@ export const runMigrations = (db: Database) => {
     addColumnToTableIfNotExists(db, 'sessions', sessionColumnNamesForSummary, 'is_operator', 'INTEGER DEFAULT 0');
 
     ensureProjectsForSessionPaths(db);
+    migrateProjectsExplicitColumn(db);
 
     migrateTasksTable(db);
 
