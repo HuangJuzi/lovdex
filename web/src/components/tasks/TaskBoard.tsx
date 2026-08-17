@@ -38,13 +38,14 @@ import { ASSISTANT_OPTION_VALUE, projectPathOf, taskFormProjects } from './proje
 import { LABEL_META, LABEL_ORDER, PRIORITY_META, PRIORITY_ORDER, STATUS_META, STATUS_ORDER, groupByStatus } from './taskStatus';
 import { TaskFilterBar } from './TaskFilterBar';
 import { TaskTableView } from './TaskTableView';
-import { EMPTY_TASK_FILTER, filterTasks, type TaskFilter } from './taskFilter';
+import { EMPTY_TASK_FILTER, filterTasks, normalizeTaskFilter, type TaskFilter } from './taskFilter';
 
 export function TaskBoardPage() {
   const navigate = useNavigate();
   const { subscribe, sendMessage } = useWebSocket();
   const { tasks, loading, loadError, refresh, upsert } = useTasks({}, subscribe);
-  const [filter, setFilter] = useLocalStorage<TaskFilter>('taskFilter', EMPTY_TASK_FILTER);
+  const [storedFilter, setFilter] = useLocalStorage<unknown>('taskFilter', EMPTY_TASK_FILTER);
+  const filter = useMemo(() => normalizeTaskFilter(storedFilter), [storedFilter]);
   const [viewMode, setViewMode] = useLocalStorage<'board' | 'table'>('taskViewMode', 'board');
   // 移动端强制看板：表格在手机上体验差，且「表格」按钮已隐藏（hidden sm:inline-flex）。
   // 断点 640 与 Tailwind `sm:` 对齐。
