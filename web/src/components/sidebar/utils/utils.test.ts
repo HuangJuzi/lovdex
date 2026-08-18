@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import type { Project, ProjectSession } from '../../../types/app';
 
-import { excludeHiddenProjects, getRecentSessions, getSessionDotState, isProjectActive, isSessionActive, isSessionRecentlyActive, sortProjects } from './utils';
+import { excludeHiddenProjects, formatCompactSessionAge, getRecentSessions, getSessionDotState, isProjectActive, isSessionActive, isSessionRecentlyActive, sortProjects } from './utils';
 
 const mkSession = (id: string, lastActivity?: string): ProjectSession => ({
   id,
@@ -174,4 +174,15 @@ test('getRecentSessions sorts sessions without timestamps last', () => {
   const out = getRecentSessions([pA], 10);
   assert.equal(out[0].session.id, 'a2');
   assert.equal(out[1].session.id, 'a1');
+});
+
+test('formatCompactSessionAge renders compact relative time', () => {
+  assert.equal(formatCompactSessionAge('2026-08-04T11:59:30Z', new Date('2026-08-04T12:00:00Z')), '<1m');
+  assert.equal(formatCompactSessionAge('2026-08-04T11:55:00Z', new Date('2026-08-04T12:00:00Z')), '5m');
+  assert.equal(formatCompactSessionAge('2026-08-04T10:00:00Z', new Date('2026-08-04T12:00:00Z')), '2hr');
+  assert.equal(formatCompactSessionAge('2026-08-01T12:00:00Z', new Date('2026-08-04T12:00:00Z')), '3d');
+});
+
+test('formatCompactSessionAge returns empty for invalid input', () => {
+  assert.equal(formatCompactSessionAge('', new Date('2026-08-04T12:00:00Z')), '');
 });
