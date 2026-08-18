@@ -23,7 +23,6 @@ test('renders scheduled tasks rows', () => {
       <ScheduledTasksView
         tasks={[baseTask]}
         projectOptions={[{ value: '/proj', label: 'proj' }]}
-        onNew={() => {}}
         onEdit={() => {}}
         onDelete={() => {}}
         onToggle={() => {}}
@@ -38,7 +37,7 @@ test('renders scheduled tasks rows', () => {
 test('renders empty state', () => {
   const html = renderToStaticMarkup(
     <StaticRouter location="/tasks?view=scheduled">
-      <ScheduledTasksView tasks={[]} projectOptions={[]} onNew={() => {}} onEdit={() => {}} onDelete={() => {}} onToggle={() => {}} onRunNow={() => {}} />
+      <ScheduledTasksView tasks={[]} projectOptions={[]} onEdit={() => {}} onDelete={() => {}} onToggle={() => {}} onRunNow={() => {}} />
     </StaticRouter>,
   );
   assert.match(html, /暂无定时任务/);

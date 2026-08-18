@@ -37,7 +37,7 @@ import { deriveTaskName } from './taskName';
 import { ASSISTANT_OPTION_VALUE, projectPathOf, taskFormProjects } from './projectOptions';
 import { LABEL_META, LABEL_ORDER, PRIORITY_META, PRIORITY_ORDER, STATUS_META, STATUS_ORDER, groupByStatus } from './taskStatus';
 import { TaskFilterBar } from './TaskFilterBar';
-import { ScheduledTasksPanel } from './ScheduledTasksPanel';
+import { ScheduledTasksPanel, type ScheduledTasksPanelHandle } from './ScheduledTasksPanel';
 import { TaskTableView } from './TaskTableView';
 import { EMPTY_TASK_FILTER, filterTasks, normalizeTaskFilter } from './taskFilter';
 
@@ -255,6 +255,13 @@ export function TaskBoardPage() {
     setCreating(false);
   }
 
+  // 全局「新建任务」按钮：定时视图下唤起定时任务表单，其余视图唤起普通任务表单。
+  const scheduledPanelRef = useRef<ScheduledTasksPanelHandle>(null);
+  function handleHeaderNew() {
+    if (effectiveView === 'scheduled') scheduledPanelRef.current?.openNew();
+    else openCreateForm();
+  }
+
   async function createTask() {
     const projectPath = newProjectPath;
     const prompt = newPrompt.trim();
@@ -432,14 +439,11 @@ export function TaskBoardPage() {
           </button>
         </div>
         <div className="ml-auto flex items-center gap-2">
-          {/* 定时视图自带「新建定时任务」按钮，避免与全局「新建任务」重复。 */}
-          {effectiveView !== 'scheduled' && (
-            <Button size="toolbar" variant="chunkyPrimary" onClick={openCreateForm} disabled={creating} title="新建任务" aria-label="新建任务">
-              <Plus />
-              {/* 移动端（<640px）只留 + 号 */}
-              <span className="hidden sm:inline">新建任务</span>
-            </Button>
-          )}
+          <Button size="toolbar" variant="chunkyPrimary" onClick={handleHeaderNew} disabled={creating} title="新建任务" aria-label="新建任务">
+            <Plus />
+            {/* 移动端（<640px）只留 + 号 */}
+            <span className="hidden sm:inline">新建任务</span>
+          </Button>
           <HomeButton />
         </div>
       </header>
@@ -598,7 +602,7 @@ export function TaskBoardPage() {
       ) : (
         <div className="flex min-h-0 flex-1 flex-col">
           {effectiveView === 'scheduled' ? (
-            <ScheduledTasksPanel projectOptions={projectOptions} />
+            <ScheduledTasksPanel ref={scheduledPanelRef} projectOptions={projectOptions} />
           ) : (
           <>
           <TaskFilterBar projectOptions={projectOptions} filter={filter} onChange={setFilter} />

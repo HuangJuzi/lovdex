@@ -1,7 +1,6 @@
 import { useNavigate } from 'react-router-dom';
-import { CalendarClock, Pencil, Play, Plus, Power, Trash2 } from 'lucide-react';
+import { CalendarClock, Pencil, Play, Power, Trash2 } from 'lucide-react';
 
-import { Button } from '../../shared/view/ui';
 import type { ScheduledTask } from '../../types/app';
 import { scheduleLabel } from '../../utils/scheduleLabel';
 import type { TaskProjectOption } from './TaskCard';
@@ -10,7 +9,6 @@ import { formatAbsoluteTime } from './taskTimestamp';
 export type ScheduledTasksViewProps = {
   tasks: ScheduledTask[];
   projectOptions: TaskProjectOption[];
-  onNew: () => void;
   onEdit: (task: ScheduledTask) => void;
   onDelete: (task: ScheduledTask) => void;
   onToggle: (task: ScheduledTask) => void;
@@ -23,17 +21,13 @@ function projectLabel(task: ScheduledTask, projectOptions: TaskProjectOption[]):
   return opt?.label ?? task.project_path;
 }
 
-export function ScheduledTasksView({ tasks, projectOptions, onNew, onEdit, onDelete, onToggle, onRunNow }: ScheduledTasksViewProps) {
+export function ScheduledTasksView({ tasks, projectOptions, onEdit, onDelete, onToggle, onRunNow }: ScheduledTasksViewProps) {
   const navigate = useNavigate();
 
   if (tasks.length === 0) {
     return (
       <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4">
         <div className="text-sm text-muted-foreground">暂无定时任务</div>
-        <Button size="toolbar" variant="chunkyPrimary" onClick={onNew}>
-          <Plus />
-          新建定时任务
-        </Button>
       </div>
     );
   }
@@ -42,10 +36,6 @@ export function ScheduledTasksView({ tasks, projectOptions, onNew, onEdit, onDel
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex flex-shrink-0 items-center justify-between px-3 py-2 sm:px-4">
         <span className="text-sm font-semibold text-foreground">⏰ 定时任务</span>
-        <Button size="toolbar" variant="chunkyPrimary" onClick={onNew}>
-          <Plus />
-          新建
-        </Button>
       </div>
       <div className="min-h-0 flex-1 overflow-x-auto px-2 pb-4 sm:px-4">
         <table className="w-full min-w-[900px] border-separate text-sm" style={{ borderSpacing: '0 7px' }}>

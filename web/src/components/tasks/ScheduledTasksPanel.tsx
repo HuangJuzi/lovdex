@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { forwardRef, useCallback, useImperativeHandle, useState } from 'react';
 
 import { useWebSocket } from '../../contexts/WebSocketContext';
 import { useScheduledTasks } from '../../hooks/useScheduledTasks';
@@ -26,7 +26,12 @@ function toApiBody(d: ScheduledTaskDraft) {
   };
 }
 
-export function ScheduledTasksPanel({ projectOptions }: { projectOptions: TaskProjectOption[] }) {
+export type ScheduledTasksPanelHandle = {
+  openNew: () => void;
+};
+
+export const ScheduledTasksPanel = forwardRef<ScheduledTasksPanelHandle, { projectOptions: TaskProjectOption[] }>(
+  function ScheduledTasksPanel({ projectOptions }, ref) {
   const { subscribe } = useWebSocket();
   const { tasks, loading, loadError, refresh } = useScheduledTasks({}, subscribe);
   const [formOpen, setFormOpen] = useState(false);
@@ -35,7 +40,9 @@ export function ScheduledTasksPanel({ projectOptions }: { projectOptions: TaskPr
   const [error, setError] = useState<string | null>(null);
   const [formKey, setFormKey] = useState(0);
 
-  const openNew = () => { setEditing(null); setError(null); setFormKey((k) => k + 1); setFormOpen(true); };
+  const openNew = useCallback(() => { setEditing(null); setError(null); setFormKey((k) => k + 1); setFormOpen(true); }, []);
+  // 供全局「新建任务」按钮在定时视图下直接唤起新建定时任务表单。
+  useImperativeHandle(ref, () => ({ openNew }), [openNew]);
   const openEdit = (t: ScheduledTask) => { setEditing(t); setError(null); setFormKey((k) => k + 1); setFormOpen(true); };
 
   async function submit(draft: ScheduledTaskDraft) {
@@ -90,8 +97,8 @@ export function ScheduledTasksPanel({ projectOptions }: { projectOptions: TaskPr
 
   return (
     <>
-      <ScheduledTasksView tasks={tasks} projectOptions={projectOptions} onNew={openNew} onEdit={openEdit} onDelete={(t) => void remove(t)} onToggle={(t) => void toggle(t)} onRunNow={(t) => void runNow(t)} />
+      <ScheduledTasksView tasks={tasks} projectOptions={projectOptions} onEdit={openEdit} onDelete={(t) => void remove(t)} onToggle={(t) => void toggle(t)} onRunNow={(t) => void runNow(t)} />
       <ScheduledTaskForm key={formKey} open={formOpen} initial={editing} projectOptions={projectOptions} submitting={submitting} error={error} onClose={() => setFormOpen(false)} onSubmit={(d) => void submit(d)} />
     </>
   );
-}
+});
