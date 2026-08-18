@@ -13,6 +13,14 @@ function makePush() {
   };
 }
 
+async function waitFor(pred: () => boolean, ms = 1000): Promise<void> {
+  const deadline = Date.now() + ms;
+  while (!pred()) {
+    if (Date.now() > deadline) throw new Error('timeout waiting for condition');
+    await new Promise((r) => setTimeout(r, 2));
+  }
+}
+
 const baseParams = {
   appSessionId: 's1',
   providerSessionId: null,
@@ -20,7 +28,7 @@ const baseParams = {
   cwd: '/tmp',
 };
 
-test('start forwards assistant passthrough then a terminal complete', async () => {
+test('start resolves early with the first event session_id; passthrough then terminal complete', async () => {
   const { push, pushed } = makePush();
   const querySdk: QuerySdkLike = async function* () {
     yield { type: 'assistant', session_id: 'prov-1', message: { role: 'assistant' } };
@@ -28,12 +36,14 @@ test('start forwards assistant passthrough then a terminal complete', async () =
   };
   const mgr = createAgentRunManager({ push, querySdk });
 
+  // start() resolves as soon as the first session-bearing event lands — NOT at
+  // end of run (that would starve main's rpc waiter and discard the id).
   const res = await mgr.start(baseParams);
   assert.equal(res.providerSessionId, 'prov-1');
+  await mgr.whenDone('s1');
 
   const sessionPushes = pushed.filter((p) => p.topic === 'session:s1');
-  // assistant, result, complete
-  assert.equal(sessionPushes.length, 3);
+  assert.equal(sessionPushes.length, 3); // assistant, result, complete
 
   const assistant = sessionPushes[0].payload as Record<string, unknown>;
   assert.equal(assistant.type, 'assistant');
@@ -46,11 +56,72 @@ test('start forwards assistant passthrough then a terminal complete', async () =
   assert.equal(complete.done, true);
 });
 
+test('C1: start resolves early (before the loop finishes) when providerSessionId is given', async () => {
+  const { push, pushed } = makePush();
+  let release: () => void = () => {};
+  const gate = new Promise<void>((r) => (release = r));
+
+  const querySdk: QuerySdkLike = async function* () {
+    yield { type: 'assistant', session_id: 'prov-x', message: {} };
+    await gate; // loop parked; run still active
+    yield { type: 'result', session_id: 'prov-x', subtype: 'success' };
+  };
+  const mgr = createAgentRunManager({ push, querySdk });
+
+  const res = await mgr.start({ ...baseParams, providerSessionId: 'prov-x' });
+  // Fast resolve while the loop is still parked on the gate.
+  assert.equal(res.providerSessionId, 'prov-x');
+  assert.equal(pushed.filter((p) => p.topic === 'session:s1').length, 1); // only the first assistant
+
+  release();
+  await mgr.whenDone('s1');
+  const complete = pushed.find(
+    (p) => p.topic === 'session:s1' && (p.payload as Record<string, unknown>).type === 'complete',
+  );
+  assert.ok(complete, 'complete pushed after the loop actually ends');
+});
+
+test('C2: resume carries the providerSessionId string, never a boolean, and sessionId is unset', async () => {
+  // With a providerSessionId: resume is the string id, sessionId is absent.
+  {
+    const { push } = makePush();
+    let captured: Record<string, unknown> | undefined;
+    const querySdk: QuerySdkLike = async function* (_command, options) {
+      captured = options;
+      yield { type: 'assistant', session_id: 'prov-9', message: {} };
+      yield { type: 'result', session_id: 'prov-9', subtype: 'success' };
+    };
+    const mgr = createAgentRunManager({ push, querySdk });
+    await mgr.start({ ...baseParams, providerSessionId: 'prov-9' });
+    await mgr.whenDone('s1');
+    assert.equal(captured!.resume, 'prov-9'); // string passthrough
+    assert.equal(captured!.sessionId, undefined); // not the mutually-exclusive field
+    assert.notEqual(captured!.resume, true); // never the boolean form
+  }
+
+  // Without a providerSessionId: resume is absent (undefined), not a boolean.
+  {
+    const { push } = makePush();
+    let captured: Record<string, unknown> | undefined;
+    const querySdk: QuerySdkLike = async function* (_command, options) {
+      captured = options;
+      yield { type: 'assistant', session_id: 'prov-fresh', message: {} };
+      yield { type: 'result', session_id: 'prov-fresh', subtype: 'success' };
+    };
+    const mgr = createAgentRunManager({ push, querySdk });
+    await mgr.start({ ...baseParams, appSessionId: 's2' });
+    await mgr.whenDone('s2');
+    assert.equal(captured!.resume, undefined);
+    assert.equal(captured!.sessionId, undefined);
+  }
+});
+
 test('canUseTool emits an approval push and awaits the decision', async () => {
   const { push, pushed } = makePush();
   let permissionResult: unknown;
 
   const querySdk: QuerySdkLike = async function* (_command, options) {
+    yield { type: 'assistant', session_id: 'prov-1', message: { role: 'assistant' } };
     const canUseTool = (options as { canUseTool: Function }).canUseTool;
     permissionResult = await canUseTool('Bash', { command: 'ls' }, { toolUseID: 'tu-1' });
     yield { type: 'result', session_id: 'prov-1', subtype: 'success' };
@@ -58,9 +129,7 @@ test('canUseTool emits an approval push and awaits the decision', async () => {
   const mgr = createAgentRunManager({ push, querySdk });
 
   const startP = mgr.start(baseParams);
-
-  // Let the generator run until it awaits the approval.
-  await new Promise((r) => setTimeout(r, 10));
+  await waitFor(() => pushed.some((p) => p.topic.startsWith('approval:')));
   const approvalPush = pushed.find((p) => p.topic.startsWith('approval:'));
   assert.ok(approvalPush, 'approval push emitted');
   const requestId = approvalPush!.topic.slice('approval:'.length);
@@ -68,10 +137,9 @@ test('canUseTool emits an approval push and awaits the decision', async () => {
   const payload = approvalPush!.payload as { appSessionId: string; approval: unknown };
   assert.equal(payload.appSessionId, 's1');
 
-  const accepted = mgr.respond(requestId, { allow: true });
-  assert.equal(accepted, true);
-
+  assert.equal(mgr.respond(requestId, { allow: true }), true);
   await startP;
+  await mgr.whenDone('s1');
   assert.deepEqual(permissionResult, { behavior: 'allow' });
 });
 
@@ -80,19 +148,56 @@ test('canUseTool deny produces a deny PermissionResult', async () => {
   let permissionResult: unknown;
 
   const querySdk: QuerySdkLike = async function* (_command, options) {
+    yield { type: 'assistant', session_id: 'prov-1', message: { role: 'assistant' } };
     const canUseTool = (options as { canUseTool: Function }).canUseTool;
     permissionResult = await canUseTool('Bash', { command: 'rm -rf /' }, { toolUseID: 'tu-2' });
     yield { type: 'result', session_id: 'prov-1', subtype: 'success' };
   };
   const mgr = createAgentRunManager({ push, querySdk });
   const startP = mgr.start(baseParams);
-  await new Promise((r) => setTimeout(r, 10));
+  await waitFor(() => pushed.some((p) => p.topic.startsWith('approval:')));
   const approvalPush = pushed.find((p) => p.topic.startsWith('approval:'))!;
   const requestId = approvalPush.topic.slice('approval:'.length);
   mgr.respond(requestId, { deny: true });
   await startP;
+  await mgr.whenDone('s1');
   const pr = permissionResult as { behavior: string };
   assert.equal(pr.behavior, 'deny');
+});
+
+test('approval timeout auto-denies, pushes cancelled, and respond settles once', async () => {
+  const { push, pushed } = makePush();
+  let permissionResult: unknown;
+
+  const querySdk: QuerySdkLike = async function* (_command, options) {
+    yield { type: 'assistant', session_id: 'prov-1', message: {} };
+    const canUseTool = (options as { canUseTool: Function }).canUseTool;
+    permissionResult = await canUseTool('Bash', { command: 'ls' }, { toolUseID: 'tu-timeout' });
+    yield { type: 'result', session_id: 'prov-1', subtype: 'success' };
+  };
+  const mgr = createAgentRunManager({ push, querySdk, approvalTimeoutMs: 20 });
+
+  const startP = mgr.start(baseParams);
+  await waitFor(() => pushed.some((p) => p.topic.startsWith('approval:')));
+  const approvalPush = pushed.find((p) => p.topic.startsWith('approval:'))!;
+  const requestId = approvalPush.topic.slice('approval:'.length);
+
+  // Wait for the timer to fire → cancelled approval push.
+  await waitFor(() =>
+    pushed.some(
+      (p) =>
+        p.topic === `approval:${requestId}` &&
+        (p.payload as { approval?: { cancelled?: boolean } }).approval?.cancelled === true,
+    ),
+  );
+
+  await startP;
+  await mgr.whenDone('s1');
+  const pr = permissionResult as { behavior: string };
+  assert.equal(pr.behavior, 'deny');
+
+  // respond racing the timer settles once: the timeout already settled it.
+  assert.equal(mgr.respond(requestId, { allow: true }), false);
 });
 
 test('interrupt breaks the loop but still pushes complete; unknown session returns false', async () => {
@@ -109,17 +214,46 @@ test('interrupt breaks the loop but still pushes complete; unknown session retur
   const mgr = createAgentRunManager({ push, querySdk });
 
   const startP = mgr.start(baseParams);
-  await new Promise((r) => setTimeout(r, 10));
+  await waitFor(() => pushed.some((p) => p.topic === 'session:s1'));
 
   assert.equal(mgr.interrupt('nope'), false);
   assert.equal(mgr.interrupt('s1'), true);
   release();
   await startP;
+  await mgr.whenDone('s1');
 
   const sessionPushes = pushed.filter((p) => p.topic === 'session:s1');
-  // only the first assistant (before gate) + complete; the post-gate events skipped
   const types = sessionPushes.map((p) => (p.payload as Record<string, unknown>).type);
   assert.deepEqual(types, ['assistant', 'complete']);
+});
+
+test('C3: abort-induced throw still pushes terminal complete and does not reject start', async () => {
+  const { push, pushed } = makePush();
+  let release: () => void = () => {};
+  const gate = new Promise<void>((r) => (release = r));
+
+  // Simulates the real SDK routing subprocess exitError into the stream after
+  // abort: the generator THROWS once released.
+  const querySdk: QuerySdkLike = async function* () {
+    yield { type: 'assistant', session_id: 'prov-1', message: {} };
+    await gate;
+    throw new Error('exitError: process exited with code -2');
+  };
+  const mgr = createAgentRunManager({ push, querySdk });
+
+  const startP = mgr.start(baseParams);
+  await waitFor(() => pushed.some((p) => p.topic === 'session:s1'));
+  mgr.interrupt('s1');
+  release();
+
+  const res = await startP;
+  assert.equal(res.providerSessionId, 'prov-1');
+  await mgr.whenDone('s1');
+
+  const sessionPushes = pushed.filter((p) => p.topic === 'session:s1');
+  const complete = sessionPushes.find((p) => (p.payload as Record<string, unknown>).type === 'complete');
+  assert.ok(complete, 'terminal complete pushed despite abort-induced throw');
+  assert.equal(sessionPushes.length, 2); // assistant + complete (the throw did not push result)
 });
 
 test('respond for unknown requestId returns false', () => {
@@ -134,14 +268,16 @@ test('start rejects a second run for the same appSessionId', async () => {
   let release: () => void = () => {};
   const gate = new Promise<void>((r) => (release = r));
   const querySdk: QuerySdkLike = async function* () {
+    yield { type: 'assistant', session_id: 'prov-1', message: {} };
     await gate;
     yield { type: 'result', session_id: 'prov-1', subtype: 'success' };
   };
   const mgr = createAgentRunManager({ push, querySdk });
 
+  // The run is registered synchronously inside start(), before its first await.
   const first = mgr.start(baseParams);
-  await new Promise((r) => setTimeout(r, 10));
   await assert.rejects(mgr.start(baseParams), /session already running/);
   release();
   await first;
+  await mgr.whenDone('s1');
 });

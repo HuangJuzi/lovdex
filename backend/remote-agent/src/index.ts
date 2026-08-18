@@ -62,15 +62,17 @@ export async function handleIncomingFrame(
  * Task 9 — connection-epoch outbound dispatcher:
  * when a link drops mid-RPC, pending `rpc_res` must be re-delivered on the
  * CURRENT socket (or the pending work aborted) — never close over the old
- * socket across reconnects. No long-running RPCs exist yet, so nothing is
- * wired here; `handleIncomingFrame` deliberately receives the socket as an
- * argument instead of closing over a stale one.
+ * socket across reconnects. `handleIncomingFrame` deliberately receives the
+ * socket as an argument instead of closing over a stale one; outbound session/
+ * approval PUSHES are likewise re-pointed at the live socket on every open via
+ * `setPushEmitter` (see `handleOpen`). rpc_res re-delivery remains unwired.
  */
 
 function buildHelloFrame(cfg: RemoteAgentConfig): string {
-  // capabilities intentionally empty: the rpc-dispatch stub rejects every
-  // method today, so claiming 'session/claude' / 'fs/read' would be dishonest.
-  // Task 9/10 restore the real capability list once those RPCs land.
+  // capabilities intentionally minimal: session/start·interrupt and
+  // approval/respond are live (Task 9), but fs/* is still rejected ("fs not
+  // implemented yet") — Task 10 restores the allowlisted fs set and updates
+  // these capabilities alongside it.
   return JSON.stringify({
     type: 'hello',
     hostId: cfg.hostId,

@@ -5,7 +5,7 @@ import { normalizeAgentEvent, terminalCompleteEvent } from '../../server/shared/
  * The minimal SDK surface the lite loop consumes. Tests inject a fake async
  * generator so the loop is exercised WITHOUT spawning the real claude
  * subprocess. The real `@anthropic-ai/claude-agent-sdk` `query` takes
- * `{ prompt, options }` and returns a `Query` (an AsyncGenerator); here we keep
+ * `{ prompt, options }` and returns a `Query` (an async generator); here we keep
  * the surface loose — `(command, options) => AsyncIterable<record>` — because
  * the lite service only ever reads events out of it and hands options in. The
  * adapter that maps the loose shape onto the real `query({ prompt, options })`
@@ -19,15 +19,11 @@ export type QuerySdkLike = (
 export type AgentRunManagerDeps = {
   /**
    * Injected SDK. Defaults to {@link defaultQuerySdk}, which bridges onto the
-   * real `query({ prompt, options })`. `typeof query` is accepted so callers
-   * may pass the raw SDK export; the manager always drives it through the loose
-   * {@link QuerySdkLike} shape.
+   * real `query({ prompt, options })`.
    */
-  querySdk?: QuerySdkLike | typeof query;
+  querySdk?: QuerySdkLike;
   /** Wired to the ws push bus by index.ts via setPushEmitter. */
   push: (topic: string, payload: unknown) => void;
-  /** Optional out-of-band RPC error channel (unused by the happy path). */
-  sendRpcError?: (id: string, error: string) => void;
   /** Approval wait timeout in ms; auto-denies past this. Default 120s. */
   approvalTimeoutMs?: number;
 };
@@ -95,18 +91,22 @@ type PendingApproval = {
 type ActiveRun = {
   appSessionId: string;
   aborted: boolean;
+  /** Set once a provider session id has been observed (for early resolution). */
+  establishedSid: boolean;
   controller: AbortController;
   /** requestIds this run is waiting on, so interrupt can cancel them. */
   approvalIds: Set<string>;
+  done: Promise<void>;
+  doneResolve: () => void;
 };
 
 /**
  * Bridge the loose {@link QuerySdkLike} shape onto the real SDK `query`, which
  * takes `{ prompt, options }` and returns an async generator of SDK messages.
+ * Lazy dynamic import keeps the real SDK/subprocess out of the test path; this
+ * is an ESM package so `require` is unavailable at runtime.
  */
 const defaultQuerySdk: QuerySdkLike = async function* (command, options) {
-  // Lazy dynamic import so tests never touch the real SDK (and its subprocess
-  // spawn); this is an ESM package so `require` is unavailable at runtime.
   const mod = (await import('@anthropic-ai/claude-agent-sdk')) as { query: typeof query };
   const iterable = mod.query({ prompt: command, options: options as never }) as unknown as AsyncIterable<
     Record<string, unknown>
@@ -115,7 +115,7 @@ const defaultQuerySdk: QuerySdkLike = async function* (command, options) {
 };
 
 export function createAgentRunManager(deps: AgentRunManagerDeps) {
-  const querySdk: QuerySdkLike = (deps.querySdk as QuerySdkLike) ?? defaultQuerySdk;
+  const querySdk: QuerySdkLike = deps.querySdk ?? defaultQuerySdk;
   const approvalTimeoutMs = deps.approvalTimeoutMs ?? 120_000;
 
   const runs = new Map<string, ActiveRun>();
@@ -132,22 +132,45 @@ export function createAgentRunManager(deps: AgentRunManagerDeps) {
     return true;
   }
 
+  /** Settle every approval this run still owns (run teardown / interrupt). */
+  function settleRunApprovals(appSessionId: string, message: string): void {
+    const run = runs.get(appSessionId);
+    if (!run) return;
+    for (const requestId of Array.from(run.approvalIds)) {
+      settleApproval(requestId, { deny: true, message });
+    }
+  }
+
   async function start(params: SessionStartParams): Promise<{ providerSessionId: string }> {
     const { appSessionId } = params;
     if (runs.has(appSessionId)) {
       throw new Error(`session already running: ${appSessionId}`);
     }
 
-    const controller = new AbortController();
+    // Resolve early: reuse the provided providerSessionId, else settle from the
+    // first event that carries a session_id. `start()`'s returned promise must
+    // NOT wait for the whole SDK loop — main's rpc waiter resolves provider
+    // session mapping from it and aborts RPCs past ~60s.
+    let settleEstablished: (id: string) => void = () => {};
+    const established = new Promise<string>((r) => (settleEstablished = r));
+    if (params.providerSessionId) {
+      settleEstablished(params.providerSessionId);
+    }
+
+    let providerSessionId = params.providerSessionId ?? '';
+
+    let doneResolve: () => void = () => {};
+    const done = new Promise<void>((r) => (doneResolve = r));
     const run: ActiveRun = {
       appSessionId,
       aborted: false,
-      controller,
+      establishedSid: Boolean(params.providerSessionId),
+      controller: new AbortController(),
       approvalIds: new Set(),
+      done,
+      doneResolve,
     };
     runs.set(appSessionId, run);
-
-    let providerSessionId = params.providerSessionId ?? '';
 
     const canUseTool = async (
       toolName: string,
@@ -182,35 +205,54 @@ export function createAgentRunManager(deps: AgentRunManagerDeps) {
       return toPermissionResult(decision);
     };
 
+    // Mirror the local path (server/claude-sdk.js): `resume` carries the
+    // provider session id STRING. Never set a bare boolean `resume` (the SDK
+    // would spawn `claude --resume true`), and do NOT set `sessionId` — it is
+    // mutually exclusive with `resume` in the SDK Options type.
     const sdkOptions: Record<string, unknown> = {
       cwd: params.cwd,
-      sessionId: params.providerSessionId ?? undefined,
-      resume: Boolean(params.providerSessionId),
+      resume: params.providerSessionId ?? undefined,
       permissionMode: params.permissionMode ?? 'default',
       includePartialMessages: params.includePartialMessages ?? true,
       canUseTool,
-      signal: controller.signal,
+      signal: run.controller.signal,
     };
     if (params.model !== undefined) sdkOptions.model = params.model;
 
-    try {
-      for await (const event of querySdk(params.command, sdkOptions)) {
-        if (run.aborted) break;
-        const sid = (event as Record<string, unknown>).session_id;
-        if (typeof sid === 'string' && sid) providerSessionId = sid;
-        deps.push(`session:${appSessionId}`, normalizeAgentEvent(event));
+    // Drive the SDK loop off the awaited rpc path so the rpc_res can return
+    // early; the run keeps tracking here so `interrupt` / `respond` keep
+    // working and the terminal complete is pushed exactly once.
+    void (async () => {
+      try {
+        for await (const event of querySdk(params.command, sdkOptions)) {
+          if (run.aborted) break;
+          const eventRecord = event as Record<string, unknown>;
+          const sid = eventRecord.session_id;
+          if (typeof sid === 'string' && sid && !run.establishedSid) {
+            run.establishedSid = true;
+            providerSessionId = sid;
+            settleEstablished(sid);
+          }
+          deps.push(`session:${appSessionId}`, normalizeAgentEvent(eventRecord));
+        }
+      } catch (err) {
+        // Abort-induced throw (e.g. the SDK routing subprocess exitError into
+        // the stream after an abort) is expected noise — mirror
+        // server/claude-sdk.js. Non-abort failures still get logged.
+        if (!run.aborted) {
+          console.error(`[remote-agent] session ${appSessionId} failed:`, err instanceof Error ? err.message : err);
+        }
+      } finally {
+        settleRunApprovals(appSessionId, 'run ended');
+        run.doneResolve();
+        runs.delete(appSessionId);
       }
-    } finally {
-      // Cancel any approvals still outstanding for this run (e.g. interrupt
-      // mid-prompt) so their promises don't leak past teardown.
-      for (const requestId of Array.from(run.approvalIds)) {
-        settleApproval(requestId, { deny: true, message: 'run ended' });
-      }
-      runs.delete(appSessionId);
-    }
+      deps.push(`session:${appSessionId}`, terminalCompleteEvent(providerSessionId));
+      settleEstablished(providerSessionId); // safety: never leave `established` unsettled
+    })();
 
-    deps.push(`session:${appSessionId}`, terminalCompleteEvent(providerSessionId));
-    return { providerSessionId };
+    const resolvedProviderSessionId = await established;
+    return { providerSessionId: resolvedProviderSessionId };
   }
 
   /** Resolve a pending approval promise. Returns whether the request existed. */
@@ -218,9 +260,13 @@ export function createAgentRunManager(deps: AgentRunManagerDeps) {
     return settleApproval(requestId, decision);
   }
 
-  /** Abandon (auto-deny) a pending approval, e.g. on timeout externally. */
-  function abandon(requestId: string): boolean {
-    return settleApproval(requestId, { deny: true, message: 'abandoned' });
+  /**
+   * Resolves once the run for `appSessionId` has fully finished (its loop has
+   * exited and the terminal complete has been pushed). Resolves immediately for
+   * sessions with no active run.
+   */
+  function whenDone(appSessionId: string): Promise<void> {
+    return runs.get(appSessionId)?.done ?? Promise.resolve();
   }
 
   /**
@@ -238,11 +284,9 @@ export function createAgentRunManager(deps: AgentRunManagerDeps) {
     } catch {
       /* ignore */
     }
-    for (const requestId of Array.from(run.approvalIds)) {
-      settleApproval(requestId, { deny: true, message: 'interrupted' });
-    }
+    settleRunApprovals(appSessionId, 'interrupted');
     return true;
   }
 
-  return { start, respond, abandon, interrupt };
+  return { start, respond, whenDone, interrupt };
 }
