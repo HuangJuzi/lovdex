@@ -55,10 +55,9 @@ function ActionButton({ title, label, className, onClick, children }: {
 function ScheduledTaskCard({ task, projectOptions, onEdit, onDelete, onToggle, onRunNow }: ScheduledTaskCardProps) {
   return (
     <div className={`flex flex-col gap-1.5 rounded-lg border border-border bg-card p-3 shadow-sm ${task.enabled === 0 ? 'opacity-60' : ''}`}>
-      <div className="flex items-center justify-between gap-2">
-        <span className="truncate text-sm font-semibold text-card-foreground">{task.title}</span>
-        {statusBadge(task)}
-      </div>
+      {/* 标题独占一行（长标题最多两行）；徽标另起一行，避免长标题挤坏徽标。 */}
+      <span className="line-clamp-2 overflow-hidden text-sm font-semibold text-card-foreground">{task.title}</span>
+      <div className="self-start">{statusBadge(task)}</div>
       <FieldRow label="调度" value={<><CalendarClock className="mr-1 inline h-3 w-3" />{scheduleLabel(task)}</>} />
       <FieldRow label="项目" value={projectLabel(task, projectOptions)} />
       <FieldRow label="下次" value={<span className="font-mono text-[11px]">{formatAbsoluteTime(task.next_run_at)}</span>} />
