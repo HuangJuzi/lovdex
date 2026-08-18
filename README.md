@@ -6,6 +6,7 @@ Lovdex 是一个面向 Claude Code / Codex / OpenCode / Qoder 编码代理的 We
 
 - `web/` — React 前端（Vite）。`npm install && npm run dev`（:5188），`/api`、`/ws` 代理到后端。
 - `backend/` — Express API + WebSocket 后端。`npm install && npm run dev`（:3188）。
+- `backend/remote-agent/` — 远程项目使用的独立轻量部署包（remote-lite），见下方「远程项目」。
 - `supervisor/` — 守护进程，可同时拉起前后端（systemd user unit 见 `systemd/`）。
 - `docs/` — 设计/计划文档。
 
@@ -19,9 +20,73 @@ Lovdex 是一个面向 Claude Code / Codex / OpenCode / Qoder 编码代理的 We
 
 在远程机器上原生运行 Claude 会话：远程文件夹可作为「项目」加入，Agent（Claude Code SDK）在**远程机器上**读写文件、跑命令，事件流与审批回传到本工作台。
 
-**架构**：目标机器上部署一个轻量常驻服务 **remote-lite**（`backend/remote-agent/`，node + systemd --user），主动经 WebSocket 连回主站（`/api/remote-agents/ws`，每台主机一个派生 token）。主站把会话 spawn 路由到该连接：`session/start / interrupt / approval/respond` RPC + 事件推送；主站复用 `transformMessage` + `sessionsService.normalizeMessage` 归一化事件，聊天/任务/verdict 全部复用本地管线。
+### 系统架构
 
-**使用**：
+```
+┌── 主站 Lovdex（backend :3188 + web :5188）──────────────────────────────────────────────┐
+│  modules/remote-agents/（index.js 装配的单例栈）                                          │
+│                                                                                          │
+│    registry ←───────────────── 接收每个 lite 的出站 WS（/api/remote-agents/ws）            │
+│    remote-spawn ← chat/task 的 spawnFns 包装（本地路径直通，远程路径转 RPC）                │
+│    remote-projects.index ── projectPath▸hostId 路由表（建/删项目时刷新）                    │
+│    normalizeRemoteEvent（index.js）── 事件归一化：transformMessage + normalizeMessage      │
+│    REST（bootstrap/ssh-runner/lite-package）── 一键部署                                   │
+└─────┬──────────────────────────────────────────────┬───────────────────────────────────┘
+      │ outbound WS（每台主机一个 token）               │ ssh/scp/systemd（部署 lite）
+      ▼                                               ▼
+┌───────────────┐                            ┌───────────────────────────┐
+│ 远程机 A lite   │  hello + rpc_req/rpc_res   │ 远程机 B lite（同左）        │
+│  agent-run.ts ▸ Claude SDK（cwd=远程项目）    │  · 进程常驻于 systemd --user│
+│  fs.ts（根白名单） │◂── push session:/approval│  · 重连/心跳/致命码退出      │
+└───────────────┘                            └───────────────────────────┘
+
+会话数据流：浏览器 chat.send → main chat-websocket → remote-spawn → registry.rpc('session/start')
+→ lite agent-run（远程原生执行）→ push 事件 → remote-spawn → normalizeRemoteEvent → 聊天 UI
+审批：lite canUseTool → push approval:<requestId> → 浏览器审批面板 → permission-response
+→ main → approval/respond RPC → lite settle → SDK 继续
+```
+
+### 模块清单（Phase 1）
+
+**主站侧 — `backend/server/modules/remote-agents/`**
+
+| 模块 | 职责 |
+|---|---|
+| `shared/agent-runtime/protocol.ts` | 主↔lite WS 帧类型与编解码（hello / rpc_req+rpc_res / push / ping+pong），session/start 参数 schema |
+| `shared/agent-runtime/normalize.ts` | SDK 事件最小透传包装（加 eventId）+ 合成 `complete`（主站侧再跑 transformMessage+normalizeMessage） |
+| `remote-host.db.ts` | `remote_hosts` 表仓库（CRUD / 状态 / token hash / 按项目路径找主机） |
+| `remote-agents.registry.ts` | 在线主机连接注册表：RPC 待决表、sessionHost/审批索引、离线清扫、`closeHost` |
+| `remote-agent.server.ts` | 接收 lite 出站连接的 WS 服务（`/api/remote-agents/ws`）：token→hostId、hello 校验（4001/4002）、push 总线 |
+| `remote-spawn.ts` | spawn/abort/approval 路由层：远程项目会话转发给 lite、事件归一化进 writer（index.js 里构造**一次**供全 provider 共享） |
+| `remote-projects.index.ts` | `projectPath→hostId` 内存索引（启动/建删项目刷新） |
+| `remote-fs.service.ts` | 主站侧 fs RPC 客户端（stat/list/read） |
+| `runtime.ts` | 注入 seam：把 registry+fsClient 交给路由，解耦 index.js |
+| `bootstrap.service.ts` | 一键部署：ssh 探测、写 config/.env（0600）、推 install.sh+systemd unit+lite.tgz、装 systemd --user |
+| `ssh-runner.ts` | ssh/scp 的 argv-only 封装 + `sshpass` 一次性公钥注入 |
+| `lite-package.ts` | 现场用 esbuild 打包 lite 为自包含 `dist/lite.mjs` 并 tar |
+| `remote-agents.routes.ts` | REST：机器 CRUD / pubkey / 部署（阻塞 5-15s）/ 远程目录浏览 |
+
+**远程机侧 — `backend/remote-agent/`（独立部署包）**
+
+| 模块 | 职责 |
+|---|---|
+| `config.ts` | 读 `~/.lovdex-remote/config.json`（serverUrl/token/hostId/roots 白名单） |
+| `index.ts` | `createLiteService`：出站 WS 客户端、hello、心跳、重连/致命码退出、断线打断活动 run |
+| `rpc-dispatch.ts` | 分发表：session/start·interrupt、approval/respond、fs/stat·list·read |
+| `agent-run.ts` | Claude SDK 会话循环：事件推送、审批等待+超时自动拒、interruptAll、**cwd 根白名单** |
+| `fs.ts` | 白名单 fs（realpath 根内校验，stat/list/read） |
+| `deploy/install.sh` + `systemd-unit.template` | 远程安装：自包含 bundle 免 npm ci；systemd --user 单元（`%h` 家目录、绝对 node 路径、linger） |
+
+**前端 — `web/src/components/`**
+
+| 模块 | 职责 |
+|---|---|
+| `settings/RemoteHostsSettingsSection.tsx` | 设置「远程机器」Tab：列表 / 部署 / 删除 / pubkey 参考 |
+| `settings/AddRemoteHostDialog.tsx` | 一键添加弹窗：名称/主机/端口/用户/密码 → 注入公钥+注册+部署+轮询一条龙 |
+| `project-creation-wizard/components/StepRemoteConfiguration.tsx` | 建项目「远程」模式：选在线主机 + 浏览远程目录 |
+| `sidebar/…/SidebarProjectItem.tsx` | 远程项目显示 `主机:/路径` 标记 |
+
+### 使用
 
 1. 设置 → **远程机器** → **添加远程机器**（弹窗一站式）：填名称/主机/端口/SSH 用户，选**密码**（或已装 Lovdex 公钥）。密码模式会一次性用 `sshpass` 把你机器的 ed25519 公钥注入目标 `~/.ssh/authorized_keys`，随后自动部署 lite 并轮询到在线。**密码用完即弃、不入库**；之后全部走密钥。
 2. 建项目 → 选 **远程** 来源 → 选在线主机 → 浏览/输入远程目录 → 创建；侧栏远程项目显示 `主机:/路径` 标记。
