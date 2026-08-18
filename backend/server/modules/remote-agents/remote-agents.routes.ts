@@ -6,6 +6,7 @@ import type { BootstrapInput, BootstrapResult } from './bootstrap.service.js';
 import type { RemoteAgentsRegistry } from './remote-agents.registry.js';
 import type { RemoteFsClient } from './remote-fs.service.js';
 import type { RemoteHostsRepository } from './remote-host.db.js';
+import type { SshpassPubkeyInjector } from './ssh-runner.js';
 
 export type RemoteAgentsRouterDeps = {
   repo: RemoteHostsRepository;
@@ -26,6 +27,13 @@ export type RemoteAgentsRouterDeps = {
   identityFile: string | null;
   /** Main server ws URL the lite connects back to. */
   serverUrl: string;
+  /**
+   * One-time password → pubkey injector (ssh-copy-id equivalent). When
+   * configured, `authType: 'password'` registration uses the supplied password
+   * ONCE to append `publicKey` to the target's authorized_keys, then discards
+   * it (never persisted). Optional: when absent, password auth returns 501.
+   */
+  injectPubkey?: SshpassPubkeyInjector;
 };
 
 function readStringField(body: unknown, key: string): string {
@@ -81,22 +89,49 @@ export function createRemoteAgentsRouter(deps: RemoteAgentsRouterDeps): express.
       const host = readStringField(req.body, 'host');
       const sshUser = readStringField(req.body, 'sshUser');
       const authType = readStringField(req.body, 'authType');
+      // Password is read but NEVER persisted, logged, or stored in a column —
+      // it is used once for the pubkey injection below then discarded.
+      const password = readStringField(req.body, 'password');
       const portRaw = (req.body as Record<string, unknown> | undefined)?.port;
       const port =
         typeof portRaw === 'number' && Number.isInteger(portRaw) && portRaw > 0 ? portRaw : undefined;
-
-      if (authType === 'password') {
-        throw new AppError(
-          'password auth not supported in Phase 1 — place the pubkey manually then retry with lovdex_key',
-          { code: 'REMOTE_PASSWORD_UNSUPPORTED', statusCode: 400 },
-        );
-      }
 
       if (!name || !host || !sshUser) {
         throw new AppError('name, host and sshUser are required', {
           code: 'REMOTE_HOST_INVALID',
           statusCode: 400,
         });
+      }
+
+      // Password auth: inject the Lovdex pubkey FIRST using the one-time
+      // password. Only on success do we create the host row — a failed
+      // injection must leave no dangling, un-deployable host behind.
+      if (authType === 'password') {
+        if (!password) {
+          throw new AppError('password required for password auth', {
+            code: 'REMOTE_PASSWORD_REQUIRED',
+            statusCode: 400,
+          });
+        }
+        if (!deps.injectPubkey) {
+          throw new AppError('password pubkey injection not configured', {
+            code: 'REMOTE_INJECT_UNSUPPORTED',
+            statusCode: 501,
+          });
+        }
+        const injected = await deps.injectPubkey({
+          host,
+          port,
+          sshUser,
+          pubkey: deps.publicKey,
+          password,
+        });
+        if (!injected.ok) {
+          throw new AppError(injected.error ?? 'pubkey injection failed', {
+            code: 'REMOTE_PASSWORD_INJECT_FAILED',
+            statusCode: 502,
+          });
+        }
       }
 
       const hostId = crypto.randomUUID();

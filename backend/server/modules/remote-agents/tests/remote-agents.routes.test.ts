@@ -98,6 +98,7 @@ async function makeHarness(
       }),
     identityFile: overrides.identityFile ?? '/home/lovdex/.ssh/id_ed25519',
     serverUrl: overrides.serverUrl ?? 'ws://main:4000/api/remote-agents/ws',
+    injectPubkey: overrides.injectPubkey,
   };
 
   const app = express();
@@ -231,8 +232,8 @@ test('POST / rejects missing required fields with 400', async () => {
   }
 });
 
-test('POST / with authType password → 400 REMOTE_PASSWORD_UNSUPPORTED', async () => {
-  const h = await makeHarness();
+test('POST / password auth with no password → 400 REMOTE_PASSWORD_REQUIRED', async () => {
+  const h = await makeHarness({ injectPubkey: async () => ({ ok: true }) });
   try {
     const res = await fetch(`${h.base}/api/remote-agents/`, {
       method: 'POST',
@@ -241,7 +242,115 @@ test('POST / with authType password → 400 REMOTE_PASSWORD_UNSUPPORTED', async 
     });
     assert.equal(res.status, 400);
     const body = (await res.json()) as { error: { code: string } };
-    assert.equal(body.error.code, 'REMOTE_PASSWORD_UNSUPPORTED');
+    assert.equal(body.error.code, 'REMOTE_PASSWORD_REQUIRED');
+  } finally {
+    await h.close();
+  }
+});
+
+test('POST / password auth with no injector configured → 501 REMOTE_INJECT_UNSUPPORTED', async () => {
+  const h = await makeHarness(); // no injectPubkey
+  try {
+    const res = await fetch(`${h.base}/api/remote-agents/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'dev1',
+        host: '10.0.0.5',
+        sshUser: 'root',
+        authType: 'password',
+        password: 'pw',
+      }),
+    });
+    assert.equal(res.status, 501);
+    const body = (await res.json()) as { error: { code: string } };
+    assert.equal(body.error.code, 'REMOTE_INJECT_UNSUPPORTED');
+  } finally {
+    await h.close();
+  }
+});
+
+test('POST / password auth where injection fails → 502 and no host row created', async () => {
+  let injectCalls = 0;
+  const h = await makeHarness({
+    injectPubkey: async () => {
+      injectCalls += 1;
+      return { ok: false, error: 'Permission denied' };
+    },
+  });
+  try {
+    const res = await fetch(`${h.base}/api/remote-agents/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'dev1',
+        host: '10.0.0.5',
+        sshUser: 'root',
+        authType: 'password',
+        password: 'wrong',
+      }),
+    });
+    assert.equal(res.status, 502);
+    const body = (await res.json()) as { error: { code: string; message: string } };
+    assert.equal(body.error.code, 'REMOTE_PASSWORD_INJECT_FAILED');
+    assert.equal(body.error.message, 'Permission denied');
+    assert.equal(injectCalls, 1);
+    // No dangling host row and no token minted on a failed injection.
+    assert.equal(h.repo.list().length, 0);
+    assert.deepEqual(h.tokenForCalls, []);
+  } finally {
+    await h.close();
+  }
+});
+
+test('POST / password auth success → injects pubkey, creates row, mints token', async () => {
+  const injectInputs: {
+    host: string;
+    port?: number;
+    sshUser: string;
+    pubkey: string;
+    password: string;
+  }[] = [];
+  const h = await makeHarness({
+    publicKey: 'ssh-ed25519 AAAA-inject-key lovdex',
+    injectPubkey: async (input) => {
+      injectInputs.push(input);
+      return { ok: true };
+    },
+  });
+  try {
+    const res = await fetch(`${h.base}/api/remote-agents/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'dev1',
+        host: '10.0.0.5',
+        sshUser: 'root',
+        port: 2222,
+        authType: 'password',
+        password: 's3cret',
+      }),
+    });
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as { data: { hostId: string } };
+    assert.ok(body.data.hostId);
+
+    // Injector called once with the host connection + Lovdex pubkey + password.
+    assert.equal(injectInputs.length, 1);
+    assert.deepEqual(injectInputs[0], {
+      host: '10.0.0.5',
+      port: 2222,
+      sshUser: 'root',
+      pubkey: 'ssh-ed25519 AAAA-inject-key lovdex',
+      password: 's3cret',
+    });
+
+    // Row created and token minted after a successful injection.
+    const row = h.repo.getById(body.data.hostId);
+    assert.equal(row?.name, 'dev1');
+    assert.equal(row?.host, '10.0.0.5');
+    assert.equal(row?.port, 2222);
+    assert.deepEqual(h.tokenForCalls, [body.data.hostId]);
   } finally {
     await h.close();
   }

@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Check, Copy, RefreshCw, Trash2 } from 'lucide-react';
+import { Check, Copy, Plus, RefreshCw, Trash2 } from 'lucide-react';
 
 import { api } from '../../utils/api';
 import { copyTextToClipboard } from '../../utils/clipboard';
 import { Button } from '../../shared/view/ui';
+
+import { AddRemoteHostDialog } from './AddRemoteHostDialog';
 
 // Row shape projected by GET /api/remote-agents (credentials are never sent).
 type RemoteHost = {
@@ -21,7 +23,6 @@ type RemoteHost = {
 
 type HostsResponse = { data?: { hosts?: RemoteHost[] } };
 type PubkeyResponse = { data?: { publicKey?: string } };
-type AddHostResponse = { data?: { hostId?: string } };
 type DeployResponse = { data?: { status?: string; message?: string } };
 
 const POLL_INTERVAL_MS = 3000;
@@ -65,12 +66,8 @@ export function RemoteHostsSettingsSection() {
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  // Add-host form.
-  const [formName, setFormName] = useState('');
-  const [formHost, setFormHost] = useState('');
-  const [formSshUser, setFormSshUser] = useState('');
-  const [adding, setAdding] = useState(false);
-  const [addError, setAddError] = useState<string | null>(null);
+  // Add-host dialog.
+  const [addOpen, setAddOpen] = useState(false);
 
   const [pubkeyCopied, setPubkeyCopied] = useState(false);
   // Per-host transient action state.
@@ -131,35 +128,6 @@ export function RemoteHostsSettingsSection() {
       return next;
     });
   }, []);
-
-  async function handleAddHost(event: React.FormEvent) {
-    event.preventDefault();
-    const name = formName.trim();
-    const host = formHost.trim();
-    const sshUser = formSshUser.trim();
-    if (!name || !host || !sshUser) {
-      setAddError('名称、主机地址、SSH 用户均为必填');
-      return;
-    }
-    setAdding(true);
-    setAddError(null);
-    try {
-      const res = await api.post('/remote-agents', { name, host, sshUser });
-      if (!res.ok) {
-        setAddError(await readErrorMessage(res, '添加失败'));
-        return;
-      }
-      (await res.json()) as AddHostResponse;
-      setFormName('');
-      setFormHost('');
-      setFormSshUser('');
-      await loadHosts();
-    } catch (err) {
-      setAddError(err instanceof Error ? err.message : '添加失败');
-    } finally {
-      setAdding(false);
-    }
-  }
 
   const startPolling = useCallback(
     (hostId: string) => {
@@ -278,42 +246,24 @@ export function RemoteHostsSettingsSection() {
       </section>
 
       {/* Add host */}
-      <section className="rounded-lg border border-border bg-card p-4">
-        <h2 className="mb-2 text-sm font-semibold text-foreground">添加远程机器</h2>
-        <form className="flex flex-col gap-3 sm:flex-row sm:items-end" onSubmit={handleAddHost}>
-          <div className="flex-1">
-            <label className="mb-1 block text-xs text-muted-foreground">名称</label>
-            <input
-              className="h-9 w-full rounded-md border border-border bg-muted px-2 py-1.5 text-sm text-foreground"
-              value={formName}
-              placeholder="dev-box"
-              onChange={(e) => setFormName(e.target.value)}
-            />
-          </div>
-          <div className="flex-1">
-            <label className="mb-1 block text-xs text-muted-foreground">主机地址</label>
-            <input
-              className="h-9 w-full rounded-md border border-border bg-muted px-2 py-1.5 text-sm text-foreground"
-              value={formHost}
-              placeholder="10.0.0.7"
-              onChange={(e) => setFormHost(e.target.value)}
-            />
-          </div>
-          <div className="flex-1">
-            <label className="mb-1 block text-xs text-muted-foreground">SSH 用户</label>
-            <input
-              className="h-9 w-full rounded-md border border-border bg-muted px-2 py-1.5 text-sm text-foreground"
-              value={formSshUser}
-              placeholder="root"
-              onChange={(e) => setFormSshUser(e.target.value)}
-            />
-          </div>
-          <Button type="submit" disabled={adding}>
-            {adding ? '添加中…' : '添加'}
-          </Button>
-        </form>
-        {addError && <p className="mt-2 text-xs text-red-500">{addError}</p>}
+      <section className="flex items-center justify-between rounded-lg border border-border bg-card p-4">
+        <div>
+          <h2 className="text-sm font-semibold text-foreground">添加远程机器</h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            一次点击完成注入公钥、注册、部署与状态检测。
+          </p>
+        </div>
+        <Button size="sm" onClick={() => setAddOpen(true)}>
+          <Plus className="mr-1 h-4 w-4" />
+          添加远程机器
+        </Button>
       </section>
+
+      <AddRemoteHostDialog
+        open={addOpen}
+        onClose={() => setAddOpen(false)}
+        onAdded={() => void loadHosts().catch(() => undefined)}
+      />
 
       {/* Host list */}
       <section className="flex flex-col gap-3">

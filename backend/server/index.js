@@ -82,7 +82,7 @@ import { createRemoteAgentsRouter } from './modules/remote-agents/remote-agents.
 import { setRemoteAgentsRuntime } from './modules/remote-agents/runtime.js';
 import { refreshRemoteProjectsIndex, lookupRemoteHost } from './modules/remote-agents/remote-projects.index.js';
 import { runBootstrap } from './modules/remote-agents/bootstrap.service.js';
-import { createSshRunner, createScpPush } from './modules/remote-agents/ssh-runner.js';
+import { createSshRunner, createScpPush, createSshpassPubkeyInjector } from './modules/remote-agents/ssh-runner.js';
 import { buildLitePackage } from './modules/remote-agents/lite-package.js';
 import { createCompleteMessage } from './shared/utils.js';
 
@@ -357,6 +357,11 @@ app.use('/api/remote-agents', authenticateToken, createRemoteAgentsRouter({
     // loopback E2E (ssh host == the Lovdex host); for a real remote host the
     // operator MUST set LOVDEX_PUBLIC_WS_URL to an address reachable from it.
     serverUrl: process.env.LOVDEX_PUBLIC_WS_URL ?? `ws://localhost:${cfg.server.port}/api/remote-agents/ws`,
+    // One-time password → pubkey injection (ssh-copy-id equivalent) for the
+    // add-host wizard. The password is used once to authorize the Lovdex pubkey
+    // then discarded — never persisted. See createSshpassPubkeyInjector for the
+    // v1 intranet argv-visibility tradeoff.
+    injectPubkey: createSshpassPubkeyInjector(),
     // Deterministic per-host token: HMAC-SHA256(hostId) keyed by the server's
     // jwt secret. The token (and its sha256) is stable across redeploys, so a
     // running lite whose token is rotated by a failed deploy is never bricked
