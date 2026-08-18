@@ -29,24 +29,27 @@ function render(tasks: ScheduledTask[]) {
   );
 }
 
-test('renders task fields on the card', () => {
+test('renders both desktop table and mobile card grid', () => {
   const html = render([baseTask]);
+  // 桌面表格（lg+ 显示）及其列头
+  assert.match(html, /hidden min-h-0 flex-1 overflow-x-auto px-2 pb-4 sm:px-4 lg:block/);
+  assert.match(html, /上次触发/);
+  // 移动/平板卡片（<lg 显示）
+  assert.match(html, /lg:hidden/);
+  // 任务标题与调度
   assert.match(html, /每日站会/);
   assert.match(html, /每天 09:00/);
   assert.match(html, /proj/);
-  assert.match(html, /下次/);
 });
 
-test('shows 自动执行 badge for auto_run=1', () => {
+test('shows 自动执行 badge in card for auto_run=1', () => {
   const html = render([baseTask]);
   assert.match(html, /自动执行/);
-  assert.doesNotMatch(html, /仅提醒/);
 });
 
-test('shows 仅提醒 badge for auto_run=0', () => {
+test('shows 仅提醒 badge in card for auto_run=0', () => {
   const html = render([{ ...baseTask, auto_run: 0 }]);
   assert.match(html, /仅提醒/);
-  assert.doesNotMatch(html, /自动执行/);
 });
 
 test('shows 已停用 badge and dimmed card when disabled', () => {

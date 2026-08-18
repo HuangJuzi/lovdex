@@ -2,15 +2,17 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 把定时任务列表从 900px 宽表格改为响应式卡片网格（手机单列 / sm·md 两列 / lg 三列），卡片成为唯一视图。
+**Goal:** 为定时任务列表增加手机 Web 适配——手机/平板宽度显示卡片，**桌面（≥1024px）保留原表格**。
 
-**Architecture:** 只改 `ScheduledTasksView.tsx` 一个组件（内含 `ScheduledTaskCard` 子组件渲染单卡）及其测试。数据流不变——`ScheduledTasksPanel` 继续经 props 传 `tasks`/`projectOptions` 和四个回调；`scheduleLabel`/`projectLabel`/`formatAbsoluteTime` 全部复用。桌面/手机共用同一组件，CSS 断点切列数。
+**Architecture:** 只改 `ScheduledTasksView.tsx` 一个组件：**响应式双渲染**——原表格容器加 `hidden lg:block`，卡片网格容器加 `lg:hidden`（<1024px 显示卡片、≥1024px 显示表格），以及其测试。数据流不变——`ScheduledTasksPanel` 继续经 props 传 `tasks`/`projectOptions` 和四个回调；`scheduleLabel`/`projectLabel`/`formatAbsoluteTime` 全部复用。
+
+> 注：早版计划把表格整体换成卡片，实施后用户确认桌面需保留表格，改为上述双渲染（commit 18089e3 前的实现已 amend）。
 
 **Tech Stack:** React 18 + react-router-dom v6（Link）+ Tailwind CSS（语义色 token + `mobile-touch-target`），测试用 node:test + `renderToStaticMarkup`。
 
-**测试命令**（repository root 下运行）：
+**测试命令**（必须在 `web/` 目录下运行，否则 react 会解析到 `~/.lovdex/lovdex-cli/node_modules` 旧副本导致渲染崩溃）：
 ```bash
-unset TSX_TSCONFIG_PATH && npx tsx --test src/components/tasks/ScheduledTasksView.test.tsx
+cd /mnt/b/workdir/github/lovdex/web && unset TSX_TSCONFIG_PATH && npx tsx --test src/components/tasks/ScheduledTasksView.test.tsx
 ```
 **typecheck 命令**：
 ```bash
@@ -21,8 +23,8 @@ cd web && npx tsc --noEmit -p tsconfig.json
 
 ## 文件结构
 
-- `web/src/components/tasks/ScheduledTasksView.tsx` — 改：表格 → 响应式卡片网格；新增同文件子组件 `ScheduledTaskCard`、`FieldRow`、`ActionButton`、`statusBadge`。
-- `web/src/components/tasks/ScheduledTasksView.test.tsx` — 改：表格断言 → 卡片断言，新增停用态 / 查看任务链接 / 徽标测试。
+- `web/src/components/tasks/ScheduledTasksView.tsx` — 改：原表格保留（套 `hidden lg:block`）+ 新增卡片网格（套 `lg:hidden`）；新增同文件子组件 `ScheduledTaskCard`、`FieldRow`、`ActionButton`、`statusBadge`。
+- `web/src/components/tasks/ScheduledTasksView.test.tsx` — 改：正向断言覆盖双渲染 + 停用态 + 查看任务链接 + 徽标 + 空态（无互斥负向断言，表格列头含「自动执行」）。
 
 ---
 
