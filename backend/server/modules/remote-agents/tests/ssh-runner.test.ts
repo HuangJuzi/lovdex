@@ -165,8 +165,16 @@ test('createSshpassPubkeyInjector maps a non-zero exit to {ok:false,error}', asy
   assert.equal(res.error, 'Permission denied, please try again.');
 });
 
-test('createSshpassPubkeyInjector falls back to a generic error when stderr is empty', async () => {
-  const { fn } = fakeExecFile({ error: new Error('exit 5'), stderr: '' });
+test('createSshpassPubkeyInjector falls back to error.message when stderr is empty', async () => {
+  const { fn } = fakeExecFile({ error: new Error('spawn sshpass ENOENT'), stderr: '' });
+  const inject = createSshpassPubkeyInjector({ execFileFn: fn });
+  const res = await inject({ host: 'h', sshUser: 'u', pubkey: 'k', password: 'bad' });
+  assert.equal(res.ok, false);
+  assert.equal(res.error, 'spawn sshpass ENOENT');
+});
+
+test('createSshpassPubkeyInjector falls back to the generic message when stderr and error.message are empty', async () => {
+  const { fn } = fakeExecFile({ error: new Error(''), stderr: '' });
   const inject = createSshpassPubkeyInjector({ execFileFn: fn });
   const res = await inject({ host: 'h', sshUser: 'u', pubkey: 'k', password: 'bad' });
   assert.equal(res.ok, false);

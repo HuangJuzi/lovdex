@@ -13,6 +13,7 @@ type RemoteHost = {
 
 type HostsResponse = { data?: { hosts?: RemoteHost[] } };
 type AddHostResponse = { data?: { hostId?: string } };
+type DeployResponse = { data?: { status?: string; message?: string } };
 
 type AuthType = 'password' | 'key';
 
@@ -56,6 +57,11 @@ export function AddRemoteHostDialog({ open, onClose, onAdded }: AddRemoteHostDia
   const [authType, setAuthType] = useState<AuthType>('password');
   const [password, setPassword] = useState('');
 
+  // HostId minted by a SUCCESSFUL register. Once set, a retry skips register
+  // (and never re-demands a password) and only re-runs deploy — re-registering
+  // on retry would leak a duplicate row per attempt.
+  const [registeredHostId, setRegisteredHostId] = useState<string | null>(null);
+
   const [running, setRunning] = useState(false);
   const [phase, setPhase] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -84,6 +90,7 @@ export function AddRemoteHostDialog({ open, onClose, onAdded }: AddRemoteHostDia
     setSshUser('');
     setAuthType('password');
     setPassword('');
+    setRegisteredHostId(null);
     setRunning(false);
     setPhase('');
     setError(null);
@@ -96,8 +103,10 @@ export function AddRemoteHostDialog({ open, onClose, onAdded }: AddRemoteHostDia
     }
   }
 
-  // Poll GET / until the target host leaves the 'deploying' status, then
-  // classify online vs. error. Stops on unmount/close via activeRef.
+  // Poll GET / until the host reaches a TERMINAL status (online or error).
+  // The row defaults to 'offline' before the deploy handler flips it to
+  // 'deploying', so a non-terminal status must NEVER settle the poll — a stale
+  // 'offline' snapshot would misclassify a successful deploy as failed.
   function pollUntilSettled(hostId: string): Promise<RemoteHost | null> {
     return new Promise((resolve) => {
       const tick = () => {
@@ -112,10 +121,13 @@ export function AddRemoteHostDialog({ open, onClose, onAdded }: AddRemoteHostDia
               resolve(null);
               return;
             }
-            if (!row || row.status !== 'deploying') {
+            const terminal =
+              !!row && (row.online === true || row.status === 'online' || row.status === 'error');
+            if (terminal) {
               stopPolling();
               resolve(row);
             }
+            // Row missing / still 'deploying' / still 'offline' → keep polling.
           })
           .catch(() => {
             // Non-fatal during polling; keep trying.
@@ -134,69 +146,75 @@ export function AddRemoteHostDialog({ open, onClose, onAdded }: AddRemoteHostDia
       setError('名称、主机、SSH 用户均为必填');
       return;
     }
-    if (authType === 'password' && !password) {
-      setError('密码认证需要填写密码');
-      return;
-    }
     const portNum = Number.parseInt(port, 10);
     const portValue = Number.isInteger(portNum) && portNum > 0 ? portNum : 22;
 
     setRunning(true);
     setError(null);
     try {
-      // 1. Register (password mode injects the pubkey server-side first).
-      setPhase(authType === 'password' ? '注入公钥中…' : '注册中…');
-      const registerRes = await api.post('/remote-agents', {
-        name: trimmedName,
-        host: trimmedHost,
-        port: portValue,
-        sshUser: trimmedSshUser,
-        authType,
-        ...(authType === 'password' ? { password } : {}),
-      });
-      if (!registerRes.ok) {
-        setError(await readErrorMessage(registerRes, '添加失败'));
-        return;
-      }
-      const registerBody = (await registerRes.json()) as AddHostResponse;
-      const hostId = registerBody.data?.hostId;
+      // 1. Register — only when the row was never minted. A retry after a
+      //    successful register reuses the stored hostId so it just re-deploys
+      //    (no duplicate row, no password re-entry).
+      let hostId = registeredHostId;
       if (!hostId) {
-        setError('服务端未返回 hostId');
-        return;
+        if (authType === 'password' && !password) {
+          setError('密码认证需要填写密码');
+          return;
+        }
+        // Password mode injects the Lovdex pubkey server-side first.
+        setPhase(authType === 'password' ? '注入公钥中…' : '注册中…');
+        const registerRes = await api.post('/remote-agents', {
+          name: trimmedName,
+          host: trimmedHost,
+          port: portValue,
+          sshUser: trimmedSshUser,
+          authType,
+          ...(authType === 'password' ? { password } : {}),
+        });
+        if (!registerRes.ok) {
+          setError(await readErrorMessage(registerRes, '添加失败'));
+          return;
+        }
+        const registerBody = (await registerRes.json()) as AddHostResponse;
+        hostId = registerBody.data?.hostId ?? null;
+        if (!hostId) {
+          setError('服务端未返回 hostId');
+          return;
+        }
+        // Register succeeded → this hostId is reused by retries. The one-time
+        // password is consumed; drop it from state so it never lingers in memory.
+        setRegisteredHostId(hostId);
+        setPassword('');
       }
-      // Password consumed; drop it from state so it never lingers in memory.
-      setPassword('');
 
-      // 2. Deploy (blocking ssh/scp), poll while it runs.
+      // 2. Deploy (blocking ssh/scp). Await the response FIRST so the server's
+      //    'deploying' → terminal flip is already committed when the poll starts;
+      //    the deploy response carries the authoritative classification.
       setPhase('部署中…');
-      const deployPromise = api.post(`/remote-agents/${encodeURIComponent(hostId)}/deploy`, {});
-      const settled = await pollUntilSettled(hostId);
-      // Ensure the blocking deploy call finished (may resolve after the poll).
-      const deployRes = await deployPromise.catch(() => null);
-      if (!activeRef.current) return;
-
-      const finalRow =
-        settled ??
-        (await (async () => {
-          const res = await api.get('/remote-agents').catch(() => null);
-          if (!res || !res.ok) return null;
-          const body = (await res.json()) as HostsResponse;
-          return (body.data?.hosts ?? []).find((h) => h.host_id === hostId) ?? null;
-        })());
-
-      if (deployRes && !deployRes.ok && !finalRow) {
+      const deployRes = await api.post(`/remote-agents/${encodeURIComponent(hostId)}/deploy`, {});
+      if (!deployRes.ok) {
         setError(await readErrorMessage(deployRes, '部署失败'));
         return;
       }
+      const deployBody = (await deployRes.json()) as DeployResponse;
+      const deployStatus = deployBody.data?.status;
+      const deployMessage = deployBody.data?.message;
 
-      // 3. Classify the outcome.
-      if (finalRow && (finalRow.online || finalRow.status === 'online')) {
+      // Safety-net poll: confirm the list reflects a TERMINAL status (it settled
+      // instantly here since deploy already flipped the row).
+      setPhase('检测中…');
+      const terminalRow = await pollUntilSettled(hostId);
+      if (!activeRef.current) return;
+
+      // 3. Classify. 'online' from the deploy response is authoritative; the
+      //    polled row corroborates it and carries the persisted last_error.
+      if (deployStatus === 'online' || terminalRow?.online || terminalRow?.status === 'online') {
         onAdded();
         onClose();
         return;
       }
 
-      const lastError = finalRow?.last_error ? truncate(finalRow.last_error) : '';
+      const lastError = terminalRow?.last_error ? truncate(terminalRow.last_error) : deployMessage ?? '';
       setError(lastError || '部署未成功，主机未上线');
       // The host row exists (registered) — refresh the list so it shows up.
       onAdded();
@@ -215,6 +233,7 @@ export function AddRemoteHostDialog({ open, onClose, onAdded }: AddRemoteHostDia
     <Dialog open={open} onOpenChange={(next) => !next && !running && onClose()}>
       <DialogContent
         className="max-w-md p-5"
+        aria-labelledby="add-remote-host-dialog-title"
         onEscapeKeyDown={() => {
           if (!running) onClose();
         }}
@@ -223,7 +242,12 @@ export function AddRemoteHostDialog({ open, onClose, onAdded }: AddRemoteHostDia
         }}
       >
         <DialogTitle>添加远程机器</DialogTitle>
-        <h2 className="mb-4 text-base font-semibold text-foreground">添加远程机器</h2>
+        <h2
+          id="add-remote-host-dialog-title"
+          className="mb-4 text-base font-semibold text-foreground"
+        >
+          添加远程机器
+        </h2>
 
         <div className="flex flex-col gap-3">
           <div>

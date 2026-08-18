@@ -57,16 +57,6 @@ export type ScpPushConfig = {
 };
 
 /**
- * Build the {@link FilePush} used by bootstrap.service to copy install.sh, the
- * systemd unit and the lite package to the remote. The bootstrap layer passes a
- * bare `remotePath` (e.g. `~/.lovdex-remote/install.sh`); scp needs it prefixed
- * with the `user@host:` destination, which we take from `config.remote`.
- *
- * `scp` uses `-P` (uppercase) for the port, unlike ssh's `-p`. StrictHostKey is
- * `accept-new` to match the ssh probe and avoid an interactive prompt hanging
- * the deploy request.
- */
-/**
  * One-time password → pubkey injection (an `ssh-copy-id` equivalent).
  *
  * The add-host wizard uses the target account's password ONCE to append the
@@ -128,10 +118,12 @@ export function createSshpassPubkeyInjector(config: SshpassInjectorConfig = {}):
       ];
       exec(bin, argv, { timeout, maxBuffer: 16 * 1024 * 1024 }, (error, _stdout, stderr) => {
         if (error) {
-          resolve({
-            ok: false,
-            error: String(stderr ?? '').trim() || 'pubkey injection failed',
-          });
+          // Prefer stderr; when empty, surface the real error message (e.g.
+          // `spawn sshpass ENOENT`) so the cause is not hidden by a generic
+          // string (same spirit as createScpPush). Last resort: generic text.
+          const detail =
+            String(stderr ?? '').trim() || (error instanceof Error ? error.message.trim() : '');
+          resolve({ ok: false, error: detail || 'pubkey injection failed' });
           return;
         }
         resolve({ ok: true });
@@ -139,6 +131,16 @@ export function createSshpassPubkeyInjector(config: SshpassInjectorConfig = {}):
     });
 }
 
+/**
+ * Build the {@link FilePush} used by bootstrap.service to copy install.sh, the
+ * systemd unit and the lite package to the remote. The bootstrap layer passes a
+ * bare `remotePath` (e.g. `~/.lovdex-remote/install.sh`); scp needs it prefixed
+ * with the `user@host:` destination, which we take from `config.remote`.
+ *
+ * `scp` uses `-P` (uppercase) for the port, unlike ssh's `-p`. StrictHostKey is
+ * `accept-new` to match the ssh probe and avoid an interactive prompt hanging
+ * the deploy request.
+ */
 export function createScpPush(config: ScpPushConfig): FilePush {
   const exec = config.execFileFn ?? execFile;
   const timeout = config.timeoutMs ?? DEFAULT_TIMEOUT_MS;
