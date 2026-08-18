@@ -340,6 +340,10 @@ initOperatorHeadless({
     sessions: sessionsService,
     createSession: createAppSession,
     startTaskRun,
+    // Scheduled-task templates (list/get/create/update/remove) so the assistant
+    // can manage 定时任务. Injected directly — schedulerService already exposes
+    // the exact OperatorToolDeps.scheduledTasks shape.
+    scheduledTasks: schedulerService,
     // The assistant's context is the Lovdex助手 workspace: create_task without
     // an explicit projectPath falls back here and lands as an is_operator task.
     contextProjectPath: getOperatorConfig().workspace,

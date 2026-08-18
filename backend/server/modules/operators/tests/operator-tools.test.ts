@@ -299,3 +299,61 @@ test('get_session_transcript finalOutput is null when no assistant text exists',
   const out = await tools.get_session_transcript.handler({ sessionId: 's' });
   assert.equal(out.finalOutput, null);
 });
+
+test('create_scheduled_task passes through to scheduledTasks.create', async () => {
+  let received: Record<string, unknown> = {};
+  const fakeScheduled = {
+    create: (i: unknown) => { received = i as Record<string, unknown>; return { schedule_id: 's1' }; },
+  };
+  const tools = buildOperatorTools({ tasks: {} as never, scheduledTasks: fakeScheduled as never });
+  await tools.create_scheduled_task.handler({ title: 't', scheduleType: 'once', runAt: '2026-08-14T01:00:00.000Z', autoRun: 1 });
+  assert.equal(received.scheduleType, 'once');
+  assert.equal(received.autoRun, 1);
+  assert.equal(received.title, 't');
+});
+
+test('update_scheduled_task splits scheduleId from the rest', async () => {
+  let received: { id?: string; rest?: Record<string, unknown> } = {};
+  const fakeScheduled = {
+    update: (id: string, u: unknown) => { received = { id, rest: u as Record<string, unknown> }; return { schedule_id: id }; },
+  };
+  const tools = buildOperatorTools({ tasks: {} as never, scheduledTasks: fakeScheduled as never });
+  await tools.update_scheduled_task.handler({ scheduleId: 's1', enabled: 0, title: 'new' });
+  assert.equal(received.id, 's1');
+  assert.equal(received.rest?.enabled, 0);
+  assert.equal(received.rest?.title, 'new');
+});
+
+test('list_scheduled_tasks maps enabled and leaves it undefined when omitted', async () => {
+  const seen: Array<{ projectPath?: string; enabled?: boolean }> = [];
+  const fakeScheduled = {
+    list: (f: { projectPath?: string; enabled?: boolean }) => { seen.push(f); return []; },
+  };
+  const tools = buildOperatorTools({ tasks: {} as never, scheduledTasks: fakeScheduled as never });
+
+  await tools.list_scheduled_tasks.handler({ enabled: 1 });
+  assert.deepEqual(seen[0], { projectPath: undefined, enabled: true });
+
+  await tools.list_scheduled_tasks.handler({ enabled: 0 });
+  assert.deepEqual(seen[1], { projectPath: undefined, enabled: false });
+
+  // Omitted enabled must NOT filter to disabled-only — it should stay undefined.
+  await tools.list_scheduled_tasks.handler({});
+  assert.deepEqual(seen[2], { projectPath: undefined, enabled: undefined });
+});
+
+test('get/delete_scheduled_task delegate to scheduledTasks', async () => {
+  const calls: string[] = [];
+  const fakeScheduled = {
+    get: (id: string) => { calls.push(`get:${id}`); return { schedule_id: id }; },
+    remove: (id: string) => { calls.push(`remove:${id}`); },
+  };
+  const tools = buildOperatorTools({ tasks: {} as never, scheduledTasks: fakeScheduled as never });
+
+  const got = await tools.get_scheduled_task.handler({ scheduleId: 's9' });
+  assert.deepEqual(got, { schedule_id: 's9' });
+
+  const removed = await tools.delete_scheduled_task.handler({ scheduleId: 's9' });
+  assert.deepEqual(removed, { success: true });
+  assert.deepEqual(calls, ['get:s9', 'remove:s9']);
+});

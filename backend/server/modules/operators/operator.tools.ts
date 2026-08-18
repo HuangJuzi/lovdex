@@ -91,6 +91,19 @@ export type OperatorToolDeps = {
    * PROJECT_NOT_FOUND.
    */
   contextIsOperatorWorkspace?: boolean;
+  /**
+   * Scheduled-task CRUD (optional, wired from index.js). The assistant manages
+   * 定时任务 templates via list/get/create/update/delete. The shape matches the
+   * scheduler.service's list/get/create/update/remove so the real service is
+   * injected directly without an adapter.
+   */
+  scheduledTasks?: {
+    list: (f: { projectPath?: string; enabled?: boolean }) => unknown[];
+    get: (scheduleId: string) => unknown;
+    create: (i: Record<string, unknown>) => unknown;
+    update: (scheduleId: string, u: Record<string, unknown>) => Promise<unknown> | unknown;
+    remove: (scheduleId: string) => void;
+  };
 };
 
 /**
@@ -239,8 +252,12 @@ export function buildOperatorTools(deps: OperatorToolDeps) {
         // workspace and mark `is_operator` so the task lands in the「🤖 Lovdex
         // 助手」board filter (task.is_operator === 1) instead of erroring with
         // PROJECT_NOT_FOUND on the empty path.
+        // Note: gate on the RAW input (`!i.projectPath`), not the merged
+        // `projectPath` — the latter already contains `deps.contextProjectPath`
+        // via `??`, so `!projectPath` would be false whenever the operator
+        // workspace is set and the is_operator flag would never be emitted.
         const fallbackToAssistantWorkspace =
-          !projectPath && Boolean(deps.contextProjectPath && deps.contextIsOperatorWorkspace);
+          !i.projectPath && Boolean(deps.contextProjectPath && deps.contextIsOperatorWorkspace);
         return deps.tasks.createTask({
           projectPath: fallbackToAssistantWorkspace
             ? (deps.contextProjectPath as string)
@@ -349,6 +366,92 @@ export function buildOperatorTools(deps: OperatorToolDeps) {
           verdict: i.verdict as AiVerdict,
           reason: i.reason,
         });
+      },
+    },
+    create_scheduled_task: {
+      description:
+        'Create a scheduled-task template. On each trigger it creates a real task (seen in list_tasks). autoRun=1 dispatches the agent run immediately; autoRun=0 creates a todo/reminder only. scheduleType: once (runAt) | interval (intervalSeconds) | cron (cronExpr). projectPath empty = Lovdex 助手 workspace.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          title: { type: 'string', description: 'Task title created on each trigger' },
+          description: { type: 'string' },
+          projectPath: { type: 'string', description: 'Project path; empty = Lovdex 助手 workspace' },
+          scheduleType: { type: 'string', enum: ['once', 'interval', 'cron'] },
+          cronExpr: { type: 'string', description: 'cron expression when scheduleType=cron, e.g. "0 9 * * 1-5"' },
+          intervalSeconds: { type: 'number', description: 'seconds between runs when scheduleType=interval' },
+          runAt: { type: 'string', description: 'ISO datetime when scheduleType=once' },
+          autoRun: { type: 'number', description: '1 = auto-execute, 0 = reminder only' },
+          priority: { type: 'string', enum: ['P0', 'P1', 'P2', 'P3'] },
+          label: { type: 'string' },
+          executorModel: { type: 'string' },
+        },
+        required: ['title', 'scheduleType'],
+      },
+      handler: async (i: Record<string, unknown>) => deps.scheduledTasks!.create(i),
+    },
+    list_scheduled_tasks: {
+      description:
+        'List scheduled-task templates (optional projectPath/enabled filter). Returns next_run_at and schedule_type for each.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          projectPath: { type: 'string' },
+          enabled: { type: 'number', description: '1 = enabled only, 0 = disabled only' },
+        },
+      },
+      handler: async (i: { projectPath?: string; enabled?: number }) =>
+        deps.scheduledTasks!.list({
+          projectPath: i.projectPath,
+          // Omitted → no enabled filter (mirrors GET /api/scheduled-tasks). A bare
+          // `i.enabled === 1` would wrongly map `undefined` to `false` and return
+          // only disabled templates.
+          enabled: i.enabled === undefined ? undefined : i.enabled === 1,
+        }),
+    },
+    get_scheduled_task: {
+      description: 'Get a single scheduled-task template by scheduleId.',
+      inputSchema: {
+        type: 'object',
+        properties: { scheduleId: { type: 'string' } },
+        required: ['scheduleId'],
+      },
+      handler: async (i: { scheduleId: string }) => deps.scheduledTasks!.get(i.scheduleId),
+    },
+    update_scheduled_task: {
+      description:
+        'Update a scheduled-task template (schedule field changes recompute next_run_at).',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          scheduleId: { type: 'string' },
+          title: { type: 'string' },
+          description: { type: 'string' },
+          cronExpr: { type: 'string' },
+          intervalSeconds: { type: 'number' },
+          runAt: { type: 'string' },
+          autoRun: { type: 'number' },
+          priority: { type: 'string' },
+          label: { type: 'string' },
+          enabled: { type: 'number', description: '0 = disable' },
+        },
+        required: ['scheduleId'],
+      },
+      handler: async (i: Record<string, unknown>) => {
+        const { scheduleId, ...rest } = i;
+        return deps.scheduledTasks!.update(String(scheduleId), rest);
+      },
+    },
+    delete_scheduled_task: {
+      description: 'Delete a scheduled-task template (already-created tasks are kept).',
+      inputSchema: {
+        type: 'object',
+        properties: { scheduleId: { type: 'string' } },
+        required: ['scheduleId'],
+      },
+      handler: async (i: { scheduleId: string }) => {
+        deps.scheduledTasks!.remove(i.scheduleId);
+        return { success: true };
       },
     },
   };
