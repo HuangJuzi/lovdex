@@ -8,7 +8,7 @@ import { api } from '../../../../utils/api';
 import { createOperatorSession, resetOperatorCreateFlow } from '../../../operators/operatorSession';
 import SessionProviderLogo from '../../../llm-logo-provider/SessionProviderLogo';
 import type { LLMProvider } from '../../../../types/app';
-import { ACTIVE_WINDOW_MS, getSessionDotState } from '../../utils/utils';
+import { ACTIVE_WINDOW_MS, formatCompactSessionAge, getSessionDotState } from '../../utils/utils';
 
 type OperatorSession = {
   session_id: string;
@@ -39,34 +39,6 @@ const readStoredProvider = (): LLMProvider => {
     // SSR / test environment without localStorage
   }
   return 'claude';
-};
-
-/**
- * Compact relative time for sidebar rows (matches SidebarSessionItem):
- * <1m, Xm, Xhr, Xd.
- */
-const formatCompactSessionAge = (dateString: string, currentTime: Date): string => {
-  const date = new Date(dateString);
-  if (Number.isNaN(date.getTime())) {
-    return '';
-  }
-
-  const diffInMinutes = Math.floor(Math.max(0, currentTime.getTime() - date.getTime()) / (1000 * 60));
-  if (diffInMinutes < 1) {
-    return '<1m';
-  }
-
-  if (diffInMinutes < 60) {
-    return `${diffInMinutes}m`;
-  }
-
-  const diffInHours = Math.floor(diffInMinutes / 60);
-  if (diffInHours < 24) {
-    return `${diffInHours}hr`;
-  }
-
-  const diffInDays = Math.floor(diffInHours / 24);
-  return `${diffInDays}d`;
 };
 
 /**
