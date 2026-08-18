@@ -1,9 +1,16 @@
 # Lovdex remote agent (lite) — systemd --user unit template.
 #
-# install.sh substitutes __USER__ with the deploying user (via sed) and drops the
-# result at ~/.config/systemd/user/lovdex-agent.service. The daemon runs
-# `node dist/lite.mjs` from ~/.lovdex-remote/. EnvironmentFile provides the
+# install.sh resolves __NODE_BIN__ / __CLAUDE_BIN__ as absolute paths from the
+# ssh login shell (nvm / npm globals are on PATH there, NOT in a systemd --user
+# unit) and drops the rendered unit at
+# ~/.config/systemd/user/lovdex-agent.service. Home is expressed with the
+# systemd specifier %h so it is never hardcoded. EnvironmentFile provides the
 # Claude API key written by the bootstrap service (~/.lovdex-remote/.env, 0600).
+#
+# The daemon (`dist/lite.mjs`) halts claude sessions and closes the ws on
+# SIGTERM; ExecStop is explicit only for clarity (systemd would send SIGTERM to
+# $MAINPID anyway) and the default KillMode=control-group reaps any claude
+# child PIDs the SDK spawned.
 [Unit]
 Description=Lovdex remote agent (lite)
 After=network-online.target
@@ -11,10 +18,11 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/env node /home/__USER__/.lovdex-remote/dist/lite.mjs
+ExecStart=__NODE_BIN__ %h/.lovdex-remote/dist/lite.mjs
+ExecStop=/bin/kill -TERM $MAINPID
 Restart=on-failure
 RestartSec=3
-EnvironmentFile=/home/__USER__/.lovdex-remote/.env
+EnvironmentFile=%h/.lovdex-remote/.env
 
 [Install]
 WantedBy=default.target
