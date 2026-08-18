@@ -78,3 +78,28 @@ test('renames in place when no real-path duplicate exists', async () => {
     assert.equal(session.project_path, real);
   });
 });
+
+test('merge onto a local duplicate preserves a remote host link', async () => {
+  await withIsolatedDatabase(async (_dir, real, link) => {
+    const db = getConnection();
+    db.prepare(
+      "INSERT INTO projects (project_id, project_path, custom_project_name, isStarred, isArchived, is_explicit, remote_host_id) VALUES ('symlink-id', ?, NULL, 0, 0, 0, 'host-1')"
+    ).run(link);
+    db.prepare(
+      "INSERT INTO projects (project_id, project_path, custom_project_name, isStarred, isArchived, is_explicit) VALUES ('real-id', ?, NULL, 0, 0, 0)"
+    ).run(real);
+    db.prepare(
+      "INSERT INTO sessions (session_id, provider, project_path) VALUES ('sess-3', 'claude', ?)"
+    ).run(link);
+
+    canonicalizeProjectPathsMigration(db);
+
+    const projects = db.prepare('SELECT project_id, remote_host_id FROM projects').all() as Array<Record<string, unknown>>;
+    assert.equal(projects.length, 1);
+    assert.equal(projects[0].project_id, 'real-id');
+    assert.equal(projects[0].remote_host_id, 'host-1');
+
+    const session = db.prepare('SELECT project_path FROM sessions WHERE session_id = ?').get('sess-3') as { project_path: string };
+    assert.equal(session.project_path, real);
+  });
+});

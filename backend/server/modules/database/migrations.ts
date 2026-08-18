@@ -660,9 +660,10 @@ export function migrateProjectsExplicitColumn(db: Database): void {
 export function migrateRemoteHostsTable(db: Database): void {
   db.exec(REMOTE_HOSTS_TABLE_SCHEMA_SQL);
   db.exec('CREATE INDEX IF NOT EXISTS idx_remote_hosts_status ON remote_hosts(status)');
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_remote_hosts_token ON remote_hosts(agent_token_hash)');
 
   const columns = getTableInfo(db, 'projects').map((column) => column.name);
-  addColumnToTableIfNotExists(db, 'projects', columns, 'remote_host_id', 'INTEGER');
+  addColumnToTableIfNotExists(db, 'projects', columns, 'remote_host_id', 'TEXT');
 }
 
 /**
@@ -695,7 +696,7 @@ export function canonicalizeProjectPathsMigration(db: Database): void {
     if (survivor) {
       const doomed = db
         .prepare(
-          'SELECT project_id, custom_project_name, isStarred, isArchived, is_explicit FROM projects WHERE project_id = ?'
+          'SELECT project_id, custom_project_name, isStarred, isArchived, is_explicit, remote_host_id FROM projects WHERE project_id = ?'
         )
         .get(row.project_id) as {
         project_id: string;
@@ -703,22 +704,24 @@ export function canonicalizeProjectPathsMigration(db: Database): void {
         isStarred: number;
         isArchived: number;
         is_explicit: number;
+        remote_host_id: string | null;
       };
       const keep = db
         .prepare(
-          'SELECT project_id, custom_project_name, isStarred, isArchived, is_explicit FROM projects WHERE project_id = ?'
+          'SELECT project_id, custom_project_name, isStarred, isArchived, is_explicit, remote_host_id FROM projects WHERE project_id = ?'
         )
         .get(survivor.project_id) as typeof doomed;
 
       db.prepare('UPDATE sessions SET project_path = ? WHERE project_path = ?').run(canonical, row.project_path);
       db.prepare('UPDATE tasks SET project_path = ? WHERE project_path = ?').run(canonical, row.project_path);
       db.prepare(
-        'UPDATE projects SET custom_project_name = ?, isStarred = ?, isArchived = ?, is_explicit = ? WHERE project_id = ?'
+        'UPDATE projects SET custom_project_name = ?, isStarred = ?, isArchived = ?, is_explicit = ?, remote_host_id = ? WHERE project_id = ?'
       ).run(
         keep.custom_project_name ?? doomed.custom_project_name,
         keep.isStarred || doomed.isStarred,
         keep.isArchived || doomed.isArchived,
         keep.is_explicit || doomed.is_explicit,
+        keep.remote_host_id ?? doomed.remote_host_id,
         keep.project_id,
       );
       db.prepare('DELETE FROM projects WHERE project_id = ?').run(doomed.project_id);

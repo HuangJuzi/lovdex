@@ -17,6 +17,7 @@ export type RemoteHostsRepository = {
 
 export function createRemoteHostsDb(db: Database.Database): RemoteHostsRepository {
   db.exec(REMOTE_HOSTS_TABLE_SCHEMA_SQL);
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_remote_hosts_token ON remote_hosts(agent_token_hash)');
   const get = db.prepare('SELECT * FROM remote_hosts WHERE host_id = ?');
   return {
     create({ host_id, name, host, ssh_user, port = 22 }) {
@@ -32,16 +33,31 @@ export function createRemoteHostsDb(db: Database.Database): RemoteHostsRepositor
     list() {
       return db.prepare('SELECT * FROM remote_hosts ORDER BY created_at DESC').all() as RemoteHostRow[];
     },
+    /**
+     * Sets the host reachability status and timestamp.
+     *
+     * `last_error` semantic: on a transition to (or remaining in) `'error'` a
+     * passed-in message is stored and, when none is passed, the prior error is
+     * retained — the reason a host went down must not be silently wiped by a
+     * later errored heartbeat that has no message to give. Any other transition
+     * (e.g. `'online'`) clears `last_error`.
+     */
     updateStatus(hostId, status, lastError = null) {
       db.prepare(
-        'UPDATE remote_hosts SET status = ?, last_error = ?, updated_at = CURRENT_TIMESTAMP WHERE host_id = ?',
-      ).run(status, lastError, hostId);
+        `UPDATE remote_hosts
+         SET status = ?,
+             last_error = CASE WHEN ? = 'error' THEN COALESCE(?, last_error) ELSE NULL END,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE host_id = ?`,
+      ).run(status, status, lastError ?? null, hostId);
     },
     touchSeen(hostId) {
       db.prepare('UPDATE remote_hosts SET last_seen_at = CURRENT_TIMESTAMP WHERE host_id = ?').run(hostId);
     },
     setTokenHash(hostId, hash) {
-      db.prepare('UPDATE remote_hosts SET agent_token_hash = ? WHERE host_id = ?').run(hash, hostId);
+      db.prepare(
+        'UPDATE remote_hosts SET agent_token_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE host_id = ?',
+      ).run(hash, hostId);
     },
     getByTokenHash(hash) {
       const row = db.prepare('SELECT * FROM remote_hosts WHERE agent_token_hash = ?').get(hash) as

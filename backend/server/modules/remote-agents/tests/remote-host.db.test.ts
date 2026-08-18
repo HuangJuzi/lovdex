@@ -5,7 +5,7 @@ import { createRemoteHostsDb, type RemoteHostsRepository } from '../remote-host.
 
 // Minimal projects table so findHostForProjectPath's join works in-memory.
 const PROJECTS_DDL =
-  'CREATE TABLE IF NOT EXISTS projects (project_id TEXT PRIMARY KEY NOT NULL, project_path TEXT NOT NULL UNIQUE, remote_host_id INTEGER)';
+  'CREATE TABLE IF NOT EXISTS projects (project_id TEXT PRIMARY KEY NOT NULL, project_path TEXT NOT NULL UNIQUE, remote_host_id TEXT)';
 
 let db: Database.Database;
 let repo: RemoteHostsRepository;
@@ -61,4 +61,29 @@ test('list returns hosts, updateStatus stores last_error, token hash round-trips
 
   repo.remove('h1');
   assert.equal(repo.getById('h1'), null);
+});
+
+test('updateStatus to a non-error status clears a stored error', () => {
+  repo.create({ host_id: 'h1', name: 'dev1', host: '10.0.0.5', ssh_user: 'root' });
+  repo.updateStatus('h1', 'error', 'ssh timeout');
+  assert.equal(repo.getById('h1')?.last_error, 'ssh timeout');
+
+  repo.updateStatus('h1', 'online');
+  const row = repo.getById('h1');
+  assert.equal(row?.status, 'online');
+  assert.equal(row?.last_error, null);
+});
+
+test('updateStatus to error without a message retains the prior error', () => {
+  repo.create({ host_id: 'h1', name: 'dev1', host: '10.0.0.5', ssh_user: 'root' });
+  repo.updateStatus('h1', 'error', 'ssh timeout');
+  repo.updateStatus('h1', 'error'); // no message: keep the stored reason
+  assert.equal(repo.getById('h1')?.last_error, 'ssh timeout');
+});
+
+test('agent_token_hash is unique across hosts', () => {
+  repo.create({ host_id: 'h1', name: 'dev1', host: '10.0.0.5', ssh_user: 'root' });
+  repo.create({ host_id: 'h2', name: 'dev2', host: '10.0.0.6', ssh_user: 'root' });
+  repo.setTokenHash('h1', 'dup-token');
+  assert.throws(() => repo.setTokenHash('h2', 'dup-token'));
 });

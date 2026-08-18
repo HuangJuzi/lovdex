@@ -96,7 +96,7 @@ CREATE TABLE IF NOT EXISTS projects (
     isStarred BOOLEAN DEFAULT 0,
     isArchived BOOLEAN DEFAULT 0,
     is_explicit INTEGER DEFAULT 0,
-    remote_host_id INTEGER
+    remote_host_id TEXT
 );
 `;
 
