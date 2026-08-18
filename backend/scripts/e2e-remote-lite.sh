@@ -9,7 +9,7 @@
 #
 # ── Prerequisites ────────────────────────────────────────────────────────────
 #   * A running Lovdex backend with AUTH enabled (the default). Its REST API is
-#     reachable at $API_BASE (default http://127.0.0.1:3000/api).
+#     reachable at $API_BASE (default http://127.0.0.1:3188/api).
 #   * $LOVDEX_TOKEN — a valid JWT for the backend. Every /api call is sent with
 #     `Authorization: Bearer $LOVDEX_TOKEN`. (There is no script/API-key auth
 #     convention in this repo; the middleware only accepts a bearer JWT — see
@@ -28,7 +28,8 @@
 #   HOST_IP            target host/IP        (default 127.0.0.1 — loopback works;
 #                                             the Lovdex host may be its own target)
 #   SSH_USER           ssh login user        (default $(whoami))
-#   API_BASE           backend REST base     (default http://127.0.0.1:3000/api)
+#   API_BASE           backend REST base     (default http://127.0.0.1:3188/api — the
+#                                             DEFAULT_APP_CONFIG.server.port)
 #   REMOTE_PROJECT_DIR project dir on target (default $HOME/e2e-remote-src)
 #   LOVDEX_TOKEN       bearer JWT            (required)
 #
@@ -59,7 +60,7 @@ set -euo pipefail
 # ── Config ────────────────────────────────────────────────────────────────────
 HOST_IP="${HOST_IP:-127.0.0.1}"
 SSH_USER="${SSH_USER:-$(whoami)}"
-API_BASE="${API_BASE:-http://127.0.0.1:3000/api}"
+API_BASE="${API_BASE:-http://127.0.0.1:3188/api}"
 REMOTE_PROJECT_DIR="${REMOTE_PROJECT_DIR:-$HOME/e2e-remote-src}"
 
 SSH_TARGET="${SSH_USER}@${HOST_IP}"
@@ -143,10 +144,23 @@ info "Registered hostId=${HOST_ID}"
 
 # ── Step d. Deploy the lite + poll until online ───────────────────────────────
 info "Deploying lite agent to host ${HOST_ID} (blocking ssh+scp, may take 10-30s) ..."
-DEPLOY_JSON="$(api POST "/remote-agents/${HOST_ID}/deploy" \
+# Capture the body + http code WITHOUT curl -f (curl 7.68 has no
+# --fail-with-body): check the code ourselves so the bootstrap error body
+# survives into die(). AppError bodies are { success:false, error:{message} }.
+DEPLOY_BODY="$(mktemp)" || die "mktemp failed"
+DEPLOY_CODE="$(curl -sS -o "$DEPLOY_BODY" -w '%{http_code}' -X POST \
+  "${API_BASE}/remote-agents/${HOST_ID}/deploy" \
+  -H "Authorization: Bearer ${LOVDEX_TOKEN}" \
   -H 'Content-Type: application/json' --data '{}')" \
-  || die "deploy request failed. Check the backend logs and the target's node/claude PATH.
+  || { rm -f "$DEPLOY_BODY"; die "deploy curl did not connect — is the backend up? (no HTTP response was received)"; }
+DEPLOY_JSON="$(cat "$DEPLOY_BODY")"
+rm -f "$DEPLOY_BODY"
+if [ "${DEPLOY_CODE:-000}" -lt 200 ] || [ "${DEPLOY_CODE:-000}" -ge 300 ]; then
+  DEPLOY_ERR="$(printf '%s' "$DEPLOY_JSON" | jq -r '.error.message // .message // .data.message // .data // ""')"
+  die "deploy request failed (HTTP ${DEPLOY_CODE}). ${DEPLOY_ERR}
+       Check the backend logs and the target's node/claude PATH.
        Cleanup: curl -X DELETE ${API_BASE}/remote-agents/${HOST_ID} -H 'Authorization: Bearer \$LOVDEX_TOKEN'"
+fi
 DEPLOY_STATUS="$(printf '%s' "$DEPLOY_JSON" | jq -r '.data.status // ""')"
 DEPLOY_MSG="$(printf '%s' "$DEPLOY_JSON" | jq -r '.data.message // ""')"
 info "Deploy returned status='${DEPLOY_STATUS}' message='${DEPLOY_MSG}'"
@@ -163,9 +177,12 @@ while [ "$(date +%s)" -lt "$DEADLINE" ]; do
   IS_ONLINE="$(printf '%s' "$ROW" | jq -r 'if .online == true then "1" else "0" end')"
   LAST_ERROR="$(printf '%s' "$ROW" | jq -r '.last_error // ""')"
 
-  if [ "$STATUS" = "online" ] || [ "$IS_ONLINE" = "1" ]; then
+  # Break ONLY on the live registry flag: stored 'online' status can precede
+  # the lite's actual hello, and create-remote-project 409s on a not-yet-live
+  # host. The stored STATUS stays informational for messages.
+  if [ "$IS_ONLINE" = "1" ]; then
     ONLINE=1
-    info "Host is online (status='${STATUS}', online=${IS_ONLINE})."
+    info "Host is live in the registry (stored status='${STATUS:-unknown}')."
     break
   fi
   if [ "$STATUS" = "error" ]; then
@@ -181,8 +198,13 @@ done
 
 # ── Step e. Ensure the remote project dir exists on the target ────────────────
 info "Ensuring ${REMOTE_PROJECT_DIR} exists on ${SSH_TARGET} ..."
-ssh "${SSH_OPTS[@]}" "$SSH_TARGET" "mkdir -p '${REMOTE_PROJECT_DIR}'" \
-  || die "failed to create ${REMOTE_PROJECT_DIR} on ${SSH_TARGET}."
+# Pass the path over stdin (consistent with the pubkey step) so no shell
+# quoting of the path is needed; `--` guards dash-leading paths.
+printf '%s\n' "$REMOTE_PROJECT_DIR" | ssh "${SSH_OPTS[@]}" "$SSH_TARGET" '
+  set -eu
+  path="$(cat)"
+  mkdir -p -- "$path"
+' || die "failed to create ${REMOTE_PROJECT_DIR} on ${SSH_TARGET}."
 
 # ── Step f. Create the remote project ─────────────────────────────────────────
 info "Creating remote project at ${REMOTE_PROJECT_DIR} (hostId=${HOST_ID}) ..."
@@ -194,11 +216,11 @@ PROJECT_JSON="$(api POST /projects/create-remote-project \
     '{path: $path, remoteHostId: $remoteHostId}')")" \
   || die "create-remote-project request failed."
 # This route returns { success, project, message } unwrapped (not the data
-# envelope), so read .project directly.
-PROJECT_ID="$(printf '%s' "$PROJECT_JSON" | jq -r '.project.id // .project.project_id // ""')"
+# envelope), and project is a ProjectApiView keyed by `projectId`.
+PROJECT_ID="$(printf '%s' "$PROJECT_JSON" | jq -r '.project.projectId // ""')"
 PROJECT_OK="$(printf '%s' "$PROJECT_JSON" | jq -r 'if .project then "1" else "0" end')"
 [ "$PROJECT_OK" = "1" ] || die "response had no 'project': ${PROJECT_JSON}"
-info "Remote project created (project.id='${PROJECT_ID:-<unknown>}')."
+info "Remote project created (projectId='${PROJECT_ID:-<unknown>}')."
 
 # ── Step g. Summary + PASS ────────────────────────────────────────────────────
 echo ""
