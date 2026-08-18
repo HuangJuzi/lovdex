@@ -1,0 +1,20 @@
+# Lovdex remote agent (lite) — systemd --user unit template.
+#
+# install.sh substitutes __USER__ with the deploying user (via sed) and drops the
+# result at ~/.config/systemd/user/lovdex-agent.service. The daemon runs
+# `node dist/lite.mjs` from ~/.lovdex-remote/. EnvironmentFile provides the
+# Claude API key written by the bootstrap service (~/.lovdex-remote/.env, 0600).
+[Unit]
+Description=Lovdex remote agent (lite)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/env node /home/__USER__/.lovdex-remote/dist/lite.mjs
+Restart=on-failure
+RestartSec=3
+EnvironmentFile=/home/__USER__/.lovdex-remote/.env
+
+[Install]
+WantedBy=default.target
