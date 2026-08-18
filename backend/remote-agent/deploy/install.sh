@@ -50,13 +50,16 @@ if [ -f "${REMOTE_DIR}/lite.tgz" ]; then
   rm -f "${REMOTE_DIR}/lite.tgz"
 fi
 
-# 2. Dependencies — whenever a package.json is present (source install or
-#    extracted tarball). A prebuilt dist/lite.mjs only needs no deps.
-if [ -f "${REMOTE_DIR}/package.json" ]; then
+# 2. Dependencies — BUNDLE-FIRST: a prebuilt dist/lite.mjs skips npm ci
+#    entirely. npm ci only runs for a true source install (package.json present
+#    AND no prebuilt bundle): npm ci requires a package-lock.json — which a
+#    shipped tarball omits (it would fail) — and would wipe node_modules on
+#    every bundled redeploy.
+if [ -f "${REMOTE_DIR}/dist/lite.mjs" ]; then
+  echo "[install] prebuilt dist/lite.mjs present — skipping npm ci"
+elif [ -f "${REMOTE_DIR}/package.json" ]; then
   echo "[install] running npm ci --omit=dev"
   npm ci --omit=dev
-elif [ -f "${REMOTE_DIR}/dist/lite.mjs" ]; then
-  echo "[install] prebuilt dist/lite.mjs present — skipping npm ci"
 else
   echo "[install] warning: no package.json and no dist/lite.mjs found" >&2
 fi
@@ -65,13 +68,17 @@ fi
 #    template to ${TEMPLATE}; substitute the absolute binary paths. The
 #    template uses the systemd specifier %h for the home, so no __HOMEDIR__
 #    substitution is needed. `|` is the sed delimiter because paths contain /
-#    but never |. If the template is absent (already rendered on a prior run),
-#    keep whatever unit is installed.
+#    and almost never |; either way the replacement is escaped first — `&` and
+#    backslash (and the delimiter itself) have sed meaning in the replacement.
+#    If the template is absent (already rendered on a prior run), keep whatever
+#    unit is installed.
 mkdir -p "${SYSTEMD_USER_DIR}"
 if [ -f "${TEMPLATE}" ]; then
   echo "[install] rendering ${UNIT_NAME} for user ${USER_NAME}"
-  sed -e "s|__NODE_BIN__|${NODE_BIN}|g" \
-      -e "s|__CLAUDE_BIN__|${CLAUDE_BIN}|g" \
+  NODE_BIN_SED="$(printf '%s' "${NODE_BIN}" | LC_ALL=C sed 's/[\\&|]/\\&/g')"
+  CLAUDE_BIN_SED="$(printf '%s' "${CLAUDE_BIN}" | LC_ALL=C sed 's/[\\&|]/\\&/g')"
+  sed -e "s|__NODE_BIN__|${NODE_BIN_SED}|g" \
+      -e "s|__CLAUDE_BIN__|${CLAUDE_BIN_SED}|g" \
       "${TEMPLATE}" > "${SYSTEMD_USER_DIR}/${UNIT_NAME}"
 fi
 
