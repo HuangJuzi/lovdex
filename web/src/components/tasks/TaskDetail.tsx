@@ -454,12 +454,12 @@ export function TaskDetailPage() {
   return (
     <div className="h-dvh overflow-y-auto bg-background">
       <div className="mx-auto w-full px-4 pb-6 pt-3 sm:px-8 sm:pb-8 sm:pt-4">
-        <div className="mt-1 flex flex-wrap items-start gap-3">
+        <div className="flex flex-wrap items-start gap-3">
           <Button
             type="button"
             variant="chunky"
             size="toolbar"
-            className="mt-1 gap-1.5"
+            className="gap-1.5"
             onClick={() => navigate('/tasks')}
             title="任务面板"
             aria-label="任务面板"
