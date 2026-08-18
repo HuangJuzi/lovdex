@@ -340,6 +340,10 @@ initOperatorHeadless({
     sessions: sessionsService,
     createSession: createAppSession,
     startTaskRun,
+    // The assistant's context is the Lovdex助手 workspace: create_task without
+    // an explicit projectPath falls back here and lands as an is_operator task.
+    contextProjectPath: getOperatorConfig().workspace,
+    contextIsOperatorWorkspace: true,
 });
 
 app.use('/api/tasks', authenticateToken, buildTasksRouter(tasksService, {

@@ -1020,6 +1020,7 @@ export function adaptTasksServiceForOperatorTools(svc) {
         description: i.description,
         status: i.status,
         priority: i.priority,
+        isOperator: i.isOperator,
       });
     },
     listTasks: (f) => {

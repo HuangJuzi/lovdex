@@ -21,6 +21,48 @@ test('create_task handler defaults status to todo + uses contextProjectPath', as
   assert.equal(received.projectPath, '/explicit');
 });
 
+test('create_task without projectPath lands in the assistant workspace when wired as operator context', async () => {
+  let received: { projectPath?: string; isOperator?: boolean } = {};
+  const fakeTasks = {
+    createTask: (i: unknown) => {
+      received = i as typeof received;
+      return { task_id: 't2', status: 'todo' };
+    },
+  };
+  const tools = buildOperatorTools({
+    tasks: fakeTasks as never,
+    contextProjectPath: '/lovdex-ws',
+    contextIsOperatorWorkspace: true,
+  });
+
+  // omitted projectPath → Lovdex助手 workspace + is_operator flag, so the task
+  // board「🤖 Lovdex 助手」filter (task.is_operator === 1) can surface it
+  await tools.create_task.handler({ title: 'helper' });
+  assert.equal(received.projectPath, '/lovdex-ws');
+  assert.equal(received.isOperator, true);
+
+  // explicit projectPath still wins and clears the operator flag
+  await tools.create_task.handler({ title: 'helper', projectPath: '/explicit' });
+  assert.equal(received.projectPath, '/explicit');
+  assert.equal(received.isOperator, undefined);
+});
+
+test('create_task omits isOperator when not in the assistant workspace context', async () => {
+  let received: { projectPath?: string; isOperator?: boolean } = {};
+  const fakeTasks = {
+    createTask: (i: unknown) => {
+      received = i as typeof received;
+      return { task_id: 't3', status: 'todo' };
+    },
+  };
+  // Manual buildOperatorTools usage without the workspace marker keeps the old
+  // context-fallback behavior and never fiddles with the operator flag.
+  const tools = buildOperatorTools({ tasks: fakeTasks as never, contextProjectPath: '/ctx' });
+  await tools.create_task.handler({ title: 'plain' });
+  assert.equal(received.projectPath, '/ctx');
+  assert.equal(received.isOperator, undefined);
+});
+
 test('create_task handler forwards priority to the tasks service', async () => {
   let received: { priority?: string } = {};
   const fakeTasks = {

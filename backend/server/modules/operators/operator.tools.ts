@@ -29,6 +29,7 @@ export type OperatorToolDeps = {
       description?: string | null;
       status?: string;
       priority?: TaskPriority;
+      isOperator?: boolean;
     }) => unknown;
     listTasks: (f: { projectPath?: string; status?: string }) => unknown[];
     getTask: (id: string) => unknown;
@@ -81,6 +82,15 @@ export type OperatorToolDeps = {
    */
   startTaskRun?: (taskId: string, sessionId: string) => boolean;
   contextProjectPath?: string | null;
+  /**
+   * True when `contextProjectPath` is the Lovdex助手 (operator) workspace —
+   * the interactive assistant's context. Makes `create_task` fall back to the
+   * workspace and mark the task `is_operator` so the task board's「🤖 Lovdex
+   * 助手」filter (matches task.is_operator === 1) can surface it; without this,
+   * an omitted projectPath falls through to '' and createTask rejects it with
+   * PROJECT_NOT_FOUND.
+   */
+  contextIsOperatorWorkspace?: boolean;
 };
 
 /**
@@ -224,12 +234,22 @@ export function buildOperatorTools(deps: OperatorToolDeps) {
         if (i.priority !== undefined && !isTaskPriority(i.priority)) {
           throw new Error(`invalid priority: ${String(i.priority)}`);
         }
+        const projectPath = i.projectPath ?? deps.contextProjectPath ?? '';
+        // No explicit target in the assistant context: default to the Lovdex助手
+        // workspace and mark `is_operator` so the task lands in the「🤖 Lovdex
+        // 助手」board filter (task.is_operator === 1) instead of erroring with
+        // PROJECT_NOT_FOUND on the empty path.
+        const fallbackToAssistantWorkspace =
+          !projectPath && Boolean(deps.contextProjectPath && deps.contextIsOperatorWorkspace);
         return deps.tasks.createTask({
-          projectPath: i.projectPath ?? deps.contextProjectPath ?? '',
+          projectPath: fallbackToAssistantWorkspace
+            ? (deps.contextProjectPath as string)
+            : projectPath,
           title: i.title,
           description: i.description ?? null,
           status: i.status ?? 'todo',
           priority: i.priority,
+          isOperator: fallbackToAssistantWorkspace ? true : undefined,
         });
       },
     },
