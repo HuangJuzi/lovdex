@@ -2,62 +2,36 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { normalizeAgentEvent, terminalCompleteEvent } from '../normalize.js';
 
-test('normalizes an assistant message with text', () => {
-  const evt = normalizeAgentEvent(
-    { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'hi' }] } },
-    {},
-  );
-  assert.ok(evt.role === 'assistant');
-  assert.ok(typeof evt.eventId === 'string');
-  assert.ok(Array.isArray(evt.content));
+test('assistant event passes through verbatim and gains eventId', () => {
+  const input = {
+    type: 'assistant',
+    message: { role: 'assistant', content: [{ type: 'text', text: 'hi' }] },
+    session_id: 'P1',
+  };
+  const evt = normalizeAgentEvent(input, {});
   assert.equal(evt.type, 'assistant');
-  assert.deepEqual(evt.content, [{ type: 'text', text: 'hi' }]);
-});
-
-test('assistant maps sessionId -> providerSessionId and lifts model', () => {
-  const evt = normalizeAgentEvent(
-    {
-      type: 'assistant',
-      sessionId: 'P1',
-      message: { role: 'assistant', model: 'claude-x', content: [{ type: 'text', text: 'hi' }] },
-    },
-    {},
-  );
-  assert.equal(evt.providerSessionId, 'P1');
-  assert.equal(evt.model, 'claude-x');
-});
-
-test('assistant with no content defaults to empty array', () => {
-  const evt = normalizeAgentEvent({ type: 'assistant', message: { role: 'assistant' } }, {});
-  assert.deepEqual(evt.content, []);
-});
-
-test('complete event carries provider session id + done flag', () => {
-  const evt = terminalCompleteEvent('SDK_SESSION_1', {});
-  assert.equal(evt.type, 'complete');
-  assert.equal(evt.providerSessionId, 'SDK_SESSION_1');
-  assert.equal(evt.done, true);
+  assert.deepEqual(evt.message, input.message);
+  assert.equal(evt.session_id, 'P1');
   assert.ok(typeof evt.eventId === 'string');
 });
 
-test('result event normalizes to a complete event', () => {
-  const evt = normalizeAgentEvent({ type: 'result', sessionId: 'P1' }, {});
-  assert.equal(evt.type, 'complete');
-  assert.equal(evt.providerSessionId, 'P1');
-  assert.equal(evt.done, true);
-});
-
-test('tool_use preserves toolUseId/name/input and maps providerSessionId', () => {
-  const evt = normalizeAgentEvent(
-    { type: 'tool_use', toolUseId: 'tu-1', name: 'Bash', input: { command: 'ls' }, sessionId: 'P1' },
-    {},
-  );
+test('tool_use passes through toolUseId/name/input and parent_tool_use_id', () => {
+  const input = {
+    type: 'tool_use',
+    toolUseId: 'tu-1',
+    name: 'Bash',
+    input: { command: 'ls' },
+    parent_tool_use_id: null,
+    session_id: 'P1',
+  };
+  const evt = normalizeAgentEvent(input, {});
   assert.equal(evt.type, 'tool_use');
-  assert.ok(typeof evt.eventId === 'string');
-  assert.equal(evt.providerSessionId, 'P1');
   assert.equal(evt.toolUseId, 'tu-1');
   assert.equal(evt.name, 'Bash');
   assert.deepEqual(evt.input, { command: 'ls' });
+  assert.equal(evt.parent_tool_use_id, null);
+  assert.equal(evt.session_id, 'P1');
+  assert.ok(typeof evt.eventId === 'string');
 });
 
 test('error event passes through error field', () => {
@@ -67,16 +41,35 @@ test('error event passes through error field', () => {
 });
 
 test('unknown event type passes through with type unchanged and gains eventId', () => {
-  const evt = normalizeAgentEvent({ type: 'weird_thing', foo: 'bar' }, {});
+  const evt = normalizeAgentEvent({ type: 'weird_thing', foo: 'bar', session_id: 'P1' }, {});
   assert.equal(evt.type, 'weird_thing');
   assert.equal(evt.foo, 'bar');
+  assert.equal(evt.session_id, 'P1');
   assert.ok(typeof evt.eventId === 'string');
 });
 
-test('extra fields are merged into the base envelope', () => {
+test('complete event carries provider session id + done flag', () => {
+  const evt = terminalCompleteEvent('S1');
+  assert.equal(evt.type, 'complete');
+  assert.equal(evt.providerSessionId, 'S1');
+  assert.equal(evt.done, true);
+  assert.ok(typeof evt.eventId === 'string');
+});
+
+test('extra fields merge over the sdk event', () => {
   const evt = normalizeAgentEvent(
-    { type: 'assistant', message: { role: 'assistant', content: [] } },
-    { taskId: 'T7' },
+    { type: 'assistant', session_id: 'P1', message: { role: 'assistant', content: [] } },
+    { taskId: 'T7', session_id: 'RENAMED' },
   );
   assert.equal(evt.taskId, 'T7');
+  assert.equal(evt.session_id, 'RENAMED');
+  assert.ok(typeof evt.eventId === 'string');
+});
+
+test('extra fields merge into terminal complete event', () => {
+  const evt = terminalCompleteEvent('S1', { exitCode: 0, provider: 'claude' });
+  assert.equal(evt.providerSessionId, 'S1');
+  assert.equal(evt.exitCode, 0);
+  assert.equal(evt.provider, 'claude');
+  assert.equal(evt.type, 'complete');
 });

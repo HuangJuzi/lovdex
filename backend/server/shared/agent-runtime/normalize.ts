@@ -1,17 +1,24 @@
 /**
- * Shared SDK-event → writer-event normalizer for the remote agent path.
+ * Shared SDK-event → writer-event helper for the remote agent path.
  *
- * The local server (`claude-sdk.js`) turns raw Claude Code SDK events into the
- * rich `NormalizedMessage` envelope consumed by the chat websocket. The remote
- * "remote-lite" path needs a *small*, transport-friendly normalizer that emits
- * the assistant / tool_use / complete / error events (plus a passthrough for
- * anything else) with stable field names so both producers agree on the shape.
+ * The browser-facing event shape is produced ON the main server: the local
+ * path (`claude-sdk.js`) passes each raw SDK message through
+ * `transformMessage` + `sessionsService.normalizeMessage('claude', ...)` to
+ * build the heavy `NormalizedMessage` envelope. Remote parity therefore means
+ * the remote-lite service forwards the RAW SDK event over the WS and main's
+ * remote-spawn path runs the same `transformMessage` + `normalizeMessage`
+ * pipeline before `writer.send`.
  *
- * Field contract (must stay aligned with the live writer output):
- * - every event gets a unique `eventId`
- * - `providerSessionId` mirrors the SDK's `sessionId`
- * - assistant events carry `role`, `content` (the message content array), `model`
- * - terminal events use `type: 'complete'` with `done: true`
+ * Consequently `normalizeAgentEvent` is deliberately NON-destructive: it must
+ * NOT remap/reshape fields (that would corrupt main's re-normalization). It
+ * spreads the SDK event verbatim and only adds a unique `eventId`.
+ *
+ * Field contract:
+ * - every event gains a unique `eventId`
+ * - all original SDK fields (including `session_id`, `parent_tool_use_id`) are
+ *   preserved untouched
+ * - `terminalCompleteEvent` synthesizes the terminal `complete` event for the
+ *   remote loop end (carries `providerSessionId` + `done: true`)
  */
 
 type AnyRecord = Record<string, unknown>;
@@ -27,41 +34,7 @@ export function normalizeAgentEvent(
   sdkEvent: AnyRecord,
   extra: AnyRecord = {},
 ): AnyRecord {
-  const base = { ...extra, eventId: createEventId() };
-
-  if (sdkEvent.type === 'assistant') {
-    const message = (sdkEvent.message ?? {}) as AnyRecord;
-    return {
-      ...base,
-      type: 'assistant',
-      providerSessionId: sdkEvent.sessionId,
-      role: 'assistant',
-      content: (message.content ?? []) as unknown[],
-      model: message.model ?? undefined,
-    };
-  }
-
-  if (sdkEvent.type === 'result') {
-    return { ...base, type: 'complete', providerSessionId: sdkEvent.sessionId, done: true };
-  }
-
-  if (sdkEvent.type === 'tool_use') {
-    return {
-      ...base,
-      type: 'tool_use',
-      providerSessionId: sdkEvent.sessionId,
-      toolUseId: sdkEvent.toolUseId,
-      name: sdkEvent.name,
-      input: sdkEvent.input ?? {},
-    };
-  }
-
-  if (sdkEvent.type === 'error') {
-    return { ...base, type: 'error', providerSessionId: sdkEvent.sessionId, error: sdkEvent.error };
-  }
-
-  // Passthrough: unknown event types keep their fields and type, gain an eventId.
-  return { ...base, ...sdkEvent, type: sdkEvent.type as string, eventId: base.eventId };
+  return { ...sdkEvent, ...extra, eventId: createEventId() };
 }
 
 export function terminalCompleteEvent(
