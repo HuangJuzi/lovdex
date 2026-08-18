@@ -75,6 +75,24 @@ export function createRemoteAgentsRegistry(
       onHostOfflineSweep?.(affected);
       return affected;
     },
+    /**
+     * Forcibly drop a host's live connection from outside the ws layer (e.g.
+     * the host row was deleted). Closes the socket with 4001 'host removed';
+     * the ws close handler then drives the same identity-aware teardown that a
+     * natural disconnect performs (unregister → sweep → failPendingForHost →
+     * onHostOffline). Returns whether a connection existed so callers can
+     * branch on the lite being present at all.
+     */
+    closeHost(hostId: string): boolean {
+      const existing = connections.get(hostId);
+      if (!existing) return false;
+      try {
+        existing.ws.close(4001, 'host removed');
+      } catch (_) {
+        // socket may already be closing; the ws close handler still fires once
+      }
+      return true;
+    },
     getCapabilities(hostId: string): string[] | undefined {
       return connections.get(hostId)?.registration.capabilities;
     },

@@ -6,10 +6,11 @@
  * DB join on the hot path.
  *
  * The index is a projection of the `projects` table (project_path,
- * remote_host_id). Task 13 refreshes it once at boot and again after any project
- * create/delete, so it can never diverge from the DB for longer than one
- * mutation. Rows whose `remote_host_id` is null are local projects and are
- * simply omitted from the map.
+ * remote_host_id). Task 13 must hook `refreshRemoteProjectsIndex` into the
+ * project persist path — i.e. `modules/projects/services/project-management.service.js`
+ * (create/delete of projects) plus one refresh at boot — so it can never diverge
+ * from the DB for longer than one mutation. Rows whose `remote_host_id` is null
+ * are local projects and are simply omitted from the map.
  */
 
 let projectPathToHostId = new Map<string, string>();

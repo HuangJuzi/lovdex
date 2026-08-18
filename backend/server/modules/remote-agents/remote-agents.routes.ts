@@ -42,8 +42,18 @@ export function createRemoteAgentsRouter(deps: RemoteAgentsRouterDeps): express.
   router.get(
     '/',
     asyncHandler(async (_req, res) => {
+      // Project each row explicitly: agent_token_hash / key_credential_id are
+      // credentials and must never be serialized out of the router.
       const hosts = deps.repo.list().map((host) => ({
-        ...host,
+        host_id: host.host_id,
+        name: host.name,
+        host: host.host,
+        port: host.port,
+        ssh_user: host.ssh_user,
+        os: host.os,
+        status: host.status,
+        last_error: host.last_error,
+        last_seen_at: host.last_seen_at,
         online: deps.registry.isOnline(host.host_id),
       }));
       res.json(createApiSuccessResponse({ hosts }));
@@ -94,6 +104,11 @@ export function createRemoteAgentsRouter(deps: RemoteAgentsRouterDeps): express.
   );
 
   // 4. Deploy (bootstrap) the lite agent onto a registered host.
+  //
+  // WARNING: this is a BLOCKING ssh+scp call (typically 5-15+s). Task 16's
+  // frontend should poll GET / while the row status is 'deploying' rather than
+  // blocking on this response; a later iteration may move deploy behind a
+  // job+status endpoint.
   router.post(
     '/:hostId/deploy',
     asyncHandler(async (req, res) => {
@@ -108,6 +123,25 @@ export function createRemoteAgentsRouter(deps: RemoteAgentsRouterDeps): express.
 
       deps.repo.updateStatus(hostId, 'deploying');
 
+      // Optional body roots override. The lite config schema requires
+      // roots.min(1) — validate a non-empty array when one is provided.
+      const rawBody = req.body as Record<string, unknown> | undefined;
+      const providedRoots = rawBody?.roots;
+      let roots: string[] = [`/home/${host.ssh_user}`];
+      if (providedRoots !== undefined) {
+        if (
+          !Array.isArray(providedRoots)
+          || providedRoots.length === 0
+          || providedRoots.some((r) => typeof r !== 'string' || r.trim().length === 0)
+        ) {
+          throw new AppError('roots must be a non-empty array of paths', {
+            code: 'REMOTE_DEPLOY_INVALID_ROOTS',
+            statusCode: 400,
+          });
+        }
+        roots = providedRoots.map((r) => (r as string).trim());
+      }
+
       let result: BootstrapResult;
       try {
         result = await deps.bootstrap({
@@ -118,10 +152,7 @@ export function createRemoteAgentsRouter(deps: RemoteAgentsRouterDeps): express.
           token: deps.tokenFor(hostId),
           serverUrl: deps.serverUrl,
           hostId: host.host_id,
-          // bootstrap only writes config, but the lite's config schema requires
-          // roots.min(1). Seed a sensible default (the ssh user's home); real
-          // projects refine their own roots later.
-          roots: [`/home/${host.ssh_user}`],
+          roots,
         });
       } catch (error) {
         deps.repo.updateStatus(hostId, 'error', error instanceof Error ? error.message : 'bootstrap failed');
@@ -131,6 +162,10 @@ export function createRemoteAgentsRouter(deps: RemoteAgentsRouterDeps): express.
         });
       }
 
+      // Persist the conservative classification — we have no DB 'partial'
+      // status, so anything short of fully online is stored as 'error' — but
+      // echo the lite's actual result to the client so the partial-vs-error
+      // distinction is not lost to the caller.
       deps.repo.updateStatus(hostId, result.status === 'online' ? 'online' : 'error', result.message ?? null);
 
       res.json(
@@ -176,16 +211,16 @@ export function createRemoteAgentsRouter(deps: RemoteAgentsRouterDeps): express.
     }),
   );
 
-  // 6. Remove a host: drop the DB row and clear its registry session bindings.
+  // 6. Remove a host: drop the DB row, clear its registry session bindings and
+  // close the live socket so the agent tears down immediately (4001 'host
+  // removed') rather than lingering until its next heartbeat.
   router.delete(
     '/:hostId',
     asyncHandler(async (req, res) => {
       const hostId = typeof req.params.hostId === 'string' ? req.params.hostId : '';
       deps.repo.remove(hostId);
-      // Any sessions/approvals still routed to this host must not linger; the
-      // live socket (if any) is torn down by the ws layer on the next hello,
-      // when the host id no longer resolves to a row.
       deps.registry.clearSessionsForHost(hostId);
+      deps.registry.closeHost(hostId);
       res.json(createApiSuccessResponse({ removed: true }));
     }),
   );

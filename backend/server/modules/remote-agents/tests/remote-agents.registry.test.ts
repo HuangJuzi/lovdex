@@ -8,7 +8,9 @@ type FakeWs = {
   readyState: number;
   OPEN: number;
   closed: boolean;
-  close(): void;
+  closeCode: number | undefined;
+  onClose: (() => void) | undefined;
+  close(code?: number): void;
   send(raw: string, cb?: (err?: Error) => void): void;
 };
 
@@ -64,6 +66,32 @@ test('disconnect removes identity-matched socket, sessions and approvals', () =>
   assert.equal(reg.getSessionHost('a'), undefined);
   assert.equal(reg.getSessionHostByProvider('P2'), undefined);
   assert.equal(reg.takePendingApproval('req1'), undefined);
+});
+
+test('closeHost closes the live socket; the closed socket’s later disconnect is a no-op', () => {
+  const reg = createRemoteAgentsRegistry();
+  const ws = fakeWs();
+  reg.register({ hostId: 'h1', roots: [], capabilities: [] }, ws as unknown as WebSocket);
+  reg.setSessionHost('a', null, 'h1');
+  assert.equal(reg.isOnline('h1'), true);
+
+  // The registry only closes the socket; the ws close handler (wired in
+  // remote-agent.server.ts) drives the teardown via disconnect — mimic it here.
+  ws.onClose = () => {
+    reg.disconnect('h1', ws as unknown as WebSocket);
+  };
+
+  assert.equal(reg.closeHost('h1'), true);
+  assert.equal(ws.closed, true);
+  assert.equal(ws.closeCode, 4001);
+  // Teardown ran: entry gone and the session binding swept.
+  assert.equal(reg.isOnline('h1'), false);
+  assert.equal(reg.getSessionHost('a'), undefined);
+  // A second disconnect after the close must be a no-op (not re-sweep).
+  assert.deepEqual(reg.disconnect('h1', ws as unknown as WebSocket), []);
+
+  // Unknown host: nothing to close.
+  assert.equal(reg.closeHost('nope'), false);
 });
 
 test('clearSessionHost deletes a single entry; disconnect fires onHostOfflineSweep', () => {
@@ -155,8 +183,12 @@ function fakeWs(): FakeWs {
     readyState: 1,
     OPEN: 1,
     closed: false,
-    close() {
+    closeCode: undefined,
+    onClose: undefined,
+    close(code?: number) {
       this.closed = true;
+      this.closeCode = code ?? 1000;
+      this.onClose?.();
     },
     send(raw: string, cb?: (err?: Error) => void) {
       this.sent.push(raw);
