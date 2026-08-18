@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import type { Project, ProjectSession } from '../../../types/app';
 
-import { excludeHiddenProjects, getSessionDotState, isProjectActive, isSessionActive, isSessionRecentlyActive, sortProjects } from './utils';
+import { excludeHiddenProjects, getRecentSessions, getSessionDotState, isProjectActive, isSessionActive, isSessionRecentlyActive, sortProjects } from './utils';
 
 const mkSession = (id: string, lastActivity?: string): ProjectSession => ({
   id,
@@ -136,4 +136,42 @@ test('excludeHiddenProjects drops operator workspace projects', () => {
   const regular = mkProject('reg', 'Regular');
   const out = excludeHiddenProjects([assistantWs, regular]);
   assert.deepEqual(out.map((p) => p.projectId), ['reg']);
+});
+
+test('getRecentSessions flattens across projects and sorts by recent activity desc', () => {
+  const pA = mkProject('pA', 'A', {
+    sessions: [mkSession('a1', '2026-08-04T10:00:00Z'), mkSession('a2', '2026-08-04T11:00:00Z')],
+  });
+  const pB = mkProject('pB', 'B', { sessions: [mkSession('b1', '2026-08-04T11:30:00Z')] });
+  const out = getRecentSessions([pA, pB], 10);
+  assert.deepEqual(out.map((e) => e.session.id), ['b1', 'a2', 'a1']);
+  assert.deepEqual(out.map((e) => e.project.projectId), ['pB', 'pA', 'pA']);
+});
+
+test('getRecentSessions caps at limit', () => {
+  const sessions = Array.from({ length: 12 }, (_, i) => mkSession(`s${i}`, `2026-08-04T${String(10 + i).padStart(2, '0')}:00:00Z`));
+  const out = getRecentSessions([mkProject('p1', 'P1', { sessions })], 10);
+  assert.equal(out.length, 10);
+  assert.equal(out[0].session.id, 's11');
+  assert.equal(out[9].session.id, 's2');
+});
+
+test('getRecentSessions keeps operator workspace sessions', () => {
+  const assistantWs = mkProject('op-ws', 'operator-workspace', { sessions: [mkSession('op1', '2026-08-04T11:30:00Z')] });
+  (assistantWs as Project).isOperatorWorkspace = true;
+  const regular = mkProject('reg', 'Regular', { sessions: [mkSession('r1', '2026-08-04T10:00:00Z')] });
+  const out = getRecentSessions([regular, assistantWs], 10);
+  assert.deepEqual(out.map((e) => e.session.id), ['op1', 'r1']);
+});
+
+test('getRecentSessions returns empty for projects without sessions', () => {
+  assert.deepEqual(getRecentSessions([mkProject('p1', 'P1')], 10), []);
+  assert.deepEqual(getRecentSessions([], 10), []);
+});
+
+test('getRecentSessions sorts sessions without timestamps last', () => {
+  const pA = mkProject('pA', 'A', { sessions: [mkSession('a1'), mkSession('a2', '2026-08-04T11:00:00Z')] });
+  const out = getRecentSessions([pA], 10);
+  assert.equal(out[0].session.id, 'a2');
+  assert.equal(out[1].session.id, 'a1');
 });

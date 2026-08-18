@@ -106,6 +106,27 @@ export const getAllSessions = (project: Project): SessionWithProvider[] => {
   );
 };
 
+/** 一条「最近任务」记录：会话 + 其所属项目。 */
+export type RecentSessionEntry = {
+  session: ProjectSession;
+  project: Project;
+};
+
+/**
+ * 跨项目打平会话，按最近活跃（lastActivity ?? createdAt）倒序，取前 limit 条。
+ * 含助手（is_operator）会话——不排除 operator 工作区项目。
+ * 每项目已加载 top-20 活跃会话，足以覆盖全局 top-10。
+ */
+export const getRecentSessions = (projects: Project[], limit = 10): RecentSessionEntry[] =>
+  projects
+    .flatMap((project) =>
+      (project.sessions ?? []).map((session) => ({ session, project })),
+    )
+    .sort(
+      (a, b) => getSessionDate(b.session).getTime() - getSessionDate(a.session).getTime(),
+    )
+    .slice(0, limit);
+
 export const getProjectLastActivity = (project: Project): Date => {
   const sessions = getAllSessions(project);
   if (sessions.length === 0) {
