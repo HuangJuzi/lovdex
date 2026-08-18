@@ -14,9 +14,20 @@ export function setPushEmitter(fn: (topic: string, payload: unknown) => void): v
 }
 
 /** The process-wide agent-run manager. Pushes route through the live emitter. */
-export const agentRuns = createAgentRunManager({
-  push: (topic, payload) => pushEmitter(topic, payload),
-});
+export function agentRunsFor(cfg: RemoteAgentConfig): ReturnType<typeof createAgentRunManager> {
+  const key = cfg.roots.join('\0');
+  if (cachedRunsKey !== null && cachedRunsKey === key && cachedRuns !== null) return cachedRuns;
+  cachedRunsKey = key;
+  cachedRuns = createAgentRunManager({
+    push: (topic, payload) => pushEmitter(topic, payload),
+    // I4: runs must start inside an allowlisted root — reject outside cwds.
+    roots: cfg.roots,
+  });
+  return cachedRuns;
+}
+
+let cachedRunsKey: string | null = null;
+let cachedRuns: ReturnType<typeof createAgentRunManager> | null = null;
 
 /**
  * Lazy memoized allowlisted fs, keyed by the joined roots. The parsed config is
@@ -50,15 +61,19 @@ export async function handleRpc(
   cfg: RemoteAgentConfig,
 ): Promise<unknown> {
   if (method === 'session/start') {
-    return agentRuns.start(params as SessionStartParams);
+    // I3 note (Phase 2): session/messages (remote chat history) is NOT
+    // implemented in v1 — remote history falls back to main's local
+    // ~/.claude/projects (empty for a remote host). A Phase 2 lite
+    // `session/messages` handler will serve the transcript over the rpc bus.
+    return agentRunsFor(cfg).start(params as SessionStartParams);
   }
   if (method === 'session/interrupt') {
     const { appSessionId } = params as { appSessionId: string };
-    return { interrupted: agentRuns.interrupt(appSessionId) };
+    return { interrupted: agentRunsFor(cfg).interrupt(appSessionId) };
   }
   if (method === 'approval/respond') {
     const { requestId, decision } = params as { requestId: string; decision: unknown };
-    return { accepted: agentRuns.respond(requestId, decision) };
+    return { accepted: agentRunsFor(cfg).respond(requestId, decision) };
   }
   if (method === 'fs/stat' || method === 'fs/list' || method === 'fs/read') {
     const fsApi = allowlistedFsFor(cfg);

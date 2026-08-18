@@ -3,7 +3,7 @@ import { pathToFileURL } from 'node:url';
 
 import { makePing } from '../../server/shared/agent-runtime/protocol.js';
 import { loadConfigFile, type RemoteAgentConfig } from './config.js';
-import { handleRpc, setPushEmitter } from './rpc-dispatch.js';
+import { handleRpc, setPushEmitter, agentRunsFor } from './rpc-dispatch.js';
 
 const HEARTBEAT_MS = 15_000;
 const RECONNECT_MS = 3_000;
@@ -11,7 +11,10 @@ const RECONNECT_MS = 3_000;
 /**
  * Close codes the main server sends to permanently reject a connection. These
  * are NOT retryable: a reconnect loop would spool forever against a steady
- * rejection and spam the journal, so they are treated as fatal.
+ * rejection and spam the journal. On receiving one, the lite logs the reason
+ * and exits with code 0 so systemd `Restart=on-failure` treats it as a clean
+ * stop — a deleted/misconfigured host stops quietly instead of crash-looping
+ * (I5 review fix).
  */
 const FATAL_CLOSE_CODES: Record<number, string> = {
   4001: 'invalid token',
@@ -180,8 +183,16 @@ export function createLiteService(cfg: RemoteAgentConfig): LiteService {
     const fatal = FATAL_CLOSE_CODES[code];
     if (fatal !== undefined) {
       console.error(`[remote-agent] connection rejected by server (${code}: ${fatal}); exiting`);
-      process.exit(1);
+      process.exit(0); // clean exit — systemd Restart=on-failure does NOT spin on this
       return;
+    }
+    // I2 review fix: a dropped connection must not leave runs "active" on this
+    // side — a later re-send with the same providerSessionId would otherwise
+    // fail with `session already running`. Interrupt everything so a retry
+    // starts a fresh run. Mid-turn state is lost (no transparent adopt in v1).
+    const interrupted = agentRunsFor(cfg).interruptAll();
+    if (interrupted > 0) {
+      console.warn(`[remote-agent] interrupted ${interrupted} active run(s) on connection close`);
     }
     console.error('[remote-agent] ws closed; reconnecting in', RECONNECT_MS, 'ms');
     reconnectTimer = setTimeout(() => {

@@ -5,9 +5,11 @@
 #
 # Steps:
 #   1. cd into ~/.lovdex-remote
-#   2. extract lite.tgz (the bootstrap's tarball package contract) if pushed.
-#   3. install production deps (npm ci) when a package.json is present; skip
-#      when only the bundled dist/lite.mjs was shipped.
+#   2. extract lite.tgz (the bootstrap's self-contained bundle — dist/lite.mjs +
+#      package.json) if pushed.
+#   3. install production deps (npm ci) ONLY for a source install (package.json
+#      without a prebuilt bundle); a bundled dist/lite.mjs has deps inlined, so
+#      npm ci is skipped. Nothing to run at all → exit 1 (fail loudly).
 #   4. render the systemd --user unit from the pushed template, substituting
 #      the absolute node/claude binary paths (login-shell PATH; systemd --user
 #      has a minimal PATH that lacks nvm / npm globals).
@@ -50,18 +52,23 @@ if [ -f "${REMOTE_DIR}/lite.tgz" ]; then
   rm -f "${REMOTE_DIR}/lite.tgz"
 fi
 
-# 2. Dependencies — BUNDLE-FIRST: a prebuilt dist/lite.mjs skips npm ci
-#    entirely. npm ci only runs for a true source install (package.json present
-#    AND no prebuilt bundle): npm ci requires a package-lock.json — which a
-#    shipped tarball omits (it would fail) — and would wipe node_modules on
-#    every bundled redeploy.
+# 2. Dependencies — BUNDLE-FIRST: the shipped dist/lite.mjs is SELF-CONTAINED
+#    (esbuild inlines ws/zod/claude-agent-sdk, no --packages=external), so a
+#    prebuilt bundle skips npm ci entirely. npm ci only runs for a true source
+#    install (package.json present AND no prebuilt bundle): npm ci requires a
+#    package-lock.json — which a shipped tarball omits (it would fail) — and
+#    would wipe node_modules on every bundled redeploy.
 if [ -f "${REMOTE_DIR}/dist/lite.mjs" ]; then
   echo "[install] prebuilt dist/lite.mjs present — skipping npm ci"
 elif [ -f "${REMOTE_DIR}/package.json" ]; then
   echo "[install] running npm ci --omit=dev"
   npm ci --omit=dev
 else
-  echo "[install] warning: no package.json and no dist/lite.mjs found" >&2
+  # Neither a bundle nor a package.json: the systemd unit's ExecStart points at
+  # a missing dist/lite.mjs, so the service could never come up. Fail loudly —
+  # bootstrap reports `error`, never a false `online` (C1c review fix).
+  echo "[install] error: no dist/lite.mjs and no package.json found — nothing to run" >&2
+  exit 1
 fi
 
 # 3. Render + install the systemd --user unit. The bootstrap pushes the raw

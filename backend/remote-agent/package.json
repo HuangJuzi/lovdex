@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "esbuild src/index.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/lite.mjs",
+    "build": "esbuild src/index.ts --bundle --platform=node --format=esm --banner:js=\"import{createRequire}from'module';const require=createRequire(import.meta.url);\" --outfile=dist/lite.mjs",
     "start": "node dist/lite.mjs",
     "test": "tsx --test src/tests/*.test.ts"
   },

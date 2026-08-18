@@ -304,3 +304,72 @@ test('start rejects a second run for the same appSessionId', async () => {
   await first;
   await mgr.whenDone('s1');
 });
+
+test('I4: start() rejects a cwd outside the configured roots', async () => {
+  const { push } = makePush();
+  const querySdk: QuerySdkLike = async function* () {};
+  const mgr = createAgentRunManager({ push, querySdk, roots: ['/tmp'] });
+
+  // /etc exists but escapes the /tmp root → the allowlisted-fs resolve throws.
+  await assert.rejects(mgr.start({ ...baseParams, cwd: '/etc' }), /outside allowed root/);
+  // /tmp/definitely-not-a-real-dir-xyz is inside /tmp but missing → rejected.
+  await assert.rejects(
+    mgr.start({ ...baseParams, cwd: '/tmp/definitely-not-a-real-dir-xyz' }),
+    /outside allowed roots/,
+  );
+});
+
+test('I4: start() accepts a cwd inside the configured roots', async () => {
+  const { push, pushed } = makePush();
+  const querySdk: QuerySdkLike = async function* () {
+    yield { type: 'assistant', session_id: 'prov-ok', message: {} };
+  };
+  const mgr = createAgentRunManager({ push, querySdk, roots: ['/tmp'] });
+  const res = await mgr.start({ ...baseParams, cwd: '/tmp' });
+  assert.equal(res.providerSessionId, 'prov-ok');
+  await mgr.whenDone('s1');
+  assert.equal(
+    pushed.filter((p) => p.topic === 'session:s1' && (p.payload as Record<string, unknown>).type === 'complete').length,
+    1,
+  );
+});
+
+test('I2: interruptAll stops every active run and settles approvals', async () => {
+  const { push, pushed } = makePush();
+  let releaseA: () => void = () => {};
+  const gateA = new Promise<void>((r) => (releaseA = r));
+  let releaseB: () => void = () => {};
+  const gateB = new Promise<void>((r) => (releaseB = r));
+
+  const querySdk: QuerySdkLike = async function* () {
+    await gateA;
+    yield { type: 'assistant', session_id: 'prov-1', message: {} };
+    await gateB;
+    yield { type: 'result', session_id: 'prov-1', subtype: 'success' };
+  };
+  const mgr = createAgentRunManager({ push, querySdk });
+
+  // start() registers each run synchronously before its first await, so both
+  // runs are active the moment the two start() calls return (the generators
+  // are parked on their gates and have yielded nothing yet).
+  const runA = mgr.start({ ...baseParams, appSessionId: 'a1' });
+  const runB = mgr.start({ ...baseParams, appSessionId: 'b1' });
+
+  assert.equal(mgr.interruptAll(), 2);
+  releaseA();
+  releaseB();
+  await runA;
+  await runB;
+  await mgr.whenDone('a1');
+  await mgr.whenDone('b1');
+
+  // Interrupted runs complete with exactly one terminal frame each (abort path).
+  for (const sid of ['a1', 'b1']) {
+    const completes = pushed.filter(
+      (p) => p.topic === `session:${sid}` && (p.payload as Record<string, unknown>).type === 'complete',
+    );
+    assert.equal(completes.length, 1, `${sid} got exactly one terminal complete`);
+  }
+  // interruptAll is idempotent: no runs left to interrupt.
+  assert.equal(mgr.interruptAll(), 0);
+});

@@ -1,5 +1,6 @@
 import type { query } from '@anthropic-ai/claude-agent-sdk';
 import { normalizeAgentEvent, terminalCompleteEvent } from '../../server/shared/agent-runtime/normalize.js';
+import { createAllowlistedFs } from './fs.js';
 
 /**
  * The minimal SDK surface the lite loop consumes. Tests inject a fake async
@@ -26,6 +27,13 @@ export type AgentRunManagerDeps = {
   push: (topic: string, payload: unknown) => void;
   /** Approval wait timeout in ms; auto-denies past this. Default 120s. */
   approvalTimeoutMs?: number;
+  /**
+   * I4 review fix — allowlisted host roots (mirror of cfg.roots). When set,
+   * `start()` rejects any `cwd` that is not an existing directory inside one
+   * of these roots, so a misbehaving/malicious main server cannot make the
+   * lite spawn claude outside the operator's declared surface.
+   */
+  roots?: string[];
 };
 
 export type SessionStartParams = {
@@ -145,6 +153,18 @@ export function createAgentRunManager(deps: AgentRunManagerDeps) {
     const { appSessionId } = params;
     if (runs.has(appSessionId)) {
       throw new Error(`session already running: ${appSessionId}`);
+    }
+
+    // I4 review fix: the lite is a code-execution surface, so a `cwd` outside
+    // the configured roots must never reach the SDK. Two rejection paths:
+    //  - outside every root → `createAllowlistedFs().stat` throws (path escapes);
+    //  - inside a root but missing/non-directory → the exists/isDirectory check.
+    if (deps.roots && deps.roots.length > 0) {
+      const rootedFs = createAllowlistedFs({ roots: deps.roots });
+      const stat = await rootedFs.stat(params.cwd);
+      if (!stat.exists || !stat.isDirectory) {
+        throw new Error(`cwd outside allowed roots: ${params.cwd}`);
+      }
     }
 
     // Resolve early: reuse the provided providerSessionId, else settle from the
@@ -297,5 +317,21 @@ export function createAgentRunManager(deps: AgentRunManagerDeps) {
     return true;
   }
 
-  return { start, respond, whenDone, interrupt };
+  /**
+   * I2 review fix — interrupt EVERY active run (used when the ws connection is
+   * dropped): a run left in the `runs` map would make a later re-send with the
+   * same providerSessionId fail with `session already running`. Main's routing
+   * relies on abortability to fail in-flight spawns fast. This is a lossy
+   * shutdown — mid-turn state (conversation progress) is NOT adopted when a
+   * retry spawns a fresh run; no transparent adopt in v1.
+   *
+   * Returns the number of runs interrupted.
+   */
+  function interruptAll(): number {
+    const ids = Array.from(runs.keys());
+    for (const id of ids) interrupt(id);
+    return ids.length;
+  }
+
+  return { start, respond, whenDone, interrupt, interruptAll };
 }

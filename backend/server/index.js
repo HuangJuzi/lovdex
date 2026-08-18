@@ -83,6 +83,7 @@ import { setRemoteAgentsRuntime } from './modules/remote-agents/runtime.js';
 import { refreshRemoteProjectsIndex, lookupRemoteHost } from './modules/remote-agents/remote-projects.index.js';
 import { runBootstrap } from './modules/remote-agents/bootstrap.service.js';
 import { createSshRunner, createScpPush } from './modules/remote-agents/ssh-runner.js';
+import { buildLitePackage } from './modules/remote-agents/lite-package.js';
 import { createCompleteMessage } from './shared/utils.js';
 
 const __dirname = getModuleDir(import.meta.url);
@@ -167,6 +168,11 @@ const remoteFsClient = createRemoteFsClient(() => remoteAgentsRegistry);
 // Raw lite SDK event → writer-ready NormalizedMessage[]. Mirrors the local
 // claude path: synthetic `complete` becomes a completion message; every other
 // event flows through transformMessage + the shared session normalizer.
+//
+// I3 note (Phase 2): remote `session/messages` (chat history) is NOT
+// implemented in v1 — remote session history falls back to main's local
+// ~/.claude/projects, which is empty for a remote host. Phase 2 adds a lite
+// `session/messages` handler that serves the transcript over the rpc bus.
 const normalizeRemoteEvent = (raw, sid) => {
     if (raw && typeof raw === 'object' && raw.type === 'complete') {
         // exitCode travels on the payload: the lite pushes exitCode 1 + error on
@@ -362,17 +368,32 @@ app.use('/api/remote-agents', authenticateToken, createRemoteAgentsRouter({
         return token;
     },
     // Real ssh/scp transport. The scp destination (user@host) is derived from
-    // the per-deploy input, so createScpPush is built per invocation.
-    bootstrap: (input) => runBootstrap(input, {
-        runner: createSshRunner(),
-        push: createScpPush({
-            identityFile: input.identityFile,
-            port: input.port,
-            remote: `${input.sshUser}@${input.host}`,
-        }),
-        installScriptPath: path.join(__dirname, '..', 'remote-agent', 'deploy', 'install.sh'),
-        unitTemplatePath: path.join(__dirname, '..', 'remote-agent', 'deploy', 'systemd-unit.template'),
-    }),
+    // the per-deploy input, so createScpPush is built per invocation. The lite
+    // is built + tarred fresh per deploy (C1) so install.sh always has a
+    // runnable dist/lite.mjs — a deploy with nothing to run would otherwise
+    // report `online` for a remote that can never dial back.
+    bootstrap: async (input) => {
+        const { tarballPath } = await buildLitePackage({
+            sourceDir: path.join(__dirname, '..', 'remote-agent'),
+            esbuildBin: path.join(__dirname, '..', 'node_modules', 'esbuild', 'bin', 'esbuild'),
+        });
+        try {
+            return await runBootstrap(input, {
+                runner: createSshRunner(),
+                push: createScpPush({
+                    identityFile: input.identityFile,
+                    port: input.port,
+                    remote: `${input.sshUser}@${input.host}`,
+                }),
+                installScriptPath: path.join(__dirname, '..', 'remote-agent', 'deploy', 'install.sh'),
+                unitTemplatePath: path.join(__dirname, '..', 'remote-agent', 'deploy', 'systemd-unit.template'),
+                litePackagePath: tarballPath,
+            });
+        } finally {
+            // The bundle was built for THIS deploy only; drop the temp tarball.
+            fs.rmSync(tarballPath, { force: true });
+        }
+    },
 }));
 
 // Chat image asset upload/serving (global ~/.cloudcli/assets store, protected)
