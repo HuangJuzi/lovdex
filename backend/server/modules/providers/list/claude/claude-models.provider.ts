@@ -111,6 +111,36 @@ function buildClaudeModelOptions(): ProviderModelOption[] {
       },
     });
   }
+
+  // oneMillionModels entries that don't map to any of the four model slots are
+  // appended as standalone selectable options (so a 1M-context model like
+  // `gpt-5.5` can be picked even when it isn't the default/opus/sonnet/haiku).
+  // Entries that DO match a slot are already tagged ` [1m]` inline above, so
+  // appending them again would just duplicate the slot.
+  const slotIds = new Set(
+    [envDefault, envOpus, envSonnet, envHaiku].filter((value): value is string => typeof value === 'string'),
+  );
+  for (const id of oneMillion) {
+    if (slotIds.has(id)) {
+      continue;
+    }
+
+    options.push({
+      value: id,
+      label: `${id} [1m]`,
+      description: '1M context model',
+      effort: {
+        default: 'high',
+        values: [
+          { value: 'low' },
+          { value: 'medium' },
+          { value: 'high' },
+          { value: 'max' },
+        ],
+      },
+    });
+  }
+
   return options;
 }
 

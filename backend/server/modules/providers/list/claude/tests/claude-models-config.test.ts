@@ -47,3 +47,34 @@ test('model options rebuild from current app.config on each call', async () => {
   const after = getClaudeFallbackModels();
   assert.strictEqual(after.OPTIONS.find((o) => o.value === 'sonnet')?.label, 'sonnet-9');
 });
+
+test('oneMillionModels appends non-slot models and tags slot matches', async () => {
+  const cfg = appConfig();
+  cfg.update({
+    providers: {
+      claude: {
+        defaultModel: 'model-a',
+        opusModel: 'opus-b',
+        sonnetModel: 'sonnet-c',
+        haikuModel: 'haiku-d',
+        oneMillionModels: 'gpt-5.5, opus-b',
+      },
+    },
+  });
+
+  const { OPTIONS } = getClaudeFallbackModels();
+
+  // gpt-5.5 matches no slot → appended as a standalone option.
+  const gpt = OPTIONS.find((o) => o.value === 'gpt-5.5');
+  assert.ok(gpt, 'expected a standalone gpt-5.5 option');
+  assert.strictEqual(gpt?.label, 'gpt-5.5 [1m]');
+  assert.strictEqual(gpt?.description, '1M context model');
+
+  // opus-b matches the opus slot → tagged inline, not duplicated.
+  assert.strictEqual(OPTIONS.find((o) => o.value === 'opus')?.label, 'opus-b [1m]');
+  assert.strictEqual(
+    OPTIONS.filter((o) => o.value === 'opus-b').length,
+    0,
+    'slot-matched model must not be appended as a duplicate',
+  );
+});
