@@ -1,4 +1,4 @@
-import type { WebSocket } from 'ws';
+import { WebSocket } from 'ws';
 
 export type LiteRegistration = {
   hostId: string;
@@ -19,18 +19,58 @@ export function createRemoteAgentsRegistry() {
     return Array.from(buf, (b) => b.toString(16).padStart(2, '0')).join('');
   }
 
+  function doUnregister(hostId: string, ws: WebSocket): boolean {
+    const existing = connections.get(hostId);
+    if (!existing || existing.ws !== ws) return false;
+    connections.delete(hostId);
+    return true;
+  }
+
+  function doClearSessionsForHost(hostId: string): string[] {
+    const affected: string[] = [];
+    for (const [appSessionId, entry] of sessionHost) {
+      if (entry.hostId === hostId) {
+        sessionHost.delete(appSessionId);
+        affected.push(appSessionId);
+      }
+    }
+    // stale approvals must not linger for a dead host
+    for (const [requestId, entry] of pendingApprovals) {
+      if (entry.hostId === hostId) {
+        pendingApprovals.delete(requestId);
+      }
+    }
+    return affected;
+  }
+
   return {
     isOnline(hostId: string): boolean {
       const c = connections.get(hostId);
-      return c !== undefined && c.ws.readyState === c.ws.OPEN;
+      return c !== undefined && c.ws.readyState === WebSocket.OPEN;
     },
     register(registration: LiteRegistration, ws: WebSocket): void {
+      const existing = connections.get(registration.hostId);
+      if (existing) {
+        // A reconnect supersedes the stale socket: close it so it cannot linger.
+        try {
+          existing.ws.close();
+        } catch (_) {
+          // stale socket may already be closed
+        }
+      }
       connections.set(registration.hostId, { registration, ws });
     },
-    unregister(hostId: string): void {
-      connections.delete(hostId);
+    unregister(hostId: string, ws: WebSocket): boolean {
+      return doUnregister(hostId, ws);
+    },
+    disconnect(hostId: string, ws: WebSocket): DisconnectResult {
+      if (!doUnregister(hostId, ws)) return [];
+      return doClearSessionsForHost(hostId);
     },
     getCapabilities(hostId: string): string[] | undefined {
+      return connections.get(hostId)?.registration.capabilities;
+    },
+    getRoots(hostId: string): string[] | undefined {
       return connections.get(hostId)?.registration.roots;
     },
     listenerCount(): number {
@@ -49,14 +89,7 @@ export function createRemoteAgentsRegistry() {
       return undefined;
     },
     clearSessionsForHost(hostId: string): string[] {
-      const affected: string[] = [];
-      for (const [appSessionId, entry] of sessionHost) {
-        if (entry.hostId === hostId) {
-          sessionHost.delete(appSessionId);
-          affected.push(appSessionId);
-        }
-      }
-      return affected;
+      return doClearSessionsForHost(hostId);
     },
     addPendingApproval(requestId: string, entry: { appSessionId: string; hostId: string }): void {
       pendingApprovals.set(requestId, entry);
@@ -68,7 +101,7 @@ export function createRemoteAgentsRegistry() {
     },
     rpc<T = unknown>(hostId: string, method: string, params: unknown, timeoutMs = 60_000): Promise<T> {
       const connection = connections.get(hostId);
-      if (!connection || connection.ws.readyState !== connection.ws.OPEN) {
+      if (!connection || connection.ws.readyState !== WebSocket.OPEN) {
         return Promise.reject(new Error(`remote host offline: ${hostId}`));
       }
       return new Promise<T>((resolve, reject) => {
@@ -83,7 +116,23 @@ export function createRemoteAgentsRegistry() {
           }, timeoutMs),
         };
         pending.set(id, entry);
-        connection.ws.send(JSON.stringify({ type: 'rpc_req', id, method, params }));
+        try {
+          connection.ws.send(JSON.stringify({ type: 'rpc_req', id, method, params }), (err?: Error) => {
+            if (err) {
+              const e = pending.get(id);
+              if (e) {
+                clearTimeout(e.timer);
+                pending.delete(id);
+                e.reject(new Error(`remote rpc send failed: ${err.message}`));
+              }
+            }
+          });
+        } catch (err) {
+          // send() can throw synchronously (e.g. socket just closing); settle once.
+          clearTimeout(entry.timer);
+          pending.delete(id);
+          reject(err instanceof Error ? err : new Error(String(err)));
+        }
       });
     },
     resolveRpc(id: string, response: { ok: boolean; data?: unknown; error?: string }): void {
@@ -109,5 +158,8 @@ export type PendingRpc = {
   reject: (error: Error) => void;
   timer: NodeJS.Timeout;
 };
+
+/** Sessions torn down by a host disconnect; empty when the socket was stale. */
+export type DisconnectResult = string[];
 
 export type RemoteAgentsRegistry = ReturnType<typeof createRemoteAgentsRegistry>;
