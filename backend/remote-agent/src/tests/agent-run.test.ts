@@ -263,6 +263,29 @@ test('respond for unknown requestId returns false', () => {
   assert.equal(mgr.respond('does-not-exist', { allow: true }), false);
 });
 
+test('I1: genuine (non-abort) loop error pushes one terminal complete with exitCode 1 + error', async () => {
+  const { push, pushed } = makePush();
+  const querySdk: QuerySdkLike = async function* () {
+    yield { type: 'assistant', session_id: 'prov-1', message: {} };
+    throw new Error('model backend 500');
+  };
+  const mgr = createAgentRunManager({ push, querySdk });
+
+  const startP = mgr.start(baseParams);
+  await waitFor(() => pushed.some((p) => p.topic === 'session:s1'));
+  await startP;
+  await mgr.whenDone('s1');
+
+  const sessionPushes = pushed.filter((p) => p.topic === 'session:s1');
+  const completes = sessionPushes.filter((p) => (p.payload as Record<string, unknown>).type === 'complete');
+  // exactly ONE terminal frame (not a failed one followed by a clean exitCode 0)
+  assert.equal(completes.length, 1);
+  const complete = completes[0].payload as Record<string, unknown>;
+  assert.equal(complete.exitCode, 1);
+  assert.equal(complete.error, 'model backend 500');
+  assert.equal(complete.done, true);
+});
+
 test('start rejects a second run for the same appSessionId', async () => {
   const { push } = makePush();
   let release: () => void = () => {};

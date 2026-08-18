@@ -223,6 +223,8 @@ export function createAgentRunManager(deps: AgentRunManagerDeps) {
     // early; the run keeps tracking here so `interrupt` / `respond` keep
     // working and the terminal complete is pushed exactly once.
     void (async () => {
+      let runFailed = false;
+      let runError = '';
       try {
         for await (const event of querySdk(params.command, sdkOptions)) {
           if (run.aborted) break;
@@ -238,16 +240,23 @@ export function createAgentRunManager(deps: AgentRunManagerDeps) {
       } catch (err) {
         // Abort-induced throw (e.g. the SDK routing subprocess exitError into
         // the stream after an abort) is expected noise — mirror
-        // server/claude-sdk.js. Non-abort failures still get logged.
+        // server/claude-sdk.js. Genuine loop failures surface as a terminal
+        // `complete` carrying exitCode 1 + the error message so main's routing
+        // marks the session failed instead of a clean complete{exitCode:0}.
         if (!run.aborted) {
-          console.error(`[remote-agent] session ${appSessionId} failed:`, err instanceof Error ? err.message : err);
+          runFailed = true;
+          runError = err instanceof Error ? err.message : String(err);
+          console.error(`[remote-agent] session ${appSessionId} failed:`, runError);
         }
       } finally {
         settleRunApprovals(appSessionId, 'run ended');
         run.doneResolve();
         runs.delete(appSessionId);
       }
-      deps.push(`session:${appSessionId}`, terminalCompleteEvent(providerSessionId));
+      deps.push(
+        `session:${appSessionId}`,
+        terminalCompleteEvent(providerSessionId, runFailed ? { exitCode: 1, error: runError } : {}),
+      );
       settleEstablished(providerSessionId); // safety: never leave `established` unsettled
     })();
 

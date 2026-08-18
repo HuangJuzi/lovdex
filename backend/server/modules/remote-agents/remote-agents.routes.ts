@@ -13,7 +13,12 @@ export type RemoteAgentsRouterDeps = {
   fsClient: RemoteFsClient;
   /** Lovdex ed25519 public key, surfaced so users can authorize it manually. */
   publicKey: string;
-  /** Deterministic per-host token; generates the token AND persists its hash. */
+  /**
+   * Deterministic per-host token (HMAC-SHA256(hostId) keyed by the server
+   * secret), so redeploys REUSE the same token and its hash — a running lite's
+   * auth never silently rotates. Persists the sha256 of the token for the
+   * ws verifyToken lookup.
+   */
   tokenFor: (hostId: string) => string;
   /** Wraps runBootstrap with the real ssh runner + file push. */
   bootstrap: (input: BootstrapInput) => Promise<BootstrapResult>;
@@ -149,6 +154,9 @@ export function createRemoteAgentsRouter(deps: RemoteAgentsRouterDeps): express.
           port: host.port,
           sshUser: host.ssh_user,
           identityFile: deps.identityFile,
+          // Deterministic per-host token: redeploy mints the SAME token (and
+          // persists the same sha256) — a running lite is never bricked by an
+          // interrupted deploy resetting its auth.
           token: deps.tokenFor(hostId),
           serverUrl: deps.serverUrl,
           hostId: host.host_id,

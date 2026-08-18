@@ -1,10 +1,27 @@
 import type { IncomingMessage } from 'node:http';
 import type { Server as HttpServer } from 'node:http';
+import type { Duplex } from 'node:stream';
 import { WebSocketServer } from 'ws';
 import type { WebSocket } from 'ws';
 import type { RemoteAgentsRegistry } from './remote-agents.registry.js';
 import { isAgentFrameIn } from '@/shared/agent-runtime/protocol.js';
 import type { AgentFrameIn } from '@/shared/agent-runtime/protocol.js';
+
+/** The lite agents dial back to. Exported so the chat ws dispatcher leaves it alone. */
+export const REMOTE_AGENT_WS_PATH = '/api/remote-agents/ws';
+
+/** ws package internal `_state` value for a running (not yet closed) server. */
+const WS_SERVER_RUNNING = 0;
+
+/** The pathname of an upgrade request (query string dropped). */
+function upgradePathname(request: IncomingMessage): string {
+  return new URL(request.url ?? '/', 'http://localhost').pathname;
+}
+
+/** Writes a bare HTTP response on an upgrade socket and closes it. */
+function rejectUpgrade(socket: Duplex, statusCode: number, message: string): void {
+  socket.end(`HTTP/1.1 ${statusCode} ${message}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
+}
 
 /** A `push` frame delivered to subscribers, tagged with the originating host. */
 export type PushEvent = { topic: string; payload: unknown; from: string | null };
@@ -117,9 +134,17 @@ export function createRemoteAgentConnectionHandler(deps: RemoteAgentServerDeps) 
  * Binds a {@link WebSocketServer} to the existing http server at
  * `/api/remote-agents/ws`. Each connection is authenticated via the `?token=`
  * query param through `verifyToken`; failures are closed with code 4001.
+ *
+ * Upgrade routing: this wss is created in `noServer` mode and registers its OWN
+ * path-scoped `upgrade` listener. Running two WebSocketServers that both listen
+ * to the same http server via the `server` option does NOT work — each one's
+ * auto-registered listener runs on every upgrade and a non-matching server
+ * calls `abortHandshake` (400) which destroys the socket before the matching
+ * server can complete the handshake. Manual `handleUpgrade` dispatch keeps
+ * every path served by exactly one server.
  */
 export function createRemoteAgentWss(server: HttpServer, deps: RemoteAgentServerDeps): WebSocketServer {
-  const wss = new WebSocketServer({ server, path: '/api/remote-agents/ws' });
+  const wss = new WebSocketServer({ noServer: true });
   const handler = createRemoteAgentConnectionHandler(deps);
   wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
     const url = new URL(req.url ?? '/', 'http://x');
@@ -134,5 +159,19 @@ export function createRemoteAgentWss(server: HttpServer, deps: RemoteAgentServer
     }
     handler(ws, req, hostId);
   });
+
+  // Claim ONLY our path. Anything else is left for the chat wss's own dispatcher
+  // (never touched here): chat/terminal upgrade requests must survive this
+  // listener intact so the chat wss can settle them. Unknown paths were already
+  // rejected by the chat dispatcher.
+  server.on('upgrade', (request: IncomingMessage, socket: Duplex, head: Buffer) => {
+    if (upgradePathname(request) !== REMOTE_AGENT_WS_PATH) return;
+    if ((wss as unknown as { _state?: number })._state !== WS_SERVER_RUNNING) {
+      rejectUpgrade(socket, 503, 'Service Unavailable');
+      return;
+    }
+    wss.handleUpgrade(request, socket, head, (ws) => wss.emit('connection', ws, request));
+  });
+
   return wss;
 }

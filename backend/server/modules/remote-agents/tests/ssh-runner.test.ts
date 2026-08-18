@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { createScpPush, createSshRunner } from '../ssh-runner.js';
+import { sshArgs } from '../bootstrap.service.js';
 
 type Call = { file: string; argv: string[] };
 
@@ -78,4 +79,80 @@ test('createScpPush maps failure to {ok:false,error}', async () => {
   const res = await push('/a', '~/b');
   assert.equal(res.ok, false);
   assert.equal(res.error, 'lost connection');
+});
+
+test('createScpPush omits -i and -P for default port 22 / no identity', async () => {
+  const { fn, calls } = fakeExecFile({});
+  const push = createScpPush({ execFileFn: fn, remote: 'deploy@1.2.3.4' });
+  await push('/local/install.sh', '~/.lovdex-remote/install.sh');
+  assert.deepEqual(calls[0].argv, [
+    '-o',
+    'StrictHostKeyChecking=accept-new',
+    '-o',
+    'ConnectTimeout=15',
+    '-o',
+    'BatchMode=yes',
+    '/local/install.sh',
+    'deploy@1.2.3.4:~/.lovdex-remote/install.sh',
+  ]);
+});
+
+test('createScpPush keeps -i for an explicit identity on port 22 (no -P)', async () => {
+  const { fn, calls } = fakeExecFile({});
+  const push = createScpPush({ execFileFn: fn, remote: 'u@h', identityFile: '/keys/id_ed25519', port: 22 });
+  await push('/a', '~/b');
+  assert.deepEqual(calls[0].argv, [
+    '-o',
+    'StrictHostKeyChecking=accept-new',
+    '-o',
+    'ConnectTimeout=15',
+    '-o',
+    'BatchMode=yes',
+    '-i',
+    '/keys/id_ed25519',
+    '/a',
+    'u@h:~/b',
+  ]);
+});
+
+test('sshArgs omits -i/-p for no identity and port 22; adds them only when needed', () => {
+  // default: no identity, port 22 (undefined) → no -i, no -p
+  assert.deepEqual(sshArgs('u@h', null, undefined, ['uname']), [
+    '-o',
+    'StrictHostKeyChecking=accept-new',
+    '-o',
+    'ConnectTimeout=15',
+    '-o',
+    'BatchMode=yes',
+    'u@h',
+    'uname',
+  ]);
+  // explicit identity, default port → -i only
+  assert.deepEqual(sshArgs('u@h', '/k', undefined, ['node', '-v']), [
+    '-o',
+    'StrictHostKeyChecking=accept-new',
+    '-o',
+    'ConnectTimeout=15',
+    '-o',
+    'BatchMode=yes',
+    '-i',
+    '/k',
+    'u@h',
+    'node',
+    '-v',
+  ]);
+  // custom port → -p present
+  assert.deepEqual(sshArgs('u@h', null, 2222, ['node', '-v']), [
+    '-o',
+    'StrictHostKeyChecking=accept-new',
+    '-o',
+    'ConnectTimeout=15',
+    '-o',
+    'BatchMode=yes',
+    '-p',
+    '2222',
+    'u@h',
+    'node',
+    '-v',
+  ]);
 });

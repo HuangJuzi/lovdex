@@ -6,7 +6,7 @@ import path from 'path';
 import os from 'os';
 import http from 'http';
 import crypto from 'node:crypto';
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 
 import express from 'express';
@@ -169,7 +169,10 @@ const remoteFsClient = createRemoteFsClient(() => remoteAgentsRegistry);
 // event flows through transformMessage + the shared session normalizer.
 const normalizeRemoteEvent = (raw, sid) => {
     if (raw && typeof raw === 'object' && raw.type === 'complete') {
-        return [createCompleteMessage({ provider: 'claude', sessionId: sid ?? raw.providerSessionId ?? null, exitCode: 0 })];
+        // exitCode travels on the payload: the lite pushes exitCode 1 + error on
+        // a genuine run failure so the session surfaces as failed, not a clean
+        // complete{exitCode:0} (I1 review fix).
+        return [createCompleteMessage({ provider: 'claude', sessionId: sid ?? raw.providerSessionId ?? null, exitCode: raw.exitCode ?? 0 })];
     }
     const transformed = transformMessage(raw);
     return sessionsService.normalizeMessage('claude', transformed, sid);
@@ -181,25 +184,20 @@ const remoteRouting = createRemoteRouting({
 });
 setRemoteAgentsRuntime({ registry: remoteAgentsRegistry, fsClient: remoteFsClient });
 
-// Prime the routing index from the DB at boot; project create/delete refresh it.
-try {
-    refreshRemoteProjectsIndex(projectsDb.listPathsWithRemoteHost());
-} catch (e) {
-    console.error('[remote-agents] initial projects index refresh failed:', e);
-}
-
 // Provider runtimes keyed by provider id. Shared by the WebSocket server
 // (interactive chat.send path) and the headless task-run launcher (operator
 // start_task_execution path) so there is one source of truth.
 //
-// Each spawn is wrapped by the remote routing: runs whose project path resolves
-// to a remote host are forwarded over the ws rpc/push bus; local paths pass
-// straight through to the in-process provider.
+// The remote routing wraps ONLY the claude provider: the lite agent speaks
+// claude (its capabilities are session/claude); codex/opencode/qoder remain
+// strictly local (M3 review fix). A claude spawn whose project path resolves to
+// a remote host is forwarded over the ws rpc/push bus; local paths pass
+// straight through to the in-process SDK.
 const spawnFns = {
     claude: remoteRouting.wrapSpawn(queryClaudeSDK),
-    codex: remoteRouting.wrapSpawn(queryCodex),
-    opencode: remoteRouting.wrapSpawn(queryOpenCode),
-    qoder: remoteRouting.wrapSpawn(queryQoder),
+    codex: queryCodex,
+    opencode: queryOpenCode,
+    qoder: queryQoder,
 };
 
 // Single WebSocket server that handles chat.
@@ -212,9 +210,9 @@ const wss = createWebSocketServer(server, {
         spawnFns,
         abortFns: {
             claude: remoteRouting.wrapAbort(abortClaudeSDKSession),
-            codex: remoteRouting.wrapAbort(abortCodexSession),
-            opencode: remoteRouting.wrapAbort(abortOpenCodeSession),
-            qoder: remoteRouting.wrapAbort(abortQoderSession),
+            codex: abortCodexSession,
+            opencode: abortOpenCodeSession,
+            qoder: abortQoderSession,
         },
         // Pending tool approvals may be owned by either interactive provider
         // (Claude's SDK callback or Qoder's stdio control protocol) or a remote
@@ -349,11 +347,17 @@ app.use('/api/remote-agents', authenticateToken, createRemoteAgentsRouter({
     fsClient: remoteFsClient,
     publicKey: remotePublicKey,
     identityFile,
+    // The lite dials back to this ws URL. The localhost default is correct for
+    // loopback E2E (ssh host == the Lovdex host); for a real remote host the
+    // operator MUST set LOVDEX_PUBLIC_WS_URL to an address reachable from it.
     serverUrl: process.env.LOVDEX_PUBLIC_WS_URL ?? `ws://localhost:${cfg.server.port}/api/remote-agents/ws`,
-    // Deterministic per-host token: mints a fresh token AND persists its hash
-    // against the host row so the ws verifyToken above can resolve it back.
+    // Deterministic per-host token: HMAC-SHA256(hostId) keyed by the server's
+    // jwt secret. The token (and its sha256) is stable across redeploys, so a
+    // running lite whose token is rotated by a failed deploy is never bricked
+    // (I2 review fix) — redeploy reuses the same token.
     tokenFor: (hostId) => {
-        const token = randomBytes(32).toString('hex');
+        const secret = cfg.auth?.jwtSecret || 'lovdex-remote-agents';
+        const token = createHmac('sha256', secret).update(hostId).digest('hex');
         remoteHostsDb.setTokenHash(hostId, createHash('sha256').update(token).digest('hex'));
         return token;
     },
@@ -1789,6 +1793,14 @@ async function startServer() {
     try {
         // Initialize authentication database
         await initializeDatabase();
+
+        // Prime the remote-projects routing index AFTER the DB is ready (it is a
+        // projection of the projects table); project create/delete refresh it.
+        try {
+            refreshRemoteProjectsIndex(projectsDb.listPathsWithRemoteHost());
+        } catch (error) {
+            console.error('[remote-agents] initial projects index refresh failed:', error);
+        }
 
         // Scheduled tasks: start the 15s tick dispatch. Failure to start must
         // not block the server — surface the error and continue.
