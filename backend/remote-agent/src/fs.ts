@@ -28,6 +28,11 @@ export type AllowlistedFs = {
 const DEFAULT_MAX_ENTRIES = 200;
 const DEFAULT_MAX_READ_BYTES = 1024 * 1024; // 1 MiB
 
+// Hard caps on caller-trusted sizes so a misbehaving RPC peer can never drive a
+// huge Buffer.alloc (read) or an unbounded readdir/slice (list).
+const MAX_ENTRIES_CAP = 2000;
+const MAX_READ_BYTES_CAP = 16 * 1024 * 1024; // 16 MiB
+
 function expandHome(p: string): string {
   if (p === '~') return homedir();
   if (p.startsWith('~/') || p.startsWith('~\\')) return path.join(homedir(), p.slice(2));
@@ -97,8 +102,10 @@ export function createAllowlistedFs(opts: {
   maxReadBytes?: number;
 }): AllowlistedFs {
   const roots = opts.roots;
-  const defaultMaxEntries = opts.maxEntries ?? DEFAULT_MAX_ENTRIES;
-  const defaultMaxReadBytes = opts.maxReadBytes ?? DEFAULT_MAX_READ_BYTES;
+  // Cap the configured defaults too, so an oversized config cannot set a huge
+  // budget that then never gets clamped below the RPC floor.
+  const defaultMaxEntries = Math.min(opts.maxEntries ?? DEFAULT_MAX_ENTRIES, MAX_ENTRIES_CAP);
+  const defaultMaxReadBytes = Math.min(opts.maxReadBytes ?? DEFAULT_MAX_READ_BYTES, MAX_READ_BYTES_CAP);
 
   return {
     async stat(p) {
@@ -122,8 +129,11 @@ export function createAllowlistedFs(opts: {
 
     async list(p, maxEntries = defaultMaxEntries) {
       const target = resolveWithinRoots(p, roots);
+      // Clamp the caller-trusted value: a misbehaving RPC peer must not drive
+      // an unbounded readdir/slice.
+      const count = Math.min(maxEntries, MAX_ENTRIES_CAP);
       const dirents = await fsp.readdir(target, { withFileTypes: true });
-      return dirents.slice(0, maxEntries).map((d) => ({
+      return dirents.slice(0, count).map((d) => ({
         name: d.name,
         type: d.isDirectory() ? 'dir' : d.isSymbolicLink() ? 'symlink' : 'file',
         // size stays null in Phase 1 — do not stat each entry.
@@ -133,13 +143,16 @@ export function createAllowlistedFs(opts: {
 
     async read(p, maxBytes = defaultMaxReadBytes) {
       const target = resolveWithinRoots(p, roots);
+      // Clamp the caller-trusted value: a misbehaving RPC peer must not trigger
+      // a huge Buffer.alloc.
+      const limit = Math.min(maxBytes, MAX_READ_BYTES_CAP);
       const handle = await fsp.open(target, 'r');
       try {
         const s = await handle.stat();
-        const toRead = Math.min(s.size, maxBytes);
+        const toRead = Math.min(s.size, limit);
         const buf = Buffer.alloc(toRead);
         if (toRead > 0) await handle.read(buf, 0, toRead, 0);
-        return { content: buf.toString('utf8'), truncated: s.size > maxBytes };
+        return { content: buf.toString('utf8'), truncated: s.size > limit };
       } finally {
         await handle.close();
       }

@@ -70,9 +70,9 @@ export async function handleIncomingFrame(
 
 function buildHelloFrame(cfg: RemoteAgentConfig): string {
   // capabilities: session/start·interrupt and approval/respond are live
-  // (Task 9); Task 10 restored the allowlisted fs surface, so `fs/read` is now
-  // advertised alongside the claude session capability. All fs ops are scoped
-  // to `cfg.roots` (see fs.ts).
+  // (Task 9); Task 10 restored the allowlisted fs surface. The dispatcher
+  // implements all three fs ops, so all are advertised together. Every fs op is
+  // scoped to `cfg.roots` (see fs.ts).
   return JSON.stringify({
     type: 'hello',
     hostId: cfg.hostId,
@@ -80,7 +80,7 @@ function buildHelloFrame(cfg: RemoteAgentConfig): string {
     nodeVersion: process.version,
     os: process.platform,
     roots: cfg.roots,
-    capabilities: ['session/claude', 'fs/read'],
+    capabilities: ['session/claude', 'fs/stat', 'fs/list', 'fs/read'],
   });
 }
 

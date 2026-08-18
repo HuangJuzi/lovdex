@@ -19,6 +19,23 @@ export const agentRuns = createAgentRunManager({
 });
 
 /**
+ * Lazy memoized allowlisted fs, keyed by the joined roots. The parsed config is
+ * immutable at startup, so a live process builds this exactly once; the keyed
+ * memo (rather than a single global slot) keeps unit tests with distinct roots
+ * isolated.
+ */
+let cachedRootsKey: string | null = null;
+let cachedFs: ReturnType<typeof createAllowlistedFs> | null = null;
+
+function allowlistedFsFor(cfg: RemoteAgentConfig): ReturnType<typeof createAllowlistedFs> {
+  const key = cfg.roots.join('\0');
+  if (cachedRootsKey !== null && cachedRootsKey === key && cachedFs !== null) return cachedFs;
+  cachedRootsKey = key;
+  cachedFs = createAllowlistedFs({ roots: cfg.roots });
+  return cachedFs;
+}
+
+/**
  * Dispatches an `rpc_req` method to its handler.
  *
  * - `session/start`     → begin a claude run (resolves with providerSessionId).
@@ -44,9 +61,7 @@ export async function handleRpc(
     return { accepted: agentRuns.respond(requestId, decision) };
   }
   if (method === 'fs/stat' || method === 'fs/list' || method === 'fs/read') {
-    // Per-call construction is cheap; the whitelist derives entirely from
-    // cfg.roots so there is no cross-call state to cache.
-    const fsApi = createAllowlistedFs({ roots: cfg.roots });
+    const fsApi = allowlistedFsFor(cfg);
     if (method === 'fs/stat') return fsApi.stat((params as { path: string }).path);
     if (method === 'fs/list') {
       const p = params as { path: string; maxEntries?: number };
