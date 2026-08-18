@@ -52,7 +52,7 @@ test('renders empty state when no sessions', () => {
   assert.ok(html.includes('暂无最近任务'));
 });
 
-test('does not render list when initial collapsed state is false (default expanded shows rows)', () => {
+test('renders all rows when under the limit with default expanded state', () => {
   const projects = [
     mkProject('p1', '项目一', [mkSession('s1', '2026-08-18T01:00:00Z'), mkSession('s2', '2026-08-18T02:00:00Z')]),
   ];

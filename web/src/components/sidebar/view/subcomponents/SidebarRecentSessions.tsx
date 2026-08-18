@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, History } from 'lucide-react';
 
-import type { LLMProvider, Project, ProjectSession } from '../../../../types/app';
+import type { Project, ProjectSession } from '../../../../types/app';
 import { resolveSessionTitle } from '../../../../utils/sessionTitle';
 import { formatCompactSessionAge, getRecentSessions, getSessionTime } from '../../utils/utils';
 
@@ -54,7 +54,7 @@ export default function SidebarRecentSessions({
           ) : (
             <div className="space-y-0.5 py-1">
               {recent.map(({ session, project }) => {
-                const provider = (session.__provider ?? session.provider) as LLMProvider | undefined;
+                const provider = session.__provider ?? session.provider;
                 return (
                   <button
                     key={`${project.projectId}-${session.id}`}
