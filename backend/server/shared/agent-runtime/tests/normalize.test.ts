@@ -56,6 +56,15 @@ test('complete event carries provider session id + done flag', () => {
   assert.ok(typeof evt.eventId === 'string');
 });
 
+test('eventId cannot be clobbered and is unique per event', () => {
+  const a = normalizeAgentEvent({ eventId: 'stale', type: 'assistant' }, { eventId: 'stale2' });
+  const b = normalizeAgentEvent({ type: 'assistant' }, {});
+  assert.notEqual(a.eventId, 'stale');
+  assert.notEqual(a.eventId, 'stale2');
+  assert.notEqual(a.eventId, b.eventId);
+  assert.notEqual(terminalCompleteEvent('S1', { eventId: 'stale' }).eventId, 'stale');
+});
+
 test('extra fields merge over the sdk event', () => {
   const evt = normalizeAgentEvent(
     { type: 'assistant', session_id: 'P1', message: { role: 'assistant', content: [] } },
