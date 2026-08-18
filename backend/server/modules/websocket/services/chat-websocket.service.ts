@@ -252,6 +252,11 @@ async function handleChatSend(
     // Image attachments are re-validated server-side: only files inside the
     // global upload store may reach the provider runtimes' file reads.
     images: filterImagesToUploadStore(clientOptions.images),
+    // The DB session id (app session id). Carried alongside the provider id so
+    // the remote-agents routing (remote-spawn.ts) can key session/start,
+    // session push topics, and approvals by it — the provider id is not known
+    // until the lite announces one. Local provider runtimes ignore it.
+    appSessionId: sessionId,
     sessionId: session.provider_session_id ?? undefined,
     resume: Boolean(session.provider_session_id),
     cwd: clientOptions.cwd ?? session.project_path ?? undefined,

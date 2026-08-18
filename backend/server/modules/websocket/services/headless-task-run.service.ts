@@ -108,6 +108,9 @@ export function startHeadlessTaskRun(
     toolsSettings: { allowedTools: [], disallowedTools: [], skipPermissions: false },
     skipPermissions: false,
     includePartialMessages: true,
+    // App (DB) session id — see chat-websocket.service.ts. Lets remote-agents
+    // routing key session/start + push topics by it; local runtimes ignore it.
+    appSessionId: sessionId,
     sessionId: session.provider_session_id ?? undefined,
     resume: Boolean(session.provider_session_id),
     cwd: session.project_path ?? undefined,
