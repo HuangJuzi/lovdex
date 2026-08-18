@@ -329,10 +329,10 @@ function Sidebar({
             projectListProps={projectListProps}
             onRecentSessionSelect={(session, project) => {
               handleProjectSelect(project);
-              // resolveSessionTitle display matches `session.__provider ?? session.provider`
+              // provider-badge selection matches `session.__provider ?? session.provider`
               // inside SidebarRecentSessions; guarantee a concrete provider for
               // SessionWithProvider before handing off to the shared click chain.
-              const resolvedProvider = (session.__provider ?? session.provider ?? 'claude') as LLMProvider;
+              const resolvedProvider = session.__provider ?? session.provider ?? 'claude';
               handleSessionClick({ ...session, __provider: resolvedProvider }, project.projectId);
             }}
             t={t}
