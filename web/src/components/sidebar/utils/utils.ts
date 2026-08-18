@@ -77,7 +77,7 @@ export const getSessionName = (session: SessionWithProvider, t: TFunction): stri
   return resolveSessionTitle(session) || t('projects.newSession');
 };
 
-export const getSessionTime = (session: SessionWithProvider): string => {
+export const getSessionTime = (session: ProjectSession): string => {
   return getUpdatedTimestamp(session) || getCreatedTimestamp(session);
 };
 
