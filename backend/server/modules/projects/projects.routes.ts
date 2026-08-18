@@ -3,6 +3,7 @@ import express from 'express';
 import { createProject, createProjectWithRemote, updateProjectDisplayName } from '@/modules/projects/services/project-management.service.js';
 import { projectsDb, remoteHostsDb } from '@/modules/database/index.js';
 import { getRemoteAgentsRuntime } from '@/modules/remote-agents/runtime.js';
+import { refreshRemoteProjectsIndex } from '@/modules/remote-agents/remote-projects.index.js';
 import { startCloneProject } from '@/modules/projects/services/project-clone.service.js';
 import { getProjectTaskMaster } from '@/modules/projects/services/projects-has-taskmaster.service.js';
 import { AppError, asyncHandler, createApiSuccessResponse } from '@/shared/utils.js';
@@ -184,6 +185,11 @@ router.post(
       },
     );
 
+    // Keep the in-memory remote-projects index a faithful projection of the DB
+    // so the spawn/abort routing resolves this path to its host immediately,
+    // without waiting for the next boot refresh (Task 12 staleness gap).
+    refreshRemoteProjectsIndex(projectsDb.listPathsWithRemoteHost());
+
     res.json({
       success: true,
       project: projectCreationResult.project,
@@ -322,6 +328,9 @@ router.delete(
     const projectId = typeof req.params.projectId === 'string' ? req.params.projectId : '';
     const force = req.query.force === 'true';
     await deleteOrArchiveProject(projectId, force);
+    // A deleted/archived remote project must drop out of the routing index so a
+    // later spawn no longer resolves its path to a now-gone host binding.
+    refreshRemoteProjectsIndex(projectsDb.listPathsWithRemoteHost());
     res.json({ success: true });
   }),
 );

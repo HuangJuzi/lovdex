@@ -318,7 +318,7 @@ function getAllSessions() {
  * @param {Object} sdkMessage - SDK message object
  * @returns {Object} Transformed message ready for WebSocket
  */
-function transformMessage(sdkMessage) {
+export function transformMessage(sdkMessage) {
   // SDKPartialAssistantMessage arrives as { type:'stream_event', event:<Anthropic raw stream event>, parent_tool_use_id }.
   // Unwrap to the raw event so normalizeMessage sees { type:'content_block_delta', delta:{text} } / { type:'content_block_stop' }
   // and can emit stream_delta/stream_end. Only produced when the client opts in via

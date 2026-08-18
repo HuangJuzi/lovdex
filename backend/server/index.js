@@ -6,6 +6,8 @@ import path from 'path';
 import os from 'os';
 import http from 'http';
 import crypto from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 
 import express from 'express';
 import cors from 'cors';
@@ -29,6 +31,7 @@ import {
     getPendingApprovalsForSession,
     adaptTasksServiceForOperatorTools,
     initOperatorHeadless,
+    transformMessage,
 } from './claude-sdk.js';
 import {
     queryCodex,
@@ -51,7 +54,7 @@ import userRoutes from './routes/user.js';
 import authRoutes from './modules/auth/auth.routes.js';
 import providerRoutes from './modules/providers/provider.routes.js';
 import { assetsRoutes } from './modules/assets/index.js';
-import { initializeDatabase, projectsDb, scheduledTasksDb, sessionsDb, tasksDb } from './modules/database/index.js';
+import { initializeDatabase, projectsDb, remoteHostsDb, scheduledTasksDb, sessionsDb, tasksDb } from './modules/database/index.js';
 import { buildTasksRouter, createTasksService } from './modules/tasks/index.js';
 import { createGitModule } from './modules/git/index.js';
 import { worktreesRoutes } from './modules/worktrees/index.js';
@@ -71,6 +74,16 @@ import { getOperatorConfig } from './modules/operators/operator.config.js';
 import { createOperatorExecService } from './modules/operators/operator-exec.service.js';
 import { buildOperatorSkillExecRouter } from './modules/operators/operator-skill-exec.routes.js';
 import { operatorAuditDb } from './modules/database/repositories/operator-audit.db.js';
+import { createRemoteAgentsRegistry } from './modules/remote-agents/remote-agents.registry.js';
+import { createRemoteAgentWss } from './modules/remote-agents/remote-agent.server.js';
+import { createRemoteRouting } from './modules/remote-agents/remote-spawn.js';
+import { createRemoteFsClient } from './modules/remote-agents/remote-fs.service.js';
+import { createRemoteAgentsRouter } from './modules/remote-agents/remote-agents.routes.js';
+import { setRemoteAgentsRuntime } from './modules/remote-agents/runtime.js';
+import { refreshRemoteProjectsIndex, lookupRemoteHost } from './modules/remote-agents/remote-projects.index.js';
+import { runBootstrap } from './modules/remote-agents/bootstrap.service.js';
+import { createSshRunner, createScpPush } from './modules/remote-agents/ssh-runner.js';
+import { createCompleteMessage } from './shared/utils.js';
 
 const __dirname = getModuleDir(import.meta.url);
 // The server source runs from /server, while the compiled output runs from /dist-server/server.
@@ -115,14 +128,78 @@ function readUsageNumber(value) {
 const app = express();
 const server = http.createServer(app);
 
+// ---------------------------------------------------------------------------
+// Remote agents (远程项目) wiring.
+// ---------------------------------------------------------------------------
+
+// Resolved data dir (<dataDir>/app.config.json → dirname). AppConfig has no
+// dataDir field, so derive it from the config file path the store resolved.
+const remoteDataDir = path.dirname(cfgStore.filePath);
+
+// Lovdex ed25519 keypair under <dataDir>/ssh. Generated once (idempotent) so the
+// public key can be authorized on remote hosts and the private key drives the
+// ssh/scp bootstrap transport. The private key path is the bootstrap identity.
+const remoteSshDir = path.join(remoteDataDir, 'ssh');
+const identityFile = path.join(remoteSshDir, 'lovdex_ed25519');
+const remotePublicKeyPath = `${identityFile}.pub`;
+if (!fs.existsSync(identityFile)) {
+    try {
+        fs.mkdirSync(remoteSshDir, { recursive: true });
+        execFileSync('ssh-keygen', ['-t', 'ed25519', '-N', '', '-f', identityFile, '-C', 'lovdex-remote'], {
+            cwd: remoteSshDir,
+        });
+    } catch (e) {
+        console.error('[remote-agents] ssh key provisioning failed:', e);
+    }
+}
+let remotePublicKey = '';
+try {
+    remotePublicKey = fs.readFileSync(remotePublicKeyPath, 'utf8').trim();
+} catch (e) {
+    console.error('[remote-agents] could not read public key:', e);
+}
+
+// Construct the remote stack ONCE. The registry, fs client and routing all share
+// this single registry instance (the ws endpoint below receives the same one),
+// and the routing subscribes the push bus exactly once at construction.
+const remoteAgentsRegistry = createRemoteAgentsRegistry();
+const remoteFsClient = createRemoteFsClient(() => remoteAgentsRegistry);
+// Raw lite SDK event → writer-ready NormalizedMessage[]. Mirrors the local
+// claude path: synthetic `complete` becomes a completion message; every other
+// event flows through transformMessage + the shared session normalizer.
+const normalizeRemoteEvent = (raw, sid) => {
+    if (raw && typeof raw === 'object' && raw.type === 'complete') {
+        return [createCompleteMessage({ provider: 'claude', sessionId: sid ?? raw.providerSessionId ?? null, exitCode: 0 })];
+    }
+    const transformed = transformMessage(raw);
+    return sessionsService.normalizeMessage('claude', transformed, sid);
+};
+const remoteRouting = createRemoteRouting({
+    lookupHost: lookupRemoteHost,
+    registry: remoteAgentsRegistry,
+    normalizeEvent: normalizeRemoteEvent,
+});
+setRemoteAgentsRuntime({ registry: remoteAgentsRegistry, fsClient: remoteFsClient });
+
+// Prime the routing index from the DB at boot; project create/delete refresh it.
+try {
+    refreshRemoteProjectsIndex(projectsDb.listPathsWithRemoteHost());
+} catch (e) {
+    console.error('[remote-agents] initial projects index refresh failed:', e);
+}
+
 // Provider runtimes keyed by provider id. Shared by the WebSocket server
 // (interactive chat.send path) and the headless task-run launcher (operator
 // start_task_execution path) so there is one source of truth.
+//
+// Each spawn is wrapped by the remote routing: runs whose project path resolves
+// to a remote host are forwarded over the ws rpc/push bus; local paths pass
+// straight through to the in-process provider.
 const spawnFns = {
-    claude: queryClaudeSDK,
-    codex: queryCodex,
-    opencode: queryOpenCode,
-    qoder: queryQoder,
+    claude: remoteRouting.wrapSpawn(queryClaudeSDK),
+    codex: remoteRouting.wrapSpawn(queryCodex),
+    opencode: remoteRouting.wrapSpawn(queryOpenCode),
+    qoder: remoteRouting.wrapSpawn(queryQoder),
 };
 
 // Single WebSocket server that handles chat.
@@ -134,23 +211,29 @@ const wss = createWebSocketServer(server, {
     chat: {
         spawnFns,
         abortFns: {
-            claude: abortClaudeSDKSession,
-            codex: abortCodexSession,
-            opencode: abortOpenCodeSession,
-            qoder: abortQoderSession,
+            claude: remoteRouting.wrapAbort(abortClaudeSDKSession),
+            codex: remoteRouting.wrapAbort(abortCodexSession),
+            opencode: remoteRouting.wrapAbort(abortOpenCodeSession),
+            qoder: remoteRouting.wrapAbort(abortQoderSession),
         },
         // Pending tool approvals may be owned by either interactive provider
-        // (Claude's SDK callback or Qoder's stdio control protocol). Request
-        // ids are globally-unique UUIDs, so dispatching to both resolvers is
-        // safe — the one that does not own the request is a no-op.
-        resolveToolApproval: (requestId, payload) => {
+        // (Claude's SDK callback or Qoder's stdio control protocol) or a remote
+        // lite host. Request ids are globally-unique UUIDs, so the routing
+        // resolves remote-owned approvals over the ws bus and dispatches the
+        // rest to both local resolvers — the one that does not own the request
+        // is a no-op.
+        resolveToolApproval: remoteRouting.wrapResolveToolApproval((requestId, payload) => {
             resolveToolApproval(requestId, payload);
             resolveQoderToolApproval(requestId, payload);
+        }),
+        getPendingApprovalsForSession: (providerSessionId) => {
+            const remote = remoteRouting.getPendingApprovals(providerSessionId);
+            if (remote.length > 0) return remote;
+            return [
+                ...getPendingApprovalsForSession(providerSessionId),
+                ...getQoderPendingApprovalsForSession(providerSessionId),
+            ];
         },
-        getPendingApprovalsForSession: (providerSessionId) => [
-            ...getPendingApprovalsForSession(providerSessionId),
-            ...getQoderPendingApprovalsForSession(providerSessionId),
-        ],
     },
     terminal: {
         spawnPty: (shell, args, options) => pty.spawn(shell, args, options),
@@ -161,6 +244,41 @@ const wss = createWebSocketServer(server, {
 
 // Make WebSocket server available to routes
 app.locals.wss = wss;
+
+// Remote-agent control channel: lite agents dial back over ws (?token=…) and are
+// bound to the host their token hashes to. Shares the SAME registry instance as
+// the routing above so pushes/rpcs demux to the right in-flight session. The
+// verifyToken / onHostOnline / onHostOffline callbacks each guard their body so
+// a DB hiccup logs and continues rather than crashing the ws event loop.
+const remoteAgentWss = createRemoteAgentWss(server, {
+    verifyToken: (token) => {
+        try {
+            if (!token) return null;
+            const host = remoteHostsDb.getByTokenHash(createHash('sha256').update(token).digest('hex'));
+            return host ? host.host_id : null;
+        } catch (e) {
+            console.error('[remote-agents]', e);
+            return null;
+        }
+    },
+    registry: remoteAgentsRegistry,
+    onHostOnline: (hostId) => {
+        try {
+            remoteHostsDb.updateStatus(hostId, 'online');
+            remoteHostsDb.touchSeen(hostId);
+        } catch (e) {
+            console.error('[remote-agents]', e);
+        }
+    },
+    onHostOffline: (hostId) => {
+        try {
+            remoteHostsDb.updateStatus(hostId, 'offline');
+        } catch (e) {
+            console.error('[remote-agents]', e);
+        }
+    },
+});
+app.locals.remoteAgentWss = remoteAgentWss;
 
 // CORS: allow cross-origin frontends / business services to call this API.
 // corsOrigin may be "*" (default), a single origin, or a comma-separated allowlist.
@@ -222,6 +340,36 @@ app.use('/api/config', authenticateToken, buildConfigWriteRouter({ cfg: cfgStore
 
 // Projects API Routes
 app.use('/api/projects', authenticateToken, projectModuleRoutes);
+
+// Remote-agent REST: host CRUD, pubkey, deploy (blocking ssh/scp bootstrap) and
+// remote directory browsing. Behind the same auth gate as the rest of /api.
+app.use('/api/remote-agents', authenticateToken, createRemoteAgentsRouter({
+    repo: remoteHostsDb,
+    registry: remoteAgentsRegistry,
+    fsClient: remoteFsClient,
+    publicKey: remotePublicKey,
+    identityFile,
+    serverUrl: process.env.LOVDEX_PUBLIC_WS_URL ?? `ws://localhost:${cfg.server.port}/api/remote-agents/ws`,
+    // Deterministic per-host token: mints a fresh token AND persists its hash
+    // against the host row so the ws verifyToken above can resolve it back.
+    tokenFor: (hostId) => {
+        const token = randomBytes(32).toString('hex');
+        remoteHostsDb.setTokenHash(hostId, createHash('sha256').update(token).digest('hex'));
+        return token;
+    },
+    // Real ssh/scp transport. The scp destination (user@host) is derived from
+    // the per-deploy input, so createScpPush is built per invocation.
+    bootstrap: (input) => runBootstrap(input, {
+        runner: createSshRunner(),
+        push: createScpPush({
+            identityFile: input.identityFile,
+            port: input.port,
+            remote: `${input.sshUser}@${input.host}`,
+        }),
+        installScriptPath: path.join(remoteDataDir, '..', 'remote-agent', 'deploy', 'install.sh'),
+        unitTemplatePath: path.join(remoteDataDir, '..', 'remote-agent', 'deploy', 'systemd-unit.template'),
+    }),
+}));
 
 // Chat image asset upload/serving (global ~/.cloudcli/assets store, protected)
 app.use('/api/assets', authenticateToken, assetsRoutes);
