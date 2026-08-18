@@ -7,6 +7,7 @@ import { BackToTasksButton } from '../tasks/TaskBackNav';
 
 import { ProviderSettingsForm } from './ProviderSettingsPage';
 import { OperatorSettingsForm } from './OperatorSettingsForm';
+import { OperatorSkillExecSettings } from './OperatorSkillExecSettings';
 import { DatabaseSettingsForm } from './DatabaseSettingsForm';
 import { AccountSettingsSection } from './AccountSettingsSection';
 import { SETTINGS_TABS, resolveSettingsTab, type SettingsTab } from './settingsTabs';
@@ -83,7 +84,12 @@ export default function SettingsPage() {
           <div className="min-h-0 flex-1 overflow-y-auto">
             <div className="mx-auto max-w-3xl px-4 py-6 sm:p-6">
               {activeTab === 'providers' && <ProviderSettingsForm />}
-              {activeTab === 'operator' && <OperatorSettingsForm />}
+              {activeTab === 'operator' && (
+                <>
+                  <OperatorSettingsForm />
+                  <OperatorSkillExecSettings />
+                </>
+              )}
               {activeTab === 'database' && <DatabaseSettingsForm />}
               {activeTab === 'account' && <AccountSettingsSection />}
             </div>

@@ -35,7 +35,7 @@ export interface ToolDisplayConfig {
     title?: string | ((result: any) => string);
     defaultOpen?: boolean;
     // Special result handlers
-    contentType?: 'markdown' | 'file-list' | 'todo-list' | 'text' | 'success-message' | 'task' | 'question-answer' | 'workflow';
+    contentType?: 'markdown' | 'file-list' | 'todo-list' | 'text' | 'success-message' | 'task' | 'question-answer' | 'workflow' | 'skill-exec';
     getMessage?: (result: any) => string;
     getContentProps?: (result: any) => any;
   };
@@ -557,6 +557,70 @@ export const TOOL_CONFIGS: Record<string, ToolDisplayConfig> = {
     },
     result: {
       hidden: true
+    }
+  },
+
+  // ============================================================================
+  // OPERATOR IN-PLACE EXECUTION (Lovdex 助手 MCP tools)
+  //
+  // SDK MCP tool names arrive as mcp__<server>__<tool>; the plain names are
+  // registered too so rendering is robust to any prefix normalization.
+  // Results are JSON produced by the backend exec service — rendered by
+  // SkillExecResult with exit-code badges, collapsed stdout/stderr and deny
+  // highlighting.
+  // ============================================================================
+
+  'mcp__lovdex-operator__execute_skill': {
+    input: {
+      type: 'one-line',
+      icon: '⚡',
+      label: 'execute_skill',
+      getValue: (input: any) => `${input?.skillName ?? ''} ${input?.args ?? ''}`.trim(),
+      wrapText: true,
+      colorScheme: {
+        primary: 'text-violet-600 dark:text-violet-300 font-mono',
+        border: 'border-violet-300 dark:border-violet-700',
+        icon: 'text-violet-500 dark:text-violet-400'
+      }
+    },
+    result: {
+      type: 'collapsible',
+      title: 'skill 执行结果',
+      defaultOpen: true,
+      contentType: 'skill-exec',
+      getContentProps: (result: any) => ({
+        content: typeof result?.content === 'string' ? result.content : String(result?.content ?? '')
+      })
+    }
+  },
+
+  'mcp__lovdex-operator__workbench': {
+    input: {
+      type: 'one-line',
+      icon: '🧰',
+      label: 'workbench',
+      getValue: (input: any) =>
+        [
+          input?.command ?? '',
+          input?.path ?? input?.scriptPath ?? (input?.src ? `${input.src} → ${input.dst ?? ''}` : ''),
+        ]
+          .filter(Boolean)
+          .join(' '),
+      wrapText: true,
+      colorScheme: {
+        primary: 'text-violet-600 dark:text-violet-300 font-mono',
+        border: 'border-violet-300 dark:border-violet-700',
+        icon: 'text-violet-500 dark:text-violet-400'
+      }
+    },
+    result: {
+      type: 'collapsible',
+      title: 'workbench 结果',
+      defaultOpen: true,
+      contentType: 'skill-exec',
+      getContentProps: (result: any) => ({
+        content: typeof result?.content === 'string' ? result.content : String(result?.content ?? '')
+      })
     }
   },
 

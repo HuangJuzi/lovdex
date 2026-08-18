@@ -333,6 +333,32 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ provider, isOperator: true }),
       }),
+    // Skill-execution settings (phase 2): allowlist, credentials, audit.
+    // Credential endpoints never return plaintext — presence booleans only.
+    getAllowlist: () => authenticatedFetch('/api/operator/skill-exec/allowlist'),
+    updateAllowlist: (body) =>
+      authenticatedFetch('/api/operator/skill-exec/allowlist', {
+        method: 'PUT',
+        body: JSON.stringify(body),
+      }),
+    resetAllowlist: () =>
+      authenticatedFetch('/api/operator/skill-exec/allowlist', { method: 'DELETE' }),
+    credentialStatus: () => authenticatedFetch('/api/operator/skill-exec/credentials/status'),
+    saveCredentials: (body) =>
+      authenticatedFetch('/api/operator/skill-exec/credentials', {
+        method: 'PUT',
+        body: JSON.stringify(body),
+      }),
+    testCredentials: () =>
+      authenticatedFetch('/api/operator/skill-exec/credentials/test', { method: 'POST' }),
+    execAudit: (params = {}) => {
+      const qs = new URLSearchParams();
+      if (params.tool) qs.set('tool', params.tool);
+      if (params.decision) qs.set('decision', params.decision);
+      if (params.limit) qs.set('limit', String(params.limit));
+      const s = qs.toString();
+      return authenticatedFetch(`/api/operator/skill-exec/audit${s ? `?${s}` : ''}`);
+    },
   },
 
   // Browse filesystem for project suggestions

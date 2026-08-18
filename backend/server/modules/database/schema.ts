@@ -210,6 +210,23 @@ CREATE TABLE IF NOT EXISTS app_config (
 );
 `;
 
+export const OPERATOR_EXEC_AUDIT_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS operator_exec_audit (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at     DATETIME DEFAULT CURRENT_TIMESTAMP,
+    caller         TEXT NOT NULL,
+    tool           TEXT NOT NULL CHECK (tool IN ('execute_skill','workbench')),
+    action         TEXT NOT NULL,
+    target         TEXT,
+    decision       TEXT NOT NULL CHECK (decision IN ('allow','deny')),
+    reason         TEXT,
+    duration_ms    INTEGER,
+    exit_code      INTEGER,
+    result_summary TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_operator_exec_audit_created ON operator_exec_audit(created_at);
+`;
+
 export const INIT_SCHEMA_SQL = `
 -- Initialize authentication database
 PRAGMA foreign_keys = ON;
@@ -259,4 +276,6 @@ ${SCHEDULED_TASKS_TABLE_SCHEMA_SQL}
 ${LAST_SCANNED_AT_SQL}
 
 ${APP_CONFIG_TABLE_SCHEMA_SQL}
+
+${OPERATOR_EXEC_AUDIT_TABLE_SCHEMA_SQL}
 `;

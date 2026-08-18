@@ -68,6 +68,9 @@ import { buildConfigReadRouter, buildConfigWriteRouter } from './modules/config/
 import { syncProviderEnv } from './modules/config/env-sync.js';
 import { createSchedulerService, buildSchedulerRouter } from './modules/scheduler/index.js';
 import { getOperatorConfig } from './modules/operators/operator.config.js';
+import { createOperatorExecService } from './modules/operators/operator-exec.service.js';
+import { buildOperatorSkillExecRouter } from './modules/operators/operator-skill-exec.routes.js';
+import { operatorAuditDb } from './modules/database/repositories/operator-audit.db.js';
 
 const __dirname = getModuleDir(import.meta.url);
 // The server source runs from /server, while the compiled output runs from /dist-server/server.
@@ -341,6 +344,15 @@ const sessionTransferService = createSessionTransferService({
     isSessionRunning: (sessionId) => chatRunRegistry.listRunningRuns().some((run) => run.sessionId === sessionId),
 });
 
+// In-place execution for the operator (execute_skill / workbench): allowlisted
+// user-level skills + workspace-confined file ops. Every call (allowed or
+// denied) lands in operator_exec_audit; credentials resolve at call instant
+// inside the service and never touch the task table/transcript/logs.
+const operatorExecService = createOperatorExecService({
+    home: getOperatorConfig().workspace,
+    audit: (entry) => operatorAuditDb.insert(entry),
+});
+
 // Wire the operator headless run deps: the real tasksService (adapted so the
 // string-typed operator tool inputs are narrowed to TaskStatus at the boundary),
 // projectsDb, sessionsService, and createSession. runOperatorHeadless (in
@@ -358,6 +370,9 @@ initOperatorHeadless({
     scheduledTasks: schedulerService,
     // Session transfer: move a task + session between registered projects.
     moveSessionToProject: sessionTransferService.moveSessionToProject,
+    // In-place execution: allowlisted skills + workspace workbench.
+    skillExec: operatorExecService.executeSkill,
+    workbench: operatorExecService.workbench,
     // The assistant's context is the Lovdex助手 workspace: create_task without
     // an explicit projectPath falls back here and lands as an is_operator task.
     contextProjectPath: getOperatorConfig().workspace,
@@ -377,6 +392,14 @@ app.use('/api/worktrees', authenticateToken, worktreesRoutes);
 
 // Operator settings API (protected) — read/update operator automation config.
 app.use('/api/operator/settings', authenticateToken, buildOperatorRouter());
+
+// Operator skill-execution settings API (protected) — allowlist config,
+// credential status/write/test, and the exec audit viewer (all sanitized).
+app.use(
+    '/api/operator/skill-exec',
+    authenticateToken,
+    buildOperatorSkillExecRouter({ execService: operatorExecService }),
+);
 
 // Frontend now uses window.location for WebSocket URLs.
 

@@ -4,7 +4,7 @@ import type { Project } from '../../../types/app';
 import type { SubagentChildTool } from '../types/types';
 
 import { getToolConfig } from './configs/toolConfigs';
-import { OneLineDisplay, BashCommandDisplay, CollapsibleDisplay, ToolDiffViewer, MarkdownContent, FileListContent, TodoListContent, TaskListContent, TextContent, QuestionAnswerContent, SubagentContainer, WorkflowContainer } from './components';
+import { OneLineDisplay, BashCommandDisplay, CollapsibleDisplay, ToolDiffViewer, MarkdownContent, FileListContent, TodoListContent, TaskListContent, TextContent, QuestionAnswerContent, SubagentContainer, WorkflowContainer, SkillExecResult } from './components';
 import { PlanDisplay } from './components/PlanDisplay';
 import { ToolStatusBadge } from './components/ToolStatusBadge';
 import type { ToolStatus } from './components/ToolStatusBadge';
@@ -292,6 +292,10 @@ export const ToolRenderer: React.FC<ToolRendererProps> = memo(({
             format={contentProps.format || 'plain'}
           />
         );
+        break;
+
+      case 'skill-exec':
+        contentComponent = <SkillExecResult content={contentProps.content || ''} />;
         break;
 
       case 'success-message': {

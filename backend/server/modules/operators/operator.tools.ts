@@ -117,6 +117,27 @@ export type OperatorToolDeps = {
     targetProjectPath?: string | null;
     targetProjectId?: string | null;
   }) => Promise<unknown>;
+  /**
+   * In-place skill execution (allowlisted user-level skills, e.g.
+   * claw-agent-get-send). Injected from index.js as
+   * operatorExecService.executeSkill — all allowlist/credential/redaction/
+   * audit policy lives in operator-exec.service.ts.
+   */
+  skillExec?: (input: { skillName: string; args?: string; timeoutMs?: number }) => Promise<unknown>;
+  /**
+   * In-place workbench (list/read/copy/run-script). Writes are confined to
+   * the allowlisted prefixes (Operator Home + skills root by default);
+   * injected from index.js as operatorExecService.workbench.
+   */
+  workbench?: (input: {
+    command: string;
+    path?: string;
+    src?: string;
+    dst?: string;
+    scriptPath?: string;
+    args?: string;
+    timeoutMs?: number;
+  }) => Promise<unknown>;
 };
 
 /**
@@ -489,6 +510,56 @@ export function buildOperatorTools(deps: OperatorToolDeps) {
       handler: async (i: { scheduleId: string }) => {
         deps.scheduledTasks!.remove(i.scheduleId);
         return { success: true };
+      },
+    },
+    execute_skill: {
+      description:
+        'Run an allowlisted user-level skill IN PLACE (no task dispatch). Use for skill queries/actions that need user credentials — e.g. claw-agent-get-send: groups (list Appia groups), send/send-md/send-file (message a group), verify-target. args is a command-line string starting with the subcommand, e.g. "send --text \\"hi\\" --rid r123". Credentials resolve server-side from env or ~/.claw/cred.json at call instant and are never persisted; output is redacted. Only allowlisted skills+subcommands run; everything else is denied. NEVER use this to touch other projects\' files — dispatch a task instead.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          skillName: { type: 'string', description: 'Allowlisted skill name, e.g. claw-agent-get-send' },
+          args: { type: 'string', description: 'Command-line args, first token = subcommand (e.g. "groups" or "send --text \\"hi\\" --rid r123")' },
+          timeoutMs: { type: 'number', description: 'Optional timeout (default 60000, max 300000)' },
+        },
+        required: ['skillName'],
+      },
+      handler: async (i: { skillName: string; args?: string; timeoutMs?: number }) => {
+        if (!deps.skillExec) {
+          throw new Error('execute_skill is not wired (missing skillExec dep)');
+        }
+        return deps.skillExec(i);
+      },
+    },
+    workbench: {
+      description:
+        'In-place file workbench in the operator workspace (NOT a shell). command=list: list a directory (any readable path). command=read: read a UTF-8 file (any readable path except credential files; output redacted). command=copy: copy file/dir src→dst — dst MUST be inside the operator workspace (writes outside are denied; use create_task to dispatch cross-project work instead). command=run-script: run a .py/.js/.mjs/.sh script that lives inside the operator workspace or skills root, with optional args string and timeoutMs. Use for local file moves/copies and allowlisted scripts only.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          command: { type: 'string', enum: ['list', 'read', 'copy', 'run-script'] },
+          path: { type: 'string', description: 'Target path for list/read' },
+          src: { type: 'string', description: 'Copy source (file or directory)' },
+          dst: { type: 'string', description: 'Copy destination (must be inside the operator workspace)' },
+          scriptPath: { type: 'string', description: 'Script path for run-script (must be inside the operator workspace or skills root)' },
+          args: { type: 'string', description: 'Optional args string for run-script' },
+          timeoutMs: { type: 'number', description: 'Optional timeout for run-script (default 60000, max 300000)' },
+        },
+        required: ['command'],
+      },
+      handler: async (i: {
+        command: string;
+        path?: string;
+        src?: string;
+        dst?: string;
+        scriptPath?: string;
+        args?: string;
+        timeoutMs?: number;
+      }) => {
+        if (!deps.workbench) {
+          throw new Error('workbench is not wired (missing workbench dep)');
+        }
+        return deps.workbench(i);
       },
     },
   };

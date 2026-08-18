@@ -1,0 +1,15 @@
+{
+  "enabled_skills": [
+    {
+      "name": "claw-agent-get-send",
+      "entry": "scripts/appia_claw.py",
+      "runner": "uv",
+      "allowed_subcommands": ["groups", "verify-target", "send", "send-md", "send-file"],
+      "readonly_subcommands": ["groups", "verify-target"]
+    }
+  ],
+  "workbench_write_prefixes": [
+    "~/.lovdex/operator-workspace",
+    "~/.claude/skills"
+  ]
+}
