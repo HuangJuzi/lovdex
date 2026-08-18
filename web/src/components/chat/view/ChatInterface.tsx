@@ -48,7 +48,12 @@ function ChatInterface({
 
   const sessionStore = useSessionStore();
   const streamTimerRef = useRef<number | null>(null);
-  const accumulatedStreamRef = useRef('');
+  // Per-session accumulated stream text. A single shared buffer corrupted
+  // concurrent streams (session B's text leaked into session A's row and a
+  // session B `stream_end` wiped A's buffer). Keying by session also lets the
+  // same flush path serve non-active sessions instead of flooding them with
+  // one row per 24-char delta chunk.
+  const accumulatedStreamRef = useRef<Map<string, string>>(new Map());
   // When each session's `chat.subscribe` was last sent; idle acks older than
   // a later local request are discarded as stale.
   const statusCheckSentAtRef = useRef(new Map<string, number>());
@@ -62,7 +67,7 @@ function ChatInterface({
       clearTimeout(streamTimerRef.current);
       streamTimerRef.current = null;
     }
-    accumulatedStreamRef.current = '';
+    accumulatedStreamRef.current.clear();
   }, []);
 
   const {

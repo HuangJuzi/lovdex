@@ -209,6 +209,11 @@ function compareMessagesChronologically(a: NormalizedMessage, b: NormalizedMessa
  * Count how many user turns precede `message` in a chronologically merged view
  * of server + realtime rows. Used to match a realtime row to the correct turn
  * on disk when several turns share identical assistant text.
+ *
+ * Optimistic `local_*` echoes are excluded: they mirror a server user row
+ * one-for-one (and are dropped right after this check), so counting them as an
+ * extra turn skews the ordinal by one and hides a realtime assistant row that
+ * IS persisted — leaving a duplicate bubble after refresh.
  */
 function getUserTurnOrdinalBefore(
   message: NormalizedMessage,
@@ -230,6 +235,10 @@ function getUserTurnOrdinalBefore(
       && candidateTime > messageTime
     ) {
       break;
+    }
+
+    if (typeof candidate.id === 'string' && candidate.id.startsWith('local_')) {
+      continue;
     }
 
     if (candidate.kind === 'text' && candidate.role === 'user') {
@@ -341,7 +350,7 @@ function dedupeAdjacentAssistantEchoes(merged: NormalizedMessage[]): NormalizedM
  * JSONL indexing lags) stays in `realtimeMessages` so the chat pane never
  * flashes the empty "Continue your conversation" state.
  */
-function pruneRealtimeSupersededByServer(
+export function pruneRealtimeSupersededByServer(
   serverMessages: NormalizedMessage[],
   realtimeMessages: NormalizedMessage[],
 ): NormalizedMessage[] {
@@ -392,13 +401,35 @@ function pruneRealtimeSupersededByServer(
   });
 }
 
-function computeMerged(server: NormalizedMessage[], realtime: NormalizedMessage[]): NormalizedMessage[] {
+/**
+ * Drop rows that share an id, keeping the first in order. The realtime stream
+ * can legitimately deliver the same row twice (a replayed buffered event
+ * landing on a socket that already got it live), and a duplicate id always
+ * means the same underlying message — these must never render as two bubbles.
+ */
+function dedupeById(rows: NormalizedMessage[]): NormalizedMessage[] {
+  const seen = new Set<string>();
+  const out: NormalizedMessage[] = [];
+  for (const row of rows) {
+    if (seen.has(row.id)) {
+      continue;
+    }
+    seen.add(row.id);
+    out.push(row);
+  }
+  return out;
+}
+
+export function computeMerged(server: NormalizedMessage[], realtime: NormalizedMessage[]): NormalizedMessage[] {
   if (realtime.length === 0) {
-    return dedupeAdjacentAssistantEchoes(server);
+    return dedupeAdjacentAssistantEchoes(dedupeById(server));
   }
   if (server.length === 0) {
-    return dedupeAdjacentAssistantEchoes(realtime);
+    return dedupeAdjacentAssistantEchoes(dedupeById(realtime));
   }
+
+  server = dedupeById(server);
+  realtime = dedupeById(realtime);
 
   const serverIds = new Set(server.map((message) => message.id));
   const extra = realtime.filter((message) => {

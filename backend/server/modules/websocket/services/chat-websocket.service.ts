@@ -64,6 +64,44 @@ type ProviderSpawnFn = (
   writer: unknown
 ) => Promise<unknown>;
 
+/**
+ * Highest `seq` already replayed, per socket per session, keyed by run object
+ * so a NEW run (which restarts seq at 1) re-opens the window.
+ *
+ * Guards `chat.subscribe` replay against double-delivery: two subscribes sent
+ * back-to-back with the same client `lastSeq` (React StrictMode double-mount,
+ * a reconnect-flushed outbox racing the session-open subscribe) used to replay
+ * the same buffered seq range twice to the same socket, so the client store
+ * rendered every live message twice. The watermark only gates REPLAY traffic;
+ * live fan-out is covered because the client's own `lastSeq` advances as it
+ * processes each live frame.
+ */
+type ReplayWatermark = { run: object; seq: number };
+const replayWatermarkBySocket = new WeakMap<WebSocket, Map<string, ReplayWatermark>>();
+
+function readReplayStart(
+  ws: WebSocket,
+  sessionId: string,
+  clientLastSeq: number,
+  run: object | undefined,
+): number {
+  let watermarks = replayWatermarkBySocket.get(ws);
+  if (!watermarks) {
+    watermarks = new Map();
+    replayWatermarkBySocket.set(ws, watermarks);
+  }
+  const prior = watermarks.get(sessionId);
+  // A different (new) run renumbers seq from 1; only gate within the same run.
+  const priorSeq = prior && run && prior.run === run ? prior.seq : -1;
+  return Math.max(clientLastSeq, priorSeq);
+}
+
+function recordReplayed(ws: WebSocket, sessionId: string, run: object, lastSeq: number): void {
+  const watermarks = replayWatermarkBySocket.get(ws) ?? new Map<string, ReplayWatermark>();
+  watermarks.set(sessionId, { run, seq: lastSeq });
+  replayWatermarkBySocket.set(ws, watermarks);
+}
+
 type ChatWebSocketDependencies = {
   /** Provider runtimes keyed by provider id. */
   spawnFns: Record<LLMProvider, ProviderSpawnFn>;
@@ -284,7 +322,7 @@ async function handleChatAbort(
  * This single message replaces the old `check-session-status`,
  * `get-pending-permissions`, and Claude-only writer reconnect flows.
  */
-function handleChatSubscribe(
+export function handleChatSubscribe(
   ws: WebSocket,
   data: AnyRecord,
   dependencies: ChatWebSocketDependencies
@@ -342,8 +380,14 @@ function handleChatSubscribe(
     // replaying them (e.g. after a page reload where the client's lastSeq is
     // 0) would duplicate messages the history fetch already returned.
     if (isProcessing) {
-      for (const event of chatRunRegistry.replayEvents(sessionId, lastSeq)) {
+      // Skip anything this socket has already received: a back-to-back
+      // re-subscribe (same client lastSeq) must not repeat the seq range.
+      const startSeq = readReplayStart(ws, sessionId, lastSeq, run);
+      for (const event of chatRunRegistry.replayEvents(sessionId, startSeq)) {
         sendJson(ws, event);
+      }
+      if (run) {
+        recordReplayed(ws, sessionId, run, run.lastSeq);
       }
     }
   }
@@ -441,5 +485,8 @@ export function handleChatConnection(
   ws.on('close', () => {
     console.log('[INFO] Chat client disconnected');
     connectedClients.delete(ws);
+    // Drop the per-socket replay watermark so a closed socket cannot leak
+    // its session→seq map.
+    replayWatermarkBySocket.delete(ws);
   });
 }
