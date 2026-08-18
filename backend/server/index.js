@@ -366,8 +366,8 @@ app.use('/api/remote-agents', authenticateToken, createRemoteAgentsRouter({
             port: input.port,
             remote: `${input.sshUser}@${input.host}`,
         }),
-        installScriptPath: path.join(remoteDataDir, '..', 'remote-agent', 'deploy', 'install.sh'),
-        unitTemplatePath: path.join(remoteDataDir, '..', 'remote-agent', 'deploy', 'systemd-unit.template'),
+        installScriptPath: path.join(__dirname, '..', 'remote-agent', 'deploy', 'install.sh'),
+        unitTemplatePath: path.join(__dirname, '..', 'remote-agent', 'deploy', 'systemd-unit.template'),
     }),
 }));
 
