@@ -1,5 +1,5 @@
 import { useCallback, useEffect } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
 import Sidebar from '../sidebar/view/Sidebar';
@@ -45,6 +45,10 @@ export default function AppContent() {
 function AppContentInner() {
   const navigate = useNavigate();
   const { sessionId } = useParams<{ sessionId?: string }>();
+  // 工作区深链：任务页「Chat/Files/源码管理」跳转用 `?project=<path>&tab=<tab>`。
+  const [searchParams] = useSearchParams();
+  const projectPathParam = searchParams.get('project') ?? undefined;
+  const tabParam = searchParams.get('tab') ?? undefined;
   const { t } = useTranslation('common');
   const { isMobile } = useDeviceSettings({ trackPWA: false });
   const { ws, sendMessage, subscribe } = useWebSocket();
@@ -80,6 +84,8 @@ function AppContentInner() {
     subscribe,
     isMobile,
     activeSessions: processingSessions,
+    initialProjectPath: projectPathParam,
+    initialTab: tabParam,
   });
 
   const { setCwd } = useTerminalDrawer();

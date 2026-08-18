@@ -34,8 +34,7 @@ import { projectPathOf, taskFormProjects } from './projectOptions';
 import { LABEL_META, LABEL_ORDER, PRIORITY_META, PRIORITY_ORDER, STATUS_META, STATUS_ORDER, SUB_STATUS_META } from './taskStatus';
 import { formatAbsoluteTime } from './taskTimestamp';
 import { SubStatusBadge } from './SubStatusBadge';
-import { ViewSwitcher } from './ViewSwitcher';
-import { TaskBackNav } from './TaskBackNav';
+import { WorkspaceNav } from './WorkspaceNav';
 
 /**
  * Live status badge for the detail header. Reads the effective `sub_status`
@@ -472,8 +471,7 @@ export function TaskDetailPage() {
   return (
     <div className="h-dvh overflow-y-auto bg-background">
       <header className="pwa-header-safe sticky top-0 z-10 flex flex-shrink-0 items-center gap-2 border-b border-border/60 bg-background px-3 py-1.5 sm:px-4 sm:py-2">
-        <ViewSwitcher active="tasks" className="w-40 flex-shrink-0 sm:w-44" />
-        <TaskBackNav className="ml-auto flex-shrink-0" />
+        <WorkspaceNav projectPath={task.project_path} className="ml-auto flex-shrink-0" />
       </header>
       <div className="mx-auto w-full px-4 py-6 sm:p-8">
         <div className="mt-4 flex flex-wrap items-start gap-3">

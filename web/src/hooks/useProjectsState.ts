@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { NavigateFunction } from 'react-router-dom';
 
 import { api } from '../utils/api';
+import { projectPathOf } from '../components/tasks/projectOptions';
 import type { ServerEvent } from '../contexts/WebSocketContext';
 import type {
   AppTab,
@@ -26,6 +27,10 @@ type UseProjectsStateArgs = {
   subscribe: (listener: (event: ServerEvent) => void) => () => void;
   isMobile: boolean;
   activeSessions: SessionActivityMap;
+  /** 工作区深链：目标项目路径（`?project=`），匹配到后选中一次。 */
+  initialProjectPath?: string;
+  /** 工作区深链：初始 tab（`?tab=`），覆盖 localStorage 恢复。 */
+  initialTab?: string;
 };
 
 /**
@@ -363,12 +368,16 @@ export function useProjectsState({
   subscribe,
   isMobile,
   activeSessions,
+  initialProjectPath,
+  initialTab,
 }: UseProjectsStateArgs) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [selectedSession, setSelectedSession] = useState<ProjectSession | null>(null);
   const [attentionSessionIds, setAttentionSessionIds] = useState<Set<string>>(new Set());
-  const [activeTab, setActiveTab] = useState<AppTab>(readPersistedTab);
+  const [activeTab, setActiveTab] = useState<AppTab>(() =>
+    initialTab && isValidTab(initialTab) ? initialTab : readPersistedTab()
+  );
 
   useEffect(() => {
     try {
@@ -870,11 +879,24 @@ export function useProjectsState({
     }
   }, [selectedSession?.id]);
 
+  // 工作区深链：`?project=<path>` 匹配到项目后选中一次。跳过 restore-last-session 的
+  // 竞争（有 project 参数时不恢复上次 session），避免选错项目/覆盖深链 tab。
+  const initialProjectAppliedRef = useRef(false);
+  useEffect(() => {
+    if (!initialProjectPath || projects.length === 0 || initialProjectAppliedRef.current) {
+      return;
+    }
+    const match = projects.find((project) => projectPathOf(project) === initialProjectPath);
+    if (!match) return;
+    initialProjectAppliedRef.current = true;
+    setSelectedProject(match);
+  }, [initialProjectPath, projects]);
+
   // 挂载且 URL 无 sessionId（非「打开会话」）时，恢复上次打开的 session。
   // 每次 useProjectsState 挂载只恢复一次；AppContent 从 /tasks 等路由进入 / 会全新挂载。
   const restoredOnceRef = useRef(false);
   useEffect(() => {
-    if (sessionId || projects.length === 0 || restoredOnceRef.current) {
+    if (sessionId || projects.length === 0 || restoredOnceRef.current || initialProjectPath) {
       return;
     }
     const lastId = readLastOpenedSessionId();
@@ -891,7 +913,7 @@ export function useProjectsState({
     const normalizedSession = normalizeSessionProvider(found.session);
     setSelectedProject(found.project);
     setSelectedSession(normalizedSession);
-  }, [sessionId, projects]);
+  }, [sessionId, projects, initialProjectPath]);
 
   const handleProjectSelect = useCallback(
     (project: Project) => {

@@ -381,56 +381,65 @@ export function TaskBoardPage() {
   return (
     <div className="flex h-dvh flex-col bg-background">
       <header className="pwa-header-safe flex flex-shrink-0 items-center gap-2 border-b border-border/60 bg-background px-3 py-1.5 sm:px-4 sm:py-2">
-        <div className="hidden rounded-lg bg-muted/50 p-0.5 sm:flex">
+        <div className="flex rounded-xl border border-border/70 bg-muted/50 p-0.5">
           <button
             type="button"
             aria-pressed={effectiveView === 'board'}
             onClick={() => setViewMode('board')}
+            title="看板"
             className={cn(
-              'flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-normal transition-all',
+              'flex items-center justify-center gap-2 rounded-lg px-2.5 py-2 text-sm font-normal transition-all',
               effectiveView === 'board'
-                ? 'bg-background text-foreground shadow-sm'
+                ? 'bg-card text-card-foreground shadow-[0_2px_0_rgba(30,27,50,0.10),0_4px_10px_rgba(35,33,41,0.06)]'
                 : 'text-muted-foreground hover:text-foreground',
             )}
           >
-            <LayoutGrid className="h-3 w-3" />
-            看板
+            <LayoutGrid className="h-3.5 w-3.5 flex-shrink-0" />
+            {/* 移动端（<640px）只留图标；断点与 WorkspaceNav 对齐。 */}
+            <span className="hidden sm:inline">看板</span>
           </button>
           <button
             type="button"
             aria-pressed={effectiveView === 'table'}
             onClick={() => setViewMode('table')}
+            title="表格"
             className={cn(
-              'hidden items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-normal transition-all sm:flex',
+              // 表格在手机上体验差，整个按钮只在 sm+ 出现。
+              'hidden items-center justify-center gap-2 rounded-lg px-2.5 py-2 text-sm font-normal transition-all sm:flex',
               effectiveView === 'table'
-                ? 'bg-background text-foreground shadow-sm'
+                ? 'bg-card text-card-foreground shadow-[0_2px_0_rgba(30,27,50,0.10),0_4px_10px_rgba(35,33,41,0.06)]'
                 : 'text-muted-foreground hover:text-foreground',
             )}
           >
-            <Table className="h-3 w-3" />
-            表格
+            <Table className="h-3.5 w-3.5 flex-shrink-0" />
+            <span className="hidden sm:inline">表格</span>
           </button>
           <button
             type="button"
             aria-pressed={effectiveView === 'scheduled'}
             onClick={() => setViewMode('scheduled')}
+            title="定时任务"
             className={cn(
-              'hidden items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-normal transition-all sm:flex',
+              'flex items-center justify-center gap-2 rounded-lg px-2.5 py-2 text-sm font-normal transition-all',
               effectiveView === 'scheduled'
-                ? 'bg-background text-foreground shadow-sm'
+                ? 'bg-card text-card-foreground shadow-[0_2px_0_rgba(30,27,50,0.10),0_4px_10px_rgba(35,33,41,0.06)]'
                 : 'text-muted-foreground hover:text-foreground',
             )}
           >
-            <Clock className="h-3 w-3" />
-            ⏰ 定时
+            <Clock className="h-3.5 w-3.5 flex-shrink-0" />
+            {/* 移动端（<640px）只留图标 */}
+            <span className="hidden sm:inline">定时</span>
           </button>
         </div>
         <div className="ml-auto flex items-center gap-2">
-          <Button size="toolbar" variant="chunkyPrimary" onClick={openCreateForm} disabled={creating} title="新建任务" aria-label="新建任务">
-            <Plus />
-            {/* 移动端（<640px）只留 + 号 */}
-            <span className="hidden sm:inline">新建任务</span>
-          </Button>
+          {/* 定时视图自带「新建定时任务」按钮，避免与全局「新建任务」重复。 */}
+          {effectiveView !== 'scheduled' && (
+            <Button size="toolbar" variant="chunkyPrimary" onClick={openCreateForm} disabled={creating} title="新建任务" aria-label="新建任务">
+              <Plus />
+              {/* 移动端（<640px）只留 + 号 */}
+              <span className="hidden sm:inline">新建任务</span>
+            </Button>
+          )}
           <HomeButton />
         </div>
       </header>

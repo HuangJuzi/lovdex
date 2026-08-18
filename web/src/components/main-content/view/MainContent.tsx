@@ -8,14 +8,13 @@ import { useLinkedTask } from '../../../hooks/useLinkedTask';
 import { FilePreviewModal } from '../../file-preview/FilePreviewModal';
 import { useUiPreferences } from '../../../hooks/useUiPreferences';
 import { STATUS_META } from '../../tasks/taskStatus';
+import { WorkspaceNav } from '../../tasks/WorkspaceNav';
 import { ConvertToTaskDialog } from '../../chat/view/subcomponents/ConvertToTaskDialog';
-import { Button } from '../../../shared/view/ui';
 import { Eye, RefreshCw } from 'lucide-react';
 
 import MobileMenuButton from './subcomponents/MobileMenuButton';
 import MainContentTitle from './subcomponents/MainContentTitle';
 import MainContentStateView from './subcomponents/MainContentStateView';
-import MainContentTabs from './subcomponents/MainContentTabs';
 import ErrorBoundary from './ErrorBoundary';
 import { useEditorSidebar } from '../../code-editor/hooks/useEditorSidebar';
 import EditorSidebar from '../../code-editor/view/EditorSidebar';
@@ -80,11 +79,6 @@ function MainContent({
     <div className="flex h-full flex-col">
       <header className="pwa-header-safe flex flex-shrink-0 items-center gap-2 border-b border-border/60 bg-background px-3 py-1.5 sm:px-4 sm:py-2">
         {isMobile && <MobileMenuButton onMenuClick={onMenuClick} />}
-        <MainContentTabs
-          activeTab={activeTab}
-          onSelect={(tab) => setActiveTab(tab)}
-          className="ml-1 flex-shrink-0"
-        />
         {selectedProject && (
           <MainContentTitle
             activeTab={activeTab}
@@ -93,35 +87,39 @@ function MainContent({
             shouldShowTasksTab={false}
           />
         )}
-        {selectedProject && selectedSession && !linkedTask && (
-          <Button
-            variant="chunky"
-            size="toolbar"
-            className="ml-auto"
-            onClick={() => setConvertOpen(true)}
-            title="转为任务"
-            aria-label="转为任务"
-          >
-            <RefreshCw />
-            {/* 移动端（<640px）只留图标 */}
-            <span className="hidden sm:inline">转为任务</span>
-          </Button>
-        )}
-        {selectedProject && linkedTask && (
-          <Button
-            variant="chunky"
-            size="toolbar"
-            className="ml-auto"
-            onClick={() => navigate(`/task/${linkedTask.task_id}`)}
-            title="查看任务"
-            aria-label="查看任务"
-          >
-            {/* 眼睛颜色 = 任务状态色（待办黄/进行中蓝/评审紫/完成绿），不再单独画状态圆点 */}
-            <Eye style={{ color: STATUS_META[linkedTask.status].color }} />
-            {/* 移动端（<640px）只留状态色眼睛图标 */}
-            <span className="hidden sm:inline">查看任务</span>
-          </Button>
-        )}
+        <WorkspaceNav
+          activeTab={activeTab}
+          onSelectTab={(tab) => setActiveTab(tab)}
+          className="ml-auto flex-shrink-0"
+        >
+          {selectedProject && selectedSession && !linkedTask && (
+            <button
+              type="button"
+              onClick={() => setConvertOpen(true)}
+              title="转为任务"
+              aria-label="转为任务"
+              className="flex items-center justify-center gap-2 rounded-lg px-2.5 py-2 text-sm font-normal text-muted-foreground transition-all hover:text-foreground"
+            >
+              <RefreshCw className="h-3.5 w-3.5 flex-shrink-0" />
+              {/* 移动端（<640px）只留图标 */}
+              <span className="hidden sm:inline">转为任务</span>
+            </button>
+          )}
+          {selectedProject && linkedTask && (
+            <button
+              type="button"
+              onClick={() => navigate(`/task/${linkedTask.task_id}`)}
+              title="查看任务详情"
+              aria-label="查看任务详情"
+              className="flex items-center justify-center gap-2 rounded-lg px-2.5 py-2 text-sm font-normal text-muted-foreground transition-all hover:text-foreground"
+            >
+              {/* 眼睛颜色 = 任务状态色（待办黄/进行中蓝/评审紫/完成绿），不再单独画状态圆点 */}
+              <Eye className="h-3.5 w-3.5 flex-shrink-0" style={{ color: STATUS_META[linkedTask.status].color }} />
+              {/* 移动端（<640px）只留状态色眼睛图标 */}
+              <span className="hidden sm:inline">任务详情</span>
+            </button>
+          )}
+        </WorkspaceNav>
       </header>
 
       {isLoading ? (
