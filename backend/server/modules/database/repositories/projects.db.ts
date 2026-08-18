@@ -16,7 +16,7 @@ function normalizeProjectDisplayName(projectPath: string, customProjectName: str
 }
 
 export const projectsDb = {
-    createProjectPath(projectPath: string, customProjectName: string | null = null, isExplicit: boolean = false): CreateProjectPathResult {
+    createProjectPath(projectPath: string, customProjectName: string | null = null, isExplicit: boolean = false, remoteHostId: string | null = null): CreateProjectPathResult {
         const db = getConnection();
         const normalizedProjectPath = canonicalizeProjectPath(projectPath);
         const normalizedProjectName = normalizeProjectDisplayName(normalizedProjectPath, customProjectName);
@@ -35,13 +35,14 @@ export const projectsDb = {
 
         const attemptedId = randomUUID();
         const row = db.prepare(`
-        INSERT INTO projects (project_id, project_path, custom_project_name, isArchived, is_explicit)
-            VALUES (?, ?, ?, 0, ?)
+        INSERT INTO projects (project_id, project_path, custom_project_name, isArchived, is_explicit, remote_host_id)
+            VALUES (?, ?, ?, 0, ?, ?)
             ON CONFLICT(project_path) DO UPDATE SET
             isArchived = 0,
-            is_explicit = CASE WHEN excluded.is_explicit = 1 THEN 1 ELSE projects.is_explicit END
+            is_explicit = CASE WHEN excluded.is_explicit = 1 THEN 1 ELSE projects.is_explicit END,
+            remote_host_id = COALESCE(excluded.remote_host_id, projects.remote_host_id)
             RETURNING project_id, project_path, custom_project_name, isStarred, isArchived, is_explicit
-        `).get(attemptedId, normalizedProjectPath, normalizedProjectName, isExplicit ? 1 : 0) as ProjectRepositoryRow | undefined;
+        `).get(attemptedId, normalizedProjectPath, normalizedProjectName, isExplicit ? 1 : 0, remoteHostId) as ProjectRepositoryRow | undefined;
 
         if (row) {
             return {
@@ -204,5 +205,18 @@ export const projectsDb = {
             DELETE FROM projects
             WHERE project_id = ?
         `).run(projectId);
+    },
+
+    /**
+     * Lists project paths bound to a remote host, for host→project reverse
+     * lookups. Local-only projects (remote_host_id IS NULL) are excluded.
+     */
+    listPathsWithRemoteHost(): { project_path: string; remote_host_id: string }[] {
+        const db = getConnection();
+        return db.prepare(`
+            SELECT project_path, remote_host_id
+            FROM projects
+            WHERE remote_host_id IS NOT NULL
+        `).all() as { project_path: string; remote_host_id: string }[];
     },
 };

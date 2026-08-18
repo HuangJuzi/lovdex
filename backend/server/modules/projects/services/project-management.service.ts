@@ -85,6 +85,79 @@ function mapProjectRowToApiView(projectRow: ProjectRepositoryRow): ProjectApiVie
   };
 }
 
+type CreateRemoteProjectInput = {
+  projectPath: string;
+  remoteHostId: string;
+  customName?: string | null;
+};
+
+type CreateRemoteProjectDependencies = {
+  statRemote: (hostId: string, projectPath: string) => Promise<{ exists: boolean; isDirectory: boolean }>;
+  persist: (projectPath: string, customName: string | null, remoteHostId: string) => CreateProjectPathResult;
+};
+
+/**
+ * Registers a project whose files live on a remote host.
+ *
+ * Unlike {@link createProject}, the path is never touched on the local
+ * filesystem: existence and directory-ness are checked over RPC via
+ * `statRemote`, and the persisted row is tagged with `remoteHostId`. The caller
+ * (route layer) is responsible for verifying the host exists and is online
+ * before invoking this.
+ */
+export async function createProjectWithRemote(
+  input: CreateRemoteProjectInput,
+  dependencies: CreateRemoteProjectDependencies,
+): Promise<CreateProjectServiceResult> {
+  const normalizedPath = normalizeProjectPath(input.projectPath || '');
+  if (!normalizedPath) {
+    throw new AppError('path is required', {
+      code: 'PROJECT_PATH_REQUIRED',
+      statusCode: 400,
+    });
+  }
+
+  const remoteHostId = typeof input.remoteHostId === 'string' ? input.remoteHostId.trim() : '';
+  if (!remoteHostId) {
+    throw new AppError('remoteHostId is required', {
+      code: 'REMOTE_HOST_REQUIRED',
+      statusCode: 400,
+    });
+  }
+
+  const remoteStat = await dependencies.statRemote(remoteHostId, normalizedPath);
+  if (!remoteStat.exists || !remoteStat.isDirectory) {
+    throw new AppError('Remote path does not exist or is not a directory', {
+      code: 'REMOTE_PATH_NOT_DIRECTORY',
+      statusCode: 400,
+    });
+  }
+
+  const normalizedCustomName = resolveDisplayName(input.customName ?? null, normalizedPath);
+  const persistedProject = dependencies.persist(normalizedPath, normalizedCustomName, remoteHostId);
+
+  if (persistedProject.outcome === 'active_conflict') {
+    throw new AppError('Project path already exists and is active', {
+      code: 'PROJECT_ALREADY_EXISTS',
+      statusCode: 409,
+      details: `Project path already exists: ${normalizedPath}`,
+    });
+  }
+
+  const projectRow = persistedProject.project;
+  if (!projectRow) {
+    throw new AppError('Failed to resolve project after creation', {
+      code: 'PROJECT_CREATE_FAILED',
+      statusCode: 500,
+    });
+  }
+
+  return {
+    outcome: persistedProject.outcome,
+    project: mapProjectRowToApiView(projectRow),
+  };
+}
+
 export async function createProject(
   input: CreateProjectInput,
   dependencies: CreateProjectDependencies = defaultDependencies,

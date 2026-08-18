@@ -1,6 +1,8 @@
 import express from 'express';
 
-import { createProject, updateProjectDisplayName } from '@/modules/projects/services/project-management.service.js';
+import { createProject, createProjectWithRemote, updateProjectDisplayName } from '@/modules/projects/services/project-management.service.js';
+import { projectsDb, remoteHostsDb } from '@/modules/database/index.js';
+import { getRemoteAgentsRuntime } from '@/modules/remote-agents/runtime.js';
 import { startCloneProject } from '@/modules/projects/services/project-clone.service.js';
 import { getProjectTaskMaster } from '@/modules/projects/services/projects-has-taskmaster.service.js';
 import { AppError, asyncHandler, createApiSuccessResponse } from '@/shared/utils.js';
@@ -135,6 +137,49 @@ router.post(
         projectCreationResult.outcome === 'reactivated_archived'
           ? 'Archived project path reused successfully'
           : 'Project created successfully',
+    });
+  }),
+);
+
+router.post(
+  '/create-remote-project',
+  asyncHandler(async (req, res) => {
+    const requestBody = req.body as Record<string, unknown>;
+    const projectPath = typeof requestBody.path === 'string' ? requestBody.path : '';
+    const remoteHostId = typeof requestBody.remoteHostId === 'string' ? requestBody.remoteHostId : '';
+    const customName = typeof requestBody.customName === 'string' ? requestBody.customName : null;
+
+    const host = remoteHostsDb.getById(remoteHostId);
+    if (!host) {
+      throw new AppError('Remote host not found', {
+        code: 'REMOTE_HOST_NOT_FOUND',
+        statusCode: 404,
+      });
+    }
+
+    const runtime = getRemoteAgentsRuntime();
+    if (!runtime.registry.isOnline(host.host_id)) {
+      throw new AppError('Remote host is offline', {
+        code: 'REMOTE_HOST_OFFLINE',
+        statusCode: 409,
+      });
+    }
+
+    const projectCreationResult = await createProjectWithRemote(
+      { projectPath, remoteHostId, customName },
+      {
+        statRemote: (hostId, pathText) => runtime.fsClient.stat(hostId, pathText),
+        persist: (pathText, name, hostId) => projectsDb.createProjectPath(pathText, name, true, hostId),
+      },
+    );
+
+    res.json({
+      success: true,
+      project: projectCreationResult.project,
+      message:
+        projectCreationResult.outcome === 'reactivated_archived'
+          ? 'Archived remote project path reused successfully'
+          : 'Remote project created successfully',
     });
   }),
 );
