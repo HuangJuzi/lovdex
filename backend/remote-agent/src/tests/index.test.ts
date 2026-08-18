@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { handleIncomingFrame } from '../index.js';
+import { createLiteService, handleIncomingFrame } from '../index.js';
 import type { RemoteAgentConfig } from '../config.js';
 
 const cfg: RemoteAgentConfig = {
@@ -48,4 +48,12 @@ test('handleIncomingFrame ignores frames it does not handle', async () => {
   const ws = makeFakeWs();
   await handleIncomingFrame(ws, { type: 'pong', at: 5 }, cfg);
   assert.equal(ws.sent.length, 0);
+});
+
+test('createLiteService exposes a lifecycle handle and stop is idempotent pre-start', () => {
+  const service = createLiteService(cfg);
+  assert.throws(() => service.ws, /not started/); // connects lazily on start()
+  service.stop(); // no-op before start: no socket, no timers
+  service.stop(); // second stop must not throw
+  assert.throws(() => service.ws);
 });

@@ -6,7 +6,7 @@
   "scripts": {
     "build": "esbuild src/index.ts --bundle --platform=node --format=esm --packages=external --outfile=dist/lite.mjs",
     "start": "node dist/lite.mjs",
-    "test": "tsx --test src/tests/config.test.ts"
+    "test": "tsx --test src/tests/*.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.113",

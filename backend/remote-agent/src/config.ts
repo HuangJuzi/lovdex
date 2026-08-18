@@ -8,7 +8,9 @@ import { z } from 'zod';
  *   appended at connect time).
  * - `token`: shared secret used to authenticate the connection.
  * - `hostId`: stable identifier for this remote host.
- * - `roots`: host directories the lite agent is allowed to operate on.
+ * - `roots`: host directories the lite agent is allowed to operate on. REQUIRED
+ *   (no `['/']` default): a whitelist that silently defaults to the full
+ *   filesystem is a footgun, so the operator must state it explicitly.
  * - `apiKeyEnvPath` / `claudeCliPath`: optional paths consumed by the agent
  *   loop (Task 9).
  */
@@ -16,7 +18,7 @@ const configSchema = z.object({
   serverUrl: z.string().min(2),
   token: z.string().min(8),
   hostId: z.string().min(1),
-  roots: z.array(z.string()).min(1).default(['/']),
+  roots: z.array(z.string()).min(1),
   agentVersion: z.string().default('0.1.0'),
   apiKeyEnvPath: z.string().optional(),
   claudeCliPath: z.string().optional(),

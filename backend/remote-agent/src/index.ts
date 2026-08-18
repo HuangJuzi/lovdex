@@ -8,6 +8,16 @@ import { handleRpc } from './rpc-dispatch.js';
 const HEARTBEAT_MS = 15_000;
 const RECONNECT_MS = 3_000;
 
+/**
+ * Close codes the main server sends to permanently reject a connection. These
+ * are NOT retryable: a reconnect loop would spool forever against a steady
+ * rejection and spam the journal, so they are treated as fatal.
+ */
+const FATAL_CLOSE_CODES: Record<number, string> = {
+  4001: 'invalid token',
+  4002: 'host id mismatch',
+};
+
 /** Minimal WebSocket surface the frame handler needs; keeps it unit-testable. */
 export interface WsLike {
   readyState: number;
@@ -48,7 +58,19 @@ export async function handleIncomingFrame(
   }
 }
 
+/**
+ * Task 9 — connection-epoch outbound dispatcher:
+ * when a link drops mid-RPC, pending `rpc_res` must be re-delivered on the
+ * CURRENT socket (or the pending work aborted) — never close over the old
+ * socket across reconnects. No long-running RPCs exist yet, so nothing is
+ * wired here; `handleIncomingFrame` deliberately receives the socket as an
+ * argument instead of closing over a stale one.
+ */
+
 function buildHelloFrame(cfg: RemoteAgentConfig): string {
+  // capabilities intentionally empty: the rpc-dispatch stub rejects every
+  // method today, so claiming 'session/claude' / 'fs/read' would be dishonest.
+  // Task 9/10 restore the real capability list once those RPCs land.
   return JSON.stringify({
     type: 'hello',
     hostId: cfg.hostId,
@@ -56,7 +78,7 @@ function buildHelloFrame(cfg: RemoteAgentConfig): string {
     nodeVersion: process.version,
     os: process.platform,
     roots: cfg.roots,
-    capabilities: ['session/claude', 'fs/read'],
+    capabilities: [],
   });
 }
 
@@ -66,14 +88,40 @@ function buildWsUrl(cfg: RemoteAgentConfig): string {
   return url.toString();
 }
 
+export interface LiteService {
+  /** The live WebSocket connection (created on `start()`). */
+  ws: WebSocket;
+  /** Opens the connection and begins servicing pings/RPCs. */
+  start(): void;
+  /**
+   * Tears the service down: clears the heartbeat interval, cancels any pending
+   * reconnect, removes all listeners, and closes the socket. Idempotent.
+   * After `stop()` no reconnect is ever scheduled.
+   */
+  stop(): void;
+}
+
 /**
- * Connect to the main server, announce this host, then service pings and RPC
- * requests. Reconnects on close. Exported (not auto-run on import) so tests can
- * import the module safely.
+ * Create a manageable lite-service instance. The service connects lazily on
+ * `start()` so callers (entry, tests, Task 14 in-process loopback) hold an
+ * explicit lifecycle handle instead of a fire-and-forget `main()`.
  */
-export function main(cfg: RemoteAgentConfig = loadConfigFile()): void {
-  const ws = new WebSocket(buildWsUrl(cfg));
+export function createLiteService(cfg: RemoteAgentConfig): LiteService {
+  let socket: WebSocket | undefined;
   let heartbeat: NodeJS.Timeout | undefined;
+  let reconnectTimer: NodeJS.Timeout | undefined;
+  let stopped = false;
+
+  const clearTimers = () => {
+    if (heartbeat) {
+      clearInterval(heartbeat);
+      heartbeat = undefined;
+    }
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = undefined;
+    }
+  };
 
   const clearHeartbeat = () => {
     if (heartbeat) {
@@ -82,41 +130,104 @@ export function main(cfg: RemoteAgentConfig = loadConfigFile()): void {
     }
   };
 
-  ws.on('open', () => {
-    ws.send(buildHelloFrame(cfg));
+  const handleOpen = () => {
+    if (!socket) return;
+    socket.send(buildHelloFrame(cfg));
     clearHeartbeat();
     heartbeat = setInterval(() => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify(makePing()));
+      if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify(makePing()));
       }
     }, HEARTBEAT_MS);
-  });
+  };
 
-  ws.on('message', (raw: WebSocket.RawData) => {
+  const handleMessage = (raw: WebSocket.RawData) => {
+    if (!socket) return;
     let frame: unknown;
     try {
       frame = JSON.parse(raw.toString());
     } catch {
       return;
     }
-    void handleIncomingFrame(ws as unknown as WsLike, frame, cfg);
-  });
+    void handleIncomingFrame(socket as unknown as WsLike, frame, cfg).catch((err) =>
+      console.error('[remote-agent] frame error:', err),
+    );
+  };
 
-  ws.on('error', (err: Error) => {
+  const handleError = (err: Error) => {
     console.error('[remote-agent] ws error:', err.message);
-  });
+  };
 
-  ws.on('close', () => {
+  const handleClose = (code: number) => {
+    if (stopped) return;
+    clearTimers();
+    const fatal = FATAL_CLOSE_CODES[code];
+    if (fatal !== undefined) {
+      console.error(`[remote-agent] connection rejected by server (${code}: ${fatal}); exiting`);
+      process.exit(1);
+      return;
+    }
     console.error('[remote-agent] ws closed; reconnecting in', RECONNECT_MS, 'ms');
-    clearHeartbeat();
-    setTimeout(() => {
+    reconnectTimer = setTimeout(() => {
+      if (stopped) return;
       try {
-        main(cfg);
+        connect();
       } catch (err) {
         console.error('[remote-agent] reconnect failed:', err);
       }
     }, RECONNECT_MS);
-  });
+  };
+
+  const connect = () => {
+    if (stopped) return;
+    socket = new WebSocket(buildWsUrl(cfg));
+    socket.on('open', handleOpen);
+    socket.on('message', handleMessage);
+    socket.on('error', handleError);
+    socket.on('close', handleClose);
+  };
+
+  const start = () => {
+    if (stopped) return;
+    connect();
+  };
+
+  const stop = () => {
+    stopped = true;
+    clearTimers();
+    if (socket) {
+      socket.removeListener('open', handleOpen);
+      socket.removeListener('message', handleMessage);
+      socket.removeListener('error', handleError);
+      socket.removeListener('close', handleClose);
+      socket.close();
+    }
+  };
+
+  return {
+    get ws(): WebSocket {
+      if (!socket) throw new Error('[remote-agent] service not started yet');
+      return socket;
+    },
+    start,
+    stop,
+  };
+}
+
+/**
+ * Convenience entry: load config, start the service, and wire SIGTERM/SIGINT to
+ * a clean stop + exit so systemd and terminal Ctrl-C can shut us down.
+ */
+export function main(cfg: RemoteAgentConfig = loadConfigFile()): LiteService {
+  const service = createLiteService(cfg);
+  service.start();
+  const shutdown = () => {
+    service.stop();
+    process.exit(0);
+  };
+  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', shutdown);
+  return service;
 }
 
 const invokedPath = process.argv[1];
