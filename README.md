@@ -43,6 +43,41 @@ Lovdex 是一个面向 Claude Code / Codex / OpenCode / Qoder 编码代理的 We
 - **supervisor**（`systemd/`，`systemctl --user lovdex`）负责拉起/重启前后端；本地会话与任务跑在宿主，远程项目经 `remote-agents` 转发到各远程机的 lite 上执行。
 - **持久化**：better-sqlite3 单库，路径由 `~/.lovdex/data/app.config.json` 决定（默认 `new-auth.db`）。
 
+### 模块清单（整体）
+
+**后端 — `backend/server/modules/`**
+
+| 模块 | 主要作用 |
+|---|---|
+| `providers/` | provider 注册表 + REST 路由；`list/{claude,codex,opencode,qoder}` 按能力面对称组织各 SDK 适配（会话/模型/认证/MCP/技能） |
+| `projects/` | 项目 CRUD、克隆、删除、收藏、taskmaster 标记、带会话项目查询 |
+| `tasks/` | 任务板 CRUD + 两层状态模型（`status` + `sub_status`） |
+| `scheduler/` | 定时任务调度（`scheduled_tasks` 表）：到期触发、错过的聚合提醒 |
+| `operators/` | Operator 助手：凭据解析、白名单、任务执行服务、工具集、技能执行（`execute_skill`）、审计 |
+| `terminal/` | `/shell` 交互终端（PTY 生命周期、重连缓冲） |
+| `websocket/` | 聊天 WS 网关（`/ws`）、会话 writer、run 注册表、headless 任务 run、升级鉴权、插件 WS 代理 |
+| `git/` | Git 面板 REST + 输出解析 |
+| `worktrees/` | worktree 创建/合并/删除/打开服务 |
+| `assets/` | 聊天图片附件上传与托管（`/api/assets` → `~/.cloudcli/assets`） |
+| `auth/` | 登录门槛：固定邮箱+口令 + JWT（`AUTH_ENABLED=false` 逃生阀） |
+| `config/` | `app.config.json` 读写、`PUT /api/config`、env-sync |
+| `database/` | better-sqlite3 连接、建库/迁移、仓储层 |
+| `remote-agents/` | 远程项目子系统（完整模块清单见「远程项目」章节） |
+
+**运行时入口 — `backend/server/`**
+
+| 文件 | 主要作用 |
+|---|---|
+| `claude-sdk.js` | 本地 Claude 会话封装 |
+| `openai-codex.js` / `opencode-runner.js` / `qoder-runner.js` | Codex / OpenCode / Qoder 本地会话适配 |
+
+**守护与前端**
+
+| 目录 | 主要作用 |
+|---|---|
+| `supervisor/` + `systemd/lovdex.service` | 守护进程，拉起/重启前后端（`systemctl --user lovdex`） |
+| `web/` | React + Vite 前端：侧栏/聊天/任务板/Operator/文件树/终端/Git/设置，`/api`、`/ws` 代理到后端 |
+
 ## 配置
 
 配置集中存放在 `~/.lovdex/data/app.config.json`，首次启动后端自动生成（含随机 JWT 密钥）。Web UI 侧边栏「设置 → Providers」可视化编辑；敏感字段（API key/token）以掩码展示，写入走 `PUT /api/config`（需登录）。
