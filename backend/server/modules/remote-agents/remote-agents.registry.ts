@@ -108,6 +108,7 @@ export function createRemoteAgentsRegistry() {
         const id = createRpcId();
         const entry: PendingRpc = {
           id,
+          hostId,
           resolve: (value) => resolve(value as T),
           reject,
           timer: setTimeout(() => {
@@ -146,14 +147,34 @@ export function createRemoteAgentsRegistry() {
     touchSeenAt(_hostId: string, _at: number): void {
       // heartbeat bookkeeping hook; wired to remoteHostsDb in Task 13
     },
+    failPendingForHost(hostId: string): number {
+      let failed = 0;
+      for (const [id, entry] of pending) {
+        if (entry.hostId !== hostId) continue;
+        clearTimeout(entry.timer);
+        pending.delete(id);
+        entry.reject(new ConnectionError(`remote host disconnected: ${hostId}`));
+        failed++;
+      }
+      return failed;
+    },
     pendingCount(): number {
       return pending.size;
     },
   };
 }
 
+/** Thrown when a host goes away while one of its rpcs is still in flight. */
+export class ConnectionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ConnectionError';
+  }
+}
+
 export type PendingRpc = {
   id: string;
+  hostId: string;
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
   timer: NodeJS.Timeout;
