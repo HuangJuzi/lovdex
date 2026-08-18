@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft } from 'lucide-react';
+import { ClipboardList } from 'lucide-react';
 
 import { useWebSocket } from '../../contexts/WebSocketContext';
+import { Button } from '../../shared/view/ui';
 import { api, authenticatedFetch } from '../../utils/api';
 import type {
   Project,
@@ -32,27 +33,9 @@ import { TaskResultPanel } from './TaskResultPanel';
 import { pickLastAssistantText } from './taskResult';
 import type { TaskResultState } from './taskResult';
 import { projectPathOf, taskFormProjects } from './projectOptions';
-import { LABEL_META, LABEL_ORDER, PRIORITY_META, PRIORITY_ORDER, STATUS_META, STATUS_ORDER, SUB_STATUS_META } from './taskStatus';
+import { LABEL_META, LABEL_ORDER, PRIORITY_META, PRIORITY_ORDER, STATUS_META, STATUS_ORDER } from './taskStatus';
 import { formatAbsoluteTime } from './taskTimestamp';
 import { SubStatusBadge } from './SubStatusBadge';
-
-/**
- * Live status badge for the detail header. Reads the effective `sub_status`
- * (进行中/等你回答/等你确认计划/等你批准/执行失败/…) so the top of the page
- * reads the same as the board card. Falls back to the stored status label
- * when no sub_status is present.
- */
-function liveHeaderBadge(task: Task): { label: string; color: string; pulse?: boolean } {
-  if (task.sub_status) {
-    const meta = SUB_STATUS_META[task.sub_status];
-    return {
-      label: meta.label,
-      color: meta.color,
-      pulse: task.sub_status === 'running' || task.sub_status.startsWith('waiting_'),
-    };
-  }
-  return { label: STATUS_META[task.status].label, color: STATUS_META[task.status].color };
-}
 
 export function TaskDetailPage() {
   const { taskId } = useParams<{ taskId: string }>();
@@ -470,33 +453,20 @@ export function TaskDetailPage() {
 
   return (
     <div className="h-dvh overflow-y-auto bg-background">
-      <div className="mx-auto w-full px-4 py-6 sm:p-8">
-        <div className="mt-4 flex flex-wrap items-start gap-3">
-          <button
+      <div className="mx-auto w-full px-4 pb-6 pt-3 sm:px-8 sm:pb-8 sm:pt-4">
+        <div className="mt-1 flex flex-wrap items-start gap-3">
+          <Button
             type="button"
-            title="返回任务面板"
-            aria-label="返回任务面板"
+            variant="chunky"
+            size="toolbar"
+            className="mt-1 gap-1.5"
             onClick={() => navigate('/tasks')}
-            className="mt-1 inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg px-3 text-sm font-medium text-muted-foreground transition-all hover:bg-muted hover:text-foreground"
+            title="任务面板"
+            aria-label="任务面板"
           >
-            <ArrowLeft className="h-4 w-4" />
-            <span>返回</span>
-          </button>
-          {(() => {
-            const badge = liveHeaderBadge(task);
-            return (
-              <span
-                className="mt-2 inline-flex shrink-0 items-center gap-1.5 rounded-full bg-muted/40 px-2 py-0.5 text-[11px] font-semibold"
-                style={{ color: badge.color }}
-              >
-                <span
-                  className={`h-1.5 w-1.5 rounded-full ${badge.pulse ? 'animate-pulse' : ''}`}
-                  style={{ background: badge.color }}
-                />
-                {badge.label}
-              </span>
-            );
-          })()}
+            <ClipboardList className="text-amber-500" />
+            任务面板
+          </Button>
           <div className="min-w-0 flex-1">
             <input
               className="w-full bg-transparent text-xl font-bold text-foreground outline-none"
