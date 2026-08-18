@@ -85,6 +85,8 @@ export type CloneProgressEvent = {
 export type WizardFormState = {
   projectSource: ProjectSource;
   remoteHostId?: string;
+  /** Display name of the selected remote host, resolved for the step-2 review. */
+  remoteHostName?: string;
   workspacePath: string;
   githubUrl: string;
   tokenMode: TokenMode;

@@ -7,7 +7,9 @@ dist-ssr/
 .env
 .env.*
 !.env.example
-data/
+# Root-level runtime data dirs only (anchored so it does not shadow app source
+# directories literally named `data/`, e.g. web/src/components/*/data/).
+/data/
 *.db
 *.sqlite
 *.sqlite3

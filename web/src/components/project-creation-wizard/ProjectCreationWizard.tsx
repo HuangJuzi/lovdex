@@ -73,6 +73,21 @@ export default function ProjectCreationWizard({
     [updateField],
   );
 
+  // Stable callbacks for the remote step: keeping these referentially stable
+  // (updateField is a useCallback([]) already) prevents StepRemoteConfiguration's
+  // hosts-fetch effect from re-running on every keystroke.
+  const handleRemoteHostChange = useCallback((hostId: string, hostName: string) => {
+    setFormState((previous) => ({
+      ...previous,
+      remoteHostId: hostId,
+      remoteHostName: hostName || previous.remoteHostName,
+    }));
+  }, []);
+  const handleWorkspacePathChange = useCallback(
+    (pathText: string) => updateField('workspacePath', pathText),
+    [updateField],
+  );
+
   const isRemote = formState.projectSource === 'remote';
 
   const handleSourceChange = useCallback((source: ProjectSource) => {
@@ -219,8 +234,8 @@ export default function ProjectCreationWizard({
               remoteHostId={formState.remoteHostId ?? ''}
               workspacePath={formState.workspacePath}
               isCreating={isCreating}
-              onRemoteHostChange={(remoteHostId) => updateField('remoteHostId', remoteHostId)}
-              onWorkspacePathChange={(workspacePath) => updateField('workspacePath', workspacePath)}
+              onRemoteHostChange={handleRemoteHostChange}
+              onWorkspacePathChange={handleWorkspacePathChange}
             />
           )}
 

@@ -184,6 +184,9 @@ export function RemoteHostsSettingsSection() {
   );
 
   async function handleDeploy(host: RemoteHost) {
+    // Synchronous double-click guard: the poll timer for this host is set before
+    // the blocking deploy resolves, so a second click must be a no-op.
+    if (pollTimers.current.has(host.host_id)) return;
     setActionError(null);
     markDeploying(host.host_id, true);
     // Poll while the blocking deploy runs so the row status reflects progress.

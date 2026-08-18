@@ -8,7 +8,7 @@ type StepRemoteConfigurationProps = {
   remoteHostId: string;
   workspacePath: string;
   isCreating: boolean;
-  onRemoteHostChange: (hostId: string) => void;
+  onRemoteHostChange: (hostId: string, hostName: string) => void;
   onWorkspacePathChange: (path: string) => void;
 };
 
@@ -48,7 +48,7 @@ export default function StepRemoteConfiguration({
         setHostsError(null);
         // Auto-select the only online host to save a click.
         if (!remoteHostId && list.length === 1) {
-          onRemoteHostChange(list[0].hostId);
+          onRemoteHostChange(list[0].hostId, list[0].name);
         }
       })
       .catch((err: unknown) => {
@@ -126,7 +126,10 @@ export default function StepRemoteConfiguration({
             className="h-9 w-full rounded-md border border-gray-300 bg-white px-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-white"
             value={remoteHostId}
             disabled={isCreating}
-            onChange={(e) => onRemoteHostChange(e.target.value)}
+            onChange={(e) => {
+              const selected = hosts.find((host) => host.hostId === e.target.value);
+              onRemoteHostChange(e.target.value, selected?.name ?? '');
+            }}
           >
             <option value="">请选择主机…</option>
             {hosts.map((host) => (
