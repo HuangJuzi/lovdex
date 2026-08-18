@@ -17,3 +17,6 @@ data/
 supervisor/run.pid
 supervisor/run.state.json
 supervisor/logs/
+
+# Superpowers brainstorm mockups
+.superpowers/
