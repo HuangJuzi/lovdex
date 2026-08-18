@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { ArrowLeft } from 'lucide-react';
 
 import { useWebSocket } from '../../contexts/WebSocketContext';
 import { api, authenticatedFetch } from '../../utils/api';
@@ -34,7 +35,6 @@ import { projectPathOf, taskFormProjects } from './projectOptions';
 import { LABEL_META, LABEL_ORDER, PRIORITY_META, PRIORITY_ORDER, STATUS_META, STATUS_ORDER, SUB_STATUS_META } from './taskStatus';
 import { formatAbsoluteTime } from './taskTimestamp';
 import { SubStatusBadge } from './SubStatusBadge';
-import { WorkspaceNav } from './WorkspaceNav';
 
 /**
  * Live status badge for the detail header. Reads the effective `sub_status`
@@ -470,11 +470,18 @@ export function TaskDetailPage() {
 
   return (
     <div className="h-dvh overflow-y-auto bg-background">
-      <header className="pwa-header-safe sticky top-0 z-10 flex flex-shrink-0 items-center gap-2 border-b border-border/60 bg-background px-3 py-1.5 sm:px-4 sm:py-2">
-        <WorkspaceNav projectPath={task.project_path} className="ml-auto flex-shrink-0" />
-      </header>
       <div className="mx-auto w-full px-4 py-6 sm:p-8">
         <div className="mt-4 flex flex-wrap items-start gap-3">
+          <button
+            type="button"
+            title="返回任务面板"
+            aria-label="返回任务面板"
+            onClick={() => navigate('/tasks')}
+            className="mt-1 inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg px-3 text-sm font-medium text-muted-foreground transition-all hover:bg-muted hover:text-foreground"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            <span>返回</span>
+          </button>
           {(() => {
             const badge = liveHeaderBadge(task);
             return (
