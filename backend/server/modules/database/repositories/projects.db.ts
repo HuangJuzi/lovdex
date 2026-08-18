@@ -106,10 +106,15 @@ export const projectsDb = {
 
     getProjectPaths(): ProjectRepositoryRow[] {
         const db = getConnection();
+        // LEFT JOIN remote_hosts so remote-bound projects carry the host's
+        // display name (remote_host_name) for the sidebar marker; local rows
+        // (remote_host_id IS NULL) leave it NULL.
         return db.prepare(`
-            SELECT project_id, project_path, custom_project_name, isStarred, isArchived, is_explicit
-            FROM projects
-            WHERE isArchived = 0
+            SELECT p.project_id, p.project_path, p.custom_project_name, p.isStarred, p.isArchived, p.is_explicit,
+                   h.name AS remote_host_name
+            FROM projects p
+            LEFT JOIN remote_hosts h ON h.host_id = p.remote_host_id
+            WHERE p.isArchived = 0
         `).all() as ProjectRepositoryRow[];
     },
 
@@ -120,9 +125,11 @@ export const projectsDb = {
     getArchivedProjectPaths(): ProjectRepositoryRow[] {
         const db = getConnection();
         return db.prepare(`
-            SELECT project_id, project_path, custom_project_name, isStarred, isArchived, is_explicit
-            FROM projects
-            WHERE isArchived = 1
+            SELECT p.project_id, p.project_path, p.custom_project_name, p.isStarred, p.isArchived, p.is_explicit,
+                   h.name AS remote_host_name
+            FROM projects p
+            LEFT JOIN remote_hosts h ON h.host_id = p.remote_host_id
+            WHERE p.isArchived = 1
         `).all() as ProjectRepositoryRow[];
     },
 

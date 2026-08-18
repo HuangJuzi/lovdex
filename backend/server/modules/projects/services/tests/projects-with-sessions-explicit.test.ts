@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { closeConnection } from '@/modules/database/connection.js';
+import { closeConnection, getConnection } from '@/modules/database/connection.js';
 import { initializeDatabase } from '@/modules/database/init-db.js';
 import { projectsDb } from '@/modules/database/repositories/projects.db.js';
 import {
@@ -41,6 +41,27 @@ test('getProjectsWithSessions only returns explicit projects', async () => {
     const paths = projects.map((p) => p.fullPath);
     assert.ok(paths.includes(path.join(dir, 'explicit')));
     assert.ok(!paths.includes(path.join(dir, 'discovered')));
+  });
+});
+
+test('getProjectsWithSessions attaches remoteHostName for remote-bound projects and null for local', async () => {
+  await withIsolatedDatabase(async (dir) => {
+    const db = getConnection();
+    db.prepare(
+      'INSERT INTO remote_hosts (host_id, name, host, port, ssh_user, status) VALUES (?, ?, ?, ?, ?, ?)',
+    ).run('host-1', 'dev-box', '10.0.0.7', 22, 'root', 'online');
+
+    const localPath = path.join(dir, 'local-proj');
+    const remotePath = path.join(dir, 'remote-proj');
+    projectsDb.createProjectPath(localPath, null, true);
+    projectsDb.createProjectPath(remotePath, null, true, 'host-1');
+
+    const projects = await getProjectsWithSessions({ skipSynchronization: true });
+    const local = projects.find((p) => p.fullPath === localPath);
+    const remote = projects.find((p) => p.fullPath === remotePath);
+
+    assert.equal(local?.remoteHostName, null);
+    assert.equal(remote?.remoteHostName, 'dev-box');
   });
 });
 

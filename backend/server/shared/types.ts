@@ -597,6 +597,13 @@ export type ProjectRepositoryRow = {
   isStarred: number;
   isArchived: number;
   is_explicit: number;
+  /**
+   * Display name of the bound remote host, joined from `remote_hosts.name` when
+   * the row has a `remote_host_id`. Only populated by the list queries
+   * (`getProjectPaths` / `getArchivedProjectPaths`); NULL for local projects and
+   * absent from row-level lookups that do not join.
+   */
+  remote_host_name?: string | null;
 };
 
 /**
