@@ -3,7 +3,7 @@ import { Folder, MessageSquare, Search } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
 import { ScrollArea } from '../../../../shared/view/ui';
-import type { Project } from '../../../../types/app';
+import type { Project, ProjectSession } from '../../../../types/app';
 import type { ReleaseInfo } from '../../../../types/sharedTypes';
 import type { ConversationSearchResults, SearchProgress } from '../../hooks/useSidebarController';
 
@@ -11,6 +11,7 @@ import SidebarAssistant from './SidebarAssistant';
 import SidebarFooter from './SidebarFooter';
 import SidebarHeader from './SidebarHeader';
 import SidebarProjectList, { type SidebarProjectListProps } from './SidebarProjectList';
+import SidebarRecentSessions from './SidebarRecentSessions';
 import SidebarResizeHandle from './SidebarResizeHandle';
 import SidebarScheduledEntry from './SidebarScheduledEntry';
 
@@ -70,6 +71,8 @@ type SidebarContentProps = {
   onShowVersionModal: () => void;
   onShowSettings: () => void;
   projectListProps: SidebarProjectListProps;
+  /** 点击「最近任务」里某条会话：打开该会话对话。 */
+  onRecentSessionSelect: (session: ProjectSession, project: Project) => void;
   t: TFunction;
 };
 
@@ -102,6 +105,7 @@ export default function SidebarContent({
   onShowVersionModal,
   onShowSettings,
   projectListProps,
+  onRecentSessionSelect,
   t,
 }: SidebarContentProps) {
   const showConversationSearch = searchFilter.trim().length >= 2;
@@ -237,6 +241,8 @@ export default function SidebarContent({
         )}
         <SidebarProjectList {...projectListProps} />
       </ScrollArea>
+
+      <SidebarRecentSessions projects={projects} onRecentSessionSelect={onRecentSessionSelect} />
 
       <SidebarFooter
         updateAvailable={updateAvailable}
