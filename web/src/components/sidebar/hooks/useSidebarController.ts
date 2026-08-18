@@ -17,7 +17,9 @@ import {
   getAllSessions,
   readLegacyStarredProjectIds,
   readProjectSortOrder,
+  readStoredExpandedProjects,
   sortProjects,
+  writeStoredExpandedProjects,
 } from '../utils/utils';
 
 type SnippetHighlight = {
@@ -102,7 +104,7 @@ export function useSidebarController({
   // Simplified edition: command palette removed. Kept as a no-op so call
   // sites that triggered a project refresh after palette operations still run.
   const paletteOps = { refreshProjects: async () => {} };
-  const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
+  const [expandedProjects, setExpandedProjects] = useState<Set<string>>(readStoredExpandedProjects);
   const [editingProject, setEditingProject] = useState<string | null>(null);
   const [showNewProject, setShowNewProject] = useState(false);
   const [editingName, setEditingName] = useState('');
@@ -145,12 +147,21 @@ export function useSidebarController({
     setInitialSessionsLoaded(new Set());
   }, [projects]);
 
+  // 选中项目变化时自动展开其 session 列表：
+  // - 只在「挂载期间选中身份发生变化」时展开。依赖整对象（或 selectedSession）
+  //   会让 websocket 驱动的列表刷新重新打开用户手动收起的项目。
+  // - 首次解析到选中项目（例如从 /tasks 等独立路由切回主页面后的重挂载）时跳过，
+  //   严格遵守持久化的展开状态——否则每次切回主页面当前 Project 的 session
+  //   都会被强制打开。
+  const initialAutoExpandSettledRef = useRef(false);
   useEffect(() => {
-    // Auto-expand only when the selected project identity changes.
-    // Depending on the full `selectedProject` object (or `selectedSession`) causes
-    // websocket-driven list refreshes to re-open projects users manually collapsed.
     const selectedProjectId = selectedProject?.projectId;
     if (!selectedProjectId) {
+      return;
+    }
+
+    if (!initialAutoExpandSettledRef.current) {
+      initialAutoExpandSettledRef.current = true;
       return;
     }
 
@@ -163,6 +174,12 @@ export function useSidebarController({
       return next;
     });
   }, [selectedProject?.projectId]);
+
+  // 展开状态持久化：AppContent 在 /tasks 等路由间切换时整体卸载/重挂，
+  // 若不加持久化，每次切回主页面所有 Project 的展开状态都会被重置。
+  useEffect(() => {
+    writeStoredExpandedProjects(expandedProjects);
+  }, [expandedProjects]);
 
   useEffect(() => {
     if (projects.length > 0 && !isLoading) {

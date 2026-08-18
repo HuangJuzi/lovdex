@@ -18,6 +18,46 @@ export const readProjectSortOrder = (): ProjectSortOrder => {
   }
 };
 
+const EXPANDED_PROJECTS_STORAGE_KEY = 'lovdex:sidebar:expanded-projects';
+
+/**
+ * 读取持久化的「已展开 Project」集合（projectId 列表）。
+ * /tasks 等独立顶层路由会卸载整个 AppContent，切回主页面时若不做持久化，
+ * 所有 Project 的 session 都会被重置为展开。
+ */
+export const readStoredExpandedProjects = (): Set<string> => {
+  try {
+    const raw = localStorage.getItem(EXPANDED_PROJECTS_STORAGE_KEY);
+    if (raw === null || raw === '') {
+      return new Set();
+    }
+
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) {
+      return new Set();
+    }
+
+    const projectIds = new Set<string>();
+    for (const value of parsed) {
+      if (typeof value === 'string' && value.length > 0) {
+        projectIds.add(value);
+      }
+    }
+    return projectIds;
+  } catch {
+    return new Set();
+  }
+};
+
+/** 持久化「已展开 Project」集合，与 readStoredExpandedProjects 配套。 */
+export const writeStoredExpandedProjects = (projectIds: ReadonlySet<string>): void => {
+  try {
+    localStorage.setItem(EXPANDED_PROJECTS_STORAGE_KEY, JSON.stringify([...projectIds]));
+  } catch {
+    // Keep UI responsive even if storage is unavailable.
+  }
+};
+
 const LEGACY_STARRED_PROJECTS_STORAGE_KEY = 'starredProjects';
 
 /**

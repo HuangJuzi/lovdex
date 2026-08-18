@@ -11,6 +11,10 @@ type SidebarRecentSessionsProps = {
   onRecentSessionSelect: (session: ProjectSession, project: Project) => void;
 };
 
+// 折叠状态持久化，避免切到 /tasks 等独立路由再回到主页面时列表被重置为展开。
+// 模式对齐 SidebarAssistant 的 COLLAPSE_KEY（'lovdex:assistant:sessions-collapsed'）。
+const COLLAPSE_KEY = 'lovdex:sidebar:recent-sessions-collapsed';
+
 /**
  * 侧边栏「最近任务」区块：展示最近活跃的 session（含助手会话），最多 10 条。
  * 置于项目列表滚动区与底部设置之间。样式对齐 SidebarScheduledEntry / SidebarAssistant。
@@ -19,7 +23,13 @@ export default function SidebarRecentSessions({
   projects,
   onRecentSessionSelect,
 }: SidebarRecentSessionsProps) {
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(COLLAPSE_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
   // 相对时间自刷新，不依赖父级 timer（30s 粒度足够）。
   const [currentTime, setCurrentTime] = useState(() => new Date());
 
@@ -34,7 +44,17 @@ export default function SidebarRecentSessions({
     <div className="flex-shrink-0 border-t border-border/60 px-2 pb-2 pt-1.5 md:px-1.5">
       <button
         type="button"
-        onClick={() => setCollapsed((value) => !value)}
+        onClick={() =>
+          setCollapsed((prev) => {
+            const next = !prev;
+            try {
+              localStorage.setItem(COLLAPSE_KEY, next ? '1' : '0');
+            } catch {
+              // ignore storage failures
+            }
+            return next;
+          })
+        }
         title={collapsed ? '展开 最近任务' : '收起 最近任务'}
         className="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left hover:bg-muted"
       >

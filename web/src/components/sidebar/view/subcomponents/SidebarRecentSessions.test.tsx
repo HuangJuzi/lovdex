@@ -63,3 +63,25 @@ test('renders all rows when under the limit with default expanded state', () => 
   assert.ok(html.includes('摘要s1'));
   assert.ok(html.includes('摘要s2'));
 });
+
+test('stays collapsed on remount when the stored flag is set (survives navigation away)', () => {
+  const original = (globalThis as { localStorage?: unknown }).localStorage;
+  const store = new Map<string, string>();
+  (globalThis as { localStorage?: unknown }).localStorage = {
+    getItem: (k: string) => store.get(k) ?? null,
+    setItem: (k: string, v: string) => void store.set(k, v),
+  };
+  try {
+    // 模拟用户在 tasks 面板之间切换前手动收起过最近任务列表
+    store.set('lovdex:sidebar:recent-sessions-collapsed', '1');
+    const projects = [mkProject('p1', '项目一', [mkSession('s1', '2026-08-18T01:00:00Z')])];
+    const html = renderToStaticMarkup(
+      <SidebarRecentSessions projects={projects} onRecentSessionSelect={noop} />,
+    );
+    // 头部仍在，但列表行被折叠
+    assert.ok(html.includes('最近任务'));
+    assert.ok(!html.includes('摘要s1'));
+  } finally {
+    (globalThis as { localStorage?: unknown }).localStorage = original;
+  }
+});

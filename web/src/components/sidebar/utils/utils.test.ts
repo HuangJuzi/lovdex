@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import type { Project, ProjectSession } from '../../../types/app';
 
-import { excludeHiddenProjects, formatCompactSessionAge, getRecentSessions, getSessionDotState, isProjectActive, isSessionActive, isSessionRecentlyActive, sortProjects } from './utils';
+import { excludeHiddenProjects, formatCompactSessionAge, getRecentSessions, getSessionDotState, isProjectActive, isSessionActive, isSessionRecentlyActive, readStoredExpandedProjects, sortProjects, writeStoredExpandedProjects } from './utils';
 
 const mkSession = (id: string, lastActivity?: string): ProjectSession => ({
   id,
@@ -185,4 +185,83 @@ test('formatCompactSessionAge renders compact relative time', () => {
 
 test('formatCompactSessionAge returns empty for invalid input', () => {
   assert.equal(formatCompactSessionAge('', new Date('2026-08-04T12:00:00Z')), '');
+});
+
+test('readStoredExpandedProjects returns an empty set when nothing is stored', () => {
+  const original = (globalThis as { localStorage?: unknown }).localStorage;
+  (globalThis as { localStorage?: unknown }).localStorage = {
+    getItem: () => null,
+  };
+  try {
+    assert.deepEqual(readStoredExpandedProjects(), new Set());
+  } finally {
+    (globalThis as { localStorage?: unknown }).localStorage = original;
+  }
+});
+
+test('readStoredExpandedProjects parses the persisted id list', () => {
+  const original = (globalThis as { localStorage?: unknown }).localStorage;
+  (globalThis as { localStorage?: unknown }).localStorage = {
+    getItem: () => '["p1","p2"]',
+  };
+  try {
+    assert.deepEqual(readStoredExpandedProjects(), new Set(['p1', 'p2']));
+  } finally {
+    (globalThis as { localStorage?: unknown }).localStorage = original;
+  }
+});
+
+test('readStoredExpandedProjects ignores malformed entries in the list', () => {
+  const original = (globalThis as { localStorage?: unknown }).localStorage;
+  (globalThis as { localStorage?: unknown }).localStorage = {
+    getItem: () => '[1, null, "p1", "", "p2"]',
+  };
+  try {
+    assert.deepEqual(readStoredExpandedProjects(), new Set(['p1', 'p2']));
+  } finally {
+    (globalThis as { localStorage?: unknown }).localStorage = original;
+  }
+});
+
+test('readStoredExpandedProjects falls back to empty on invalid JSON', () => {
+  const original = (globalThis as { localStorage?: unknown }).localStorage;
+  (globalThis as { localStorage?: unknown }).localStorage = {
+    getItem: () => 'not-json',
+  };
+  try {
+    assert.deepEqual(readStoredExpandedProjects(), new Set());
+  } finally {
+    (globalThis as { localStorage?: unknown }).localStorage = original;
+  }
+});
+
+test('readStoredExpandedProjects honors an explicitly stored empty list', () => {
+  const original = (globalThis as { localStorage?: unknown }).localStorage;
+  (globalThis as { localStorage?: unknown }).localStorage = {
+    getItem: () => '[]',
+  };
+  try {
+    assert.deepEqual(readStoredExpandedProjects(), new Set());
+  } finally {
+    (globalThis as { localStorage?: unknown }).localStorage = original;
+  }
+});
+
+test('writeStoredExpandedProjects round-trips through readStoredExpandedProjects', () => {
+  const original = (globalThis as { localStorage?: unknown }).localStorage;
+  const store = new Map<string, string>();
+  (globalThis as { localStorage?: unknown }).localStorage = {
+    getItem: (k: string) => store.get(k) ?? null,
+    setItem: (k: string, v: string) => void store.set(k, v),
+    removeItem: (k: string) => void store.delete(k),
+  };
+  try {
+    writeStoredExpandedProjects(new Set(['a', 'b']));
+    assert.deepEqual(readStoredExpandedProjects(), new Set(['a', 'b']));
+
+    writeStoredExpandedProjects(new Set());
+    assert.deepEqual(readStoredExpandedProjects(), new Set());
+  } finally {
+    (globalThis as { localStorage?: unknown }).localStorage = original;
+  }
 });
