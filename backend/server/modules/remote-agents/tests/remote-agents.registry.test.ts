@@ -66,6 +66,25 @@ test('disconnect removes identity-matched socket, sessions and approvals', () =>
   assert.equal(reg.takePendingApproval('req1'), undefined);
 });
 
+test('clearSessionHost deletes a single entry; disconnect fires onHostOfflineSweep', () => {
+  const swept: string[][] = [];
+  const reg = createRemoteAgentsRegistry({
+    onHostOfflineSweep: (affected) => swept.push(affected),
+  });
+  const ws = fakeWs();
+  reg.register({ hostId: 'h1', roots: [], capabilities: [] }, ws as unknown as WebSocket);
+  reg.setSessionHost('a', 'P1', 'h1');
+  reg.setSessionHost('b', 'P2', 'h1');
+  reg.clearSessionHost('a');
+  assert.equal(reg.getSessionHost('a'), undefined);
+  assert.deepEqual(reg.disconnect('h1', ws as unknown as WebSocket).sort(), ['b']);
+  assert.deepEqual(swept, [['b']]);
+  // a stale socket close must not re-fire the sweep
+  const stale = fakeWs();
+  assert.deepEqual(reg.disconnect('h1', stale as unknown as WebSocket), []);
+  assert.deepEqual(swept, [['b']]);
+});
+
 test('rpc resolves via pending map when response arrives', async () => {
   const reg = createRemoteAgentsRegistry();
   const ws = fakeWs();

@@ -6,11 +6,14 @@ export type LiteRegistration = {
   capabilities: string[];
 };
 
-export function createRemoteAgentsRegistry() {
+export function createRemoteAgentsRegistry(
+  opts: { onHostOfflineSweep?: (affectedSessions: string[]) => void } = {},
+) {
   const connections = new Map<string, { registration: LiteRegistration; ws: WebSocket }>();
   const pending = new Map<string, PendingRpc>();
   const sessionHost = new Map<string, { hostId: string; providerSessionId: string | null }>();
   const pendingApprovals = new Map<string, { appSessionId: string; hostId: string }>();
+  let onHostOfflineSweep = opts.onHostOfflineSweep;
 
   function createRpcId(): string {
     if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
@@ -65,7 +68,12 @@ export function createRemoteAgentsRegistry() {
     },
     disconnect(hostId: string, ws: WebSocket): DisconnectResult {
       if (!doUnregister(hostId, ws)) return [];
-      return doClearSessionsForHost(hostId);
+      const affected = doClearSessionsForHost(hostId);
+      // Only a host that actually went offline (identity matched) sweeps; a
+      // stale socket superseded by a reconnect returns [] and must not fail
+      // the fresh socket's in-flight sessions.
+      onHostOfflineSweep?.(affected);
+      return affected;
     },
     getCapabilities(hostId: string): string[] | undefined {
       return connections.get(hostId)?.registration.capabilities;
@@ -78,6 +86,9 @@ export function createRemoteAgentsRegistry() {
     },
     setSessionHost(appSessionId: string, providerSessionId: string | null, hostId: string): void {
       sessionHost.set(appSessionId, { hostId, providerSessionId });
+    },
+    clearSessionHost(appSessionId: string): void {
+      sessionHost.delete(appSessionId);
     },
     getSessionHost(appSessionId: string): { hostId: string; providerSessionId: string | null } | undefined {
       return sessionHost.get(appSessionId);
@@ -146,6 +157,14 @@ export function createRemoteAgentsRegistry() {
     },
     touchSeenAt(_hostId: string, _at: number): void {
       // heartbeat bookkeeping hook; wired to remoteHostsDb in Task 13
+    },
+    // Settable after construction: remote-spawn installs its offline sweep
+    // here (single routing instance — see createRemoteRouting JSDoc).
+    get onHostOfflineSweep(): ((affectedSessions: string[]) => void) | undefined {
+      return onHostOfflineSweep;
+    },
+    set onHostOfflineSweep(fn: ((affectedSessions: string[]) => void) | undefined) {
+      onHostOfflineSweep = fn;
     },
     failPendingForHost(hostId: string): number {
       let failed = 0;

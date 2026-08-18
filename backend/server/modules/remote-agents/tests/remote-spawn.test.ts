@@ -314,3 +314,185 @@ test('rpc error on session/start cleans up handler and rethrows', async () => {
   assert.equal(writer.sent.length, 0);
   routing.dispose();
 });
+
+test('complete before session/start rpc resolves still resolves, no sessionHost leak', async () => {
+  const registry = createRemoteAgentsRegistry();
+  const hostWs = registerHost(registry, 'h1');
+  const routing = createRemoteRouting({
+    lookupHost: () => 'h1',
+    registry,
+    normalizeEvent: (raw) => (raw.type === 'complete' ? [] : [raw]),
+  });
+  const writer = fakeWriter();
+  const p = routing.wrapSpawn(async () => undefined)(
+    'go',
+    { appSessionId: 's1', projectPath: '/srv/app', sessionId: null },
+    writer,
+  );
+  await tick();
+  const startFrame = hostWs.sent.find((f) => f.method === 'session/start')!;
+  assert.ok(startFrame);
+  // Complete arrives before the host answers session/start.
+  emitPush({ topic: 'session:s1', payload: { type: 'complete' }, from: 'h1' });
+  await p;
+  // Late rpc resolution must not re-register a sessionHost entry.
+  registry.resolveRpc(startFrame.id as string, { ok: true, data: { providerSessionId: 'P1' } });
+  await tick();
+  assert.equal(writer.sessionId, null, 'setSessionId not called for already-finished run');
+  assert.equal(registry.getSessionHost('s1'), undefined, 'no leaked sessionHost entry');
+  routing.dispose();
+});
+
+test('session event before rpc resolves still forwards to writer', async () => {
+  const registry = createRemoteAgentsRegistry();
+  const hostWs = registerHost(registry, 'h1');
+  const routing = createRemoteRouting({
+    lookupHost: () => 'h1',
+    registry,
+    normalizeEvent: (raw) => (raw.type === 'complete' ? [] : [raw]),
+  });
+  const writer = fakeWriter();
+  const p = routing.wrapSpawn(async () => undefined)(
+    'go',
+    { appSessionId: 's1', projectPath: '/srv/app', sessionId: null },
+    writer,
+  );
+  await tick();
+  const startFrame = hostWs.sent.find((f) => f.method === 'session/start')!;
+  emitPush({ topic: 'session:s1', payload: { type: 'assistant', message: { role: 'assistant' } }, from: 'h1' });
+  await tick();
+  assert.equal(writer.sent.length, 1);
+  assert.deepEqual(writer.sent[0], { type: 'assistant', message: { role: 'assistant' } });
+  registry.resolveRpc(startFrame.id as string, { ok: true, data: { providerSessionId: 'P1' } });
+  await tick();
+  assert.equal(writer.sessionId, 'P1');
+  emitPush({ topic: 'session:s1', payload: { type: 'complete' }, from: 'h1' });
+  await p;
+  routing.dispose();
+});
+
+test('approval push without live handler (or appSessionId) is dropped, no pending leak', () => {
+  const registry = createRemoteAgentsRegistry();
+  const routing = createRemoteRouting({
+    lookupHost: () => null,
+    registry,
+    normalizeEvent: (raw) => [raw],
+  });
+  const warns: string[] = [];
+  const origWarn = console.warn;
+  console.warn = (...args: unknown[]) => warns.push(args.map(String).join(' '));
+  try {
+    // live-host push for a session with no active run on main
+    emitPush({
+      topic: 'approval:reqD',
+      payload: { appSessionId: 'ghost', approval: { name: 'Bash' } },
+      from: 'h1',
+    });
+    assert.equal(registry.takePendingApproval('reqD'), undefined);
+    // push with no appSessionId must not register an ''-keyed pending entry
+    emitPush({ topic: 'approval:reqE', payload: { approval: { name: 'Bash' } }, from: 'h1' });
+    assert.equal(registry.takePendingApproval('reqE'), undefined);
+    assert.ok(warns.length >= 2, `expected drop warnings, got ${warns.length}`);
+  } finally {
+    console.warn = origWarn;
+  }
+  routing.dispose();
+});
+
+test('abort when host offline falls back to localAbort and logs', async () => {
+  const registry = createRemoteAgentsRegistry();
+  const routing = createRemoteRouting({
+    lookupHost: () => null,
+    registry,
+    normalizeEvent: (raw) => [raw],
+  });
+  // sessionHost entry pointing at a host that is NOT registered -> offline
+  registry.setSessionHost('s1', 'P1', 'h1');
+  const warns: string[] = [];
+  const origWarn = console.warn;
+  console.warn = (...args: unknown[]) => warns.push(args.map(String).join(' '));
+  try {
+    let localAbortCalled = false;
+    const wrappedAbort = routing.wrapAbort(async () => {
+      localAbortCalled = true;
+      return true;
+    });
+    const ok = await wrappedAbort('P1');
+    assert.equal(ok, true);
+    assert.equal(localAbortCalled, true);
+    assert.ok(warns.some((w) => w.includes('offline')), 'offline fallback warned');
+  } finally {
+    console.warn = origWarn;
+  }
+  routing.dispose();
+});
+
+test('host disconnect mid-run rejects the spawn with /went offline/ and cleans handler', async () => {
+  const registry = createRemoteAgentsRegistry();
+  const hostWs = registerHost(registry, 'h1');
+  const routing = createRemoteRouting({
+    lookupHost: () => 'h1',
+    registry,
+    normalizeEvent: (raw) => (raw.type === 'complete' ? [] : [raw]),
+  });
+  const writer = fakeWriter();
+  const p = routing.wrapSpawn(async () => undefined)(
+    'go',
+    { appSessionId: 's1', projectPath: '/srv/app', sessionId: null },
+    writer,
+  );
+  await tick();
+  const startFrame = hostWs.sent.find((f) => f.method === 'session/start')!;
+  registry.resolveRpc(startFrame.id as string, { ok: true, data: { providerSessionId: 'P1' } });
+  await tick();
+  assert.ok(registry.getSessionHost('s1'));
+  // The close handler in remote-agent.server.ts calls disconnect, which fires
+  // the offline sweep this routing installed at construction.
+  registry.onHostOfflineSweep?.(['s1']);
+  await assert.rejects(() => p, /went offline/);
+  // Handler cleaned up: a stray session push must not reach the writer.
+  writer.sent.length = 0;
+  emitPush({ topic: 'session:s1', payload: { type: 'assistant' }, from: 'h1' });
+  await tick();
+  assert.equal(writer.sent.length, 0);
+  assert.equal(registry.getSessionHost('s1'), undefined);
+  routing.dispose();
+});
+
+test('getPendingApprovalsForAppSession returns approvals for fresh runs', async () => {
+  const registry = createRemoteAgentsRegistry();
+  const hostWs = registerHost(registry, 'h1');
+  const routing = createRemoteRouting({
+    lookupHost: () => 'h1',
+    registry,
+    normalizeEvent: (raw) => (raw.type === 'complete' ? [] : [raw]),
+  });
+  const writer = fakeWriter();
+  const p = routing.wrapSpawn(async () => undefined)(
+    'go',
+    { appSessionId: 's1', projectPath: '/srv/app', sessionId: null },
+    writer,
+  );
+  await tick();
+  const startFrame = hostWs.sent.find((f) => f.method === 'session/start')!;
+  registry.resolveRpc(startFrame.id as string, { ok: true, data: { providerSessionId: 'P1' } });
+  await tick();
+  emitPush({
+    topic: 'approval:reqF',
+    payload: { appSessionId: 's1', approval: { name: 'Write', input: { path: '/y' } } },
+    from: 'h1',
+  });
+  await tick();
+  const pend = routing.getPendingApprovalsForAppSession('s1');
+  assert.equal(pend.length, 1);
+  assert.equal(pend[0].requestId, 'reqF');
+  assert.equal(pend[0].toolName, 'Write');
+  // provider-id variant resolves the same approval
+  assert.equal(routing.getPendingApprovals('P1').length, 1);
+  emitPush({ topic: 'session:s1', payload: { type: 'complete' }, from: 'h1' });
+  await p;
+  // sweep removed the approval mirror too
+  assert.equal(routing.getPendingApprovalsForAppSession('s1').length, 0);
+  assert.equal(registry.getSessionHost('s1'), undefined);
+  routing.dispose();
+});

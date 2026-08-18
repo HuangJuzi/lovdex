@@ -41,17 +41,30 @@ type LocalApproval = { appSessionId: string; toolName: string; input: unknown };
 /** Per-session push handler installed for the lifetime of one remote run. */
 type SessionHandler = (event: Record<string, unknown>) => void;
 
+/** Per-run state so the host-offline sweep can fail an in-flight spawn. */
+type SessionState = {
+  hostId: string;
+  fail: (err: Error) => void;
+};
+
 /**
  * Wraps the local provider spawn/abort/approval hooks so runs whose project
  * lives on a remote lite host are routed over the ws rpc + push bus instead of
  * the in-process SDK. index.js (Task 13) passes the returned hooks around the
  * existing provider spawnFns/abortFns/resolveToolApproval.
+ *
+ * CONSTRUCT-ONCE RULE: create exactly ONE routing instance in Task 13 and share
+ * its hooks across all providers. Two instances would double-subscribe the push
+ * bus (every event normalized+forwarded twice) and split the approval mirror
+ * (registry pendingApprovals keyed by requestId would map to whichever instance
+ * saw the push last). `dispose()` unsubscribes it and clears its state.
  */
 export function createRemoteRouting(deps: RemoteRoutingDeps): {
   wrapSpawn(localSpawn: SpawnFn): SpawnFn;
   wrapAbort(localAbort: (providerSessionId: string) => Promise<boolean>): (providerSessionId: string) => Promise<boolean>;
   wrapResolveToolApproval(localResolve: (requestId: string, payload: unknown) => void): (requestId: string, payload: unknown) => void;
   getPendingApprovals(providerSessionId: string): { requestId: string; toolName: string; input: unknown; sessionId: string }[];
+  getPendingApprovalsForAppSession(appSessionId: string): { requestId: string; toolName: string; input: unknown; sessionId: string }[];
   dispose(): void;
 } {
   const { registry, normalizeEvent } = deps;
@@ -60,9 +73,29 @@ export function createRemoteRouting(deps: RemoteRoutingDeps): {
   // the session/start rpc so an eager lite cannot race its first event ahead
   // of subscription.
   const sessionHandlers = new Map<string, SessionHandler>();
+  // Per-run reject state so a host-offline sweep can fail in-flight spawns.
+  const sessionStates = new Map<string, SessionState>();
   // Locally mirrored approvals keyed by requestId so getPendingApprovals can
   // rebuild the shape claude-sdk.js `getPendingApprovalsForSession` returns.
   const localApprovals = new Map<string, LocalApproval>();
+
+  /** Clears the sessionHost entry + every mirrored approval for one session. */
+  function sweepSessionState(appSessionId: string): void {
+    registry.clearSessionHost(appSessionId);
+    for (const [requestId, entry] of localApprovals) {
+      if (entry.appSessionId !== appSessionId) continue;
+      localApprovals.delete(requestId);
+      // drop the registry mirror too (it keyed by requestId, so take it)
+      registry.takePendingApproval(requestId);
+    }
+  }
+
+  /** Fails the in-flight spawn for one session; no-op when already settled. */
+  function failSession(appSessionId: string): void {
+    const state = sessionStates.get(appSessionId);
+    if (!state) return;
+    state.fail(new Error(`remote host went offline: ${state.hostId}`));
+  }
 
   // ONE push-bus subscription for the whole routing; demuxes by topic prefix.
   const busListener = (e: PushEvent): void => {
@@ -77,14 +110,28 @@ export function createRemoteRouting(deps: RemoteRoutingDeps): {
       const requestId = topic.slice('approval:'.length);
       const payload = (e.payload ?? {}) as { appSessionId?: unknown; approval?: unknown };
       const appSessionId = String(payload.appSessionId ?? '');
-      const approval = (payload.approval ?? {}) as Record<string, unknown>;
-      // Track for approval/respond routing (host id from the push `from`).
-      registry.addPendingApproval(requestId, { appSessionId, hostId: e.from ?? '' });
+      if (!appSessionId) {
+        console.warn(`[remote-spawn] approval push without appSessionId dropped: ${requestId}`);
+        return;
+      }
       const handler = sessionHandlers.get(appSessionId);
-      if (handler) handler({ __remoteApproval: true, requestId, approval });
+      if (!handler) {
+        // Nobody can answer this on main; registering a pending entry would
+        // only leak. The lite host still has its own copy if it re-emits.
+        console.warn(`[remote-spawn] approval push for session without live handler dropped: ${requestId} (${appSessionId})`);
+        return;
+      }
+      registry.addPendingApproval(requestId, { appSessionId, hostId: e.from ?? '' });
+      handler({ __remoteApproval: true, requestId, approval: (payload.approval ?? {}) as Record<string, unknown> });
     }
   };
   addPushListener(busListener);
+
+  // Host went offline: fail every in-flight remote run on that host so the
+  // spawn promise cannot hang (chat session stuck in "processing" forever).
+  registry.onHostOfflineSweep = (affectedSessions) => {
+    for (const appSessionId of affectedSessions) failSession(appSessionId);
+  };
 
   function wrapSpawn(localSpawn: SpawnFn): SpawnFn {
     return async function spawn(command, options, writer) {
@@ -111,19 +158,23 @@ export function createRemoteRouting(deps: RemoteRoutingDeps): {
         let settled = false;
         const cleanup = (): void => {
           sessionHandlers.delete(appSessionId);
+          sessionStates.delete(appSessionId);
         };
         const finish = (value: unknown): void => {
           if (settled) return;
           settled = true;
+          sweepSessionState(appSessionId);
           cleanup();
           resolve(value);
         };
-        const fail = (err: unknown): void => {
+        const fail = (err: Error): void => {
           if (settled) return;
           settled = true;
+          sweepSessionState(appSessionId);
           cleanup();
-          reject(err instanceof Error ? err : new Error(String(err)));
+          reject(err);
         };
+        sessionStates.set(appSessionId, { hostId, fail });
 
         // Install BEFORE the rpc so no event is missed.
         const handler: SessionHandler = (event) => {
@@ -160,10 +211,14 @@ export function createRemoteRouting(deps: RemoteRoutingDeps): {
         registry
           .rpc<{ providerSessionId: string }>(hostId, 'session/start', params)
           .then((res) => {
+            // The run may already have finished (complete before the lite even
+            // answered): do not re-register a sessionHost entry that sweep
+            // already cleared — it would leak until the next disconnect.
+            if (settled) return;
             registry.setSessionHost(appSessionId, res.providerSessionId, hostId);
             w.setSessionId?.(res.providerSessionId);
           })
-          .catch((err) => fail(err));
+          .catch((err) => fail(err instanceof Error ? err : new Error(String(err))));
       });
     };
   }
@@ -174,10 +229,17 @@ export function createRemoteRouting(deps: RemoteRoutingDeps): {
     return async function abort(providerSessionId) {
       const entry = registry.getSessionHostByProvider(providerSessionId);
       if (!entry) return localAbort(providerSessionId);
+      if (!registry.isOnline(entry.hostId)) {
+        // Host is gone; the offline sweep already failed the run. Fall back to
+        // the local abort so the run registry is still released, and log.
+        console.warn(`[remote-spawn] host ${entry.hostId} offline, falling back to local abort for ${providerSessionId}`);
+        return localAbort(providerSessionId);
+      }
       try {
         await registry.rpc(entry.hostId, 'session/interrupt', { appSessionId: entry.appSessionId });
         return true;
-      } catch {
+      } catch (err) {
+        console.warn('[remote-spawn] session/interrupt failed:', err instanceof Error ? err.message : String(err));
         return false;
       }
     };
@@ -195,24 +257,38 @@ export function createRemoteRouting(deps: RemoteRoutingDeps): {
       localApprovals.delete(requestId);
       void registry
         .rpc(pending.hostId, 'approval/respond', { requestId, decision: payload })
-        .catch(() => {});
+        .catch((e: unknown) => {
+          console.warn('[remote-spawn] approval/respond failed:', e instanceof Error ? e.message : String(e));
+        });
     };
   }
 
   /**
    * Mirror of claude-sdk.js `getPendingApprovalsForSession`, keyed by the
-   * PROVIDER session id (the id callers know a run by). Resolves the app
-   * session for that provider id and returns its locally-mirrored approvals.
+   * PROVIDER session id (the id callers know an established run by). Resolves
+   * the app session for that provider id and returns its mirrored approvals.
    */
   function getPendingApprovals(
     providerSessionId: string,
   ): { requestId: string; toolName: string; input: unknown; sessionId: string }[] {
     const entry = registry.getSessionHostByProvider(providerSessionId);
     if (!entry) return [];
+    return getPendingApprovalsForAppSession(entry.appSessionId);
+  }
+
+  /**
+   * Approvals for a run identified by its APP session id. Used by Task 13 for
+   * fresh remote runs whose provider session id is not known yet (the lite has
+   * not announced one); the mirrored approvals are keyed by appSessionId, so a
+   * provider-id lookup is unnecessary.
+   */
+  function getPendingApprovalsForAppSession(
+    appSessionId: string,
+  ): { requestId: string; toolName: string; input: unknown; sessionId: string }[] {
     const out: { requestId: string; toolName: string; input: unknown; sessionId: string }[] = [];
     for (const [requestId, a] of localApprovals) {
-      if (a.appSessionId === entry.appSessionId) {
-        out.push({ requestId, toolName: a.toolName, input: a.input, sessionId: providerSessionId });
+      if (a.appSessionId === appSessionId) {
+        out.push({ requestId, toolName: a.toolName, input: a.input, sessionId: appSessionId });
       }
     }
     return out;
@@ -220,9 +296,11 @@ export function createRemoteRouting(deps: RemoteRoutingDeps): {
 
   function dispose(): void {
     removePushListener(busListener);
+    registry.onHostOfflineSweep = undefined;
     sessionHandlers.clear();
+    sessionStates.clear();
     localApprovals.clear();
   }
 
-  return { wrapSpawn, wrapAbort, wrapResolveToolApproval, getPendingApprovals, dispose };
+  return { wrapSpawn, wrapAbort, wrapResolveToolApproval, getPendingApprovals, getPendingApprovalsForAppSession, dispose };
 }
