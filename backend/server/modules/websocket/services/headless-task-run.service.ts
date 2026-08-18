@@ -113,6 +113,13 @@ export function startHeadlessTaskRun(
     cwd: session.project_path ?? undefined,
     projectPath: session.project_path ?? undefined,
     isOperator: Boolean(session.is_operator),
+    // Marks this as a server-side task run (not an interactive chat). The
+    // Claude runtime uses it to disable background fan-out (Workflow) and to
+    // coerce subagent tool calls into the task project scope — see
+    // task-run-guard.ts. Without it, a deep-research-style skill can spawn
+    // detached subagents/workflows outside the registered project set and the
+    // parent turn ends with an empty deliverable.
+    isTaskRun: true,
   };
 
   // Fire-and-forget: the operator tool call must return immediately so the

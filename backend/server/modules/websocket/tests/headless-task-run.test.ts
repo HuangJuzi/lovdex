@@ -62,6 +62,7 @@ test('starts a run with connection=null and dispatches the provider runtime fire
   assert.equal(captured.options?.cwd, '/proj');
   assert.equal(captured.options?.projectPath, '/proj');
   assert.equal(captured.options?.isOperator, false);
+  assert.equal(captured.options?.isTaskRun, true, 'server-side task runs carry isTaskRun so the runtime guards fan-out');
   assert.equal(captured.options?.includePartialMessages, true);
   assert.deepEqual(captured.writer, { id: 'w' });
   assert.equal(completeCalls, 1, 'safety net must run after the runtime settles');

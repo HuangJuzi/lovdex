@@ -34,6 +34,7 @@ import { providerAuthService } from './modules/providers/services/provider-auth.
 import { createCompleteMessage, createNormalizedMessage } from './shared/utils.js';
 import { buildOperatorTools, lastAssistantText } from './modules/operators/operator.tools.js';
 import { getOperatorConfig } from './modules/operators/operator.config.js';
+import { guardTaskRunToolInput, resolveWorkflowsEnabled } from './modules/operators/task-run-guard.js';
 import { isTaskStatus } from './modules/database/repositories/tasks.db.js';
 import { z } from 'zod';
 import { appConfig } from './modules/config/config.js';
@@ -259,7 +260,11 @@ function mapCliOptionsToSDK(options = {}) {
   //     intended design change. Non-string values (e.g. a hand-edited `false` in
   //     app.config.json) are treated as disabled.
   const cfg = appConfig().get();
-  sdkOptions.enableWorkflows = cfg.server.workflowsEnabled ?? true;
+  // Headless task runs disable Workflow (detached background fan-out) so a
+  // deep-research-style skill cannot spawn a background workflow that returns
+  // immediately and leaves the parent session with an empty deliverable. See
+  // task-run-guard.ts. Interactive chats keep the config-driven default.
+  sdkOptions.enableWorkflows = resolveWorkflowsEnabled(options, cfg);
   // Strict string guard: `false ?? ''` → false would still satisfy `!== ''`, so a
   // hand-edited boolean/other non-string must not accidentally enable the trigger.
   sdkOptions.workflowKeywordTriggerEnabled =
@@ -531,6 +536,37 @@ async function loadMcpConfig(cwd) {
 }
 
 /**
+ * PreToolUse hook for headless task runs: coerces/denies subagent + workflow
+ * tool calls so background fan-out cannot escape the registered project scope.
+ * Returns a no-op `{}` for anything the guard does not touch.
+ */
+function makeTaskRunGuardHook() {
+  return async (input) => {
+    const result = guardTaskRunToolInput(input?.tool_name, input?.tool_input);
+    if (result.decision === 'deny') {
+      return {
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          permissionDecision: 'deny',
+          permissionDecisionReason: result.reason,
+        },
+      };
+    }
+    if (result.updatedInput) {
+      return {
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          permissionDecision: 'allow',
+          updatedInput: result.updatedInput,
+          additionalContext: result.additionalContext,
+        },
+      };
+    }
+    return {};
+  };
+}
+
+/**
  * Executes a Claude query using the SDK
  * @param {string} command - User prompt/command
  * @param {Object} options - Query options
@@ -665,7 +701,13 @@ async function queryClaudeSDK(command, options = {}, ws) {
           }));
           return {};
         }]
-      }]
+      }],
+      ...(options.isTaskRun ? {
+        PreToolUse: [{
+          matcher: '',
+          hooks: [makeTaskRunGuardHook()],
+        }],
+      } : {}),
     };
 
     // Caveat: in 'auto' and 'bypassPermissions' modes the SDK resolves approval
