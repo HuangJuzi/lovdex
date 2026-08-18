@@ -1,4 +1,4 @@
-import { Check, ChevronDown, ChevronRight, Edit3, Plus, Star, Trash2, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, Edit3, Plus, Server, Star, Trash2, X } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
 import { Button } from '../../../../shared/view/ui';
@@ -117,6 +117,23 @@ export default function SidebarProjectItem({
     : t('tooltips.projectIdle', 'Project is idle');
   const taskStatus = getTaskIndicatorStatus(project, mcpServerStatus);
 
+  // Remote projects carry `remoteHostName` (joined from remote_hosts). Absence
+  // means local — render nothing. The marker tooltip surfaces `host:/path`.
+  const remoteHostName =
+    typeof project.remoteHostName === 'string' && project.remoteHostName.length > 0
+      ? project.remoteHostName
+      : null;
+  const remoteMarker = remoteHostName ? (
+    <span
+      className="inline-flex flex-shrink-0 items-center gap-0.5 rounded bg-indigo-500/10 px-1 py-0.5 text-[10px] font-medium text-indigo-600 dark:text-indigo-400"
+      title={`${remoteHostName}:${project.fullPath}`}
+      aria-label={`远程主机 ${remoteHostName}`}
+    >
+      <Server className="h-3 w-3" />
+      {remoteHostName}
+    </span>
+  ) : null;
+
   const toggleProject = () => onToggleProject(project.projectId);
   const toggleStarProject = () => onToggleStarProject(project.projectId);
 
@@ -210,7 +227,10 @@ export default function SidebarProjectItem({
                   ) : (
                     <>
                       <div className="flex min-w-0 flex-1 items-center justify-between">
-                        <h3 className="truncate text-sm font-normal text-foreground">{project.displayName}</h3>
+                        <div className="flex min-w-0 items-center gap-1.5">
+                          <h3 className="truncate text-sm font-normal text-foreground">{project.displayName}</h3>
+                          {remoteMarker}
+                        </div>
                         {tasksEnabled && (
                           <TaskIndicator
                             status={taskStatus}
@@ -365,8 +385,11 @@ export default function SidebarProjectItem({
                 </div>
               ) : (
                 <div>
-                  <div className="truncate text-sm font-normal text-foreground" title={project.displayName}>
-                    {project.displayName}
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <span className="truncate text-sm font-normal text-foreground" title={project.displayName}>
+                      {project.displayName}
+                    </span>
+                    {remoteMarker}
                   </div>
                   <div className="text-xs text-muted-foreground">
                     {sessionCountDisplay}

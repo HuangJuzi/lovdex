@@ -9,6 +9,7 @@ import { ProviderSettingsForm } from './ProviderSettingsPage';
 import { OperatorSettingsForm } from './OperatorSettingsForm';
 import { OperatorSkillExecSettings } from './OperatorSkillExecSettings';
 import { DatabaseSettingsForm } from './DatabaseSettingsForm';
+import { RemoteHostsSettingsSection } from './RemoteHostsSettingsSection';
 import { AccountSettingsSection } from './AccountSettingsSection';
 import { SETTINGS_TABS, resolveSettingsTab, type SettingsTab } from './settingsTabs';
 
@@ -90,6 +91,7 @@ export default function SettingsPage() {
                   <OperatorSkillExecSettings />
                 </>
               )}
+              {activeTab === 'remote-hosts' && <RemoteHostsSettingsSection />}
               {activeTab === 'database' && <DatabaseSettingsForm />}
               {activeTab === 'account' && <AccountSettingsSection />}
             </div>

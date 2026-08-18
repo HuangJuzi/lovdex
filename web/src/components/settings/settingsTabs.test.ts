@@ -13,13 +13,14 @@ test('resolveSettingsTab defaults to providers for missing/unknown values', () =
 test('resolveSettingsTab maps known tab keys', () => {
   assert.equal(resolveSettingsTab('providers'), 'providers');
   assert.equal(resolveSettingsTab('operator'), 'operator');
+  assert.equal(resolveSettingsTab('remote-hosts'), 'remote-hosts');
   assert.equal(resolveSettingsTab('database'), 'database');
   assert.equal(resolveSettingsTab('account'), 'account');
 });
 
-test('SETTINGS_TABS lists the four tabs in order', () => {
+test('SETTINGS_TABS lists the tabs in order', () => {
   assert.deepEqual(
     SETTINGS_TABS.map((t) => t.key),
-    ['providers', 'operator', 'database', 'account'],
+    ['providers', 'operator', 'remote-hosts', 'database', 'account'],
   );
 });

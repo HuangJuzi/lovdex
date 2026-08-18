@@ -32,9 +32,34 @@ export type CreateFolderResponse = {
   details?: string;
 };
 
+export type ProjectSource = 'local' | 'remote';
+
 export type CreateProjectPayload = {
   path: string;
   customName?: string;
+};
+
+/** Payload for POST /api/projects/create-remote-project (remote wizard mode). */
+export type CreateRemoteProjectPayload = {
+  path: string;
+  remoteHostId: string;
+  customName?: string;
+};
+
+/** Online remote host option surfaced in the wizard host `<select>`. */
+export type RemoteHostOption = {
+  hostId: string;
+  name: string;
+  host: string;
+  port: number;
+  online: boolean;
+};
+
+/** One entry from GET /api/remote-agents/:hostId/dirs. */
+export type RemoteDirEntry = {
+  name: string;
+  type: string;
+  size?: number;
 };
 
 export type CreateProjectApiError = {
@@ -58,6 +83,8 @@ export type CloneProgressEvent = {
 };
 
 export type WizardFormState = {
+  projectSource: ProjectSource;
+  remoteHostId?: string;
   workspacePath: string;
   githubUrl: string;
   tokenMode: TokenMode;

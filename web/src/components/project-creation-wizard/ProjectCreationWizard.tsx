@@ -1,15 +1,23 @@
 import { useCallback, useMemo, useState } from 'react';
 import { FolderPlus, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+
+import { cn } from '../../lib/utils';
+
 import ErrorBanner from './components/ErrorBanner';
 import StepConfiguration from './components/StepConfiguration';
+import StepRemoteConfiguration from './components/StepRemoteConfiguration';
 import StepReview from './components/StepReview';
 import WizardFooter from './components/WizardFooter';
 import WizardProgress from './components/WizardProgress';
 import { useGithubTokens } from './hooks/useGithubTokens';
-import { cloneWorkspaceWithProgress, createProjectRequest } from './data/workspaceApi';
+import {
+  cloneWorkspaceWithProgress,
+  createProjectRequest,
+  createRemoteProjectRequest,
+} from './data/workspaceApi';
 import { isCloneWorkflow, shouldShowGithubAuthentication } from './utils/pathUtils';
-import type { TokenMode, WizardFormState, WizardStep } from './types';
+import type { ProjectSource, TokenMode, WizardFormState, WizardStep } from './types';
 
 type ProjectCreationWizardProps = {
   onClose: () => void;
@@ -17,6 +25,8 @@ type ProjectCreationWizardProps = {
 };
 
 const initialFormState: WizardFormState = {
+  projectSource: 'local',
+  remoteHostId: '',
   workspacePath: '',
   githubUrl: '',
   tokenMode: 'stored',
@@ -63,17 +73,34 @@ export default function ProjectCreationWizard({
     [updateField],
   );
 
+  const isRemote = formState.projectSource === 'remote';
+
+  const handleSourceChange = useCallback((source: ProjectSource) => {
+    setError(null);
+    // Switching source resets the path so a stale local/remote path never leaks
+    // into the other flow; other fields are harmless to keep.
+    setFormState((previous) => ({
+      ...previous,
+      projectSource: source,
+      workspacePath: '',
+    }));
+  }, []);
+
   const handleNext = useCallback(() => {
     setError(null);
 
     if (step === 1) {
+      if (isRemote && !formState.remoteHostId) {
+        setError('请选择远程主机');
+        return;
+      }
       if (!formState.workspacePath.trim()) {
         setError(t('projectWizard.errors.providePath'));
         return;
       }
       setStep(2);
     }
-  }, [formState.workspacePath, step, t]);
+  }, [formState.workspacePath, formState.remoteHostId, isRemote, step, t]);
 
   const handleBack = useCallback(() => {
     setError(null);
@@ -86,6 +113,17 @@ export default function ProjectCreationWizard({
     setCloneProgress('');
 
     try {
+      if (formState.projectSource === 'remote') {
+        const project = await createRemoteProjectRequest({
+          path: formState.workspacePath.trim(),
+          remoteHostId: formState.remoteHostId ?? '',
+        });
+
+        onProjectCreated?.(project);
+        onClose();
+        return;
+      }
+
       const shouldCloneRepository = isCloneWorkflow(formState.githubUrl);
 
       if (shouldCloneRepository) {
@@ -125,8 +163,8 @@ export default function ProjectCreationWizard({
   }, [formState, onClose, onProjectCreated, t]);
 
   const shouldCloneRepository = useMemo(
-    () => isCloneWorkflow(formState.githubUrl),
-    [formState.githubUrl],
+    () => !isRemote && isCloneWorkflow(formState.githubUrl),
+    [isRemote, formState.githubUrl],
   );
 
   return (
@@ -156,6 +194,37 @@ export default function ProjectCreationWizard({
           {error && <ErrorBanner message={error} />}
 
           {step === 1 && (
+            <div className="inline-flex rounded-lg border border-gray-200 p-0.5 dark:border-gray-700">
+              {(['local', 'remote'] as const).map((source) => (
+                <button
+                  key={source}
+                  type="button"
+                  disabled={isCreating}
+                  onClick={() => handleSourceChange(source)}
+                  className={cn(
+                    'rounded-md px-4 py-1.5 text-sm font-medium transition-colors',
+                    formState.projectSource === source
+                      ? 'bg-blue-500 text-white'
+                      : 'text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800',
+                  )}
+                >
+                  {source === 'local' ? '本地' : '远程'}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {step === 1 && isRemote && (
+            <StepRemoteConfiguration
+              remoteHostId={formState.remoteHostId ?? ''}
+              workspacePath={formState.workspacePath}
+              isCreating={isCreating}
+              onRemoteHostChange={(remoteHostId) => updateField('remoteHostId', remoteHostId)}
+              onWorkspacePathChange={(workspacePath) => updateField('workspacePath', workspacePath)}
+            />
+          )}
+
+          {step === 1 && !isRemote && (
             <StepConfiguration
               workspacePath={formState.workspacePath}
               githubUrl={formState.githubUrl}

@@ -72,6 +72,8 @@ export interface Project {
   taskmaster?: ProjectTaskmasterInfo;
   isMainAgentWorkspace?: boolean;
   isOperatorWorkspace?: boolean;
+  /** Display name of the bound remote host, or null/undefined for local projects. */
+  remoteHostName?: string | null;
   [key: string]: unknown;
 }
 
