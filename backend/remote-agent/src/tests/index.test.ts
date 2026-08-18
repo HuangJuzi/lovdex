@@ -57,3 +57,17 @@ test('createLiteService exposes a lifecycle handle and stop is idempotent pre-st
   service.stop(); // second stop must not throw
   assert.throws(() => service.ws);
 });
+
+test('stop while CONNECTING does not crash (error listener stays attached)', async () => {
+  // Port 1 is unroutable, so the socket stays CONNECTING long enough to abort
+  // the handshake. Closing a CONNECTING ws routes through emitErrorAndClose
+  // → 'error'; before the fix, stop() removed the 'error' listener first and
+  // EventEmitter threw 'Unhandled error event' → process crash.
+  const service = createLiteService({ ...cfg, serverUrl: 'ws://127.0.0.1:1/agent' });
+  service.start();
+  service.stop();
+  // Give the aborted handshake (process.nextTick) time to fire, then prove
+  // stop() is still idempotent and no uncaught exception escaped.
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  service.stop();
+});

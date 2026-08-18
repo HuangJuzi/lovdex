@@ -95,8 +95,10 @@ export interface LiteService {
   start(): void;
   /**
    * Tears the service down: clears the heartbeat interval, cancels any pending
-   * reconnect, removes all listeners, and closes the socket. Idempotent.
-   * After `stop()` no reconnect is ever scheduled.
+   * reconnect, and closes the socket. Idempotent; safe to call while the socket
+   * is still CONNECTING. After `stop()` no reconnect is ever scheduled.
+   *
+   * Note: the instance is single-use — `start()` after `stop()` is a no-op.
    */
   stop(): void;
 }
@@ -131,6 +133,7 @@ export function createLiteService(cfg: RemoteAgentConfig): LiteService {
   };
 
   const handleOpen = () => {
+    if (stopped) return;
     if (!socket) return;
     socket.send(buildHelloFrame(cfg));
     clearHeartbeat();
@@ -142,6 +145,7 @@ export function createLiteService(cfg: RemoteAgentConfig): LiteService {
   };
 
   const handleMessage = (raw: WebSocket.RawData) => {
+    if (stopped) return;
     if (!socket) return;
     let frame: unknown;
     try {
@@ -155,6 +159,7 @@ export function createLiteService(cfg: RemoteAgentConfig): LiteService {
   };
 
   const handleError = (err: Error) => {
+    if (stopped) return;
     console.error('[remote-agent] ws error:', err.message);
   };
 
@@ -195,13 +200,14 @@ export function createLiteService(cfg: RemoteAgentConfig): LiteService {
   const stop = () => {
     stopped = true;
     clearTimers();
-    if (socket) {
-      socket.removeListener('open', handleOpen);
-      socket.removeListener('message', handleMessage);
-      socket.removeListener('error', handleError);
-      socket.removeListener('close', handleClose);
-      socket.close();
-    }
+    // Deliberately keep all listeners attached. In ws, closing a CONNECTING
+    // socket routes through abortHandshake → emitErrorAndClose, which emits
+    // 'error' on a process.nextTick; if the 'error' listener were removed here,
+    // it surfaces as an uncaught 'Unhandled error event' and crashes the process
+    // (breaks Task 14 start→immediate-stop loopback and SIGTERM mid-reconnect).
+    // The `stopped` flag already guards every handler and the reconnect paths,
+    // so the stuck listeners are silent no-ops post-stop.
+    if (socket) socket.close();
   };
 
   return {
