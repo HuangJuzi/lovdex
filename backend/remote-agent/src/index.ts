@@ -3,7 +3,7 @@ import { pathToFileURL } from 'node:url';
 
 import { makePing } from '../../server/shared/agent-runtime/protocol.js';
 import { loadConfigFile, type RemoteAgentConfig } from './config.js';
-import { handleRpc } from './rpc-dispatch.js';
+import { handleRpc, setPushEmitter } from './rpc-dispatch.js';
 
 const HEARTBEAT_MS = 15_000;
 const RECONNECT_MS = 3_000;
@@ -136,6 +136,15 @@ export function createLiteService(cfg: RemoteAgentConfig): LiteService {
     if (stopped) return;
     if (!socket) return;
     socket.send(buildHelloFrame(cfg));
+    // Re-point the agent-run push bus at THIS socket. On reconnect this rebinds
+    // to the fresh socket so session/approval pushes never close over a stale
+    // connection.
+    const live = socket;
+    setPushEmitter((topic, payload) => {
+      if (live.readyState === WebSocket.OPEN) {
+        live.send(JSON.stringify({ type: 'push', topic, payload }));
+      }
+    });
     clearHeartbeat();
     heartbeat = setInterval(() => {
       if (socket && socket.readyState === WebSocket.OPEN) {
