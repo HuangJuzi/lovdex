@@ -1007,3 +1007,29 @@ export type ScheduledTaskRow = {
   created_at: string;
   updated_at: string;
 };
+
+// ---------------------------
+//----------------- REMOTE AGENT TYPES ------------
+/**
+ * Canonical `remote_hosts` row shape returned by the remote-hosts repository.
+ *
+ * Field names mirror the `remote_hosts` table columns exactly (snake_case).
+ * A host represents a machine reachable over SSH that runs a Lovdex lite agent;
+ * projects link to it through `projects.remote_host_id`.
+ */
+export type RemoteHostRow = {
+  host_id: string;
+  name: string;
+  host: string;
+  port: number;
+  ssh_user: string;
+  auth_type: 'lovdex_key' | 'existing_key' | 'password';
+  key_credential_id: number | null;
+  agent_token_hash: string | null;
+  os: string | null;
+  status: 'offline' | 'online' | 'deploying' | 'error';
+  last_error: string | null;
+  last_seen_at: string | null;
+  created_at: string;
+  updated_at: string;
+};

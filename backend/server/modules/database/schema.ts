@@ -95,7 +95,27 @@ CREATE TABLE IF NOT EXISTS projects (
     custom_project_name TEXT DEFAULT NULL,
     isStarred BOOLEAN DEFAULT 0,
     isArchived BOOLEAN DEFAULT 0,
-    is_explicit INTEGER DEFAULT 0
+    is_explicit INTEGER DEFAULT 0,
+    remote_host_id INTEGER
+);
+`;
+
+export const REMOTE_HOSTS_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS remote_hosts (
+    host_id TEXT PRIMARY KEY NOT NULL,
+    name TEXT NOT NULL,
+    host TEXT NOT NULL,
+    port INTEGER NOT NULL DEFAULT 22,
+    ssh_user TEXT NOT NULL,
+    auth_type TEXT NOT NULL DEFAULT 'lovdex_key',
+    key_credential_id INTEGER,
+    agent_token_hash TEXT,
+    os TEXT,
+    status TEXT NOT NULL DEFAULT 'offline',
+    last_error TEXT,
+    last_seen_at DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 `;
 
@@ -261,6 +281,9 @@ CREATE INDEX IF NOT EXISTS idx_notification_channel_endpoints_enabled ON notific
 ${PROJECTS_TABLE_SCHEMA_SQL}
 -- NOTE: These indexes are created in migrations after legacy table-shape repairs.
 -- Creating them here can fail on upgraded installs where projects lacks those columns.
+
+${REMOTE_HOSTS_TABLE_SCHEMA_SQL}
+CREATE INDEX IF NOT EXISTS idx_remote_hosts_status ON remote_hosts(status);
 
 ${SESSIONS_TABLE_SCHEMA_SQL}
 CREATE INDEX IF NOT EXISTS idx_session_ids_lookup ON sessions(session_id);

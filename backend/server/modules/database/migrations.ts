@@ -6,6 +6,7 @@ import {
   NOTIFICATION_CHANNEL_ENDPOINTS_TABLE_SCHEMA_SQL,
   PROJECTS_TABLE_SCHEMA_SQL,
   PUSH_SUBSCRIPTIONS_TABLE_SCHEMA_SQL,
+  REMOTE_HOSTS_TABLE_SCHEMA_SQL,
   SESSIONS_TABLE_SCHEMA_SQL,
   TASKS_TABLE_SCHEMA_SQL,
   USER_NOTIFICATION_PREFERENCES_TABLE_SCHEMA_SQL,
@@ -652,6 +653,19 @@ export function migrateProjectsExplicitColumn(db: Database): void {
 }
 
 /**
+ * Remote-agents support: creates the `remote_hosts` table on fresh/upgraded
+ * installs and adds the `projects.remote_host_id` foreign-key column that links
+ * a project directory to the host it lives on (NULL for local projects).
+ */
+export function migrateRemoteHostsTable(db: Database): void {
+  db.exec(REMOTE_HOSTS_TABLE_SCHEMA_SQL);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_remote_hosts_status ON remote_hosts(status)');
+
+  const columns = getTableInfo(db, 'projects').map((column) => column.name);
+  addColumnToTableIfNotExists(db, 'projects', columns, 'remote_host_id', 'INTEGER');
+}
+
+/**
  * One-time canonicalization of stored project paths.
  *
  * Walks every `projects` row and re-keys it to its real (symlink-resolved)
@@ -756,6 +770,7 @@ export const runMigrations = (db: Database) => {
 
     ensureProjectsForSessionPaths(db);
     migrateProjectsExplicitColumn(db);
+    migrateRemoteHostsTable(db);
     canonicalizeProjectPathsMigration(db);
 
     migrateTasksTable(db);
