@@ -69,10 +69,10 @@ export async function handleIncomingFrame(
  */
 
 function buildHelloFrame(cfg: RemoteAgentConfig): string {
-  // capabilities intentionally minimal: session/start·interrupt and
-  // approval/respond are live (Task 9), but fs/* is still rejected ("fs not
-  // implemented yet") — Task 10 restores the allowlisted fs set and updates
-  // these capabilities alongside it.
+  // capabilities: session/start·interrupt and approval/respond are live
+  // (Task 9); Task 10 restored the allowlisted fs surface, so `fs/read` is now
+  // advertised alongside the claude session capability. All fs ops are scoped
+  // to `cfg.roots` (see fs.ts).
   return JSON.stringify({
     type: 'hello',
     hostId: cfg.hostId,
@@ -80,7 +80,7 @@ function buildHelloFrame(cfg: RemoteAgentConfig): string {
     nodeVersion: process.version,
     os: process.platform,
     roots: cfg.roots,
-    capabilities: [],
+    capabilities: ['session/claude', 'fs/read'],
   });
 }
 

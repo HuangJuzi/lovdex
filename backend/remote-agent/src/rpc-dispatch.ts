@@ -1,4 +1,6 @@
 import { createAgentRunManager, type SessionStartParams } from './agent-run.js';
+import { createAllowlistedFs } from './fs.js';
+import type { RemoteAgentConfig } from './config.js';
 
 /**
  * Bridge to the current WebSocket push bus. index.ts calls {@link setPushEmitter}
@@ -22,13 +24,13 @@ export const agentRuns = createAgentRunManager({
  * - `session/start`     → begin a claude run (resolves with providerSessionId).
  * - `session/interrupt` → signal the run to stop (`{ interrupted: boolean }`).
  * - `approval/respond`  → resolve a pending tool approval (`{ accepted: boolean }`).
- * - `fs/*`              → rejected until Task 10 wires the allowlisted fs.
+ * - `fs/stat|list|read` → allowlisted fs ops scoped to `cfg.roots` (Task 10).
  * - anything else       → `unknown rpc method`.
  */
 export async function handleRpc(
   method: string,
   params: unknown,
-  _cfg: unknown,
+  cfg: RemoteAgentConfig,
 ): Promise<unknown> {
   if (method === 'session/start') {
     return agentRuns.start(params as SessionStartParams);
@@ -41,8 +43,17 @@ export async function handleRpc(
     const { requestId, decision } = params as { requestId: string; decision: unknown };
     return { accepted: agentRuns.respond(requestId, decision) };
   }
-  if (method.startsWith('fs/')) {
-    throw new Error('fs not implemented yet');
+  if (method === 'fs/stat' || method === 'fs/list' || method === 'fs/read') {
+    // Per-call construction is cheap; the whitelist derives entirely from
+    // cfg.roots so there is no cross-call state to cache.
+    const fsApi = createAllowlistedFs({ roots: cfg.roots });
+    if (method === 'fs/stat') return fsApi.stat((params as { path: string }).path);
+    if (method === 'fs/list') {
+      const p = params as { path: string; maxEntries?: number };
+      return fsApi.list(p.path, p.maxEntries);
+    }
+    const p = params as { path: string; maxBytes?: number };
+    return fsApi.read(p.path, p.maxBytes);
   }
   throw new Error('unknown rpc method: ' + method);
 }
