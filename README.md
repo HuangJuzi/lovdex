@@ -10,6 +10,39 @@ Lovdex 是一个面向 Claude Code / Codex / OpenCode / Qoder 编码代理的 We
 - `supervisor/` — 守护进程，可同时拉起前后端（systemd user unit 见 `systemd/`）。
 - `docs/` — 设计/计划文档。
 
+## 系统架构（整体）
+
+```
+┌─ 访问入口 ────────────────────────────────────────────────┐
+│  浏览器（手机/电脑经 IP 访问 :5188）· API/CLI 客户端 :3188  │
+└───────────────────────────┬───────────────────────────────┘
+                            ▼  REST /api + WebSocket
+┌─ web 前端（React + Vite，:5188）────────────────────────────┐
+│  侧栏/聊天/任务板/Operator/文件树/终端/Git/设置             │
+│  /api、/ws（chat、/ws/terminal）代理到后端                  │
+└───────────────────────────┬────────────────────────────────┘
+                            ▼
+┌─ backend（Express + ws，:3188；由 supervisor 守护拉起）─────┐
+│  modules/                                                    │
+│    providers {claude, codex, opencode, qoder} · projects     │
+│    tasks · scheduler · operators · terminal · websocket      │
+│    git · worktrees · assets · auth · config · database       │
+│    remote-agents（远程项目子系统，见下）· claude-sdk.js 封装   │
+└──────┬───────────────────────────────┬──────────────────────┘
+       │ 本地 spawn 各 provider SDK     │ 出站 WS（每台主机一 token）
+       ▼                               ▼
+  provider API（Anthropic/OpenAI…）   每台远程机 remote-lite
+  （本地项目在此执行）                （远程项目在此执行，见「远程项目」）
+       │
+       ▼
+  SQLite ~/.lovdex/data/new-auth.db
+  （sessions / projects / tasks / scheduled_tasks / remote_hosts …）
+```
+
+- **单后端**：所有 provider（claude/codex/opencode/qoder）共用同一套 REST/WS 管线，`modules/providers` 内按能力面对称组织；`claude-sdk.js` 是本地 Claude 会话的封装。
+- **supervisor**（`systemd/`，`systemctl --user lovdex`）负责拉起/重启前后端；本地会话与任务跑在宿主，远程项目经 `remote-agents` 转发到各远程机的 lite 上执行。
+- **持久化**：better-sqlite3 单库，路径由 `~/.lovdex/data/app.config.json` 决定（默认 `new-auth.db`）。
+
 ## 配置
 
 配置集中存放在 `~/.lovdex/data/app.config.json`，首次启动后端自动生成（含随机 JWT 密钥）。Web UI 侧边栏「设置 → Providers」可视化编辑；敏感字段（API key/token）以掩码展示，写入走 `PUT /api/config`（需登录）。
