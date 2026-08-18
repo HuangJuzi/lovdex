@@ -146,6 +146,11 @@ export function createTasksService(
   function decorate(row: TaskRow): TaskRow {
     const pendingTool = row.session_id ? pendingApprovalSessions().get(row.session_id as string) ?? null : null;
     const approvalPending = Boolean(row.session_id) && pendingTool !== null;
+    // The linked session row can be gone while the task's session_id still
+    // points at it (e.g. the operator-workspace startup cleanup hard-deleted it).
+    // Surface that so the detail page can render "会话被清理" instead of a
+    // "打开会话" button that would land on a 404.
+    const sessionDeleted = Boolean(row.session_id) && !resolveSession(row.session_id as string);
     let subStatus: SubStatus | null = row.sub_status;
     if (row.status === 'in_progress') {
       if (approvalPending) {
@@ -166,7 +171,7 @@ export function createTasksService(
       // task manually completed while tagged) must not surface on the board.
       subStatus = null;
     }
-    return { ...row, approval_pending: approvalPending, pending_tool: pendingTool, sub_status: subStatus };
+    return { ...row, approval_pending: approvalPending, pending_tool: pendingTool, sub_status: subStatus, session_deleted: sessionDeleted };
   }
 
   function emit(event: TaskEventInput): void {
@@ -389,6 +394,24 @@ export function createTasksService(
         // Dragging to a different column re-positions the task: clear its tag.
         resolveDb.updateTaskSubStatus(taskId, null);
       }
+      const row = resolveDb.getTask(taskId);
+      if (row) emit({ kind: 'task_upserted', task: row, actor: 'user' });
+      return row ? decorate(row) : null;
+    },
+
+    /**
+     * Re-parents a task to a different project WITHOUT touching its linked
+     * session. This is the session-transfer primitive, deliberately separate
+     * from `updateTask`'s project-change path (which only allows `todo` tasks
+     * and hard-deletes the linked session). It rewrites `project_path` and
+     * broadcasts so the board re-renders the task under its new project; the
+     * caller (session-transfer service) is responsible for moving the session
+     * row + transcript file in the same operation.
+     */
+    transferTaskProject(taskId: string, newProjectPath: string): TaskRow | null {
+      const current = resolveDb.getTask(taskId);
+      if (!current) return null;
+      resolveDb.updateTask(taskId, { projectPath: newProjectPath });
       const row = resolveDb.getTask(taskId);
       if (row) emit({ kind: 'task_upserted', task: row, actor: 'user' });
       return row ? decorate(row) : null;

@@ -215,6 +215,7 @@ export function TaskDetailPage() {
               ...prev,
               status: next.status,
               session_id: next.session_id,
+              session_deleted: next.session_deleted,
               approval_pending: next.approval_pending,
               pending_tool: next.pending_tool,
               sub_status: next.sub_status,
@@ -497,12 +498,22 @@ export function TaskDetailPage() {
           {/* 操作区：手机端换行到标题下方整宽（保持原样）；web 与标题同行靠右，按钮略加宽 */}
           <div className="flex w-full flex-col gap-2 sm:ml-auto sm:w-auto">
             {task.session_id ? (
-              <button
-                className="w-full rounded-md border border-primary/40 bg-primary/10 px-4 py-2 text-sm font-semibold text-primary hover:bg-primary/20 sm:px-6"
-                onClick={() => navigate(`/session/${task.session_id}`)}
-              >
-                打开会话
-              </button>
+              task.session_deleted ? (
+                <button
+                  className="w-full cursor-not-allowed rounded-md border border-border bg-muted px-4 py-2 text-sm font-semibold text-muted-foreground sm:px-6"
+                  disabled
+                  title="关联会话已被清理，历史记录不可再读取"
+                >
+                  会话被清理
+                </button>
+              ) : (
+                <button
+                  className="w-full rounded-md border border-primary/40 bg-primary/10 px-4 py-2 text-sm font-semibold text-primary hover:bg-primary/20 sm:px-6"
+                  onClick={() => navigate(`/session/${task.session_id}`)}
+                >
+                  打开会话
+                </button>
+              )
             ) : (
               <button
                 className="w-full rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90 sm:px-6 shadow-[0_2px_0_#1c3fa8]"

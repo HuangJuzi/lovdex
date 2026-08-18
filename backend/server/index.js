@@ -59,6 +59,7 @@ import { buildOperatorRouter } from './modules/operators/operator.routes.js';
 import { cleanOperatorWorkspaceLegacySessions } from './modules/operators/operator-cleanup.service.js';
 import { scheduleAutoVerdict } from './modules/operators/operator-verdict.service.js';
 import { sessionsService, setSessionRenameHook } from './modules/providers/services/sessions.service.js';
+import { createSessionTransferService } from './modules/providers/services/session-transfer.service.js';
 import { validateApiKey, authenticateToken, authenticateWebSocket } from './middleware/auth.js';
 import { IS_PLATFORM } from './constants/config.js';
 import { c } from './utils/colors.js';
@@ -329,6 +330,17 @@ const schedulerService = createSchedulerService({
     broadcast: broadcastTask,
 });
 
+// Session-transfer primitive for the operator tool set: moves a task + its
+// session between registered projects (relocating the Claude transcript file so
+// history keeps resolving and a later rescan doesn't revert the move).
+// isSessionRunning guards against relocating a live agent's transcript mid-write.
+const sessionTransferService = createSessionTransferService({
+    projectsDb,
+    sessionsDb,
+    tasksService,
+    isSessionRunning: (sessionId) => chatRunRegistry.listRunningRuns().some((run) => run.sessionId === sessionId),
+});
+
 // Wire the operator headless run deps: the real tasksService (adapted so the
 // string-typed operator tool inputs are narrowed to TaskStatus at the boundary),
 // projectsDb, sessionsService, and createSession. runOperatorHeadless (in
@@ -344,6 +356,8 @@ initOperatorHeadless({
     // can manage 定时任务. Injected directly — schedulerService already exposes
     // the exact OperatorToolDeps.scheduledTasks shape.
     scheduledTasks: schedulerService,
+    // Session transfer: move a task + session between registered projects.
+    moveSessionToProject: sessionTransferService.moveSessionToProject,
     // The assistant's context is the Lovdex助手 workspace: create_task without
     // an explicit projectPath falls back here and lands as an is_operator task.
     contextProjectPath: getOperatorConfig().workspace,

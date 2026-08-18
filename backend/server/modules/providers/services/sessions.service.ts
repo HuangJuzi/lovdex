@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 
-import { projectsDb, sessionsDb } from '@/modules/database/index.js';
+import { projectsDb, sessionsDb, tasksDb } from '@/modules/database/index.js';
 import type { SessionRow } from '@/modules/database/repositories/sessions.db.js';
 import { chatRunRegistry } from '@/modules/websocket/index.js';
 import { providerRegistry } from '@/modules/providers/provider.registry.js';
@@ -318,6 +318,21 @@ export const sessionsService = {
     let removedFromDisk = false;
     if (options.deletedFromDisk && session.jsonl_path) {
       removedFromDisk = await removeFileIfExists(session.jsonl_path);
+    }
+
+    // 硬删一个仍被任务引用的会话会让任务侧读历史直接 404（session_id 变成
+    // 悬空外键）。仍然删除，但打出醒目提醒，便于事后追溯任务记录为何读不到。
+    const linkedTask = tasksDb.getTaskBySessionId(sessionId);
+    if (linkedTask) {
+      console.warn(
+        '[sessions] WARNING: force-deleting a session that is still linked to a task — the task will no longer be able to read its transcript',
+        {
+          sessionId,
+          taskId: linkedTask.task_id,
+          taskTitle: linkedTask.title,
+          taskStatus: linkedTask.status,
+        },
+      );
     }
 
     const deleted = sessionsDb.deleteSessionById(sessionId);

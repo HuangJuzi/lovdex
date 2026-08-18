@@ -659,6 +659,26 @@ test('backfillSessionNames skips a task whose session is missing', () => {
   assert.deepEqual(updated, []);
 });
 
+test('decorate flags session_deleted when the linked session row is gone', () => {
+  const { db } = makeDbStub();
+  db.linkSession('t1', 'ghost');
+  // sessionsDb stub returns null for every lookup — simulates a session row
+  // hard-deleted while the task still references it (cleanup regression guard).
+  const sessions = makeBackfillSessionStub({}, []);
+  const svc = createTasksService(db, { broadcast: () => {}, deps: { sessionsDb: sessions } });
+  const row = svc.getTask('t1');
+  assert.equal(row?.session_deleted, true);
+});
+
+test('decorate does not flag session_deleted when the session row exists', () => {
+  const { db } = makeDbStub();
+  db.linkSession('t1', 's1');
+  const sessions = makeBackfillSessionStub({ s1: { custom_name: null } }, []);
+  const svc = createTasksService(db, { broadcast: () => {}, deps: { sessionsDb: sessions } });
+  const row = svc.getTask('t1');
+  assert.equal(row?.session_deleted, false);
+});
+
 test('updateTask: renaming the title syncs the linked session custom name', async () => {
   const { db } = makeDbStub();
   db.linkSession('t1', 's1');

@@ -254,6 +254,41 @@ export const sessionsDb = {
     ).run(jsonlPath, sessionId);
   },
 
+  /**
+   * Unconditionally records the transcript file location for a session. Unlike
+   * `updateSessionJsonlPath` (which only fills a NULL/empty value, used by the
+   * disk-watcher indexer), this overwrites the path — used when a session's
+   * transcript file is physically moved to a new provider directory during a
+   * project transfer, so later history reads resolve the new location.
+   */
+  setSessionJsonlPath(sessionId: string, jsonlPath: string): void {
+    const db = getConnection();
+    db.prepare(
+      `UPDATE sessions
+       SET jsonl_path = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE session_id = ?`
+    ).run(jsonlPath, sessionId);
+  },
+
+  /**
+   * Re-parents one session row to a different project. The target path is
+   * canonicalized (symlink-resolved) to match how `createSession` /
+   * `createAppSession` store `project_path`, so `list_tasks` / project-session
+   * lookups (which compare against the canonicalized `projects.project_path`)
+   * find the session in its new home. Does NOT touch the transcript file on
+   * disk — callers moving a session between projects must also relocate the
+   * transcript and update `jsonl_path` via `setSessionJsonlPath`.
+   */
+  updateSessionProjectPath(sessionId: string, projectPath: string): void {
+    const db = getConnection();
+    const normalizedProjectPath = canonicalizeProjectPath(projectPath);
+    db.prepare(
+      `UPDATE sessions
+       SET project_path = ?, updated_at = CURRENT_TIMESTAMP
+       WHERE session_id = ?`
+    ).run(normalizedProjectPath, sessionId);
+  },
+
   getSessionById(sessionId: string): SessionRow | null {
     const db = getConnection();
     const row = db

@@ -357,3 +357,32 @@ test('get/delete_scheduled_task delegate to scheduledTasks', async () => {
   assert.deepEqual(removed, { success: true });
   assert.deepEqual(calls, ['get:s9', 'remove:s9']);
 });
+
+test('move_session_to_project delegates to the injected transfer service', async () => {
+  let received: unknown;
+  const fakeMove = async (i: unknown) => {
+    received = i;
+    return { alreadyInTarget: false, sessionId: 's1' };
+  };
+  const tools = buildOperatorTools({ tasks: {} as never, moveSessionToProject: fakeMove });
+
+  const out = await tools.move_session_to_project.handler({ taskId: 't1', targetProjectPath: '/target' });
+  assert.deepEqual(received, { taskId: 't1', targetProjectPath: '/target' });
+  assert.deepEqual(out, { alreadyInTarget: false, sessionId: 's1' });
+});
+
+test('move_session_to_project fails clearly when the transfer service is not wired', async () => {
+  const tools = buildOperatorTools({ tasks: {} as never });
+  await assert.rejects(
+    () => tools.move_session_to_project.handler({ sessionId: 's1', targetProjectId: 'p1' }),
+    /not wired/,
+  );
+});
+
+test('move_session_to_project input schema declares task/session/target fields as strings', () => {
+  const tools = buildOperatorTools({ tasks: {} as never });
+  const props = tools.move_session_to_project.inputSchema.properties as Record<string, { type?: string }>;
+  for (const key of ['taskId', 'sessionId', 'targetProjectPath', 'targetProjectId']) {
+    assert.equal(props[key]?.type, 'string', `${key} must be declared as a string property`);
+  }
+});

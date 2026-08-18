@@ -104,6 +104,19 @@ export type OperatorToolDeps = {
     update: (scheduleId: string, u: Record<string, unknown>) => Promise<unknown> | unknown;
     remove: (scheduleId: string) => void;
   };
+  /**
+   * Session-transfer primitive (move a task + its session to another project).
+   * Injected from index.js as `sessionTransferService.moveSessionToProject`. The
+   * tool handler only forwards the args — all real validation, running-session
+   * guard, and transcript relocation live in the service so it stays unit-
+   * testable in isolation.
+   */
+  moveSessionToProject?: (input: {
+    taskId?: string | null;
+    sessionId?: string | null;
+    targetProjectPath?: string | null;
+    targetProjectId?: string | null;
+  }) => Promise<unknown>;
 };
 
 /**
@@ -340,6 +353,30 @@ export function buildOperatorTools(deps: OperatorToolDeps) {
       },
       handler: async (i: { taskId: string; status: string }) =>
         deps.tasks.moveTask(i.taskId, i.status, null, null),
+    },
+    move_session_to_project: {
+      description:
+        'Move a task and its session to a different project. Locate by taskId (moves its linked session) or sessionId (moves the session and its linked task, if any). Target by targetProjectPath or targetProjectId (must already be registered — never auto-created). Rejects in_progress/running sessions (stop/settle first) and operator assistant sessions. Idempotent: already-in-target is a no-op. Returns before/after info including the transcript file location change.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          taskId: { type: 'string', description: 'Task id; moves its linked session to the target project' },
+          sessionId: { type: 'string', description: 'Session id; moves it and its linked task (if any)' },
+          targetProjectPath: { type: 'string', description: 'Destination project path (must already be registered)' },
+          targetProjectId: { type: 'string', description: 'Destination project id (alternative to targetProjectPath)' },
+        },
+      },
+      handler: async (i: {
+        taskId?: string | null;
+        sessionId?: string | null;
+        targetProjectPath?: string | null;
+        targetProjectId?: string | null;
+      }) => {
+        if (!deps.moveSessionToProject) {
+          throw new Error('move_session_to_project is not wired (missing session-transfer dep)');
+        }
+        return deps.moveSessionToProject(i);
+      },
     },
     write_task_summary: {
       description:

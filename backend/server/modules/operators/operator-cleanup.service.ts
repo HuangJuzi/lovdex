@@ -1,5 +1,5 @@
 import { getOperatorConfig } from '@/modules/operators/operator.config.js';
-import { sessionsDb } from '@/modules/database/index.js';
+import { sessionsDb, tasksDb } from '@/modules/database/index.js';
 import { sessionsService } from '@/modules/providers/services/sessions.service.js';
 
 export type OperatorCleanupResult = {
@@ -27,6 +27,21 @@ export async function cleanOperatorWorkspaceLegacySessions(): Promise<OperatorCl
 
   for (const session of orphaned) {
     try {
+      // 仍被任务引用的会话删除后，任务侧 get_session_transcript 会 404（任务行
+      // 的 session_id 变成悬空外键）。2026-08-18 曾因此误删 23 个含 in_review
+      // 任务的会话。按需求仍然删除，但必须先打出醒目提醒，便于事后追溯。
+      const linkedTask = tasksDb.getTaskBySessionId(session.session_id);
+      if (linkedTask) {
+        console.warn(
+          '[operator-cleanup] WARNING: 即将删除的会话仍挂在任务上，删除后该任务将无法再读取会话记录',
+          {
+            sessionId: session.session_id,
+            taskId: linkedTask.task_id,
+            taskTitle: linkedTask.title,
+            taskStatus: linkedTask.status,
+          },
+        );
+      }
       await sessionsService.deleteOrArchiveSessionById(session.session_id, {
         force: true,
         deletedFromDisk: true,

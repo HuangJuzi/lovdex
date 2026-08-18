@@ -16,7 +16,7 @@ const PROVIDER = 'claude';
  * every character outside [a-zA-Z0-9-] becomes '-' (so '/', '.', and '_' all
  * collapse into dashes), e.g. `/mnt/b/workdir` -> `-mnt-b-workdir`.
  */
-function encodeClaudeProjectDirName(projectPath: string): string {
+export function encodeClaudeProjectDirName(projectPath: string): string {
   return projectPath.replace(/[^a-zA-Z0-9-]/g, '-');
 }
 

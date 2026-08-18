@@ -134,6 +134,14 @@ export interface Task {
    * ExitPlanMode→"等你确认计划", other→"等你批准". Null when not pending.
    */
   pending_tool?: string | null;
+  /**
+   * Realtime-only (server-decorated, never persisted): true when the task's
+   * session_id points at a sessions row that no longer exists (hard-deleted,
+   * e.g. by the operator-workspace startup cleanup). The detail page renders a
+   * disabled "会话被清理" button instead of "打开会话" so the user isn't sent
+   * to a 404.
+   */
+  session_deleted?: boolean;
 }
 
 export type ScheduledTaskScheduleType = 'once' | 'interval' | 'cron';

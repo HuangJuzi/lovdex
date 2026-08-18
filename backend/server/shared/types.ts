@@ -957,6 +957,14 @@ export type TaskRow = {
    * Null when not pending. Decorated by the tasks service from the run registry.
    */
   pending_tool?: string | null;
+  /**
+   * Realtime-only (never persisted): true when the task still references a
+   * session_id whose sessions row no longer exists (e.g. hard-deleted by the
+   * operator-workspace startup cleanup). The detail page renders "会话被清理"
+   * instead of a "打开会话" button that would 404. Decorated by the tasks
+   * service's decorate() on every read.
+   */
+  session_deleted?: boolean;
 };
 
 // ---------------------------
