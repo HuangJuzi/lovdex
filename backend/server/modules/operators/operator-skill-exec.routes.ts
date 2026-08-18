@@ -88,15 +88,26 @@ export function buildOperatorSkillExecRouter(deps: { execService: OperatorExecSe
   );
 
   // PUT /credentials — write ~/.claw/cred.json (0600). Never echoes values.
+  // Optional targetRid/targetGroupName enable the skill's verify-target
+  // double-check; omitted keys keep their previous values (merge semantics).
   router.put(
     '/credentials',
     asyncHandler(async (req, res) => {
-      const body = (req.body ?? {}) as { jwt?: string; agentId?: string; userId?: string };
+      const body = (req.body ?? {}) as {
+        jwt?: string;
+        agentId?: string;
+        userId?: string;
+        targetRid?: string;
+        targetGroupName?: string;
+      };
       try {
         writeCredFile({
           jwt: String(body.jwt ?? ''),
           agentId: String(body.agentId ?? ''),
           userId: String(body.userId ?? ''),
+          targetRid: body.targetRid != null ? String(body.targetRid) : undefined,
+          targetGroupName:
+            body.targetGroupName != null ? String(body.targetGroupName) : undefined,
         });
       } catch (e) {
         res.status(400).json({

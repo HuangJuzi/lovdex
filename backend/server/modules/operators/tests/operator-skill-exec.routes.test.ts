@@ -200,7 +200,7 @@ test('GET /credentials/status reports presence booleans only (no values)', async
         fields: { jwt: boolean; agentId: boolean; userId: boolean };
         filePath: string;
       };
-      assert.ok(['env', 'file', 'none'].includes(body.source));
+      assert.ok(['file', 'none'].includes(body.source));
       assert.equal(typeof body.fields.jwt, 'boolean');
       // The response must not contain any credential-shaped values.
       const raw = JSON.stringify(body);

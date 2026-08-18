@@ -195,8 +195,14 @@ function AllowlistSection() {
 }
 
 type CredentialStatus = {
-  source: 'env' | 'file' | 'none';
-  fields: { jwt: boolean; agentId: boolean; userId: boolean };
+  source: 'file' | 'none';
+  fields: {
+    jwt: boolean;
+    agentId: boolean;
+    userId: boolean;
+    targetRid: boolean;
+    targetGroupName: boolean;
+  };
   fileExists: boolean;
   fileMode: string | null;
   filePath: string;
@@ -221,6 +227,8 @@ function CredentialsSection() {
   const [jwt, setJwt] = useState('');
   const [agentId, setAgentId] = useState('');
   const [userId, setUserId] = useState('');
+  const [targetRid, setTargetRid] = useState('');
+  const [targetGroupName, setTargetGroupName] = useState('');
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [message, setMessage] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
@@ -243,7 +251,13 @@ function CredentialsSection() {
     setSaving(true);
     setMessage(null);
     try {
-      const res = await api.operator.saveCredentials({ jwt, agentId, userId });
+      const res = await api.operator.saveCredentials({
+        jwt,
+        agentId,
+        userId,
+        targetRid: targetRid || undefined,
+        targetGroupName: targetGroupName || undefined,
+      });
       const data = await res.json().catch(() => null);
       if (!res.ok) {
         setMessage({ kind: 'err', text: data?.error?.message ?? `保存失败（${res.status}）` });
@@ -252,6 +266,8 @@ function CredentialsSection() {
       setJwt('');
       setAgentId('');
       setUserId('');
+      setTargetRid('');
+      setTargetGroupName('');
       setMessage({ kind: 'ok', text: '已写入凭证文件（0600），未在任何页面回显。' });
       await load();
     } catch (e) {
@@ -290,19 +306,21 @@ function CredentialsSection() {
     <section className="rounded-lg border border-border bg-card p-4">
       <h2 className="mb-1 text-sm font-semibold text-foreground">凭证管理（Appia Claw）</h2>
       <p className="mb-3 text-xs text-muted-foreground">
-        execute_skill 调用瞬间从环境变量或 {status?.filePath ?? '~/.claw/cred.json'}
-        读取凭证，只注入技能子进程，永不落库/落日志。此处保存写入凭证文件（0600），不回显明文。
+        execute_skill 调用瞬间只从 {status?.filePath ?? '~/.claw/cred.json'}
+        读取凭证（不走环境变量），只注入技能子进程，永不落库/落日志。此处保存写入凭证文件（0600），不回显明文；目标
+        rid/群名为可选，配置后技能的 verify-target 双因子校验才可用。
       </p>
 
       {status && (
         <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
           <span className="text-muted-foreground">
-            当前来源：
-            {status.source === 'env' ? '环境变量' : status.source === 'file' ? '凭证文件' : '未配置'}
+            当前来源：{status.source === 'file' ? '凭证文件' : '未配置'}
           </span>
           <FieldBadge label="JWT" present={status.fields.jwt} />
           <FieldBadge label="agentId" present={status.fields.agentId} />
           <FieldBadge label="userId" present={status.fields.userId} />
+          <FieldBadge label="目标rid(可选)" present={status.fields.targetRid} />
+          <FieldBadge label="目标群名(可选)" present={status.fields.targetGroupName} />
           {status.fileExists && status.fileMode && status.fileMode !== '600' && (
             <span className="text-amber-600 dark:text-amber-400">
               凭证文件权限 {status.fileMode} 过宽，建议 600
@@ -311,7 +329,7 @@ function CredentialsSection() {
         </div>
       )}
 
-      <div className="mb-3 grid gap-2 sm:grid-cols-3">
+      <div className="mb-2 grid gap-2 sm:grid-cols-3">
         <div>
           <label className="mb-1 block text-xs text-muted-foreground">JWT</label>
           <input
@@ -320,7 +338,7 @@ function CredentialsSection() {
             className="h-9 w-full rounded-md border border-border bg-muted px-2 py-1.5 text-sm text-foreground"
             value={jwt}
             onChange={(e) => setJwt(e.target.value)}
-            placeholder="CLAW_JWT"
+            placeholder="jwt"
           />
         </div>
         <div>
@@ -331,7 +349,7 @@ function CredentialsSection() {
             className="h-9 w-full rounded-md border border-border bg-muted px-2 py-1.5 text-sm text-foreground"
             value={agentId}
             onChange={(e) => setAgentId(e.target.value)}
-            placeholder="APP_AGENT_ID"
+            placeholder="agent_id"
           />
         </div>
         <div>
@@ -342,7 +360,27 @@ function CredentialsSection() {
             className="h-9 w-full rounded-md border border-border bg-muted px-2 py-1.5 text-sm text-foreground"
             value={userId}
             onChange={(e) => setUserId(e.target.value)}
-            placeholder="CLAW_USER_ID"
+            placeholder="user_id"
+          />
+        </div>
+      </div>
+      <div className="mb-3 grid gap-2 sm:grid-cols-2">
+        <div>
+          <label className="mb-1 block text-xs text-muted-foreground">目标群 rid（可选，verify-target 用）</label>
+          <input
+            className="h-9 w-full rounded-md border border-border bg-muted px-2 py-1.5 font-mono text-sm text-foreground"
+            value={targetRid}
+            onChange={(e) => setTargetRid(e.target.value)}
+            placeholder="target_rid，留空保持不变"
+          />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs text-muted-foreground">目标群名（可选，verify-target 用）</label>
+          <input
+            className="h-9 w-full rounded-md border border-border bg-muted px-2 py-1.5 text-sm text-foreground"
+            value={targetGroupName}
+            onChange={(e) => setTargetGroupName(e.target.value)}
+            placeholder="target_group_name，留空保持不变"
           />
         </div>
       </div>

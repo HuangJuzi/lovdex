@@ -514,7 +514,7 @@ export function buildOperatorTools(deps: OperatorToolDeps) {
     },
     execute_skill: {
       description:
-        'Run an allowlisted user-level skill IN PLACE (no task dispatch). Use for skill queries/actions that need user credentials — e.g. claw-agent-get-send: groups (list Appia groups), send/send-md/send-file (message a group), verify-target. args is a command-line string starting with the subcommand, e.g. "send --text \\"hi\\" --rid r123". Credentials resolve server-side from env or ~/.claw/cred.json at call instant and are never persisted; output is redacted. Only allowlisted skills+subcommands run; everything else is denied. NEVER use this to touch other projects\' files — dispatch a task instead.',
+        'Run an allowlisted user-level skill IN PLACE (no task dispatch). Use for skill queries/actions that need user credentials — e.g. claw-agent-get-send: groups (list Appia groups), send/send-md/send-file (message a group). args is a command-line string starting with the subcommand, e.g. "send --text \\"hi\\" --rid r123". To message a group, call send/send-md/send-file with --rid directly (find the rid via groups first); verify-target is an OPTIONAL double-check that fails when TARGET_RID/TARGET_GROUP_NAME are not configured — its failure does NOT block sending, never retry a failing subcommand unchanged. Credentials resolve server-side from ~/.claw/cred.json at call instant and are never persisted; output is redacted. Only allowlisted skills+subcommands run; everything else is denied. NEVER use this to touch other projects\' files — dispatch a task instead.',
       inputSchema: {
         type: 'object',
         properties: {

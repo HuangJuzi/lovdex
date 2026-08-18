@@ -1,20 +1,23 @@
 /**
  * Claw credential resolver.
  *
- * Resolves Appia Claw credentials (JWT / agentId / userId) at call time for
- * execute_skill. Sources, in priority order:
+ * Resolves Appia Claw credentials at call time for execute_skill, from ONE
+ * source only: the cred file ~/.claw/cred.json (JSON). Environment variables
+ * are deliberately NOT read — the backend spawns many child processes and an
+ * env-sourced JWT would ride along into all of them; a 0600 file keeps the
+ * secret surface minimal.
  *
- *   1. process env (CLAW_JWT / APP_AGENT_ID / CLAW_USER_ID and aliases)
- *   2. ~/.claw/cred.json (JSON object with the same key aliases)
+ * File keys (aliases accepted): jwt, agent_id, user_id (required);
+ * target_rid, target_group_name (optional — enables the skill's verify-target
+ * double-check; injected only when present).
  *
  * SECURITY CONTRACT:
  *  - Resolved values are returned ONLY to be injected into the skill child
  *    process env. They must never be written to the tasks table, transcripts,
- *    logs, or the audit trail. This module never logs values — the only log
- *    it emits is a permission-warning for an overly-permissive cred file,
- *    which contains the path and mode but no contents.
- *  - The cred file is expected to be mode 0600; a wider mode warns (non-fatal)
- *    because the file may be group-readable on a single-user box.
+ *    logs, HTTP responses, or the audit trail. This module never logs values —
+ *    the only log it emits is a permission-warning for an overly-permissive
+ *    cred file, which contains the path and mode but no contents.
+ *  - The cred file is expected to be mode 0600; a wider mode warns (non-fatal).
  */
 
 import fs from 'node:fs';
@@ -25,22 +28,31 @@ export type ClawCredentials = {
   CLAW_JWT: string;
   APP_AGENT_ID: string;
   CLAW_USER_ID: string;
+  /** Optional: enables verify-target. Injected only when configured. */
+  TARGET_RID?: string;
+  TARGET_GROUP_NAME?: string;
 };
 
-/** Key aliases per field — mirrors the alias set appia_claw.py accepts. */
-const FIELD_ALIASES: Record<keyof ClawCredentials, string[]> = {
-  CLAW_JWT: ['CLAW_JWT', 'APPIA_CLAW_JWT', 'claw_jwt', 'jwt', 'appia_claw_jwt'],
-  APP_AGENT_ID: ['APP_AGENT_ID', 'AGENT_ID', 'app_agent_id', 'agent_id'],
+/** Required file-key aliases per field — mirrors what appia_claw.py accepts. */
+const REQUIRED_FIELD_ALIASES = {
+  CLAW_JWT: ['jwt', 'claw_jwt', 'CLAW_JWT', 'APPIA_CLAW_JWT', 'appia_claw_jwt'],
+  APP_AGENT_ID: ['agent_id', 'app_agent_id', 'APP_AGENT_ID', 'AGENT_ID'],
   CLAW_USER_ID: [
+    'user_id',
+    'claw_user_id',
     'CLAW_USER_ID',
     'USER_ID',
     'APPIA_USER_ID',
-    'claw_user_id',
-    'user_id',
     'creator_user_id',
     'appia_user_id',
   ],
-};
+} as const;
+
+/** Optional file-key aliases — verify-target double-check target. */
+const OPTIONAL_FIELD_ALIASES = {
+  TARGET_RID: ['target_rid', 'TARGET_RID'],
+  TARGET_GROUP_NAME: ['target_group_name', 'TARGET_GROUP_NAME'],
+} as const;
 
 export const DEFAULT_CRED_FILE = path.join(os.homedir(), '.claw', 'cred.json');
 
@@ -53,7 +65,7 @@ export function defaultCredFile(): string {
   return path.join(os.homedir(), '.claw', 'cred.json');
 }
 
-function pick(source: Record<string, unknown>, aliases: string[]): string | null {
+function pick(source: Record<string, unknown>, aliases: readonly string[]): string | null {
   for (const key of aliases) {
     const v = source[key];
     if (typeof v === 'string' && v.trim()) return v.trim();
@@ -95,31 +107,27 @@ function warnIfPermissive(credFile: string): void {
 }
 
 export type ResolveCredentialsOptions = {
-  /** Env source (defaults to process.env) — injectable for tests. */
-  env?: Record<string, string | undefined>;
   /** Cred file path (defaults to ~/.claw/cred.json) — injectable for tests. */
   credFile?: string;
 };
 
 /**
- * Resolves Claw credentials. env wins per-field; missing fields fall back to
- * the cred file. Throws a readable Error (no values) when any required field
- * is unavailable.
+ * Resolves Claw credentials from the cred file (the ONLY source). Throws a
+ * readable Error (no values) when the file is missing/malformed or any
+ * required field is absent.
  */
 export function resolveClawCredentials(opts: ResolveCredentialsOptions = {}): ClawCredentials {
-  const env = opts.env ?? process.env;
   const credFile = opts.credFile ?? defaultCredFile();
-
   const file = readCredFile(credFile);
   if (Object.keys(file).length > 0) warnIfPermissive(credFile);
 
   const out: Partial<ClawCredentials> = {};
   const missing: string[] = [];
-  for (const [field, aliases] of Object.entries(FIELD_ALIASES) as [
-    keyof ClawCredentials,
-    string[],
+  for (const [field, aliases] of Object.entries(REQUIRED_FIELD_ALIASES) as [
+    keyof typeof REQUIRED_FIELD_ALIASES,
+    readonly string[],
   ][]) {
-    const value = pick(env, aliases) ?? pick(file, aliases);
+    const value = pick(file, aliases);
     if (value) {
       out[field] = value;
     } else {
@@ -128,9 +136,16 @@ export function resolveClawCredentials(opts: ResolveCredentialsOptions = {}): Cl
   }
   if (missing.length > 0) {
     throw new Error(
-      `credentials unavailable: missing ${missing.join(', ')} ` +
-        `(set env vars or create ${credFile} with jwt/agent_id/user_id)`,
+      `credentials unavailable: ${credFile} 缺少 ${missing.join(', ')} ` +
+        '（凭证只从配置文件读取，不走环境变量；可在 设置 → Operator Agent 设置 → 凭证管理 写入）',
     );
+  }
+  for (const [field, aliases] of Object.entries(OPTIONAL_FIELD_ALIASES) as [
+    keyof typeof OPTIONAL_FIELD_ALIASES,
+    readonly string[],
+  ][]) {
+    const value = pick(file, aliases);
+    if (value) out[field] = value;
   }
   return out as ClawCredentials;
 }
@@ -141,10 +156,16 @@ export function resolveClawCredentials(opts: ResolveCredentialsOptions = {}): Cl
 // ---------------------------------------------------------------------------
 
 export type CredentialStatus = {
-  /** Where the effective credentials come from, per-field merge considered. */
-  source: 'env' | 'file' | 'none';
+  /** 'file' when a cred file exists, else 'none' (env is never a source). */
+  source: 'file' | 'none';
   /** Presence booleans only — never the values. */
-  fields: { jwt: boolean; agentId: boolean; userId: boolean };
+  fields: {
+    jwt: boolean;
+    agentId: boolean;
+    userId: boolean;
+    targetRid: boolean;
+    targetGroupName: boolean;
+  };
   fileExists: boolean;
   /** Octal mode string (e.g. "600") when the file exists, else null. */
   fileMode: string | null;
@@ -153,9 +174,7 @@ export type CredentialStatus = {
 
 /** Reports credential availability without exposing any value. */
 export function getCredentialStatus(opts: ResolveCredentialsOptions = {}): CredentialStatus {
-  const env = opts.env ?? process.env;
   const credFile = opts.credFile ?? defaultCredFile();
-
   const file = readCredFile(credFile);
   let fileExists = false;
   let fileMode: string | null = null;
@@ -166,29 +185,36 @@ export function getCredentialStatus(opts: ResolveCredentialsOptions = {}): Crede
     // absent
   }
 
-  const fromEnv = (aliases: string[]) => pick(env, aliases) != null;
-  const fromFile = (aliases: string[]) => pick(file, aliases) != null;
-  const present = (aliases: string[]) => fromEnv(aliases) || fromFile(aliases);
-
-  const fields = {
-    jwt: present(FIELD_ALIASES.CLAW_JWT),
-    agentId: present(FIELD_ALIASES.APP_AGENT_ID),
-    userId: present(FIELD_ALIASES.CLAW_USER_ID),
+  return {
+    source: fileExists ? 'file' : 'none',
+    fields: {
+      jwt: pick(file, REQUIRED_FIELD_ALIASES.CLAW_JWT) != null,
+      agentId: pick(file, REQUIRED_FIELD_ALIASES.APP_AGENT_ID) != null,
+      userId: pick(file, REQUIRED_FIELD_ALIASES.CLAW_USER_ID) != null,
+      targetRid: pick(file, OPTIONAL_FIELD_ALIASES.TARGET_RID) != null,
+      targetGroupName: pick(file, OPTIONAL_FIELD_ALIASES.TARGET_GROUP_NAME) != null,
+    },
+    fileExists,
+    fileMode,
+    filePath: credFile,
   };
-  const anyEnv =
-    fromEnv(FIELD_ALIASES.CLAW_JWT) ||
-    fromEnv(FIELD_ALIASES.APP_AGENT_ID) ||
-    fromEnv(FIELD_ALIASES.CLAW_USER_ID);
-  const source = anyEnv ? 'env' : fileExists ? 'file' : 'none';
-  return { source, fields, fileExists, fileMode, filePath: credFile };
 }
 
 /**
  * Writes the cred file from the settings UI. Creates ~/.claw with 0700 and
- * the file with 0600. The written values are never logged or returned.
+ * the file with 0600. Optional target fields are merged in when provided;
+ * keys not mentioned in `input` keep their previous values (the UI never
+ * reads values back, so a save must not silently drop the target config).
+ * The written values are never logged or returned.
  */
 export function writeCredFile(
-  input: { jwt: string; agentId: string; userId: string },
+  input: {
+    jwt: string;
+    agentId: string;
+    userId: string;
+    targetRid?: string;
+    targetGroupName?: string;
+  },
   credFile: string = defaultCredFile(),
 ): void {
   const jwt = input.jwt?.trim();
@@ -197,12 +223,19 @@ export function writeCredFile(
   if (!jwt || !agentId || !userId) {
     throw new Error('jwt / agentId / userId 均为必填');
   }
+  const existing = readCredFile(credFile);
+  const merged: Record<string, string> = {
+    ...(existing as Record<string, string>),
+    jwt,
+    agent_id: agentId,
+    user_id: userId,
+  };
+  const targetRid = input.targetRid?.trim();
+  const targetGroupName = input.targetGroupName?.trim();
+  if (targetRid) merged.target_rid = targetRid;
+  if (targetGroupName) merged.target_group_name = targetGroupName;
   fs.mkdirSync(path.dirname(credFile), { recursive: true, mode: 0o700 });
-  fs.writeFileSync(
-    credFile,
-    JSON.stringify({ jwt, agent_id: agentId, user_id: userId }, null, 2) + '\n',
-    { mode: 0o600 },
-  );
+  fs.writeFileSync(credFile, JSON.stringify(merged, null, 2) + '\n', { mode: 0o600 });
   // Enforce 0600 even when the file pre-existed with a wider mode.
   fs.chmodSync(credFile, 0o600);
 }

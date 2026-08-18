@@ -59,8 +59,8 @@ transcript，存在**凭证扩散与身份误用**风险。
 3. 入口脚本由白名单条目 `entry` 指定（如 `scripts/appia_claw.py`），解释器由
    `runner` 指定（首批 `uv run`）。argv 以数组形式传给 `execFile`，**不经过
    shell**，杜绝注入。
-4. 凭证：调用瞬间经 `credential-resolver` 解析（env 优先，缺则读
-   `~/.claw/cred.json`），以子进程 env 注入；解析失败返回可读错误。凭证值不写入
+4. 凭证：调用瞬间经 `credential-resolver` 解析（**只读** `~/.claw/cred.json`，
+   不走环境变量），以子进程 env 注入；解析失败返回可读错误。凭证值不写入
    任务表 / transcript / 日志 / 审计。
 5. 输出：stdout/stderr 经 `output-sanitizer` 脱敏（JWT / token / authorization /
    agentId / userId 打码）后回传，截断到 8000 字符。
@@ -144,13 +144,16 @@ groups / send / send-md / send-file / verify-target）。
 
 ### 4.4 凭证与脱敏
 
-- `modules/operators/credential-resolver.ts`：
-  - env 优先：`CLAW_JWT` / `APP_AGENT_ID` / `CLAW_USER_ID`（及别名
-    `APPIA_CLAW_JWT` / `AGENT_ID` / `USER_ID` / `APPIA_USER_ID`）。
-  - 缺则读 `~/.claw/cred.json`（JSON，键名同 env 别名集合）：校验文件权限，
-    宽于 0600 时 `console.warn` 警告（不阻断，与凭证明文无关的元信息才可进日志）。
-  - 解析出的敏感值**永不**写入任务表 / transcript / 日志 / 审计；只存在于子进程
-    env 生命周期内。
+- `modules/operators/credential-resolver.ts`（2026-08-18 修订：**只走配置文件，不走环境变量**）：
+  - 唯一来源：`~/.claw/cred.json`（JSON）。不读 env——后端会 spawn 大量子进程，
+    env 里的 JWT 会随之扩散；0600 文件把秘密面收窄到最小。
+  - 必填键（接受别名）：`jwt` / `agent_id` / `user_id`；可选键：`target_rid` /
+    `target_group_name`（配置后技能的 verify-target 双因子校验可用，缺省不注入）。
+  - 校验文件权限，宽于 0600 时 `console.warn` 警告（不阻断，与凭证明文无关的元信息才可进日志）。
+  - 解析出的敏感值**永不**写入任务表 / transcript / 日志 / 审计 / HTTP 响应；
+    只存在于子进程 env 生命周期内。
+  - `writeCredFile`（设置页写入）：目录 0700 / 文件 0600，可选字段缺省时与已有文件合并
+    （不因重复保存丢掉 target 配置）。
 - `modules/operators/output-sanitizer.ts`：
   - JWT：`eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*` → `eyJ***REDACTED***`
   - `Bearer <token>` → `Bearer ***REDACTED***`
