@@ -117,6 +117,13 @@ export async function createProjectWithRemote(
     });
   }
 
+  if (!path.isAbsolute(normalizedPath)) {
+    throw new AppError('Remote project path must be absolute', {
+      code: 'REMOTE_PATH_NOT_ABSOLUTE',
+      statusCode: 400,
+    });
+  }
+
   const remoteHostId = typeof input.remoteHostId === 'string' ? input.remoteHostId.trim() : '';
   if (!remoteHostId) {
     throw new AppError('remoteHostId is required', {

@@ -122,6 +122,29 @@ test('missing path -> PROJECT_PATH_REQUIRED', async () => {
   );
 });
 
+test('relative path -> REMOTE_PATH_NOT_ABSOLUTE before any RPC', async () => {
+  await assert.rejects(
+    () =>
+      createProjectWithRemote(
+        { projectPath: 'relative/dir', remoteHostId: 'h1' },
+        {
+          statRemote: async () => {
+            throw new Error('statRemote should not run for a relative path');
+          },
+          persist: () => {
+            throw new Error('persist should not run');
+          },
+        },
+      ),
+    (err: unknown) => {
+      assert.ok(err instanceof AppError);
+      assert.equal(err.code, 'REMOTE_PATH_NOT_ABSOLUTE');
+      assert.equal(err.statusCode, 400);
+      return true;
+    },
+  );
+});
+
 test('active conflict -> PROJECT_ALREADY_EXISTS 409', async () => {
   await assert.rejects(
     () =>

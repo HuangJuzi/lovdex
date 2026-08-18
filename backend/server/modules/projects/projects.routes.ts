@@ -168,7 +168,18 @@ router.post(
     const projectCreationResult = await createProjectWithRemote(
       { projectPath, remoteHostId, customName },
       {
-        statRemote: (hostId, pathText) => runtime.fsClient.stat(hostId, pathText),
+        // RPC failures are bounded: a dead/errored lite agent must surface as a
+        // structured 502, not leak a raw transport error to the client.
+        statRemote: async (hostId, pathText) => {
+          try {
+            return await runtime.fsClient.stat(hostId, pathText);
+          } catch (err) {
+            throw new AppError(err instanceof Error ? err.message : 'Remote filesystem RPC failed', {
+              code: 'REMOTE_FS_ERROR',
+              statusCode: 502,
+            });
+          }
+        },
         persist: (pathText, name, hostId) => projectsDb.createProjectPath(pathText, name, true, hostId),
       },
     );

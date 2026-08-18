@@ -22,10 +22,15 @@ export const projectsDb = {
         const normalizedProjectName = normalizeProjectDisplayName(normalizedProjectPath, customProjectName);
 
         const existingProject = projectsDb.getProjectPath(normalizedProjectPath);
+        // A remote-bound create must never hijack ANY active local row: it would
+        // stamp remote_host_id onto an auto-discovered (non-explicit) active
+        // project, which is forbidden. So remote creates conflict with every active
+        // row at the path; local explicit creates may still adopt/promote a
+        // non-explicit active row (preserving the previous promote-behavior).
         const conflictsWithActiveProject =
             existingProject !== null
             && existingProject.isArchived === 0
-            && (existingProject.is_explicit === 1 || !isExplicit);
+            && (existingProject.is_explicit === 1 || !isExplicit || remoteHostId !== null);
         if (conflictsWithActiveProject) {
             return {
                 outcome: 'active_conflict',
@@ -40,7 +45,7 @@ export const projectsDb = {
             ON CONFLICT(project_path) DO UPDATE SET
             isArchived = 0,
             is_explicit = CASE WHEN excluded.is_explicit = 1 THEN 1 ELSE projects.is_explicit END,
-            remote_host_id = COALESCE(excluded.remote_host_id, projects.remote_host_id)
+            remote_host_id = CASE WHEN excluded.is_explicit = 1 AND excluded.remote_host_id IS NULL THEN NULL ELSE COALESCE(excluded.remote_host_id, projects.remote_host_id) END
             RETURNING project_id, project_path, custom_project_name, isStarred, isArchived, is_explicit
         `).get(attemptedId, normalizedProjectPath, normalizedProjectName, isExplicit ? 1 : 0, remoteHostId) as ProjectRepositoryRow | undefined;
 
@@ -208,15 +213,17 @@ export const projectsDb = {
     },
 
     /**
-     * Lists project paths bound to a remote host, for host→project reverse
-     * lookups. Local-only projects (remote_host_id IS NULL) are excluded.
+     * Lists live project paths bound to a remote host, for host→project reverse
+     * lookups. Archived rows are excluded so the Task 13 in-memory index only
+     * contains live projects; local-only projects (remote_host_id IS NULL) are
+     * excluded too.
      */
     listPathsWithRemoteHost(): { project_path: string; remote_host_id: string }[] {
         const db = getConnection();
         return db.prepare(`
             SELECT project_path, remote_host_id
             FROM projects
-            WHERE remote_host_id IS NOT NULL
+            WHERE remote_host_id IS NOT NULL AND isArchived = 0
         `).all() as { project_path: string; remote_host_id: string }[];
     },
 };
