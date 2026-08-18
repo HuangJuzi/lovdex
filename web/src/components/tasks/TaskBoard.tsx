@@ -388,6 +388,7 @@ export function TaskBoardPage() {
   return (
     <div className="flex h-dvh flex-col bg-background">
       <header className="pwa-header-safe flex flex-shrink-0 items-center gap-2 border-b border-border/60 bg-background px-3 py-1.5 sm:px-4 sm:py-2">
+        <HomeButton />
         <div className="flex rounded-xl border border-border/70 bg-muted/50 p-0.5">
           <button
             type="button"
@@ -444,7 +445,6 @@ export function TaskBoardPage() {
             {/* 移动端（<640px）只留 + 号 */}
             <span className="hidden sm:inline">新建任务</span>
           </Button>
-          <HomeButton />
         </div>
       </header>
       <Dialog open={creating} onOpenChange={(open) => { if (!open) closeCreateForm(); }}>
