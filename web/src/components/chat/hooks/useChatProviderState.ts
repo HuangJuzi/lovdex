@@ -25,6 +25,17 @@ const FALLBACK_DEFAULT_MODEL: Record<LLMProvider, string> = {
 
 const PROVIDERS: LLMProvider[] = ['claude', 'codex', 'opencode', 'qoder'];
 
+/**
+ * Providers whose runtime actually honors the persisted session-scoped model
+ * override on resume. claude and codex call `resolveResumeModel`, which makes a
+ * `/model` selection stick to a session across reopens even when the request
+ * default (localStorage) changes afterward. opencode/qoder only forward the
+ * per-send `--model`, so their override is cosmetic — the composer must keep
+ * showing the localStorage value those runtimes actually send. Gate the
+ * active-model override read/apply on this set.
+ */
+const RUNTIME_HONORS_SESSION_MODEL_OVERRIDE = new Set<LLMProvider>(['claude', 'codex']);
+
 const readStoredProvider = (): LLMProvider => {
   const storedProvider = localStorage.getItem('selected-provider');
   return PROVIDERS.includes(storedProvider as LLMProvider)
@@ -100,6 +111,34 @@ export function resolveLinkedTaskModel(
   return null;
 }
 
+/**
+ * Compute the model the composer should display for the selected session, in
+ * priority order:
+ * 1. A persisted session-scoped override (a `/model` selection made inside the
+ *    session) — the runtime applies this on resume, so it must not be clobbered
+ *    by the task's `executor_model`.
+ * 2. A task-linked session's resolved model (`executor_model`, or the catalog
+ *    default when the task leaves it blank).
+ * 3. The plain per-provider model (localStorage) unchanged.
+ * Returns the target model, or `currentModel` when nothing overrides it.
+ */
+export function resolveSessionComposerModel(input: {
+  sessionOverrideModel?: string | null;
+  linkedTaskModel?: string | null | undefined;
+  catalogDefault?: string;
+  currentModel: string;
+}): string {
+  const { sessionOverrideModel, linkedTaskModel, catalogDefault, currentModel } = input;
+  if (typeof sessionOverrideModel === 'string' && sessionOverrideModel.trim()) {
+    return sessionOverrideModel.trim();
+  }
+  if (linkedTaskModel !== undefined) {
+    const taskModel = resolveLinkedTaskModel(linkedTaskModel, catalogDefault);
+    if (taskModel) return taskModel;
+  }
+  return currentModel;
+}
+
 type ProviderModelsApiResponse = {
   success?: boolean;
   data?: {
@@ -163,6 +202,24 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
   const [providerModelsRefreshing, setProviderModelsRefreshing] = useState(false);
 
   const providerModelsRequestIdRef = useRef(0);
+
+  /**
+   * Persisted session-scoped model overrides keyed by app session id: set when
+   * the active-model fetch resolves on session open, or when `selectProviderModel`
+   * writes a session-scoped change. The composer-model sync effect below reads
+   * it so a `/model` selection made inside a session survives reopens AND
+   * outranks the linked task's `executor_model` (the runtime honors the
+   * override on resume). Keyed by session so switching sessions never leaks a
+   * previous session's override into the next.
+   */
+  const sessionOverrideModelRef = useRef<Record<string, string>>({});
+
+  /**
+   * The last model this hook itself applied per session id (from the composer
+   * sync effect below). Used as a loop guard against the catalog reconciliation
+   * effects — see the sync effect's comment.
+   */
+  const lastAppliedComposerModelRef = useRef<Record<string, string>>({});
 
   const setStoredProviderModel = useCallback((targetProvider: LLMProvider, model: string) => {
     if (targetProvider === 'claude') {
@@ -462,35 +519,85 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     }
   }, [providerEfforts, providerModels, reconcileStoredEffort]);
 
-  // Sync the composer model to a task-linked session's resolved model when the
-  // session opens (and when the task link / provider catalog finishes loading).
-  // Task runs send `options.model = task.executor_model`, so this makes the
-  // session indicator agree with the task detail's 模型 field instead of showing
-  // whatever per-provider default happened to be in localStorage. Applies once
-  // per session id so an explicit in-session /model change is never reverted;
-  // opening a non-task session clears the one-shot marker so reopening the task
-  // session later re-syncs even if a plain chat in between changed the default.
-  const taskSessionModelSyncedRef = useRef<string | null>(null);
+  // Keep the composer model aligned with the model the selected session will
+  // actually use on its next turn. Priority:
+  //   1. A persisted session-scoped override (a `/model` selection made inside
+  //      the session) — the runtime applies it on resume, so it must win over
+  //      the task's executor_model. Landed in `sessionOverrideModelRef` by the
+  //      active-model fetch below or by selectProviderModel.
+  //   2. A task-linked session's resolved model (task detail 模型 field, or the
+  //      provider catalog default when the task leaves it blank).
+  //   3. The plain per-provider default already in localStorage.
+  // Recomputing against the CURRENT state (instead of a once-per-session flag)
+  // also covers a task model edited on the task detail while the session stays
+  // open: the linkedTaskModel change flows through `task_upserted` and re-applies
+  // here, where a one-shot guard would have kept the old value forever.
   useEffect(() => {
     const sid = selectedSession?.id;
     const sessionProvider = selectedSession?.__provider;
-    if (!sid || !sessionProvider) return;
-    if (linkedTaskModel === undefined) {
-      // Not (yet) a task session — forget the previous sync so a later reopen
-      // of a task session re-applies its model.
-      taskSessionModelSyncedRef.current = null;
+    if (!sid || !sessionProvider || !PROVIDERS.includes(sessionProvider)) return;
+    const target = resolveSessionComposerModel({
+      sessionOverrideModel: sessionOverrideModelRef.current[sid],
+      linkedTaskModel,
+      catalogDefault: providerModelCatalog[sessionProvider]?.DEFAULT,
+      currentModel: providerModels[sessionProvider],
+    });
+    if (!target || target === providerModels[sessionProvider]) return;
+    // Loop guard against the catalog reconciliation effects: when a
+    // task/override model is NOT in the provider catalog, pickStoredOrCurrent
+    // reverts the composer to the catalog default and we would re-apply ours
+    // forever. Stop once the composer already shows OUR target and the current
+    // value is the plain catalog default (someone reconciled it away); keep
+    // re-applying when the current value drifted for another reason (e.g. a
+    // different session changed the shared default) or the target changed.
+    if (
+      lastAppliedComposerModelRef.current[sid] === target
+      && providerModels[sessionProvider] === providerModelCatalog[sessionProvider]?.DEFAULT
+    ) {
       return;
     }
-    if (!PROVIDERS.includes(sessionProvider)) return;
-    if (taskSessionModelSyncedRef.current === sid) return;
-    const resolved = resolveLinkedTaskModel(
-      linkedTaskModel,
-      providerModelCatalog[sessionProvider]?.DEFAULT,
-    );
-    if (!resolved) return; // blank model + catalog default not loaded yet
-    taskSessionModelSyncedRef.current = sid;
-    setStoredProviderModel(sessionProvider, resolved);
-  }, [selectedSession?.id, selectedSession?.__provider, linkedTaskModel, providerModelCatalog, setStoredProviderModel]);
+    lastAppliedComposerModelRef.current[sid] = target;
+    setStoredProviderModel(sessionProvider, target);
+  }, [selectedSession?.id, selectedSession?.__provider, linkedTaskModel, providerModelCatalog, providerModels, setStoredProviderModel]);
+
+  // Read the selected session's persisted model override (if any) on open, so
+  // the composer reflects what the next turn will run with even after a page
+  // reload / session reopen — the override alone is the runtime's resume source
+  // of truth for claude/codex. opencode/qoder send the composer value verbatim,
+  // so their (unused) override must NOT be applied here.
+  useEffect(() => {
+    const sid = selectedSession?.id;
+    const sessionProvider = selectedSession?.__provider;
+    if (!sid || !sessionProvider || !PROVIDERS.includes(sessionProvider)) return;
+    if (!RUNTIME_HONORS_SESSION_MODEL_OVERRIDE.has(sessionProvider)) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await authenticatedFetch(
+          `/api/providers/${sessionProvider}/sessions/${encodeURIComponent(sid)}/active-model`,
+        );
+        if (cancelled) return;
+        const body = (await response.json()) as {
+          success?: boolean;
+          data?: { supported?: boolean; changed?: boolean; model?: string | null };
+        };
+        if (!body.success) return;
+        const data = body.data;
+        if (data?.supported === true && data.changed === true && typeof data.model === 'string' && data.model.trim()) {
+          sessionOverrideModelRef.current[sid] = data.model.trim();
+          setStoredProviderModel(sessionProvider, data.model.trim());
+        }
+      } catch (error) {
+        // Best-effort lookup: a backend that predates the GET endpoint (or a
+        // transient failure) just leaves the composer on the task/localStorage
+        // model — the next in-session /model read stays authoritative.
+        console.debug('[useChatProviderState] session active-model lookup failed:', error);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedSession?.id, selectedSession?.__provider, setStoredProviderModel]);
 
   useEffect(() => {
     const validModes = getPermissionModesForProvider(provider);
@@ -586,6 +693,11 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     // otherwise leaves untouched — only the backend's pending model was updated,
     // so the input box kept showing the old model after the modal switched.
     setStoredProviderModel(targetProvider, resolvedModel);
+    // The session now owns its model (the backend persisted the override): mark
+    // it so the task-linked sync defers to the override instead of reverting the
+    // composer to the task's (possibly stale) executor_model if the reverse
+    // write-back lags or fails.
+    sessionOverrideModelRef.current[normalizedSessionId] = resolvedModel;
 
     return {
       scope: 'session' as const,

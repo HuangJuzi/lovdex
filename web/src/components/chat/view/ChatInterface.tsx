@@ -42,6 +42,7 @@ function ChatInterface({
   newSessionTrigger,
   onShowAllTasks,
   linkedTaskModel,
+  onSessionModelChanged,
 }: ChatInterfaceProps) {
   const { subscribe } = useWebSocket();
   const { t } = useTranslation('chat');
@@ -100,6 +101,21 @@ function ChatInterface({
     selectedProject,
     linkedTaskModel,
   });
+
+  // Wraps the provider-state model change so the owner can write a session-
+  // scoped selection back to the session's linked task (if any). Session-scoped
+  // only: a default-scope pick (no session id) just changes the local default
+  // and must not touch any task.
+  const handleSelectProviderModel = useCallback<
+    (provider: Parameters<typeof selectProviderModel>[0], model: string, sessionId?: string | null) => ReturnType<typeof selectProviderModel>
+  >((_targetProvider, model, sessionId) => {
+    return selectProviderModel(_targetProvider, model, sessionId).then((result) => {
+      if (result.scope === 'session' && result.model && sessionId) {
+        onSessionModelChanged?.(result.model, sessionId);
+      }
+      return result;
+    });
+  }, [selectProviderModel, onSessionModelChanged]);
 
   const {
     chatMessages,
@@ -591,7 +607,7 @@ function ChatInterface({
         providerModelsRefreshing={providerModelsRefreshing}
         onHardRefreshProviderModels={hardRefreshProviderModels}
         currentSessionId={currentSessionId || selectedSession?.id || null}
-        onSelectProviderModel={selectProviderModel}
+        onSelectProviderModel={handleSelectProviderModel}
       />
       <ResumeSessionOverlay
         open={resumeOverlayOpen}

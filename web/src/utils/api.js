@@ -226,6 +226,15 @@ export const api = {
     return (await res.json())?.data?.providers ?? [];
   },
 
+  // Whether a session has a persisted session-scoped model override
+  // (`changed`) and which model it is. Read-only counterpart of the active-model
+  // POST; the composer uses it to keep its indicator in sync with what the next
+  // turn will actually run with.
+  getSessionActiveModel: (provider, sessionId) =>
+    authenticatedFetch(
+      `/api/providers/${provider}/sessions/${encodeURIComponent(sessionId)}/active-model`,
+    ),
+
   // File operations
   createFile: (projectId, { path, type, name }) =>
     authenticatedFetch(`/api/projects/${projectId}/files/create`, {

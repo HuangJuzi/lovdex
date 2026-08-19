@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
+import { api } from '../../../utils/api';
 import ChatInterface from '../../chat/view/ChatInterface';
 import type { MainContentProps } from '../types/types';
 import { useFileOpenResolver } from '../../../hooks/useFileOpenResolver';
@@ -56,6 +57,27 @@ function MainContent({
   const { task: linkedTask } = useLinkedTask(selectedSession?.id ?? null);
   const [convertOpen, setConvertOpen] = useState(false);
   const sessionRunning = selectedSession ? processingSessions.has(selectedSession.id) : false;
+
+  // Reverse sync of the session-scoped /model => linked task executor_model.
+  // A model chosen inside a task session persists on the session (backend
+  // override) AND should keep the task's 模型 field / the next task run in
+  // lockstep. Best-effort: a failed write-back only leaves the task field
+  // stale until the next task edit — the session still runs the chosen model.
+  const handleSessionModelChanged = useCallback((model: string, sessionId: string) => {
+    if (!linkedTask || linkedTask.session_id !== sessionId) return;
+    if ((linkedTask.executor_model ?? '') === model) return;
+    void (async () => {
+      try {
+        const res = await api.tasks.update(linkedTask.task_id, { executorModel: model });
+        if (!res.ok) {
+          const err = await res.json().catch(() => null);
+          console.error('sync task model failed', err?.error?.message ?? res.status);
+        }
+      } catch (err) {
+        console.error('sync task model failed', err);
+      }
+    })();
+  }, [linkedTask]);
 
   const {
     editingFile,
@@ -153,6 +175,7 @@ function MainContent({
                   newSessionTrigger={newSessionTrigger}
                   onShowAllTasks={null}
                   linkedTaskModel={linkedTask ? (linkedTask.executor_model ?? null) : undefined}
+                  onSessionModelChanged={handleSessionModelChanged}
                 />
               </ErrorBoundary>
             </div>

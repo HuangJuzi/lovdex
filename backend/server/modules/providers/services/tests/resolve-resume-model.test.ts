@@ -84,3 +84,35 @@ test('resolveResumeModel falls back to requested model when no pending change ex
     rmSync(tempDir, { recursive: true, force: true });
   }
 });
+
+test('getChangedActiveModel reads a persisted override (GET active-model contract)', async () => {
+  const tempDir = mkdtempSync(path.join(tmpdir(), 'lovdex-resume-model-'));
+  const changesPath = path.join(tempDir, 'provider-session-active-model-changes.json');
+  writePendingChangeFile(changesPath, 'opus');
+
+  try {
+    const service = createProviderModelsService({ activeModelChangesPath: changesPath });
+    const result = await service.getChangedActiveModel('claude', APP_SESSION_ID);
+    assert.equal(result.supported, true);
+    assert.equal(result.changed, true);
+    assert.equal(result.model, 'opus');
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test('getChangedActiveModel reports changed=false when no override is persisted', async () => {
+  const tempDir = mkdtempSync(path.join(tmpdir(), 'lovdex-resume-model-'));
+  const changesPath = path.join(tempDir, 'provider-session-active-model-changes.json');
+  writeFileSync(changesPath, JSON.stringify({ version: 1, entries: {} }), 'utf8');
+
+  try {
+    const service = createProviderModelsService({ activeModelChangesPath: changesPath });
+    const result = await service.getChangedActiveModel('claude', APP_SESSION_ID);
+    assert.equal(result.supported, true);
+    assert.equal(result.changed, false);
+    assert.equal(result.model, null);
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
