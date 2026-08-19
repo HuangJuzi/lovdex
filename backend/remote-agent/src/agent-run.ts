@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import type { query } from '@anthropic-ai/claude-agent-sdk';
 import { normalizeAgentEvent, terminalCompleteEvent } from '../../server/shared/agent-runtime/normalize.js';
 import { createAllowlistedFs } from './fs.js';
@@ -87,10 +89,7 @@ type PermissionResult =
   | { behavior: 'deny'; message: string };
 
 function fallbackId(): string {
-  if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
-  const buf = new Uint8Array(16);
-  crypto.getRandomValues(buf);
-  return Array.from(buf, (b) => b.toString(16).padStart(2, '0')).join('');
+  return randomUUID();
 }
 
 /**
@@ -250,6 +249,13 @@ export function createAgentRunManager(deps: AgentRunManagerDeps) {
     // provider session id STRING. Never set a bare boolean `resume` (the SDK
     // would spawn `claude --resume true`), and do NOT set `sessionId` — it is
     // mutually exclusive with `resume` in the SDK Options type.
+    // Per-session provider config: merge over process.env (a bare env would
+    // strip PATH and break the claude spawn driver). Scoped to THIS run's SDK
+    // options — never written to the lite's process.env.
+    const effectiveEnv = params.configEnv && Object.keys(params.configEnv).length > 0
+      ? { ...process.env, ...params.configEnv }
+      : undefined;
+
     const sdkOptions: Record<string, unknown> = {
       cwd: params.cwd,
       resume: params.providerSessionId ?? undefined,
@@ -257,15 +263,17 @@ export function createAgentRunManager(deps: AgentRunManagerDeps) {
       includePartialMessages: params.includePartialMessages ?? true,
       canUseTool,
       signal: run.controller.signal,
+      // The esbuild bundle inlines the SDK's JS but NOT its optional native
+      // binary (platform-specific .exe/.node). Without an explicit
+      // pathToClaudeCodeExecutable the SDK fails to locate a claude binary at
+      // runtime ("Native CLI binary for linux-x64 not found"). Mirror the local
+      // path (server/claude-sdk.js): CLAUDE_CLI_PATH when customized, else the
+      // PATH-resolvable `claude` (the remote host's claude sits in /usr/local/bin).
+      pathToClaudeCodeExecutable:
+        (effectiveEnv?.CLAUDE_CLI_PATH ?? process.env.CLAUDE_CLI_PATH ?? 'claude').trim() || 'claude',
+      ...(effectiveEnv ? { env: effectiveEnv } : {}),
     };
     if (params.model !== undefined) sdkOptions.model = params.model;
-
-    // Per-session provider config: merge over process.env (a bare env would
-    // strip PATH and break the claude spawn driver). Scoped to THIS run's SDK
-    // options — never written to the lite's process.env.
-    if (params.configEnv && Object.keys(params.configEnv).length > 0) {
-      sdkOptions.env = { ...process.env, ...params.configEnv };
-    }
 
     // Drive the SDK loop off the awaited rpc path so the rpc_res can return
     // early; the run keeps tracking here so `interrupt` / `respond` keep
