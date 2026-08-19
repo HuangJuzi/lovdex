@@ -43,40 +43,22 @@ Lovdex 是一个面向 Claude Code / Codex / OpenCode / Qoder 编码代理的 We
 - **supervisor**（`systemd/`，`systemctl --user lovdex`）负责拉起/重启前后端；本地会话与任务跑在宿主，远程项目经 `remote-agents` 转发到各远程机的 lite 上执行。
 - **持久化**：better-sqlite3 单库，路径由 `~/.lovdex/data/app.config.json` 决定（默认 `new-auth.db`）。
 
-### 模块清单（整体）
+### 功能模块清单
 
-**后端 — `backend/server/modules/`**
+| 功能模块 | 主要作用 | 位置 / 后端支撑 |
+|---|---|---|
+| **会话聊天**（Chat） | 与编码代理（Claude/Codex/OpenCode/Qoder）的对话：消息流、工具审批、会话历史与归档、模型切换 | `/` 工作区 · `providers/` + `websocket/` |
+| **任务面板**（Task Board） | 任务看板：任务列表/筛选/状态流转/详情页/重试/表格视图，两层状态模型（`status`+`sub_status`） | `/tasks`、`/task/:id` · `tasks/` |
+| **Lovdex 助手**（Assistant） | 内置 Operator 助手：全局助手会话、独立开任务、`execute_skill` 技能执行、凭证白名单/审计 | `/assistant` · `operators/` |
+| **文件浏览**（Files） | 项目文件树：浏览/预览/编辑；远程项目走 fs RPC 白名单读取 | `/` Files tab · `projects/` + `remote-agents` |
+| **终端**（Terminal） | 交互式 shell（PTY 生命周期、重连缓冲） | `/shell` · `terminal/` + `websocket/` |
+| **源码管理**（Git / Worktrees） | Git 面板（提交历史/分支/diff/输出解析）+ worktree 并行开发 | `/` Git tab · `git/` + `worktrees/` |
+| **定时任务**（Scheduled） | 到点提醒/执行、错过聚合提醒，侧栏入口 | 侧栏入口 · `scheduler/` |
+| **远程项目**（Remote） | 在远程机器原生运行会话、远程机器一键添加/部署；模块细分见「远程项目」章节 | 设置/建项目向导 · `remote-agents/` |
+| **设置**（Settings） | Providers 凭据与运行参数、Operator 技能/白名单、远程机器、账号/改密、数据库 | `/settings` · `config/` + `auth/` + `operators/` |
+| **登录认证**（Auth） | 登录门槛（固定邮箱+口令）+ JWT；`AUTH_ENABLED=false` 逃生阀 | 全站入口 · `auth/` |
 
-| 模块 | 主要作用 |
-|---|---|
-| `providers/` | provider 注册表 + REST 路由；`list/{claude,codex,opencode,qoder}` 按能力面对称组织各 SDK 适配（会话/模型/认证/MCP/技能） |
-| `projects/` | 项目 CRUD、克隆、删除、收藏、taskmaster 标记、带会话项目查询 |
-| `tasks/` | 任务板 CRUD + 两层状态模型（`status` + `sub_status`） |
-| `scheduler/` | 定时任务调度（`scheduled_tasks` 表）：到期触发、错过的聚合提醒 |
-| `operators/` | Operator 助手：凭据解析、白名单、任务执行服务、工具集、技能执行（`execute_skill`）、审计 |
-| `terminal/` | `/shell` 交互终端（PTY 生命周期、重连缓冲） |
-| `websocket/` | 聊天 WS 网关（`/ws`）、会话 writer、run 注册表、headless 任务 run、升级鉴权、插件 WS 代理 |
-| `git/` | Git 面板 REST + 输出解析 |
-| `worktrees/` | worktree 创建/合并/删除/打开服务 |
-| `assets/` | 聊天图片附件上传与托管（`/api/assets` → `~/.cloudcli/assets`） |
-| `auth/` | 登录门槛：固定邮箱+口令 + JWT（`AUTH_ENABLED=false` 逃生阀） |
-| `config/` | `app.config.json` 读写、`PUT /api/config`、env-sync |
-| `database/` | better-sqlite3 连接、建库/迁移、仓储层 |
-| `remote-agents/` | 远程项目子系统（完整模块清单见「远程项目」章节） |
-
-**运行时入口 — `backend/server/`**
-
-| 文件 | 主要作用 |
-|---|---|
-| `claude-sdk.js` | 本地 Claude 会话封装 |
-| `openai-codex.js` / `opencode-runner.js` / `qoder-runner.js` | Codex / OpenCode / Qoder 本地会话适配 |
-
-**守护与前端**
-
-| 目录 | 主要作用 |
-|---|---|
-| `supervisor/` + `systemd/lovdex.service` | 守护进程，拉起/重启前后端（`systemctl --user lovdex`） |
-| `web/` | React + Vite 前端：侧栏/聊天/任务板/Operator/文件树/终端/Git/设置，`/api`、`/ws` 代理到后端 |
+> 支撑基础设施：SQLite 单库（`database/`，`~/.lovdex/data/new-auth.db`）+ `supervisor/` 守护进程（`systemctl --user lovdex`）拉起/重启前后端。
 
 ## 配置
 
