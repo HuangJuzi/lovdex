@@ -1,5 +1,14 @@
 import WebSocket from 'ws';
+import { webcrypto } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
+
+// Node <19 does not define the bare global `crypto` that claude-agent-sdk
+// ~0.2.14x and codex-sdk reference (they work on Node 20+ without this). The
+// remote host may still run Node 18 (`/usr/bin/node`), so expose webcrypto under
+// the global name; on Node >=19 globalThis.crypto already exists and we skip.
+if (typeof (globalThis as { crypto?: unknown }).crypto !== 'object') {
+  (globalThis as { crypto?: unknown }).crypto = webcrypto;
+}
 
 import { makePing } from '../../server/shared/agent-runtime/protocol.js';
 import { loadConfigFile, type RemoteAgentConfig } from './config.js';
