@@ -87,9 +87,10 @@ export function readTerminalHostId(rawUrl: string | undefined): string | null {
 
 /**
  * argv for an interactive `ssh -t` into the remote host, landing the shell in
- * `cwd` (default `~`). Mirror bootstrap.service `sshArgs` flag discipline
+ * `cwd` when given (a bad directory fails the remote shell and exits cleanly)
+ * or in $HOME otherwise. Mirror bootstrap.service `sshArgs` flag discipline
  * (accept-new / ConnectTimeout / BatchMode) plus `-t` for the PTY and the
- * remote `cd` — a bad directory fails the remote shell and exits cleanly.
+ * remote `cd`.
  */
 export function buildSshTerminalArgv(input: {
   identityFile: string | null;
@@ -106,7 +107,10 @@ export function buildSshTerminalArgv(input: {
   ];
   if (input.identityFile) argv.push('-i', input.identityFile);
   if (input.port && input.port !== 22) argv.push('-p', String(input.port));
-  argv.push(`${input.sshUser}@${input.host}`, `cd ${shellQuote(input.cwd ?? '~')} && exec $SHELL -l`);
+  argv.push(
+    `${input.sshUser}@${input.host}`,
+    input.cwd ? `cd ${shellQuote(input.cwd)} && exec $SHELL -l` : `exec $SHELL -l`,
+  );
   return argv;
 }
 

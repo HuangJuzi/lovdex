@@ -42,10 +42,15 @@ test('buildSshTerminalArgv forces a tty, carries identity and lands in cwd', () 
   ]);
 });
 
-test('buildSshTerminalArgv adds -p for a non-default port and defaults cwd to ~', () => {
+test('buildSshTerminalArgv adds -p for a non-default port and starts in $HOME when cwd is null', () => {
   const argv = buildSshTerminalArgv({ identityFile: null, host: 'h', port: 2222, sshUser: 'u', cwd: null });
   assert.equal(argv[0], '-t');
   assert.ok(argv.includes('-p') && argv.includes('2222'));
-  assert.equal(argv[argv.length - 1], `cd '~' && exec $SHELL -l`);
+  assert.equal(argv[argv.length - 1], 'exec $SHELL -l');
   assert.ok(!argv.some((a) => a.startsWith('-i')));
+});
+
+test('buildSshTerminalArgv quotes a spaced cwd in the remote command', () => {
+  const argv = buildSshTerminalArgv({ identityFile: null, host: 'h', port: 22, sshUser: 'u', cwd: '/home/u/my proj' });
+  assert.equal(argv[argv.length - 1], `cd '/home/u/my proj' && exec $SHELL -l`);
 });
