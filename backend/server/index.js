@@ -814,9 +814,10 @@ app.get('/api/projects/:projectId/files/content', authenticateToken, async (req,
             try {
                 remote = await fsClient.read(hostId, resolved, REMOTE_MAX_READ_BYTES, 'base64');
             } catch (error) {
-                return res.status(resolveErrorCode(error) === 'ENOENT' ? 404 : 500).json({
-                    error: resolveErrorCode(error) === 'ENOENT' ? 'File not found' : error.message,
-                });
+                const code = resolveErrorCode(error);
+                const status = code === 'ENOENT' ? 404 : code === 'EACCES' ? 403 : 500;
+                const message = code === 'ENOENT' ? 'File not found' : code === 'EACCES' ? 'Permission denied' : error.message;
+                return res.status(status).json({ error: message });
             }
             if (remote.truncated) {
                 return res.status(413).json({ error: 'File too large to preview/download remotely (limit 32MB)' });
@@ -1387,7 +1388,7 @@ const uploadFilesHandler = async (req, res) => {
                     // deepest first. stopDir is always an ancestor of startDir.
                     const chain = [];
                     let cursor = startDir;
-                    while (cursor !== stopDir && cursor.startsWith(stopDir)) {
+                    while (cursor !== stopDir && (cursor.startsWith(stopDir + path.sep) || cursor === stopDir)) {
                         chain.push(cursor);
                         const next = path.dirname(cursor);
                         if (next === cursor) break;
