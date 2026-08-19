@@ -155,18 +155,51 @@ export function handleTerminalConnection(
   request: AuthenticatedWebSocketRequest,
   dependencies: TerminalDependencies,
 ): void {
-  let pty: PtyLike;
-  try {
-    pty = dependencies.spawnPty(dependencies.shell, [], {
-      cwd: resolveTerminalCwd(request.url, dependencies.cwd),
-      cols: INITIAL_COLS,
-      rows: INITIAL_ROWS,
-      env: { ...(process.env as Record<string, string>), TERM: 'xterm-256color' },
-    });
-  } catch {
-    send(ws, { type: 'error', message: 'failed to spawn shell' });
+  const remoteHostId = readTerminalHostId(request.url);
+
+  // Remote host requested but not resolveable → refuse instead of silently
+  // dropping into a local shell (the client explicitly asked for the remote).
+  if (remoteHostId && !dependencies.resolveRemoteHost?.(remoteHostId)) {
+    send(ws, { type: 'error', message: 'remote host not found' });
     ws.close();
     return;
+  }
+
+  let pty: PtyLike;
+  if (remoteHostId) {
+    const host = dependencies.resolveRemoteHost!(remoteHostId)!;
+    try {
+      pty = dependencies.spawnPty('ssh', buildSshTerminalArgv({
+        identityFile: dependencies.identityFile ?? null,
+        host: host.host,
+        port: host.port ?? null,
+        sshUser: host.sshUser,
+        // The landing directory lives on the target; the remote `cd` enforces it.
+        cwd: readTerminalCwdUrl(request.url),
+      }), {
+        cwd: dependencies.cwd,
+        cols: INITIAL_COLS,
+        rows: INITIAL_ROWS,
+        env: { ...(process.env as Record<string, string>), TERM: 'xterm-256color' },
+      });
+    } catch {
+      send(ws, { type: 'error', message: 'failed to spawn remote shell' });
+      ws.close();
+      return;
+    }
+  } else {
+    try {
+      pty = dependencies.spawnPty(dependencies.shell, [], {
+        cwd: resolveTerminalCwd(request.url, dependencies.cwd),
+        cols: INITIAL_COLS,
+        rows: INITIAL_ROWS,
+        env: { ...(process.env as Record<string, string>), TERM: 'xterm-256color' },
+      });
+    } catch {
+      send(ws, { type: 'error', message: 'failed to spawn shell' });
+      ws.close();
+      return;
+    }
   }
 
   pty.onData((data) => {
