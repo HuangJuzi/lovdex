@@ -24,6 +24,10 @@ export type TerminalDependencies = {
   spawnPty: PtySpawner;
   shell: string;
   cwd: string;
+  /** Resolve the ssh target (remote_hosts row) for a hostId; null when unknown. */
+  resolveRemoteHost?: (hostId: string) => RemoteTerminalHost | null;
+  /** Main→host Lovdex ed25519 key for `ssh -t`; null/undefined → no -i. */
+  identityFile?: string | null;
 };
 
 const INITIAL_COLS = 80;
@@ -49,6 +53,61 @@ function send(ws: WebSocket, payload: unknown): void {
   if (ws.readyState === ws.OPEN) {
     ws.send(JSON.stringify(payload));
   }
+}
+
+/** Remote ssh target resolved from a remote_hosts row. */
+export type RemoteTerminalHost = { host: string; port: number | null; sshUser: string };
+
+/** Single-quote a remote path for embedding in the ssh command argument
+ *  (argv-array discipline — never build a shell string from user input). */
+export function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+/** Parse the ?cwd= query param WITHOUT touching the local fs — the remote
+ *  branch cannot stat a path that lives on the target machine. */
+export function readTerminalCwdUrl(rawUrl: string | undefined): string | null {
+  try {
+    const requested = new URL(rawUrl ?? '/', 'http://localhost').searchParams.get('cwd');
+    return requested && requested.length > 0 ? requested : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Parse the ?hostId= query param used to route a terminal to a remote host. */
+export function readTerminalHostId(rawUrl: string | undefined): string | null {
+  try {
+    const id = new URL(rawUrl ?? '/', 'http://localhost').searchParams.get('hostId');
+    return id && id.length > 0 ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * argv for an interactive `ssh -t` into the remote host, landing the shell in
+ * `cwd` (default `~`). Mirror bootstrap.service `sshArgs` flag discipline
+ * (accept-new / ConnectTimeout / BatchMode) plus `-t` for the PTY and the
+ * remote `cd` — a bad directory fails the remote shell and exits cleanly.
+ */
+export function buildSshTerminalArgv(input: {
+  identityFile: string | null;
+  host: string;
+  port: number | null;
+  sshUser: string;
+  cwd: string | null;
+}): string[] {
+  const argv = [
+    '-t',
+    '-o', 'StrictHostKeyChecking=accept-new',
+    '-o', 'ConnectTimeout=15',
+    '-o', 'BatchMode=yes',
+  ];
+  if (input.identityFile) argv.push('-i', input.identityFile);
+  if (input.port && input.port !== 22) argv.push('-p', String(input.port));
+  argv.push(`${input.sshUser}@${input.host}`, `cd ${shellQuote(input.cwd ?? '~')} && exec $SHELL -l`);
+  return argv;
 }
 
 /**
