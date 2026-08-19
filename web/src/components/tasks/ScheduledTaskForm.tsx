@@ -92,7 +92,7 @@ export function ScheduledTaskForm({ open, initial, projectOptions, submitting, e
     if (!engineAvailability.options.includes(draft.executorProvider)) {
       set('executorProvider', engineAvailability.options[0]);
     }
-  }, [engineAvailability, draft.executorProvider, draft.projectPath]);
+  }, [engineAvailability, draft.executorProvider]);
 
   const submit = () => {
     setLocalError(null);

@@ -60,11 +60,11 @@ test('engine select is disabled while availability resolves (loading)', () => {
   assert.ok(engineSelect.includes('disabled'));
 });
 
-test('submit is blocked without a usable engine by the form guard (unavailable hint shows)', () => {
-  // The availability hook resolves async; the render-time state is 'loading',
-  // so instead of driving the hook this test locks the draft with a remote
-  // option and asserts the guard path returns early — see Step 4 for the guard.
-  // Here we just assert the form still renders deterministically.
+test('renders deterministically with a remote option selected while availability resolves', () => {
+  // The availability hook resolves async and the picker only blocks after
+  // 'unavailable' settles, which renderToStaticMarkup cannot drive; that guard
+  // path is covered by code inspection + computeEngineAvailability unit tests.
+  // Here we assert the form still renders its remote option deterministically.
   const html = renderWithOptions([{ value: '/r/app', label: 'MyApp', remoteHostName: 'dev-01' }]);
   assert.ok(html.includes('dev-01'));
 });
