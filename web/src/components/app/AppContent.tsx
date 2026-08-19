@@ -93,7 +93,10 @@ function AppContentInner() {
   // Keep the terminal drawer's starting directory in sync with the project the
   // user is currently in, so opening the terminal lands in that project (not ~).
   useEffect(() => {
-    setCwd(selectedProject?.fullPath || selectedProject?.path || null);
+    setCwd(selectedProject?.fullPath || selectedProject?.path || null, {
+      hostId: selectedProject?.remoteHostId ?? null,
+      hostName: selectedProject?.remoteHostName ?? null,
+    });
   }, [selectedProject, setCwd]);
 
   // Queued messages for sessions that finish while another session (or none)

@@ -3,7 +3,8 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 
 import { useTerminalDrawer } from '../../hooks/useTerminalDrawer';
-import { buildWebSocketUrl } from '../../utils/wsUrl';
+import { RemoteTerminalBadge } from './RemoteTerminalBadge';
+import { buildTerminalSocketUrl } from './terminalSocketUrl';
 import { createTerminalSession } from './terminalSession';
 
 /**
@@ -12,15 +13,18 @@ import { createTerminalSession } from './terminalSession';
  * therefore exits the remote shell — a fresh shell spawns next open).
  *
  * The shell starts in the drawer's `cwd` (the current project directory, when
- * known), passed through as a query param and validated server-side.
+ * known), passed through as a query param and validated server-side. For remote
+ * projects the drawer's `hostId` routes the shell to that host over SSH.
  */
 export function TerminalPane() {
   const containerRef = useRef<HTMLDivElement>(null);
-  const { cwd } = useTerminalDrawer();
-  // Freeze the cwd at mount: the shell should start in whatever project the
-  // user was in when they opened the drawer, and not restart mid-session if the
-  // selection changes underneath it.
+  const { cwd, hostId, hostName } = useTerminalDrawer();
+  // Freeze the cwd AND host at mount: the shell should start in whatever project
+  // the user was in when they opened the drawer, and not restart mid-session if
+  // the selection changes underneath it.
   const cwdRef = useRef(cwd);
+  const hostIdRef = useRef(hostId);
+  const hostNameRef = useRef(hostName);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -37,11 +41,7 @@ export function TerminalPane() {
     term.open(container);
 
     const token = typeof localStorage !== 'undefined' ? localStorage.getItem('auth-token') : null;
-    let url = buildWebSocketUrl(token, '/ws/terminal');
-    if (cwdRef.current) {
-      url += `${url.includes('?') ? '&' : '?'}cwd=${encodeURIComponent(cwdRef.current)}`;
-    }
-    const ws = new WebSocket(url);
+    const ws = new WebSocket(buildTerminalSocketUrl(token, cwdRef.current, hostIdRef.current));
     const session = createTerminalSession(term, ws);
 
     const sendResize = () => {
@@ -67,5 +67,10 @@ export function TerminalPane() {
     };
   }, []);
 
-  return <div ref={containerRef} className="absolute inset-0 overflow-hidden" />;
+  return (
+    <div className="absolute inset-0">
+      <div ref={containerRef} className="absolute inset-0 overflow-hidden" />
+      <RemoteTerminalBadge hostName={hostNameRef.current} />
+    </div>
+  );
 }
