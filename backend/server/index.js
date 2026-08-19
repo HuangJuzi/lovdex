@@ -247,6 +247,13 @@ const wss = createWebSocketServer(server, {
         spawnPty: (shell, args, options) => pty.spawn(shell, args, options),
         shell: process.env.SHELL || '/bin/bash',
         cwd: WORKSPACES_ROOT,
+        // Remote terminal: -i identity + ssh target from the remote_hosts row.
+        // Both are in scope here (identityFile at module top; remoteHostsDb above).
+        identityFile,
+        resolveRemoteHost: (hostId) => {
+            const host = remoteHostsDb.getById(hostId);
+            return host ? { host: host.host, port: host.port ?? 22, sshUser: host.ssh_user } : null;
+        },
     },
 });
 
