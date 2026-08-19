@@ -79,7 +79,7 @@ import { createRemoteAgentWss } from './modules/remote-agents/remote-agent.serve
 import { createRemoteRouting } from './modules/remote-agents/remote-spawn.js';
 import { createRemoteFsClient } from './modules/remote-agents/remote-fs.service.js';
 import { createRemoteAgentsRouter } from './modules/remote-agents/remote-agents.routes.js';
-import { setRemoteAgentsRuntime } from './modules/remote-agents/runtime.js';
+import { setRemoteAgentsRuntime, getRemoteAgentsRuntime } from './modules/remote-agents/runtime.js';
 import { refreshRemoteProjectsIndex, lookupRemoteHost, setOnlineHostsLookup } from './modules/remote-agents/remote-projects.index.js';
 import { runBootstrap } from './modules/remote-agents/bootstrap.service.js';
 import { createSshRunner, createScpPush, createSshpassPubkeyInjector } from './modules/remote-agents/ssh-runner.js';
@@ -755,6 +755,14 @@ app.get('/api/projects/:projectId/file', authenticateToken, async (req, res) => 
             return res.status(403).json({ error: 'Path must be under project root' });
         }
 
+        // Route to a remote host when the project is backed by one.
+        const hostId = lookupRemoteHost(projectRoot);
+        if (hostId) {
+            const { fsClient } = getRemoteAgentsRuntime();
+            const r = await fsClient.read(hostId, resolved);
+            return res.json({ content: r.content, path: resolved });
+        }
+
         const content = await fsPromises.readFile(resolved, 'utf8');
         res.json({ content, path: resolved });
     } catch (error) {
@@ -858,6 +866,18 @@ app.put('/api/projects/:projectId/file', authenticateToken, async (req, res) => 
             return res.status(403).json({ error: 'Path must be under project root' });
         }
 
+        // Route to a remote host when the project is backed by one.
+        const hostId = lookupRemoteHost(projectRoot);
+        if (hostId) {
+            const { fsClient } = getRemoteAgentsRuntime();
+            await fsClient.write(hostId, resolved, content);
+            return res.json({
+                success: true,
+                path: resolved,
+                message: 'File saved successfully'
+            });
+        }
+
         // Write the new content
         await fsPromises.writeFile(resolved, content, 'utf8');
 
@@ -888,6 +908,14 @@ app.get('/api/projects/:projectId/files', authenticateToken, async (req, res) =>
         const actualPath = await projectsDb.getProjectPathById(req.params.projectId);
         if (!actualPath) {
             return res.status(404).json({ error: 'Project not found' });
+        }
+
+        // Route to a remote host when the project is backed by one.
+        const hostId = lookupRemoteHost(actualPath);
+        if (hostId) {
+            const { fsClient } = getRemoteAgentsRuntime();
+            const { nodes } = await fsClient.tree(hostId, actualPath, 10, true);
+            return res.json(nodes);
         }
 
         // Check if path exists
@@ -988,6 +1016,20 @@ app.post('/api/projects/:projectId/files/create', authenticateToken, async (req,
 
         const resolvedPath = validation.resolved;
 
+        // Route to a remote host when the project is backed by one.
+        const hostId = lookupRemoteHost(projectRoot);
+        if (hostId) {
+            const { fsClient } = getRemoteAgentsRuntime();
+            await fsClient.create(hostId, parentPath || projectRoot, type, name);
+            return res.json({
+                success: true,
+                path: resolvedPath,
+                name,
+                type,
+                message: `${type === 'file' ? 'File' : 'Directory'} created successfully`
+            });
+        }
+
         // Check if already exists
         try {
             await fsPromises.access(resolvedPath);
@@ -1058,6 +1100,20 @@ app.put('/api/projects/:projectId/files/rename', authenticateToken, async (req, 
         }
 
         const resolvedOldPath = oldValidation.resolved;
+
+        // Route to a remote host when the project is backed by one.
+        const hostId = lookupRemoteHost(projectRoot);
+        if (hostId) {
+            const { fsClient } = getRemoteAgentsRuntime();
+            const r = await fsClient.rename(hostId, resolvedOldPath, newName);
+            return res.json({
+                success: true,
+                oldPath: resolvedOldPath,
+                newPath: r.newPath,
+                newName,
+                message: 'Renamed successfully'
+            });
+        }
 
         // Check if old path exists
         try {
@@ -1130,6 +1186,23 @@ app.delete('/api/projects/:projectId/files', authenticateToken, async (req, res)
         }
 
         const resolvedPath = validation.resolved;
+
+        // Route to a remote host when the project is backed by one.
+        const hostId = lookupRemoteHost(projectRoot);
+        if (hostId) {
+            // Prevent deleting the project root itself (mirrors the local path below).
+            if (resolvedPath === path.resolve(projectRoot)) {
+                return res.status(403).json({ error: 'Cannot delete project root directory' });
+            }
+            const { fsClient } = getRemoteAgentsRuntime();
+            await fsClient.delete(hostId, resolvedPath, type);
+            return res.json({
+                success: true,
+                path: resolvedPath,
+                type,
+                message: 'Deleted successfully'
+            });
+        }
 
         // Check if path exists and get stats
         let stats;
