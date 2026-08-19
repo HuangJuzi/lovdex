@@ -116,6 +116,16 @@ test('board card renders exactly one open-session button for in_progress with on
   assert.equal((html.match(/打开会话/g) || []).length, 1);
 });
 
+test('board card renders a disabled 会话被清理 instead of 打开会话 when the linked session was cleaned', () => {
+  const html = render(
+    { ...baseTask, status: 'in_progress', session_id: 's1', session_deleted: true },
+    { onOpenSession: () => {}, onStart: () => {}, onStatusChange: () => {} },
+  );
+  assert.match(html, /会话被清理/);
+  assert.doesNotMatch(html, /打开会话/);
+  assert.match(html, /disabled/);
+});
+
 test('card renders a selection checkbox when onToggleSelect is provided', () => {
   const html = render(baseTask, { selected: true, onToggleSelect: () => {} });
   assert.match(html, /type="checkbox"/);

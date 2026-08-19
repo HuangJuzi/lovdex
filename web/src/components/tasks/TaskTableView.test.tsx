@@ -78,6 +78,19 @@ test('table renders exactly one open-session button for in_progress with only_pl
   assert.equal((html.match(/打开会话/g) || []).length, 1);
 });
 
+test('table shows 会话被清理 instead of a dead 打开会话 for a cleaned session', () => {
+  const html = renderToStaticMarkup(
+    React.createElement(TaskTableView, {
+      tasks: [mkTask({ task_id: 'd1', status: 'in_progress', session_id: 's1', session_deleted: true })],
+      projectOptions: [],
+      onOpenSession: () => {},
+      onStart: () => {},
+    }),
+  );
+  assert.match(html, /会话被清理/);
+  assert.doesNotMatch(html, /打开会话/);
+});
+
 test('table renders status filter row with 全部 reset pill', () => {
   const html = renderToStaticMarkup(
     React.createElement(TaskTableView, {

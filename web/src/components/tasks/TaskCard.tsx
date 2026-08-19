@@ -208,17 +208,26 @@ export const TaskCard = memo(function TaskCard({
             ✓ 标记完成
           </button>
         )}
-        {canOpenSession(task) && onOpenSession && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onOpenSession();
-            }}
-            className="min-h-9 min-w-0 flex-1 rounded-lg bg-primary/10 py-1.5 text-xs font-semibold text-primary transition-colors hover:bg-primary/20 sm:min-h-0 shadow-[0_2px_0_rgba(30,27,50,0.08)]"
-          >
-            打开会话
-          </button>
-        )}
+        {task.session_id && onOpenSession &&
+          (task.session_deleted ? (
+            <button
+              disabled
+              title="关联会话已被清理，历史记录不可再读取"
+              className="min-h-9 min-w-0 flex-1 cursor-not-allowed rounded-lg border border-border bg-muted py-1.5 text-xs font-semibold text-muted-foreground sm:min-h-0"
+            >
+              会话被清理
+            </button>
+          ) : canOpenSession(task) ? (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenSession();
+              }}
+              className="min-h-9 min-w-0 flex-1 rounded-lg bg-primary/10 py-1.5 text-xs font-semibold text-primary transition-colors hover:bg-primary/20 sm:min-h-0 shadow-[0_2px_0_rgba(30,27,50,0.08)]"
+            >
+              打开会话
+            </button>
+          ) : null)}
       </div>
     </div>
   );

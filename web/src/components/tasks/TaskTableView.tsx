@@ -41,19 +41,27 @@ type TaskTableViewProps = {
 function ActionBtn({
   className,
   onClick,
+  disabled = false,
+  title,
   children,
 }: {
   className?: string;
-  onClick: () => void;
+  onClick?: () => void;
+  disabled?: boolean;
+  title?: string;
   children: ReactNode;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`whitespace-nowrap rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-opacity hover:opacity-80 ${
-        className ?? ''
-      }`}
+      disabled={disabled}
+      title={title}
+      className={`whitespace-nowrap rounded-lg px-2.5 py-1 text-[11px] font-semibold ${
+        disabled
+          ? 'cursor-not-allowed opacity-60'
+          : 'transition-opacity hover:opacity-80'
+      } ${className ?? ''}`}
     >
       {children}
     </button>
@@ -401,11 +409,16 @@ function TaskRow({
               ✓ 标记完成
             </ActionBtn>
           )}
-          {canOpenSession(task) && onOpenSession && (
-            <ActionBtn onClick={() => onOpenSession(task)} className="bg-muted text-muted-foreground">
-              打开会话
-            </ActionBtn>
-          )}
+          {task.session_id && onOpenSession &&
+            (task.session_deleted ? (
+              <ActionBtn disabled className="bg-muted text-muted-foreground" title="关联会话已被清理，历史记录不可再读取">
+                会话被清理
+              </ActionBtn>
+            ) : canOpenSession(task) ? (
+              <ActionBtn onClick={() => onOpenSession(task)} className="bg-muted text-muted-foreground">
+                打开会话
+              </ActionBtn>
+            ) : null)}
         </div>
       </td>
     </tr>

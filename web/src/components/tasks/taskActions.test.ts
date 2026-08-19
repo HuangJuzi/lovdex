@@ -67,3 +67,10 @@ test('canOpenSession: todo with unrelated sub_status + session_id does not open'
     false,
   );
 });
+
+test('canOpenSession: in_progress with a cleaned session does not open', () => {
+  assert.equal(
+    canOpenSession(mkTask({ task_id: 'a', status: 'in_progress', session_id: 's1', session_deleted: true })),
+    false,
+  );
+});
