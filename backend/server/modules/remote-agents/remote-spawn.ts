@@ -186,6 +186,10 @@ export function createRemoteRouting(deps: RemoteRoutingDeps): {
 
         // Install BEFORE the rpc so no event is missed.
         const handler: SessionHandler = (event) => {
+          // Post-finish stragglers (a push racing the sweep-teardown) are
+          // dropped explicitly rather than relying on the cleanup timing.
+          if (settled) return;
+
           // Approval envelope: main forwards a permission_request to the
           // client and mirrors the pending approval locally. When the host
           // reports the approval was cancelled (qoder timeout/interrupt), the
@@ -238,10 +242,14 @@ export function createRemoteRouting(deps: RemoteRoutingDeps): {
           const sessionEntry = registry.getSessionHost(appSessionId);
           const sid = (event.session_id as string | undefined) ?? sessionEntry?.providerSessionId ?? providerSessionId;
           if (event.type === 'complete') {
-            // claude's raw `complete` still needs normalization into a
-            // CompleteMessage; the other runners already delivered their
-            // normalized terminal via _remoteNorm, so for them this raw
-            // marker is a finish signal only (no double complete).
+            // Contract for non-claude runners: they MUST push their wrapped
+            // terminal (a `_remoteNorm` NormalizedMessage, e.g. the codex/
+            // opencode/qoder complete) FIRST and the raw `{ type: 'complete' }`
+            // marker AFTER — otherwise the client never receives the terminal
+            // message. claude's raw `complete` still needs normalization into
+            // a CompleteMessage; the other runners already delivered theirs via
+            // _remoteNorm, so for them this raw marker is a finish signal only
+            // (no double complete).
             if (isClaude) {
               const msgs = normalizeEvent(event, sid ?? null);
               for (const m of msgs) w.send(m);

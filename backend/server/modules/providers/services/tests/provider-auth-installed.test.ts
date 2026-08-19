@@ -71,3 +71,25 @@ test('getInstalledProviders re-probes after the 60s TTL expires', async () => {
     Date.now = originalNow;
   }
 });
+
+test('getInstalledProviders dedupes concurrent cache misses into one probe pass', async () => {
+  resetInstalledProvidersCache();
+  let calls = 0;
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const probe: InstalledProviderProbe = async (p) => {
+    calls += 1;
+    await gate; // hold every probe until both callers have arrived
+    return statusOf(true);
+  };
+
+  const p1 = getInstalledProviders(probe);
+  const p2 = getInstalledProviders(probe);
+  release();
+  const [r1, r2] = await Promise.all([p1, p2]);
+
+  assert.deepEqual(r1, r2);
+  assert.equal(calls, 4, 'two concurrent callers share ONE 4-provider probe pass');
+});

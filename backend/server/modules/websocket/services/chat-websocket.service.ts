@@ -14,6 +14,7 @@ function dbg(line: string): void {
 import { sessionsDb } from '@/modules/database/index.js';
 import { appConfig as getAppConfig } from '@/modules/config/config.js';
 import { buildProviderConfigEnv } from '@/modules/config/env-sync.js';
+import { lookupRemoteHost } from '@/modules/remote-agents/remote-projects.index.js';
 import { chatRunRegistry, getTaskLinkage } from '@/modules/websocket/services/chat-run-registry.service.js';
 import { connectedClients, WS_OPEN_STATE } from '@/modules/websocket/services/websocket-state.service.js';
 import { getGlobalImageAssetsDir, normalizeImageDescriptors } from '@/shared/image-attachments.js';
@@ -270,8 +271,14 @@ async function handleChatSend(
   };
 
   // Remote spawns forward the provider's config env (baseUrl/apiKey/model) to
-  // the lite in session/start via configEnv; local runtimes ignore the field.
-  runtimeOptions.configEnv = buildProviderConfigEnv(getAppConfig().get(), provider);
+  // the lite in session/start via configEnv. Built ONLY when the session path
+  // resolves to a remote host (the codex branch reads ~/.codex/auth.json, so
+  // local sessions must not pay that per-send cost); local runtimes ignore the
+  // field anyway. Mirrors remote-spawn's projectPath ?? cwd resolution so the
+  // decision matches whether the spawn actually routes remotely.
+  if (lookupRemoteHost(runtimeOptions.projectPath ?? runtimeOptions.cwd)) {
+    runtimeOptions.configEnv = buildProviderConfigEnv(getAppConfig().get(), provider);
+  }
 
   try {
     dbg(`[chat.send] spawning claude for ${sessionId} cwd=${runtimeOptions.cwd} resume=${runtimeOptions.resume}`);

@@ -208,6 +208,20 @@ test('buildProviderConfigEnv maps claude config into a Record (no process.env si
   }
 });
 
+test('buildProviderConfigEnv: explicit authToken wins over the shared apiKey slot', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lovdex-env-'));
+  const cfg = createAppConfig({ dataDir: dir });
+  cfg.update({
+    providers: {
+      claude: { apiKey: 'shared-api-key', authToken: 'dedicated-token', baseUrl: '', defaultModel: '' },
+    },
+  });
+  const env = buildProviderConfigEnv(cfg.get(), 'claude');
+  // Mirrors syncProviderEnv precedence: authToken overrides apiKey for AUTH_TOKEN.
+  assert.strictEqual(env.ANTHROPIC_AUTH_TOKEN, 'dedicated-token');
+  assert.strictEqual(env.ANTHROPIC_API_KEY, 'shared-api-key');
+});
+
 test('buildProviderConfigEnv hides unset fields and maps codex/opencode/qoder', () => {
   const savedHome = process.env.HOME;
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lovdex-env-'));

@@ -112,6 +112,35 @@ test('remote project: provider present in the host probe cache → 201', async (
   }
 });
 
+test('remote project: probe entry with installed:false → 400 PROVIDER_NOT_INSTALLED', async () => {
+  const h = await makeHarness();
+  try {
+    refreshRemoteProjectsIndex([{ project_path: '/srv/remote-app', remote_host_id: 'h1' }]);
+    // The lite probed this host and found the binary MISSING — the guard must
+    // not treat a present-but-uninstalled entry as usable.
+    h.setHostProviders('h1', [{ provider: 'codex', installed: false }]);
+
+    const res = await createSession(h.base, 'codex', '/srv/remote-app');
+    assert.equal(res.status, 400);
+    assert.equal((res.body as { error: { code: string } }).error?.code, 'PROVIDER_NOT_INSTALLED');
+  } finally {
+    await h.close();
+  }
+});
+
+test('remote project: path with a trailing slash still resolves via normalizeProjectPath', async () => {
+  const h = await makeHarness();
+  try {
+    refreshRemoteProjectsIndex([{ project_path: '/srv/remote-app', remote_host_id: 'h1' }]);
+    h.setHostProviders('h1', [{ provider: 'claude', installed: true }]);
+
+    const res = await createSession(h.base, 'claude', '/srv/remote-app/');
+    assert.equal(res.status, 201, 'trailing-slash path must match the indexed key space');
+  } finally {
+    await h.close();
+  }
+});
+
 test('local target: uninstalled provider (seeded cache) → 400 PROVIDER_NOT_INSTALLED', async () => {
   const h = await makeHarness();
   try {

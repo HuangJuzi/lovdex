@@ -21,7 +21,7 @@ import type {
   ProviderSkillCreateInput,
   UpsertProviderMcpServerInput,
 } from '@/shared/types.js';
-import { AppError, asyncHandler, createApiSuccessResponse } from '@/shared/utils.js';
+import { AppError, asyncHandler, createApiSuccessResponse, normalizeProjectPath } from '@/shared/utils.js';
 
 const router = express.Router();
 
@@ -565,12 +565,16 @@ router.post(
     // have the requested provider before we allocate a session for it. A remote
     // host consults its probe cache (registry); a local target probes this host
     // (60s TTL cached).
-    const normalizedProjectPath = projectPath.trim();
+    const normalizedProjectPath = normalizeProjectPath(projectPath);
     const hostId = lookupRemoteHost(normalizedProjectPath);
     let targetInstalled = false;
     if (hostId) {
-      const hostProviders = getRemoteAgentsRuntime().registry.getHostProviders(hostId);
-      if (hostProviders && hostProviders.some((p) => (p as { provider?: string }).provider === provider)) {
+      // Probe entries are `{ provider, installed, version }` — a probed-but-
+      // missing binary reports installed:false and must NOT be let through.
+      const hostProviders = getRemoteAgentsRuntime().registry.getHostProviders(hostId) as
+        | { provider?: string; installed?: boolean }[]
+        | undefined;
+      if (hostProviders && hostProviders.some((p) => p.provider === provider && p.installed === true)) {
         targetInstalled = true;
       }
     } else {

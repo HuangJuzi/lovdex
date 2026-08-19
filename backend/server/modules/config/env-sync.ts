@@ -116,7 +116,10 @@ export function buildProviderConfigEnv(cfg: AppConfig, provider: LLMProvider): R
       const c = providers.claude;
       put('ANTHROPIC_BASE_URL', c.baseUrl);
       put('ANTHROPIC_API_KEY', c.apiKey);
-      put('ANTHROPIC_AUTH_TOKEN', c.apiKey || c.authToken);
+      // Auth token precedence matches syncProviderEnv: an explicitly-set
+      // authToken wins over the shared apiKey slot that the UI writes to
+      // AUTH_TOKEN.
+      put('ANTHROPIC_AUTH_TOKEN', c.authToken?.trim() || c.apiKey);
       put('ANTHROPIC_MODEL', c.defaultModel);
       put('ANTHROPIC_DEFAULT_HAIKU_MODEL', c.haikuModel);
       put('ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME', c.haikuModel);
