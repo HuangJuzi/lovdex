@@ -767,9 +767,9 @@ app.get('/api/projects/:projectId/file', authenticateToken, async (req, res) => 
         res.json({ content, path: resolved });
     } catch (error) {
         console.error('Error reading file:', error);
-        if (error.code === 'ENOENT') {
+        if (resolveErrorCode(error) === 'ENOENT') {
             res.status(404).json({ error: 'File not found' });
-        } else if (error.code === 'EACCES') {
+        } else if (resolveErrorCode(error) === 'EACCES') {
             res.status(403).json({ error: 'Permission denied' });
         } else {
             res.status(500).json({ error: error.message });
@@ -888,9 +888,9 @@ app.put('/api/projects/:projectId/file', authenticateToken, async (req, res) => 
         });
     } catch (error) {
         console.error('Error saving file:', error);
-        if (error.code === 'ENOENT') {
+        if (resolveErrorCode(error) === 'ENOENT') {
             res.status(404).json({ error: 'File or directory not found' });
-        } else if (error.code === 'EACCES') {
+        } else if (resolveErrorCode(error) === 'EACCES') {
             res.status(403).json({ error: 'Permission denied' });
         } else {
             res.status(500).json({ error: error.message });
@@ -913,6 +913,7 @@ app.get('/api/projects/:projectId/files', authenticateToken, async (req, res) =>
         // Route to a remote host when the project is backed by one.
         const hostId = lookupRemoteHost(actualPath);
         if (hostId) {
+            // actualPath 与 projectRoot 同值（getProjectPathById），保持与其他端点一致
             const { fsClient } = getRemoteAgentsRuntime();
             const { nodes } = await fsClient.tree(hostId, actualPath, 10, true);
             return res.json(nodes);
@@ -978,6 +979,17 @@ function validateFilename(name) {
         return { valid: false, error: 'Filename cannot be only dots' };
     }
     return { valid: true };
+}
+
+/**
+ * 从错误中取规范化 code：优先 error.code；RPC 传输层丢掉了 code，
+ * 回退解析 message 前缀（"ENOENT: ..." / "EACCES: ..."），让远程路径
+ * 也能命中既有的 error.code 分支（404/403/409）。
+ */
+function resolveErrorCode(error) {
+  if (error?.code) return error.code;
+  const m = /^([A-Z]+):/.exec(error?.message ?? '');
+  return m ? m[1] : undefined;
 }
 
 // POST /api/projects/:projectId/files/create - Create new file or directory
@@ -1061,9 +1073,9 @@ app.post('/api/projects/:projectId/files/create', authenticateToken, async (req,
         });
     } catch (error) {
         console.error('Error creating file/directory:', error);
-        if (error.code === 'EACCES') {
+        if (resolveErrorCode(error) === 'EACCES') {
             res.status(403).json({ error: 'Permission denied' });
-        } else if (error.code === 'ENOENT') {
+        } else if (resolveErrorCode(error) === 'ENOENT') {
             res.status(404).json({ error: 'Parent directory not found' });
         } else {
             res.status(500).json({ error: error.message });
@@ -1150,11 +1162,11 @@ app.put('/api/projects/:projectId/files/rename', authenticateToken, async (req, 
         });
     } catch (error) {
         console.error('Error renaming file/directory:', error);
-        if (error.code === 'EACCES') {
+        if (resolveErrorCode(error) === 'EACCES') {
             res.status(403).json({ error: 'Permission denied' });
-        } else if (error.code === 'ENOENT') {
+        } else if (resolveErrorCode(error) === 'ENOENT') {
             res.status(404).json({ error: 'File or directory not found' });
-        } else if (error.code === 'EXDEV') {
+        } else if (resolveErrorCode(error) === 'EXDEV') {
             res.status(400).json({ error: 'Cannot move across different filesystems' });
         } else {
             res.status(500).json({ error: error.message });
