@@ -176,6 +176,20 @@ test('host providers cache round-trips suite setHostProviders/getHostProviders',
   assert.deepEqual(reg.getHostProviders('h1'), []);
 });
 
+test('host providers are cleared when the host disconnects, not by stale sockets', () => {
+  const reg = createRemoteAgentsRegistry();
+  const ws = fakeWs();
+  reg.register({ hostId: 'h1', roots: [], capabilities: [] }, ws as unknown as WebSocket);
+  reg.setHostProviders('h1', [{ provider: 'claude', installed: true, version: '1' }]);
+  assert.equal(reg.getHostProviders('h1')?.length, 1);
+  // a stale identity-mismatched socket must not clear the cache
+  assert.equal(reg.unregister('h1', fakeWs() as unknown as WebSocket), false);
+  assert.equal(reg.getHostProviders('h1')?.length, 1);
+  reg.disconnect('h1', ws as unknown as WebSocket);
+  // undefined = never connected again (not the disconnected-but-empty sentinel)
+  assert.equal(reg.getHostProviders('h1'), undefined);
+});
+
 test('cancelRpc sends an rpc_cancel frame only for a pending rpc on an open socket', () => {
   const reg = createRemoteAgentsRegistry();
   const ws = fakeWs();
@@ -222,8 +236,22 @@ test('rpc abort after resolve is a no-op (single settle)', async () => {
   const res = await p;
   assert.equal(res, 'ok');
   assert.equal(reg.pendingCount(), 0);
-  controller.abort(); // must not throw or re-settle
-  assert.equal(ws.sent.length, 1); // no rpc_cancel after settle
+  controller.abort(); // must not throw, re-settle, or emit rpc_cancel
+  assert.equal(ws.sent.length, 1);
+});
+
+test('rpc with an already-aborted signal rejects immediately and sends nothing', async () => {
+  const reg = createRemoteAgentsRegistry();
+  const ws = fakeWs();
+  reg.register({ hostId: 'h1', roots: [], capabilities: [] }, ws as unknown as WebSocket);
+  const controller = new AbortController();
+  controller.abort();
+  await assert.rejects(
+    () => reg.rpc('h1', 'git/exec', { args: ['status'], cwd: '/srv' }, 5000, controller.signal),
+    /remote rpc aborted: git\/exec/,
+  );
+  assert.equal(ws.sent.length, 0); // no rpc_req frame ever sent
+  assert.equal(reg.pendingCount(), 0); // and no pending residue
 });
 
 test('session + approval indexes route lookups', () => {

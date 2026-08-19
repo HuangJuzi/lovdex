@@ -1,14 +1,5 @@
 import { WebSocket } from 'ws';
 
-/**
- * Probe results cached from each host's `hello` providers payload. Lives at
- * module scope (not per-registry-instance) because the server constructs its
- * registry exactly once; a fresh registry in tests simply observes the same
- * cache, which is a harmless over-share for a read-mostly lookup (Task 13's
- * `GET /:hostId/providers` reads it before falling back to a live probe).
- */
-const hostProviders = new Map<string, unknown[]>();
-
 export type LiteRegistration = {
   hostId: string;
   roots: string[];
@@ -22,6 +13,12 @@ export function createRemoteAgentsRegistry(
   const pending = new Map<string, PendingRpc>();
   const sessionHost = new Map<string, { hostId: string; providerSessionId: string | null }>();
   const pendingApprovals = new Map<string, { appSessionId: string; hostId: string }>();
+  // Probe results cached from each host's `hello` providers payload. Scoped to
+  // the instance (not module-level) so hosts that are permanently added/removed
+  // never leak and registry instances in tests stay isolated. Semantics:
+  // undefined = never connected or disconnected (cleared in doUnregister),
+  // [] = connected but probed empty / reset via setHostProviders(hostId, null).
+  const hostProviders = new Map<string, unknown[]>();
   let onHostOfflineSweep = opts.onHostOfflineSweep;
 
   function createRpcId(): string {
@@ -35,6 +32,7 @@ export function createRemoteAgentsRegistry(
     const existing = connections.get(hostId);
     if (!existing || existing.ws !== ws) return false;
     connections.delete(hostId);
+    hostProviders.delete(hostId);
     return true;
   }
 
@@ -150,6 +148,12 @@ export function createRemoteAgentsRegistry(
       return entry;
     },
     rpc<T = unknown>(hostId: string, method: string, params: unknown, timeoutMs = 60_000, signal?: AbortSignal): Promise<T> {
+      // addEventListener never fires for an already-aborted signal, so an early
+      // reject here (before any pending bookkeeping) is the only way to avoid
+      // hanging until timeout. Task 6/7 pass request abort signals into rpc.
+      if (signal?.aborted) {
+        return Promise.reject(new Error(`remote rpc aborted: ${method}`));
+      }
       const connection = connections.get(hostId);
       if (!connection || connection.ws.readyState !== WebSocket.OPEN) {
         return Promise.reject(new Error(`remote host offline: ${hostId}`));
@@ -163,10 +167,29 @@ export function createRemoteAgentsRegistry(
           reject,
           timer: setTimeout(() => {
             pending.delete(id);
+            entry.cleanup?.();
             reject(new Error(`remote rpc timeout: ${method}`));
           }, timeoutMs),
         };
         pending.set(id, entry);
+        if (signal) {
+          const onAbort = () => {
+            if (pending.has(id)) {
+              clearTimeout(entry.timer);
+              pending.delete(id);
+              reject(new Error(`remote rpc aborted: ${method}`));
+              // Notify the lite to stop the in-flight worker (e.g. a long
+              // git/exec); best-effort — the socket may be mid-close.
+              try {
+                connection.ws.send(JSON.stringify({ type: 'rpc_cancel', id }));
+              } catch {
+                /* socket mid-close */
+              }
+            }
+          };
+          entry.cleanup = () => signal.removeEventListener('abort', onAbort);
+          signal.addEventListener('abort', onAbort, { once: true });
+        }
         try {
           connection.ws.send(JSON.stringify({ type: 'rpc_req', id, method, params }), (err?: Error) => {
             if (err) {
@@ -174,6 +197,7 @@ export function createRemoteAgentsRegistry(
               if (e) {
                 clearTimeout(e.timer);
                 pending.delete(id);
+                e.cleanup?.();
                 e.reject(new Error(`remote rpc send failed: ${err.message}`));
               }
             }
@@ -182,27 +206,8 @@ export function createRemoteAgentsRegistry(
           // send() can throw synchronously (e.g. socket just closing); settle once.
           clearTimeout(entry.timer);
           pending.delete(id);
+          entry.cleanup?.();
           reject(err instanceof Error ? err : new Error(String(err)));
-        }
-        if (signal) {
-          signal.addEventListener(
-            'abort',
-            () => {
-              if (pending.has(id)) {
-                clearTimeout(entry.timer);
-                pending.delete(id);
-                reject(new Error(`remote rpc aborted: ${method}`));
-                // Notify the lite to stop the in-flight worker (e.g. a long
-                // git/exec); best-effort — the socket may be mid-close.
-                try {
-                  connection.ws.send(JSON.stringify({ type: 'rpc_cancel', id }));
-                } catch {
-                  /* socket mid-close */
-                }
-              }
-            },
-            { once: true },
-          );
         }
       });
     },
@@ -229,6 +234,7 @@ export function createRemoteAgentsRegistry(
       if (!entry) return;
       clearTimeout(entry.timer);
       pending.delete(id);
+      entry.cleanup?.();
       if (response.ok) entry.resolve(response.data);
       else entry.reject(new Error(response.error ?? 'remote rpc failed'));
     },
@@ -249,6 +255,7 @@ export function createRemoteAgentsRegistry(
         if (entry.hostId !== hostId) continue;
         clearTimeout(entry.timer);
         pending.delete(id);
+        entry.cleanup?.();
         entry.reject(new ConnectionError(`remote host disconnected: ${hostId}`));
         failed++;
       }
@@ -274,6 +281,8 @@ export type PendingRpc = {
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
   timer: NodeJS.Timeout;
+  /** Detaches the caller's abort listener once this rpc settles any way. */
+  cleanup?: () => void;
 };
 
 /** Sessions torn down by a host disconnect; empty when the socket was stale. */
