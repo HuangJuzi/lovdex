@@ -24,20 +24,68 @@ type HostsResponse = { data?: { hosts?: RemoteHost[] } };
 type DeployResponse = { data?: { status?: string; message?: string } };
 
 const POLL_INTERVAL_MS = 3000;
+// After a deploy command completes, keep watching the row this long for the
+// lite to actually connect back (green dot). Bounds the wait so a host that
+// never dials back doesn't hold the button in 部署中… forever.
+const ONLINE_GRACE_MS = 30_000;
 
-function statusLabel(host: RemoteHost): string {
-  switch (host.status) {
-    case 'online':
-      return '在线';
-    case 'offline':
-      return '离线';
-    case 'deploying':
-      return '部署中';
-    case 'error':
-      return '错误';
-    default:
-      return host.status;
+// Combined display state of one host row. `status` is the PERSISTED bootstrap
+// result; `online` is the LIVE registry connection. Both must be read together:
+//   online=true                         → 真·在线（lite 已连回主站）
+//   status=online 但 online=false       → 部署命令成功，lite 未连回 ← 最常见误读点
+function deriveHostState(host: RemoteHost): {
+  label: string;
+  dotClass: string;
+  hint?: string;
+  hintTone: 'muted' | 'warn';
+} {
+  if (host.online) {
+    return { label: '在线', dotClass: 'bg-green-500', hintTone: 'muted' };
   }
+  switch (host.status) {
+    case 'deploying':
+      return {
+        label: '部署中',
+        dotClass: 'bg-amber-400 animate-pulse',
+        hint: '正在推送 lite 到目标机，请等待…',
+        hintTone: 'muted',
+      };
+    case 'online':
+      return {
+        label: '未连接',
+        dotClass: 'bg-amber-500',
+        hint: '部署命令已完成，但 lite 尚未连回主站。等待几秒后若无变化，请点「重新部署」'
+          + '（并确认主站 LOVDEX_PUBLIC_WS_URL 指向本机对目标机可达的地址）。',
+        hintTone: 'warn',
+      };
+    case 'error':
+      return {
+        label: '错误',
+        dotClass: 'bg-red-500',
+        hint: host.last_error ?? '部署失败',
+        hintTone: 'warn',
+      };
+    case 'offline':
+    default:
+      return {
+        label: '离线',
+        dotClass: 'bg-gray-400',
+        hint: '尚未部署或未在线，点「部署」上线',
+        hintTone: 'muted',
+      };
+  }
+}
+
+function formatRelativeTime(iso: string | null): string {
+  if (!iso) return '';
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return '';
+  const diffMin = Math.floor((Date.now() - t) / 60_000);
+  if (diffMin < 1) return '刚刚';
+  if (diffMin < 60) return `${diffMin} 分钟前`;
+  const hours = Math.floor(diffMin / 60);
+  if (hours < 24) return `${hours} 小时前`;
+  return `${Math.floor(hours / 24)} 天前`;
 }
 
 async function readErrorMessage(res: Response, fallback: string): Promise<string> {
@@ -55,8 +103,13 @@ async function readErrorMessage(res: Response, fallback: string): Promise<string
 
 /**
  * 远程机器设置：添加（弹窗一键注入公钥+部署）、部署/删除远程 lite agent 主机。
- * 手动写入目标机 authorized_keys。部署是阻塞式 ssh 调用，发起后本地进入
- * "部署中…" 并每 ~3s 轮询 GET / 直到状态不再是 deploying。
+ *
+ * 部署成功与否的判定（直观信号）：
+ *   - 绿点 + 「在线」= lite 已连回主站，真正可用；
+ *   - 黄点 + 「未连接」= 部署命令完成但 lite 没连回（查 LOVDEX_PUBLIC_WS_URL 后重新部署）；
+ *   - 红点 + 「错误」+ 红字原因 = 部署失败。
+ * 点「重新部署」会重跑整条 ssh/scp/install 链路，期间按钮显示「部署中…」，
+ * 部署完成后持续轮询至多 30s 观察 lite 是否连回，绿点会自动亮起。
  */
 export function RemoteHostsSettingsSection() {
   const [hosts, setHosts] = useState<RemoteHost[]>([]);
@@ -69,8 +122,12 @@ export function RemoteHostsSettingsSection() {
   // Per-host transient action state.
   const [deployingIds, setDeployingIds] = useState<ReadonlySet<string>>(new Set());
   const [actionError, setActionError] = useState<string | null>(null);
+  // Transient deploy outcome note (cleared on next deploy).
+  const [deployNotes, setDeployNotes] = useState<Record<string, string>>({});
 
-  const pollTimers = useRef<Map<string, ReturnType<typeof setInterval>>>(new Map());
+  // Synchronous double-click guard: a ref, not state — two clicks in the same
+  // render tick would both see the same `deployingIds` value.
+  const inFlightDeploys = useRef<Set<string>>(new Set());
 
   const loadHosts = useCallback(async (): Promise<RemoteHost[]> => {
     const res = await api.get('/remote-agents');
@@ -99,15 +156,6 @@ export function RemoteHostsSettingsSection() {
     };
   }, [loadHosts]);
 
-  // Clear any pending poll intervals on unmount.
-  useEffect(() => {
-    const timers = pollTimers.current;
-    return () => {
-      timers.forEach((timer) => clearInterval(timer));
-      timers.clear();
-    };
-  }, []);
-
   const markDeploying = useCallback((hostId: string, on: boolean) => {
     setDeployingIds((prev) => {
       const next = new Set(prev);
@@ -117,36 +165,50 @@ export function RemoteHostsSettingsSection() {
     });
   }, []);
 
-  const startPolling = useCallback(
-    (hostId: string) => {
-      if (pollTimers.current.has(hostId)) return;
+  // Wait (polling GET /) up to `timeoutMs` for the host to reach a terminal,
+  // intuitive state: lite connected (online=true) or bootstrap error. Resolves
+  // on the deadline otherwise. loadHosts already refreshes the list on each
+  // tick, so the dot/label/success signals update live as the lite dials back.
+  function waitForTerminal(hostId: string, timeoutMs: number): Promise<void> {
+    return new Promise((resolve) => {
+      const deadline = Date.now() + timeoutMs;
       const timer = setInterval(() => {
         void loadHosts()
           .then((list) => {
             const row = list.find((h) => h.host_id === hostId);
-            if (!row || row.status !== 'deploying') {
+            const done =
+              !row || row.online === true || row.status === 'error' || Date.now() >= deadline;
+            if (done) {
               clearInterval(timer);
-              pollTimers.current.delete(hostId);
-              markDeploying(hostId, false);
+              resolve();
             }
           })
           .catch(() => {
             // Transient list errors during polling are non-fatal; keep polling.
           });
       }, POLL_INTERVAL_MS);
-      pollTimers.current.set(hostId, timer);
-    },
-    [loadHosts, markDeploying],
-  );
+      void loadHosts()
+        .then((list) => {
+          const row = list.find((h) => h.host_id === hostId);
+          if (!row || row.online === true || row.status === 'error') {
+            clearInterval(timer);
+            resolve();
+          }
+        })
+        .catch(() => undefined);
+    });
+  }
 
   async function handleDeploy(host: RemoteHost) {
-    // Synchronous double-click guard: the poll timer for this host is set before
-    // the blocking deploy resolves, so a second click must be a no-op.
-    if (pollTimers.current.has(host.host_id)) return;
+    if (inFlightDeploys.current.has(host.host_id)) return;
+    inFlightDeploys.current.add(host.host_id);
     setActionError(null);
+    setDeployNotes((prev) => {
+      const next = { ...prev };
+      delete next[host.host_id];
+      return next;
+    });
     markDeploying(host.host_id, true);
-    // Poll while the blocking deploy runs so the row status reflects progress.
-    startPolling(host.host_id);
     try {
       const res = await api.post(`/remote-agents/${encodeURIComponent(host.host_id)}/deploy`, {});
       if (!res.ok) {
@@ -154,17 +216,24 @@ export function RemoteHostsSettingsSection() {
         return;
       }
       (await res.json()) as DeployResponse;
+
+      // The blocking deploy returned (row status already flipped off
+      // 'deploying'). Keep watching so the definitive success signal — the lite
+      // dialing back → green dot 「在线」— shows up on its own.
+      await waitForTerminal(host.host_id, ONLINE_GRACE_MS);
+      const refreshed = await loadHosts().catch(() => null);
+      const row = refreshed?.find((h) => h.host_id === host.host_id);
+      setDeployNotes((prev) => ({
+        ...prev,
+        [host.host_id]: row?.online
+          ? '✓ 部署成功，lite 已连回主站'
+          : '部署命令已执行完毕，lite 尚未连回主站（见上方状态提示）',
+      }));
     } catch (err) {
       setActionError(err instanceof Error ? err.message : '部署失败');
     } finally {
-      // The blocking call returned; stop the poll loop and refresh once more.
-      const timer = pollTimers.current.get(host.host_id);
-      if (timer) {
-        clearInterval(timer);
-        pollTimers.current.delete(host.host_id);
-      }
+      inFlightDeploys.current.delete(host.host_id);
       markDeploying(host.host_id, false);
-      await loadHosts().catch(() => undefined);
     }
   }
 
@@ -243,33 +312,50 @@ export function RemoteHostsSettingsSection() {
           </div>
         ) : (
           hosts.map((host) => {
+            const state = deriveHostState(host);
             const isDeploying = host.status === 'deploying' || deployingIds.has(host.host_id);
+            const lastSeen = formatRelativeTime(host.last_seen_at);
+            // A host that has been deployed before (or failed) can be re-run —
+            // relabel the button so the re-deploy affordance is obvious.
+            const deployLabel = host.status === 'offline' ? '部署' : '重新部署';
             return (
               <div key={host.host_id} className="rounded-lg border border-border bg-card p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <span
-                        className={`h-2 w-2 flex-shrink-0 rounded-full ${
-                          host.online ? 'bg-green-500' : 'bg-gray-400'
-                        }`}
-                        title={host.online ? '在线' : '离线'}
+                        className={`h-2 w-2 flex-shrink-0 rounded-full ${state.dotClass}`}
+                        title={state.label}
                       />
                       <span className="truncate text-sm font-medium text-foreground">{host.name}</span>
-                      <span className="text-xs text-muted-foreground">{statusLabel(host)}</span>
+                      <span
+                        className={
+                          state.hintTone === 'warn'
+                            ? 'text-xs font-medium text-amber-600'
+                            : 'text-xs text-muted-foreground'
+                        }
+                      >
+                        {state.label}
+                      </span>
+                      {lastSeen && (
+                        <span className="text-xs text-muted-foreground">· 最后在线 {lastSeen}</span>
+                      )}
                     </div>
                     <div className="mt-1 truncate font-mono text-xs text-muted-foreground">
                       {host.ssh_user}@{host.host}:{host.port}
                       {host.os ? ` · ${host.os}` : ''}
                     </div>
-                    {host.last_error && (
+                    {deployNotes[host.host_id] && (
+                      <div className="mt-1 text-xs text-emerald-600">{deployNotes[host.host_id]}</div>
+                    )}
+                    {state.hint && (
                       <div
-                        className="mt-1 truncate text-xs text-red-500"
-                        title={host.last_error}
+                        className={`mt-1 text-xs ${
+                          state.hintTone === 'warn' ? 'text-amber-600' : 'text-muted-foreground'
+                        }`}
+                        title={state.hint}
                       >
-                        {host.last_error.length > 120
-                          ? `${host.last_error.slice(0, 120)}…`
-                          : host.last_error}
+                        {state.hint.length > 120 ? `${state.hint.slice(0, 120)}…` : state.hint}
                       </div>
                     )}
                   </div>
@@ -279,8 +365,9 @@ export function RemoteHostsSettingsSection() {
                       variant="outline"
                       onClick={() => void handleDeploy(host)}
                       disabled={isDeploying}
+                      title={isDeploying ? '部署进行中…' : '重新把 lite 部署到目标机'}
                     >
-                      {isDeploying ? '部署中…' : '部署'}
+                      {isDeploying ? '部署中…' : deployLabel}
                     </Button>
                     <Button
                       size="sm"
