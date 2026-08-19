@@ -275,6 +275,19 @@ export function createAllowlistedFs(opts: {
 
     async write(p, content, encoding: 'utf8' | 'base64' = 'utf8') {
       const target = resolveWithinRoots(p, roots);
+      // Never write THROUGH a symlink leaf. resolveRealPath realpaths the
+      // nearest existing ancestor, so a symlink that survives resolution here
+      // is either dangling (realpath failed, target lexical) or otherwise
+      // unresolvable — writing it would follow the link outside the roots
+      // (e.g. overwrite ~/.ssh/authorized_keys via a repo-internal symlink).
+      let leafStat;
+      try {
+        leafStat = await fsp.lstat(target);
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+        // Leaf does not exist yet — writeFile will create it.
+      }
+      if (leafStat?.isSymbolicLink()) throw new Error('path outside allowed root');
       const buf = encoding === 'base64' ? Buffer.from(content, 'base64') : Buffer.from(content, 'utf8');
       await fsp.writeFile(target, buf);
       return { success: true, size: buf.length };
@@ -294,7 +307,10 @@ export function createAllowlistedFs(opts: {
       if (type === 'directory') await fsp.mkdir(canonical, { recursive: false });
       else {
         await fsp.mkdir(path.dirname(canonical), { recursive: true });
-        await fsp.writeFile(canonical, Buffer.alloc(0));
+        // O_CREAT|O_EXCL ('wx') so a pre-existing path — including a dangling
+        // symlink that `fsp.access` cannot see — fails with EEXIST instead of
+        // being followed/truncated outside the root.
+        await fsp.writeFile(canonical, Buffer.alloc(0), { flag: 'wx' });
       }
       return { success: true, path: canonical };
     },

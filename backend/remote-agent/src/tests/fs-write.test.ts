@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, symlinkSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -48,4 +48,34 @@ test('path escape outside roots rejected on write', async () => {
   const fsApi = createAllowlistedFs({ roots: [root] });
   await assert.rejects(() => fsApi.write('/etc/passwd', 'x'), /path outside allowed root/);
   rmSync(root, { recursive: true, force: true });
+});
+
+test('write rejects a dangling symlink leaf (no write-through)', async () => {
+  const root = makeRoot();
+  const outsideRoot = makeRoot();
+  const victim = path.join(outsideRoot, 'victim.txt');
+  symlinkSync(victim, path.join(root, 'evillink'));
+  const fsApi = createAllowlistedFs({ roots: [root] });
+  await assert.rejects(
+    () => fsApi.write(path.join(root, 'evillink'), 'pwned'),
+    /allowed root/,
+  );
+  assert.equal(existsSync(victim), false, 'victim outside the root must not be written');
+  rmSync(root, { recursive: true, force: true });
+  rmSync(outsideRoot, { recursive: true, force: true });
+});
+
+test('create file rejects a dangling symlink leaf (no truncate-through)', async () => {
+  const root = makeRoot();
+  const outsideRoot = makeRoot();
+  const victim = path.join(outsideRoot, 'victim.txt');
+  symlinkSync(victim, path.join(root, 'evillink'));
+  const fsApi = createAllowlistedFs({ roots: [root] });
+  await assert.rejects(
+    () => fsApi.create(root, 'file', 'evillink'),
+    /EEXIST|already exists|allowed root/,
+  );
+  assert.equal(existsSync(victim), false, 'victim outside the root must not be created');
+  rmSync(root, { recursive: true, force: true });
+  rmSync(outsideRoot, { recursive: true, force: true });
 });
