@@ -10,9 +10,29 @@ import { z } from 'zod';
  *   carries a human-readable message string.
  * - `push`: unsolicited event notification delivered on a topic.
  * - `pong`: reply to a `ping`; `at` is the receive timestamp in ms epoch.
+ *
+ * A `hello` frame may carry a `providers` array: the result of the lite
+ * agent's runtime probe (which AI CLIs are installed, git availability).
  */
+export type RemoteProvider = 'claude' | 'codex' | 'opencode' | 'qoder';
+export const REMOTE_PROVIDERS: readonly RemoteProvider[] = ['claude', 'codex', 'opencode', 'qoder'];
+
+export type RemoteProviderProbe = {
+  provider: RemoteProvider;
+  installed: boolean;
+  version: string | null;
+};
+
+export type RemoteHostProbe = {
+  providers: RemoteProviderProbe[];
+  gitInstalled: boolean;
+  gitVersion: string | null;
+  nodeVersion: string;
+  os: string;
+};
+
 export type AgentFrameIn =
-  | { type: 'hello'; hostId: string; agentVersion: string; nodeVersion: string; os: string; roots: string[]; capabilities: string[] }
+  | { type: 'hello'; hostId: string; agentVersion: string; nodeVersion: string; os: string; roots: string[]; capabilities: string[]; providers?: RemoteProviderProbe[] | null }
   | { type: 'rpc_res'; id: string; ok: boolean; data?: unknown; error?: string }
   | { type: 'push'; topic: string; payload: unknown }
   | { type: 'pong'; at: number };
@@ -53,7 +73,22 @@ export function decodeAgentFrameIn(raw: unknown): AgentFrameIn | null {
         return null;
       }
       if (!isStringArray(f.roots) || !isStringArray(f.capabilities)) return null;
-      return { type: 'hello', hostId, agentVersion, nodeVersion, os, roots: f.roots, capabilities: f.capabilities };
+      const providers = Array.isArray(f.providers)
+        ? f.providers.filter(
+            (p): boolean =>
+              typeof p === 'object' && p !== null && typeof (p as Record<string, unknown>).provider === 'string',
+          )
+        : undefined;
+      return {
+        type: 'hello',
+        hostId,
+        agentVersion,
+        nodeVersion,
+        os,
+        roots: f.roots,
+        capabilities: f.capabilities,
+        ...(providers !== undefined ? { providers } : {}),
+      };
     }
     case 'rpc_res': {
       const { id, ok } = f;
@@ -151,16 +186,20 @@ export function makePing(): AgentFrameOut {
  * Zod schema for `session/start` `rpc_req` params.
  *
  * `providerSessionId` defaults to `null`; `cwd` and `command` are required.
+ * `provider` picks which AI CLI the session runs under (defaults to `claude`);
+ * `configEnv` carries per-session provider configuration (API keys etc).
  */
 export function makeSessionStartParamsSchema() {
   return z.object({
     appSessionId: z.string().min(1),
     providerSessionId: z.string().nullish().default(null),
+    provider: z.enum(REMOTE_PROVIDERS).default('claude'),
     command: z.string().min(1),
     cwd: z.string().min(1),
     model: z.string().optional(),
     permissionMode: z.string().optional(),
     includePartialMessages: z.boolean().optional(),
+    configEnv: z.record(z.string(), z.string()).default({}),
   });
 }
 
@@ -178,3 +217,68 @@ export type RemoteStat = {
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === 'string');
 }
+
+/**
+ * Zod schema for the `fs/write` `rpc_req` params.
+ */
+export function makeFsWriteParamsSchema() {
+  return z.object({
+    path: z.string().min(1),
+    content: z.string(),
+    encoding: z.enum(['utf8', 'base64']).optional().default('utf8'),
+  });
+}
+
+/**
+ * Zod schema for the `fs/create` `rpc_req` params.
+ */
+export function makeFsCreateParamsSchema() {
+  return z.object({
+    parentPath: z.string().min(1),
+    type: z.enum(['file', 'directory']),
+    name: z.string().min(1),
+  });
+}
+
+/**
+ * Zod schema for the `fs/tree` `rpc_req` params.
+ */
+export function makeFsTreeParamsSchema() {
+  return z.object({
+    path: z.string().min(1),
+    maxDepth: z.number().int().min(1).max(20).optional().default(10),
+    showHidden: z.boolean().optional().default(true),
+  });
+}
+
+/**
+ * Zod schema for the `fs/delete` `rpc_req` params.
+ */
+export function makeFsDeleteParamsSchema() {
+  return z.object({ path: z.string().min(1), type: z.enum(['file', 'directory']) });
+}
+
+/**
+ * Zod schema for the `git/exec` `rpc_req` params.
+ */
+export function makeGitExecParamsSchema() {
+  return z.object({
+    args: z.array(z.string().min(1)).min(1),
+    cwd: z.string().min(1),
+    identity: z.object({ name: z.string(), email: z.string() }).optional(),
+    timeoutMs: z.number().int().positive().optional().default(300_000),
+  });
+}
+
+/**
+ * Zod schema for the `providers/probe` `rpc_req` params.
+ */
+export function makeProvidersProbeParamsSchema() {
+  return z.object({ refresh: z.boolean().optional().default(false) });
+}
+
+/**
+ * Result of a `git/exec` call: combined streaming output split into stdout and
+ * stderr, plus the process exit code.
+ */
+export type GitExecResult = { stdout: string; stderr: string; exitCode: number };
