@@ -1,15 +1,46 @@
 // cross-spawn: drop-in spawn with Windows .cmd/PATHEXT resolution (same choice as routes/git.js).
 import spawn from 'cross-spawn';
 
+import { createRemoteGitClient } from '@/modules/remote-agents/remote-git.service.js';
+import { lookupHostForPath } from '@/modules/remote-agents/remote-projects.index.js';
+import { getRemoteAgentsRuntime } from '@/modules/remote-agents/runtime.js';
 import type { GitCommandResult, GitCommandRunner, WorktreePorcelainEntry } from '@/shared/types.js';
 import { AppError, normalizeProjectPath } from '@/shared/utils.js';
 
 /**
+ * Lazily resolve the remote git client for a hosted cwd, or null for local
+ * paths. The thunk keeps `getRemoteAgentsRuntime()` out of module load: the
+ * runtime seam is wired at boot, after this module is imported, so the first
+ * host hit must resolve at call time. The client is memoized across calls.
+ */
+let remoteGitRef: ReturnType<typeof createRemoteGitClient> | null = null;
+function remoteGitFor(cwd: string): ReturnType<typeof createRemoteGitClient> | null {
+  if (!lookupHostForPath(cwd)) return null;
+  if (!remoteGitRef) remoteGitRef = createRemoteGitClient(() => getRemoteAgentsRuntime().registry);
+  return remoteGitRef;
+}
+
+/**
  * Default `GitCommandRunner`: spawns `git <args>` in `cwd` and captures output.
- * Rejects with an `AppError` carrying git's stderr when the command fails, so
- * callers (and ultimately the API client) see the real git diagnostic.
+ * When `cwd` belongs to a remote host (per {@link lookupHostForPath}) the
+ * command runs on the lite agent via the `git/exec` RPC instead; otherwise it
+ * spawns locally. Both paths reject with an `AppError` carrying git's stderr
+ * when the command fails, so callers (and the API client) see the real
+ * diagnostic.
  */
 export function runGitCommand(args: string[], cwd: string): Promise<GitCommandResult> {
+  const remoteGit = remoteGitFor(cwd);
+  if (remoteGit) {
+    const hostId = lookupHostForPath(cwd) as string;
+    return remoteGit.exec(hostId, args, { cwd }).then((res) => {
+      if (res.exitCode === 0) return { stdout: res.stdout, stderr: res.stderr };
+      throw new AppError(`git ${args.join(' ')} failed`, {
+        code: 'GIT_COMMAND_FAILED',
+        statusCode: 500,
+        details: (res.stderr || res.stdout).trim(),
+      });
+    });
+  }
   return new Promise((resolve, reject) => {
     const child = spawn('git', args, { cwd, shell: false });
 

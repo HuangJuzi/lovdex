@@ -1,9 +1,19 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { mkdtemp, rm } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 
 import {
+  refreshRemoteProjectsIndex,
+  setOnlineHostsLookup,
+} from '@/modules/remote-agents/remote-projects.index.js';
+import { setRemoteAgentsRuntime } from '@/modules/remote-agents/runtime.js';
+import {
   findWorktreeEntryByPath,
   parseWorktreeListPorcelain,
+  runGitCommand,
   validateWorktreeBranchName,
 } from '@/modules/worktrees/services/worktree-git.service.js';
 import { AppError } from '@/shared/utils.js';
@@ -81,4 +91,102 @@ test('validateWorktreeBranchName rejects unsafe names', () => {
       `expected "${invalidName}" to be rejected`,
     );
   }
+});
+
+/** Create a throwaway git repo so the local spawn path hits real git. */
+async function withLocalGitRepo(fn: (repoDir: string) => Promise<void>): Promise<void> {
+  const repoDir = await mkdtemp(path.join(os.tmpdir(), 'lovdex-worktree-git-'));
+  try {
+    execFileSync('git', ['init', '-q'], { cwd: repoDir, stdio: 'pipe' });
+    await fn(repoDir);
+  } finally {
+    await rm(repoDir, { recursive: true, force: true });
+  }
+}
+
+/**
+ * Point `lookupHostForPath` at a synthetic online host whose roots cover
+ * `/home/u/repo`. The host lookup + exact project map are module state in
+ * remote-projects.index.js, so injecting through its exported seams is the
+ * supported way to fake a hosted path (a later test resets it).
+ */
+function enableFakeRemoteHost(): void {
+  setOnlineHostsLookup(() => [{ hostId: 'host-remote-1', roots: ['/home/u/repo'] }]);
+  refreshRemoteProjectsIndex([]);
+}
+
+test('runGitCommand routes a hosted cwd to the remote git RPC and maps the result', async () => {
+  enableFakeRemoteHost();
+  const calls: { hostId: string; method: string; params: unknown }[] = [];
+  setRemoteAgentsRuntime({
+    registry: {
+      rpc: async (hostId: string, method: string, params: unknown) => {
+        calls.push({ hostId, method, params });
+        return { stdout: 'abc123\n', stderr: '', exitCode: 0 };
+      },
+    } as never,
+    fsClient: {} as never,
+  });
+
+  const res = await runGitCommand(['rev-parse', 'HEAD'], '/home/u/repo');
+
+  assert.deepEqual(calls, [
+    {
+      hostId: 'host-remote-1',
+      method: 'git/exec',
+      params: { args: ['rev-parse', 'HEAD'], cwd: '/home/u/repo', timeoutMs: 300000 },
+    },
+  ]);
+  assert.equal(res.stdout, 'abc123\n');
+  assert.equal(res.stderr, '');
+});
+
+test('runGitCommand converts a remote git/exec failure into a GIT_COMMAND_FAILED AppError', async () => {
+  enableFakeRemoteHost();
+  setRemoteAgentsRuntime({
+    registry: {
+      rpc: async () => ({
+        stdout: '',
+        stderr: 'fatal: not a git repository\n',
+        exitCode: 128,
+      }),
+    } as never,
+    fsClient: {} as never,
+  });
+
+  await assert.rejects(
+    runGitCommand(['rev-parse', '--show-toplevel'], '/home/u/repo'),
+    (error: unknown) =>
+      error instanceof AppError &&
+      error.code === 'GIT_COMMAND_FAILED' &&
+      error.statusCode === 500 &&
+      String(error.details) === 'fatal: not a git repository',
+  );
+});
+
+test('runGitCommand falls back to the local git spawn for a non-hosted cwd', async () => {
+  // No host covers local temp dirs — force the host lookup to null so this test
+  // is deterministic regardless of other tests' host injection.
+  setOnlineHostsLookup(() => null);
+  refreshRemoteProjectsIndex([]);
+  await withLocalGitRepo(async (repoDir) => {
+    const res = await runGitCommand(['rev-parse', '--is-inside-work-tree'], repoDir);
+    assert.equal(res.stdout.trim(), 'true');
+    assert.equal(res.stderr, '');
+  });
+});
+
+test('runGitCommand surfaces local git failure as a GIT_COMMAND_FAILED AppError', async () => {
+  setOnlineHostsLookup(() => null);
+  refreshRemoteProjectsIndex([]);
+  await withLocalGitRepo(async (repoDir) => {
+    await assert.rejects(
+      runGitCommand(['merge', '--bogus-flag'], repoDir),
+      (error: unknown) =>
+        error instanceof AppError &&
+        error.code === 'GIT_COMMAND_FAILED' &&
+        error.statusCode === 500 &&
+        Boolean(error.details),
+    );
+  });
 });

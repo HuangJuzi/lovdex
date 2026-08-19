@@ -6,6 +6,8 @@ import { deleteOrArchiveProject } from '@/modules/projects/index.js';
 // and restoreArchivedProject are imported directly from their services.
 import { createProject } from '@/modules/projects/services/project-management.service.js';
 import { restoreArchivedProject } from '@/modules/projects/services/project-delete.service.js';
+import { getRemoteAgentsRuntime } from '@/modules/remote-agents/runtime.js';
+import { lookupHostForPath } from '@/modules/remote-agents/remote-projects.index.js';
 import type {
   WorktreeFileSystem,
   WorktreeProjectGateway,
@@ -29,6 +31,19 @@ import { createWorktreesRouter } from '@/modules/worktrees/worktrees.routes.js';
  */
 const worktreeFileSystem: WorktreeFileSystem = {
   async pathExists(candidatePath: string): Promise<boolean> {
+    // Hosted paths probe the lite's fs/stat RPC (runs at request time — the
+    // runtime seam is safe to touch here); local paths keep using `access`.
+    const hostId = lookupHostForPath(candidatePath);
+    if (hostId) {
+      try {
+        const stat = await getRemoteAgentsRuntime().fsClient.stat(hostId, candidatePath);
+        return stat.exists;
+      } catch {
+        // stat propagates ENOENT for missing remote paths; treat any failure
+        // as "does not exist" to mirror the local `access` fall-through.
+        return false;
+      }
+    }
     try {
       await access(candidatePath);
       return true;
@@ -48,6 +63,14 @@ const worktreeFileSystem: WorktreeFileSystem = {
 const worktreeProjects: WorktreeProjectGateway = {
   getProjectPathById: (projectId) => projectsDb.getProjectPathById(projectId),
   getProjectByPath: (projectPath) => projectsDb.getProjectPath(projectPath),
+  // KNOWN EDGE (Phase 2 boundary, intentionally NOT implemented): opening a
+  // remote worktree as a project needs the new project row tagged with
+  // `remote_host_id` — i.e. this gateway would have to call
+  // `createProjectWithRemote` (project-management.service.ts) when the target
+  // host resolves to a remote. Without that tag, a remote open-worktree row
+  // would fall back to local execution after creation. Out of scope here:
+  // remote repos get worktree list/create/merge/remove; open on a remote host
+  // currently yields the "Not a git repository"-style host failure path.
   createProject: (input) => createProject(input),
   restoreProject: (projectId) => restoreArchivedProject(projectId),
   archiveProject: (projectId) => deleteOrArchiveProject(projectId, false),
