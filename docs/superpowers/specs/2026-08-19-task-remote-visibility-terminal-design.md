@@ -121,6 +121,14 @@
 - 经 lite 流式 RPC 的终端（已定走 ssh 直连）
 - 任务表单项目下拉以外的远程入口改造（列表中其他选择器保持现状）
 
+## 实现注记（实施后补充）
+
+- 项目下拉的远程标识用**文本前缀** `🌐 <hostName> · <name>` 而非样式徽标——原生 `<option>` 只能渲染文本，无法内嵌 styled badge；终端 pane 的 `SSH: <hostName>` 徽标不受此限（pane 内覆盖层）
+- 远端引擎探测失败与“探测为空”统一走 **禁用+提示**（`REMOTE_HOST_OFFLINE` 与网络错误从前端 API 无法可靠区分，且用户已选“空则禁用”）；仅**本地**探测失败降级为 4 引擎 + 提示
+- `/ws/terminal` 远程分支的本地 `cwd` 参数传给 node-pty 的 `dependencies.cwd`（ssh 不使用主控端 cwd），远端落点在 argv 的 `cd` 命令里
+- 空 cwd 的远程默认：ssh argv 末尾为 `exec $SHELL -l`（不带 `cd`），登录 shell 天然落在远端 $HOME——不能用 `cd '~'`（单引号会取消远端 shell 的 tilde 展开导致 cd 失败）
+- 实现覆盖：TaskBoard 新建任务 Modal 与 ScheduledTaskForm 同步（项目前缀 + 引擎按目标机过滤 + 提交守卫）；`/ws/terminal` 按 `?hostId=` 走 `ssh -t` 分流（unknown hostId 直接拒绝，不回落本地 shell）
+
 ## 验证
 
 - 手工：已有远程主机 + 远程项目 → 新建任务选远程项目，引擎下拉=远程主机已装引擎；断掉主机再试 → 禁用+提示；打开远程项目终端 → shell 提示符为远端主机、`pwd` 为远程项目目录、UI 显示 `SSH: <hostName>`
