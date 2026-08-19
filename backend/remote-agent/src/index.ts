@@ -29,10 +29,18 @@ export interface WsLike {
 }
 
 /**
+ * In-flight `rpc_req` id → its AbortController. `rpc_cancel` aborts the
+ * matching controller so long-running handlers (git/exec child processes,
+ * session loops) can stop promptly instead of running to their timeout.
+ */
+const inflight = new Map<string, AbortController>();
+
+/**
  * Handle one decoded inbound frame.
  *
  * - `ping` → reply `pong`.
  * - `rpc_req` → run {@link handleRpc}, reply `rpc_res` with `ok` + `data`/`error`.
+ * - `rpc_cancel` → abort the in-flight request with the matching `id`.
  * - anything else → ignored.
  */
 export async function handleIncomingFrame(
@@ -48,14 +56,23 @@ export async function handleIncomingFrame(
     return;
   }
 
+  if (f.type === 'rpc_cancel' && typeof f.id === 'string') {
+    inflight.get(f.id)?.abort();
+    return;
+  }
+
   if (f.type === 'rpc_req' && typeof f.id === 'string' && typeof f.method === 'string') {
     const id = f.id;
+    const controller = new AbortController();
+    inflight.set(id, controller);
     try {
-      const data = await handleRpc(f.method, f.params, cfg);
+      const data = await handleRpc(f.method, f.params, cfg, controller);
       ws.send(JSON.stringify({ type: 'rpc_res', id, ok: true, data }));
     } catch (err) {
       const error = err instanceof Error ? err.message : String(err);
       ws.send(JSON.stringify({ type: 'rpc_res', id, ok: false, error }));
+    } finally {
+      inflight.delete(id);
     }
     return;
   }
@@ -72,10 +89,10 @@ export async function handleIncomingFrame(
  */
 
 function buildHelloFrame(cfg: RemoteAgentConfig): string {
-  // capabilities: session/start·interrupt and approval/respond are live
-  // (Task 9); Task 10 restored the allowlisted fs surface. The dispatcher
-  // implements all three fs ops, so all are advertised together. Every fs op is
-  // scoped to `cfg.roots` (see fs.ts).
+  // capabilities: every RPC method the dispatcher understands is advertised so
+  // main can offer the host's full surface. session/* stays claude-only probe-
+  // aware: the lite currently runs ONE provider CLI (claude); codex/opencode/
+  // qoder generalization lands with the multi-provider session/start work.
   return JSON.stringify({
     type: 'hello',
     hostId: cfg.hostId,
@@ -83,7 +100,19 @@ function buildHelloFrame(cfg: RemoteAgentConfig): string {
     nodeVersion: process.version,
     os: process.platform,
     roots: cfg.roots,
-    capabilities: ['session/claude', 'fs/stat', 'fs/list', 'fs/read'],
+    capabilities: [
+      'session/claude',
+      'fs/stat',
+      'fs/list',
+      'fs/read',
+      'fs/write',
+      'fs/tree',
+      'fs/create',
+      'fs/rename',
+      'fs/delete',
+      'git/exec',
+      'providers/probe',
+    ],
   });
 }
 

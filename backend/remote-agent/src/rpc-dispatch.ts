@@ -1,6 +1,9 @@
 import { createAgentRunManager, type SessionStartParams } from './agent-run.js';
 import { createAllowlistedFs } from './fs.js';
+import { createGitService } from './git.js';
+import { probeRemoteHost } from './probe.js';
 import type { RemoteAgentConfig } from './config.js';
+import { makeGitExecParamsSchema } from '../../server/shared/agent-runtime/protocol.js';
 
 /**
  * Bridge to the current WebSocket push bus. index.ts calls {@link setPushEmitter}
@@ -47,18 +50,30 @@ function allowlistedFsFor(cfg: RemoteAgentConfig): ReturnType<typeof createAllow
 }
 
 /**
+ * Accessor for lite-side capabilities reporting. The probe runs the installed
+ * provider CLIs located on the host; main-side hello processing and provider
+ * filtering consume it over `providers/probe` (and later hello `providers`).
+ */
+export function makeProbeAccessor() {
+  return { probe: probeRemoteHost };
+}
+
+/**
  * Dispatches an `rpc_req` method to its handler.
  *
  * - `session/start`     → begin a claude run (resolves with providerSessionId).
  * - `session/interrupt` → signal the run to stop (`{ interrupted: boolean }`).
  * - `approval/respond`  → resolve a pending tool approval (`{ accepted: boolean }`).
- * - `fs/stat|list|read` → allowlisted fs ops scoped to `cfg.roots` (Task 10).
+ * - `fs/stat|list|read|write|tree|create|rename|delete` → allowlisted fs ops scoped to `cfg.roots`.
+ * - `git/exec`          → roots-allowlisted git subprocess (abortable via controller).
+ * - `providers/probe`   → probe installed provider CLIs + git + node.
  * - anything else       → `unknown rpc method`.
  */
 export async function handleRpc(
   method: string,
   params: unknown,
   cfg: RemoteAgentConfig,
+  controller?: AbortController,
 ): Promise<unknown> {
   if (method === 'session/start') {
     // I3 note (Phase 2): session/messages (remote chat history) is NOT
@@ -82,8 +97,36 @@ export async function handleRpc(
       const p = params as { path: string; maxEntries?: number };
       return fsApi.list(p.path, p.maxEntries);
     }
-    const p = params as { path: string; maxBytes?: number };
-    return fsApi.read(p.path, p.maxBytes);
+    const p = params as { path: string; maxBytes?: number; encoding?: 'utf8' | 'base64' };
+    return fsApi.read(p.path, p.maxBytes, p.encoding ?? 'utf8');
+  }
+  if (method === 'fs/write' || method === 'fs/create' || method === 'fs/rename' || method === 'fs/delete' || method === 'fs/tree') {
+    const fsApi = allowlistedFsFor(cfg);
+    if (method === 'fs/write') {
+      const p = params as { path: string; content: string; encoding?: 'utf8' | 'base64' };
+      return fsApi.write(p.path, p.content, p.encoding ?? 'utf8');
+    }
+    if (method === 'fs/tree') {
+      const p = params as { path: string; maxDepth?: number; showHidden?: boolean };
+      return fsApi.tree(p.path, p.maxDepth, p.showHidden);
+    }
+    if (method === 'fs/create') {
+      const p = params as { parentPath: string; type: 'file' | 'directory'; name: string };
+      return fsApi.create(p.parentPath, p.type, p.name);
+    }
+    if (method === 'fs/rename') {
+      const p = params as { oldPath: string; newName: string };
+      return fsApi.rename(p.oldPath, p.newName);
+    }
+    const p = params as { path: string; type: 'file' | 'directory' };
+    return fsApi.delete(p.path, p.type);
+  }
+  if (method === 'git/exec') {
+    const req = makeGitExecParamsSchema().parse(params);
+    return createGitService({ roots: cfg.roots }).exec(req, controller?.signal);
+  }
+  if (method === 'providers/probe') {
+    return probeRemoteHost();
   }
   throw new Error('unknown rpc method: ' + method);
 }

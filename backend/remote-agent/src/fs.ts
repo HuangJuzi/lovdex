@@ -133,7 +133,7 @@ function resolveWithin(input: string, root: string): string {
 }
 
 /** Resolve within ANY of the configured roots; throw if it escapes all of them. */
-function resolveWithinRoots(input: string, roots: string[]): string {
+export function resolveWithinRoots(input: string, roots: string[]): string {
   let lastErr: unknown;
   for (const root of roots) {
     try {
