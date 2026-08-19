@@ -68,8 +68,12 @@ export async function buildLitePackage(
   // `--packages=external` is deliberately absent: the tarball has no node_modules
   // and the remote has no package-lock, so every import (ws/zod/claude-agent-sdk)
   // must be inlined. ws's dynamic `require('events')` needs the createRequire
-  // shim in ESM output.
-  const banner = "import{createRequire}from'module';const require=createRequire(import.meta.url);";
+  // shim in ESM output. The banner aliases createRequire AS __createRequire: the
+  // codex SDK inlines its own `import { createRequire } from 'module'` into the
+  // bundle, and two top-level `createRequire` bindings in one ESM module are a
+  // SyntaxError at load (T12 E2E finding — node v18). Keep in sync with
+  // backend/remote-agent/package.json "build" script.
+  const banner = "import{createRequire as __createRequire}from'module';const require=__createRequire(import.meta.url);";
   try {
     await runTool(exec, esbuildBin, [
       'src/index.ts',
