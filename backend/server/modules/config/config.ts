@@ -36,6 +36,13 @@ export const DEFAULT_APP_CONFIG = {
       opusModel: 'DeepSeek-V4-Pro-0813',
       sonnetModel: 'claude-opus-4-8',
       oneMillionModels: '',
+      // Third-party reasoning models (DeepSeek/Kimi/GLM via the proxy) must run
+      // without extended thinking: their reasoning phase lands as standalone
+      // thinking-only assistant turns that trip Claude Code CLI's "no visible
+      // output" nudge loop. Comma-separated model ids (exact match, both slot
+      // names like 'default' and concrete ids resolve). Anthropic models never
+      // listed here.
+      disableThinkingModels: 'DeepSeek-V4-Flash-0731,DeepSeek-V4-Pro-0813,Kimi-K3,GLM-5.2',
       streamCloseTimeoutMs: 10000,
       toolApprovalTimeoutMs: 60000,
     },

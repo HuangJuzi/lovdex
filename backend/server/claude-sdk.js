@@ -164,6 +164,69 @@ function matchesToolPermission(entry, toolName, input) {
   return false;
 }
 
+/**
+ * Whether a session's effective claude model must skip extended thinking.
+ *
+ * Third-party reasoning models served through the sophnet proxy (DeepSeek /
+ * Kimi / GLM) emit their reasoning phase as standalone assistant turns that
+ * contain ONLY a `thinking` block. Claude Code CLI's agent loop counts such a
+ * turn as "no visible output" and repeatedly injects the
+ * "[Your previous response had no visible output. Please continue and produce
+ * a user-visible response.]" nudge until the run dies on max_turns — the
+ * thinking-only loop. `providers.claude.disableThinkingModels` whitelists the
+ * ids that must run without extended thinking so they can never produce a
+ * thinking-only turn. Slot names ('default'/'opus'/…) resolve to the concrete
+ * id via the same config so the session's effective model is judged, since the
+ * SDK/CLI only knows the concrete model after env resolution. Anthropic models
+ * are never in the list and keep adaptive thinking. Exported for tests only.
+ */
+export function shouldDisableClaudeThinking(model, claudeProviderConfig) {
+  const cfg = claudeProviderConfig && typeof claudeProviderConfig === 'object' ? claudeProviderConfig : {};
+  const slotModels = {
+    default: cfg.defaultModel,
+    opus: cfg.opusModel,
+    sonnet: cfg.sonnetModel,
+    haiku: cfg.haikuModel,
+  };
+  const effectiveModel = slotModels[model] ?? model;
+  const modelId = typeof effectiveModel === 'string' ? effectiveModel.trim() : '';
+  if (!modelId) {
+    return false;
+  }
+
+  const rawList = cfg.disableThinkingModels;
+  const list = typeof rawList === 'string'
+    ? rawList.split(',')
+    : Array.isArray(rawList)
+      ? rawList.map((entry) => String(entry))
+      : [];
+  return list
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .includes(modelId);
+}
+
+/**
+ * Patches a prepared SDK options object so a model in the disable-thinking list
+ * runs with extended thinking off. Reading app.config each call keeps the list
+ * live-editable on the settings page without a restart (config is authoritative
+ * for env, same pattern as claude-models.provider). No-op for other models.
+ */
+function applyClaudeThinkingDisable(sdkOptions) {
+  if (!sdkOptions || typeof sdkOptions !== 'object') {
+    return;
+  }
+  const claudeCfg = appConfig().get().providers.claude;
+  if (!shouldDisableClaudeThinking(sdkOptions.model, claudeCfg)) {
+    return;
+  }
+  sdkOptions.thinking = { type: 'disabled' };
+  // effort only makes sense together with extended thinking; dropping it keeps
+  // the SDK from re-enabling thinking via `--effort` (SDK serializes effort
+  // only when thinking is not disabled).
+  delete sdkOptions.effort;
+}
+
 function mapCliOptionsToSDK(options = {}) {
   const { sessionId, cwd, toolsSettings, permissionMode, effort } = options;
 
@@ -269,6 +332,11 @@ function mapCliOptionsToSDK(options = {}) {
   // hand-edited boolean/other non-string must not accidentally enable the trigger.
   sdkOptions.workflowKeywordTriggerEnabled =
     typeof cfg.server.ultracodeKeywordTrigger === 'string' && cfg.server.ultracodeKeywordTrigger !== '';
+
+  // Third-party reasoning models (DeepSeek/Kimi/GLM) must skip extended
+  // thinking or the CLI's no-visible-output guard loops forever on their
+  // thinking-only turns. See shouldDisableClaudeThinking.
+  applyClaudeThinkingDisable(sdkOptions);
 
   return sdkOptions;
 }
@@ -629,6 +697,9 @@ async function queryClaudeSDK(command, options = {}, ws) {
       // wasteful and mismatched. A string also avoids the SDK cache_control bug.
       sdkOptions.systemPrompt = '你是 Lovdex Operator，一个跨项目的助手。你只能调用 lovdex-operator 工具集（list_tasks/get_task/get_session_transcript/create_task/start_task_execution/move_task/update_task/write_task_summary/move_session_to_project/create_scheduled_task/list_scheduled_tasks/get_scheduled_task/update_scheduled_task/delete_scheduled_task/execute_skill/workbench 等）来查看任务状态、下发任务、写完成度判定、把任务/会话转移到其他项目、管理定时任务、就地执行白名单技能、做工作区内文件操作。不要试图直接编辑代码或运行 shell——这些工具不可用；要改代码就下发任务。定时任务=到点自动建任务的模板；auto_run=1 无人值守执行，auto_run=0 只生成待办（提醒）；停机错过触发会以一条 label=reminder 的提醒任务通知。被问「有什么定时/待办任务」时用 list_scheduled_tasks + list_tasks 回答。move_session_to_project 把任务连同会话从 A 项目移到 B 项目：按 taskId（连同其 session）或 sessionId 定位，targetProjectPath/targetProjectId 指定目标项目（须已注册）；正在运行的会话会被拒绝，需先停止/结算。execute_skill 就地执行白名单内用户级技能（首批 claw-agent-get-send：groups 查群列表、send/send-md/send-file 向群发消息、verify-target 校验目标），args 第一个词是子命令；用户凭证由服务端在调用瞬间注入并自动脱敏，你永远不会看到明文，也不要索要或转述凭证。向群发消息时直接调 send/send-md/send-file 并带 --rid <rid>（rid 可先用 groups 查到），不要先调 verify-target——它只是可选的双因子校验，缺 TARGET_RID/TARGET_GROUP_NAME 时会失败，但失败不影响发送；任何 execute_skill 子命令失败一次后不要原样重试，先看错误信息换别的做法（例如 verify-target 失败就直接 send）。workbench 是工作区文件台（不是 shell）：list/read 可读任意路径（凭证文件除外，输出自动脱敏）；copy 把文件/目录拷入或在 Operator Home（助手工作区）内移动；run-script 跑放在 Operator Home 或技能目录里的 .py/.js/.sh 脚本。边界规则：涉及其他项目目录的写入一律用 create_task + start_task_execution 下发任务，不要用 workbench 越界写；copy 目标在 Home 外会被拒绝，这正是提醒你该走任务下发。';
       if (cfg.model) sdkOptions.model = cfg.model;
+      // Operator cfg.model may be a third-party reasoning model; the same
+      // thinking-disable rule applies (see shouldDisableClaudeThinking).
+      applyClaudeThinkingDisable(sdkOptions);
     } else {
       const mcpServers = await loadMcpConfig(options.cwd);
       if (mcpServers) {
@@ -1290,6 +1361,10 @@ ${priorVerdictContext}
       systemPrompt: '你是 Lovdex Operator，一个负责评估任务完成度的助手。你只能调用 lovdex-operator 工具集（list_tasks/get_task/get_session_transcript/write_task_summary/create_scheduled_task/list_scheduled_tasks/get_scheduled_task/update_scheduled_task/delete_scheduled_task 等）。不要试图编辑代码或运行 shell——这些工具不可用。判定完成度时以 get_session_transcript 的 finalOutput（最终输出，即最后一条 assistant 消息）为第一依据，并参考整段 transcript 佐证，同时权衡三方面：实际产出质量（根因定位/真实改动/交付物落地）、验证结果（单测/E2E/构建是否真正通过）、是否真正收尾（剩余事项是 Agent 例行收尾如提交推送合入部署，还是必须用户决策）。按 Lovdex 用户偏好，提交推送合入 main 是 Agent 的例行职责，不算用户决策门。判定规则：实际改动已落地+验证已真实完成+仅差例行收尾（提交/推送/合入/部署）→ done，仅当工作实质完成且验证真实通过、只差提交推送时，礼貌性问「要我提交并推送吗？」不否定完成度；实际改动已落地+验证通过+剩余事项确需用户决策 → needs_review（验证未真正完成如只过类型检查没跑冒烟、代码尚未提交、等用户登录验收/选方案/拍板分支处理，都判 needs_review 而非 done）；只给计划无改动 → only_plan；产出错误/验证失败/卡死/需用户介入 → blocked。仅凭最终输出以问句结尾不足以判 needs_review/blocked——工作实质完成且验证真实通过时，礼貌性收尾提问应判 done；但「要不要我跑验证」「代码还没提交」是实际未完成，不是礼貌性收尾。但注意：如果该任务此前已被判定完成（用户 prompt 中会给出现成判定记录），此前的判定只是弱参考——若本次追加工作与主任务无关且追加工作本身也已完整收尾，可维持 done，不因追加工作的存在而降级；若追加工作仍停留在计划/方案、代码未实现、或停在等 review/等用户决策，则按本次实际产出独立判定（only_plan/needs_review/blocked），不得被历史判定强行压成 done。',
       settingSources: ['project', 'user', 'local'],
     };
+
+    // Headless verdicts run on cfg.model too — a third-party reasoning model
+    // must not trip the thinking-only loop during an unattended verdict.
+    applyClaudeThinkingDisable(sdkOptions);
 
     const queryToUse = queryFn ?? query;
     const queryInstance = queryToUse({ prompt, options: sdkOptions });
