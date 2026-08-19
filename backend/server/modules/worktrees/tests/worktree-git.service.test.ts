@@ -3,19 +3,24 @@ import { execFileSync } from 'node:child_process';
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import test from 'node:test';
+import test, { after } from 'node:test';
 
+import { readLocalGitIdentity } from '@/modules/remote-agents/remote-git.service.js';
 import {
   refreshRemoteProjectsIndex,
   setOnlineHostsLookup,
 } from '@/modules/remote-agents/remote-projects.index.js';
-import { setRemoteAgentsRuntime } from '@/modules/remote-agents/runtime.js';
+import {
+  getRemoteAgentsRuntime,
+  setRemoteAgentsRuntime,
+} from '@/modules/remote-agents/runtime.js';
 import {
   findWorktreeEntryByPath,
   parseWorktreeListPorcelain,
   runGitCommand,
   validateWorktreeBranchName,
 } from '@/modules/worktrees/services/worktree-git.service.js';
+import { worktreeFileSystem } from '@/modules/worktrees/worktrees.module.js';
 import { AppError } from '@/shared/utils.js';
 
 const SAMPLE_PORCELAIN = [
@@ -117,11 +122,11 @@ function enableFakeRemoteHost(): void {
 
 test('runGitCommand routes a hosted cwd to the remote git RPC and maps the result', async () => {
   enableFakeRemoteHost();
-  const calls: { hostId: string; method: string; params: unknown }[] = [];
+  const calls: { hostId: string; method: string; params: Record<string, unknown> }[] = [];
   setRemoteAgentsRuntime({
     registry: {
       rpc: async (hostId: string, method: string, params: unknown) => {
-        calls.push({ hostId, method, params });
+        calls.push({ hostId, method, params: params as Record<string, unknown> });
         return { stdout: 'abc123\n', stderr: '', exitCode: 0 };
       },
     } as never,
@@ -130,13 +135,16 @@ test('runGitCommand routes a hosted cwd to the remote git RPC and maps the resul
 
   const res = await runGitCommand(['rev-parse', 'HEAD'], '/home/u/repo');
 
-  assert.deepEqual(calls, [
-    {
-      hostId: 'host-remote-1',
-      method: 'git/exec',
-      params: { args: ['rev-parse', 'HEAD'], cwd: '/home/u/repo', timeoutMs: 300000 },
-    },
-  ]);
+  // The module injects the local git identity when one is configured; match
+  // whatever the module actually read.
+  const identity = readLocalGitIdentity();
+  const expectedParams: Record<string, unknown> = {
+    args: ['rev-parse', 'HEAD'],
+    cwd: '/home/u/repo',
+    timeoutMs: 300000,
+  };
+  if (identity) expectedParams.identity = identity;
+  assert.deepEqual(calls, [{ hostId: 'host-remote-1', method: 'git/exec', params: expectedParams }]);
   assert.equal(res.stdout, 'abc123\n');
   assert.equal(res.stderr, '');
 });
@@ -161,6 +169,29 @@ test('runGitCommand converts a remote git/exec failure into a GIT_COMMAND_FAILED
       error.code === 'GIT_COMMAND_FAILED' &&
       error.statusCode === 500 &&
       String(error.details) === 'fatal: not a git repository',
+  );
+});
+
+test('runGitCommand maps a remote transport failure to a GIT_REMOTE_EXEC_FAILED AppError', async () => {
+  enableFakeRemoteHost();
+  setRemoteAgentsRuntime({
+    registry: {
+      rpc: async () => {
+        throw new Error('remote host offline: host-remote-1');
+      },
+    } as never,
+    fsClient: {} as never,
+  });
+
+  // A transport hiccup must never be misread downstream as NOT_A_GIT_REPOSITORY;
+  // it carries its own 502 contract with the raw transport message.
+  await assert.rejects(
+    runGitCommand(['rev-parse', 'HEAD'], '/home/u/repo'),
+    (error: unknown) =>
+      error instanceof AppError &&
+      error.code === 'GIT_REMOTE_EXEC_FAILED' &&
+      error.statusCode === 502 &&
+      error.details === 'remote host offline: host-remote-1',
   );
 });
 
@@ -189,4 +220,53 @@ test('runGitCommand surfaces local git failure as a GIT_COMMAND_FAILED AppError'
         Boolean(error.details),
     );
   });
+});
+
+test('pathExists routes a hosted path to the remote fs stat and maps stat.exists', async () => {
+  enableFakeRemoteHost();
+  const statCalls: string[] = [];
+  setRemoteAgentsRuntime({
+    registry: {} as never,
+    fsClient: {
+      stat: async (_hostId: string, p: string) => {
+        statCalls.push(p);
+        return { exists: true, isDirectory: true, isFile: false, size: 0, mtimeMs: 0 };
+      },
+    } as never,
+  });
+
+  assert.equal(await worktreeFileSystem.pathExists('/home/u/repo'), true);
+  assert.equal(await worktreeFileSystem.pathExists('/home/u/repo/worktrees/x'), true);
+  assert.deepEqual(statCalls, ['/home/u/repo', '/home/u/repo/worktrees/x']);
+});
+
+test('pathExists returns false when the remote stat reports a missing path', async () => {
+  enableFakeRemoteHost();
+  setRemoteAgentsRuntime({
+    registry: {} as never,
+    fsClient: {
+      stat: async () => ({ exists: false, isDirectory: false, isFile: false, size: 0, mtimeMs: 0 }),
+    } as never,
+  });
+
+  assert.equal(await worktreeFileSystem.pathExists('/home/u/repo/missing'), false);
+});
+
+test('pathExists falls back to local access for a non-hosted path', async () => {
+  setOnlineHostsLookup(() => null);
+  refreshRemoteProjectsIndex([]);
+  await withLocalGitRepo(async (repoDir) => {
+    assert.equal(await worktreeFileSystem.pathExists(repoDir), true);
+    assert.equal(await worktreeFileSystem.pathExists(path.join(repoDir, 'nope')), false);
+  });
+});
+
+after(() => {
+  // Restore pristine module state so the fake hosts/runtime never leak into
+  // later worktree tests (hosts + runtime are singleton seams in
+  // remote-projects.index.js / runtime.js).
+  setOnlineHostsLookup(() => null);
+  refreshRemoteProjectsIndex([]);
+  setRemoteAgentsRuntime(null as never);
+  assert.throws(() => getRemoteAgentsRuntime(), /not configured/);
 });

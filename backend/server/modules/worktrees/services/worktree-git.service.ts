@@ -1,11 +1,24 @@
 // cross-spawn: drop-in spawn with Windows .cmd/PATHEXT resolution (same choice as routes/git.js).
 import spawn from 'cross-spawn';
 
-import { createRemoteGitClient } from '@/modules/remote-agents/remote-git.service.js';
+import {
+  createRemoteGitClient,
+  readLocalGitIdentity,
+} from '@/modules/remote-agents/remote-git.service.js';
 import { lookupHostForPath } from '@/modules/remote-agents/remote-projects.index.js';
 import { getRemoteAgentsRuntime } from '@/modules/remote-agents/runtime.js';
 import type { GitCommandResult, GitCommandRunner, WorktreePorcelainEntry } from '@/shared/types.js';
 import { AppError, normalizeProjectPath } from '@/shared/utils.js';
+
+/**
+ * Resolved once at module load so remote commits/merges carry the same author
+ * identity as local git write operations (mirrors git.routes' wiring). Only
+ * non-empty pairs are sent over the wire — readLocalGitIdentity returns null
+ * when either part is missing, and empty `-c user.*` values never reach the
+ * lite. Query commands are unaffected (the lite only prepends `-c` when an
+ * identity is present).
+ */
+const LOCAL_GIT_IDENTITY = readLocalGitIdentity();
 
 /**
  * Lazily resolve the remote git client for a hosted cwd, or null for local
@@ -32,14 +45,28 @@ export function runGitCommand(args: string[], cwd: string): Promise<GitCommandRe
   const remoteGit = remoteGitFor(cwd);
   if (remoteGit) {
     const hostId = lookupHostForPath(cwd) as string;
-    return remoteGit.exec(hostId, args, { cwd }).then((res) => {
-      if (res.exitCode === 0) return { stdout: res.stdout, stderr: res.stderr };
-      throw new AppError(`git ${args.join(' ')} failed`, {
-        code: 'GIT_COMMAND_FAILED',
-        statusCode: 500,
-        details: (res.stderr || res.stdout).trim(),
+    return remoteGit
+      .exec(hostId, args, { cwd, ...(LOCAL_GIT_IDENTITY ? { identity: LOCAL_GIT_IDENTITY } : {}) })
+      .then((res) => {
+        if (res.exitCode === 0) return { stdout: res.stdout, stderr: res.stderr };
+        throw new AppError(`git ${args.join(' ')} failed`, {
+          code: 'GIT_COMMAND_FAILED',
+          statusCode: 500,
+          details: (res.stderr || res.stdout).trim(),
+        });
+      })
+      .catch((err) => {
+        // Our own GIT_COMMAND_FAILED (non-zero exit) must pass through untouched;
+        // everything else here is a transport failure (host offline, rpc timeout,
+        // abort), which is NOT a git diagnostic and must not be misread by
+        // callers like listWorktreePorcelainEntries as "not a git repository".
+        if (err instanceof AppError) throw err;
+        throw new AppError(`git ${args.join(' ')} failed on remote`, {
+          code: 'GIT_REMOTE_EXEC_FAILED',
+          statusCode: 502,
+          details: err instanceof Error ? err.message : String(err),
+        });
       });
-    });
   }
   return new Promise((resolve, reject) => {
     const child = spawn('git', args, { cwd, shell: false });

@@ -27,9 +27,10 @@ import { createWorktreesRouter } from '@/modules/worktrees/worktrees.routes.js';
  * Real filesystem adapter used only by Worktrees production composition.
  *
  * Services depend on the shared capability type and therefore cannot touch a
- * developer's filesystem unless this adapter is explicitly supplied.
+ * developer's filesystem unless this adapter is explicitly supplied. Exported
+ * so the remote pathExists branch can be unit-tested in isolation.
  */
-const worktreeFileSystem: WorktreeFileSystem = {
+export const worktreeFileSystem: WorktreeFileSystem = {
   async pathExists(candidatePath: string): Promise<boolean> {
     // Hosted paths probe the lite's fs/stat RPC (runs at request time — the
     // runtime seam is safe to touch here); local paths keep using `access`.
