@@ -423,6 +423,21 @@ router.post(
   }),
 );
 
+// Read-only counterpart of the POST above: returns whether the session has a
+// persisted session-scoped model override (`changed`) and which model that is.
+// The composer reads this on session open so its model indicator matches what
+// the next turn will actually run with (the override wins over the request
+// default on resume for providers whose runtime honors it).
+router.get(
+  '/:provider/sessions/:sessionId/active-model',
+  asyncHandler(async (req: Request, res: Response) => {
+    const provider = parseProvider(req.params.provider);
+    const sessionId = parseSessionId(req.params.sessionId);
+    const result = await providerModelsService.getChangedActiveModel(provider, sessionId);
+    res.json(createApiSuccessResponse(result));
+  }),
+);
+
 // ----------------- Skills routes -----------------
 router.get(
   '/:provider/skills',
@@ -569,11 +584,30 @@ router.post(
     const hostId = lookupRemoteHost(normalizedProjectPath);
     let targetInstalled = false;
     if (hostId) {
+      const registry = getRemoteAgentsRuntime().registry;
       // Probe entries are `{ provider, installed, version }` — a probed-but-
       // missing binary reports installed:false and must NOT be let through.
-      const hostProviders = getRemoteAgentsRuntime().registry.getHostProviders(hostId) as
+      let hostProviders = registry.getHostProviders(hostId) as
         | { provider?: string; installed?: boolean }[]
         | undefined;
+      // A brief lite reconnect clears the probe cache (see registry.doUnregister).
+      // For an ONLINE host with an empty cache, re-probe once rather than
+      // misreporting every provider as uninstalled (the picker warms the cache
+      // in the UI flow, but direct session creation must not depend on it).
+      if ((!hostProviders || hostProviders.length === 0) && registry.isOnline(hostId)) {
+        try {
+          const probe = await registry.rpc<{ providers: { provider: string; installed: boolean }[] }>(
+            hostId,
+            'providers/probe',
+            { refresh: true },
+          );
+          const probed = probe.providers ?? [];
+          registry.setHostProviders(hostId, probed as never);
+          hostProviders = probed as { provider?: string; installed?: boolean }[];
+        } catch (error) {
+          console.warn('[sessions] remote providers re-probe failed:', (error as Error).message ?? error);
+        }
+      }
       if (hostProviders && hostProviders.some((p) => p.provider === provider && p.installed === true)) {
         targetInstalled = true;
       }

@@ -46,8 +46,10 @@ test('buildLitePackage bundles a self-contained ESM artifact and tars it', async
       '--platform=node',
       '--format=esm',
       // Self-contained: --packages=external is deliberately absent, and ws's
-      // dynamic require('events') is covered by the createRequire shim.
-      '--banner:js=import{createRequire}from\'module\';const require=createRequire(import.meta.url);',
+      // dynamic require('events') is covered by the createRequire shim. The
+      // shim aliases createRequire AS __createRequire so the inlined codex SDK's
+      // own `import { createRequire }` does not collide (T12 E2E finding).
+      '--banner:js=import{createRequire as __createRequire}from\'module\';const require=__createRequire(import.meta.url);',
       '--outfile=/repo/remote-agent/dist/lite.mjs',
     ]);
     assert.equal(esbuildCall!.cwd, src);

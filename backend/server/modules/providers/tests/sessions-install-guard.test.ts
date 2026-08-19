@@ -31,6 +31,9 @@ function statusOf(installed: boolean): ProviderAuthStatus {
 type Harness = {
   base: string;
   setHostProviders: (hostId: string, providers: unknown[]) => void;
+  /** Re-probe fallback knobs: isOnline flag + what `providers/probe` returns. */
+  setHostOnline: (online: boolean) => void;
+  setProbeResult: (providers: unknown[]) => void;
   close: () => Promise<void>;
 };
 
@@ -40,8 +43,15 @@ async function makeHarness(): Promise<Harness> {
   await initializeDatabase();
 
   const hostProviders = new Map<string, unknown[]>();
+  let hostOnline = false;
+  let probeResult: unknown[] = [];
   setRemoteAgentsRuntime({
-    registry: { getHostProviders: (h: string) => hostProviders.get(h) } as never,
+    registry: {
+      getHostProviders: (h: string) => hostProviders.get(h),
+      setHostProviders: (h: string, p: unknown[]) => { hostProviders.set(h, p); },
+      isOnline: () => hostOnline,
+      rpc: async (_h: string, _m: string) => ({ providers: probeResult }),
+    } as never,
     fsClient: {} as never,
   });
 
@@ -65,6 +75,8 @@ async function makeHarness(): Promise<Harness> {
   return {
     base,
     setHostProviders: (h, p) => hostProviders.set(h, p),
+    setHostOnline: (online) => { hostOnline = online; },
+    setProbeResult: (providers) => { probeResult = providers; },
     close: async () => {
       await new Promise<void>((resolve) => server.close(() => resolve()));
       closeConnection();
@@ -166,6 +178,39 @@ test('local target: installed provider (seeded cache) → 201', async () => {
     const res = await createSession(h.base, 'claude', '/local/app');
     assert.equal(res.status, 201);
     assert.ok(typeof (res.body as { data?: { sessionId?: string } }).data?.sessionId === 'string');
+  } finally {
+    await h.close();
+  }
+});
+test('remote project: online host with EMPTY probe cache re-probes and accepts installed provider → 201', async () => {
+  const h = await makeHarness();
+  try {
+    refreshRemoteProjectsIndex([{ project_path: '/srv/remote-app', remote_host_id: 'h1' }]);
+    // A brief lite reconnect cleared the registry cache; the guard must NOT
+    // misreport every provider as uninstalled for an ONLINE host.
+    h.setHostProviders('h1', []);
+    h.setHostOnline(true);
+    h.setProbeResult([{ provider: 'claude', installed: true }]);
+
+    const res = await createSession(h.base, 'claude', '/srv/remote-app');
+    assert.equal(res.status, 201);
+    assert.ok(typeof (res.body as { data?: { sessionId?: string } }).data?.sessionId === 'string');
+  } finally {
+    await h.close();
+  }
+});
+
+test('remote project: offline host with EMPTY cache does not re-probe → 400 PROVIDER_NOT_INSTALLED', async () => {
+  const h = await makeHarness();
+  try {
+    refreshRemoteProjectsIndex([{ project_path: '/srv/remote-app', remote_host_id: 'h1' }]);
+    h.setHostProviders('h1', []);
+    h.setHostOnline(false);
+    h.setProbeResult([{ provider: 'claude', installed: true }]);
+
+    const res = await createSession(h.base, 'claude', '/srv/remote-app');
+    assert.equal(res.status, 400);
+    assert.equal((res.body as { error: { code: string } }).error?.code, 'PROVIDER_NOT_INSTALLED');
   } finally {
     await h.close();
   }
