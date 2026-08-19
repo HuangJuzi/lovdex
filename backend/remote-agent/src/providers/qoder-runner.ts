@@ -8,12 +8,14 @@
  * `session:<appSessionId>`. The terminal marker `{ type: 'complete' }` is pushed
  * last so main's routing finish()es.
  *
- * Approval protocol (ported verbatim from the local runner): in interactive
- * permission modes the CLI emits `control_request` (`subtype: 'can_use_tool'`)
- * frames; each is surfaced BOTH as the remote-protocol `approval:<requestId>`
- * topic (`{ appSessionId, approval: { tool_use_id, name, input } }`, which is
- * what main routes to the frontend popup and `approval/respond` back to) AND as
- * the local `permission_request` normalized session message. The human decision
+ * Approval protocol (ported from the local runner): in interactive permission
+ * modes the CLI emits `control_request` (`subtype: 'can_use_tool'`) frames; each
+ * is surfaced via the remote-protocol `approval:<requestId>` topic
+ * (`{ appSessionId, approval: { tool_use_id, name, input } }`), which is what
+ * main routes to the frontend `permission_request` popup and back through
+ * `approval/respond`. (The LOCAL runner additionally sent a `permission_request`
+ * session message because it has no RPC forwarding layer; the lite must NOT —
+ * main's `__remoteApproval` would double-fire the popup.) The human decision
  * arrives via `RunManager.respond` → the matching `control_response` NDJSON is
  * written to the qodercli stdin. A timeout auto-denies (and pushes a
  * `cancelled` marker so main clears the popup), mirroring the local
@@ -411,8 +413,9 @@ function normalizeQoderLiveEvent(rawValue: unknown, sessionId: string | null): L
 
 export function createQoderRunManager(deps: RunManagerDeps): RunManager {
   const runs = new Map<string, RunRecord>();
-  // Approval timeout mirrors the local config window (default 60s).
-  const approvals = createApprovalRegistry({ push: deps.push });
+  // Mirrors the local config default (`config.ts` providers.qoder.toolApprovalTimeoutMs
+  // defaults to 60000), NOT the claude runner's 120s approval window.
+  const approvals = createApprovalRegistry({ push: deps.push, approvalTimeoutMs: 60_000 });
 
   function pushNorm(appSessionId: string, message: unknown): void {
     deps.push(`session:${appSessionId}`, { _remoteNorm: true, message });
@@ -522,14 +525,16 @@ export function createQoderRunManager(deps: RunManagerDeps): RunManager {
           registerSession(readQoderSessionId(response));
 
           // Interactive permission protocol: a `can_use_tool` control_request is
-          // a pending tool approval. Surface it as the remote-protocol
-          // `approval:<requestId>` topic (main routes it to the popup and back
-          // through `approval/respond`) AND the local `permission_request`
-          // normalized message; the decision writes a `control_response`.
+          // a pending tool approval. The remote surface for it is ONLY the
+          // `approval:<requestId>` topic push — main's `__remoteApproval` handler
+          // translates that into the frontend `permission_request` popup (the
+          // LOCAL runner additionally sent a `permission_request` session message
+          // because it has no RPC forwarding layer; mirroring that here would
+          // double-fire the popup on the lite). The human decision arrives back
+          // through `approval/respond`, writing the `control_response` NDJSON.
           if (response.type === 'control_request') {
             const parsed = parseQoderControlRequest(response);
             if (parsed) {
-              const sid = sidFor();
               const approval: { tool_use_id: string; name: string; input: unknown; context?: string } = {
                 tool_use_id: parsed.requestId,
                 name: parsed.toolName,
@@ -538,15 +543,6 @@ export function createQoderRunManager(deps: RunManagerDeps): RunManager {
               if (parsed.description !== undefined) {
                 approval.context = parsed.description;
               }
-              pushNorm(appSessionId, createNormalizedMessage({
-                kind: 'permission_request',
-                requestId: parsed.requestId,
-                toolName: parsed.toolName,
-                input: parsed.input,
-                context: parsed.description,
-                sessionId: sid,
-                provider: PROVIDER,
-              }));
               approvals.register(parsed.requestId, appSessionId, approval, {
                 onAnswer: (decision) => {
                   writeNdjson(buildQoderControlResponse(
@@ -797,7 +793,7 @@ export function createQoderRunManager(deps: RunManagerDeps): RunManager {
         run.doneResolve();
         runs.delete(appSessionId);
       }
-      deps.push(`session:${appSessionId}`, makeCompleteMarker(runFailed, runError));
+      deps.push(`session:${appSessionId}`, makeCompleteMarker(!runFailed, runFailed ? runError : undefined));
       settleEstablished(providerSessionId);
     })();
 

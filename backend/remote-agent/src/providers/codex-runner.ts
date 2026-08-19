@@ -8,8 +8,9 @@
  *   with `message` shaped EXACTLY like the local normalized message (all
  *   `createNormalizedMessage` / `createCompleteMessage` envelopes come from
  *   `lite-normalize.ts`, which mirrors `shared/utils.ts`);
- * - the terminal marker `{ type: 'complete' }` (plus a `_remoteErr` marker on
- *   failure) is pushed last so main's routing finish()es the run;
+ * - the terminal marker `{ type: 'complete', exitCode }` (top-level `error`
+ *   string on failure — see `makeCompleteMarker`) is pushed last so main's
+ *   routing finish()es the run;
  * - `providerSessionId`/`cwd`/`env` come from `SessionStartParams` (configEnv
  *   merged OVER `process.env` — the SDK strips inherited env whenever `env` is
  *   set, so a bare configEnv would drop PATH);
@@ -501,7 +502,7 @@ export function createCodexRunManager(deps: RunManagerDeps): RunManager {
         run.doneResolve();
         runs.delete(appSessionId);
       }
-      deps.push(`session:${appSessionId}`, makeCompleteMarker(runFailed, runError));
+      deps.push(`session:${appSessionId}`, makeCompleteMarker(!runFailed, runFailed ? runError : undefined));
       settleEstablished(providerSessionId);
     })();
 

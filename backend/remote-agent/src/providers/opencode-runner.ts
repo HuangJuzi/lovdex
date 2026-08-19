@@ -325,7 +325,7 @@ export function createOpenCodeRunManager(deps: RunManagerDeps): RunManager {
         run.doneResolve();
         runs.delete(appSessionId);
       }
-      deps.push(`session:${appSessionId}`, makeCompleteMarker(runFailed, runError));
+      deps.push(`session:${appSessionId}`, makeCompleteMarker(!runFailed, runFailed ? runError : undefined));
       settleEstablished(providerSessionId);
     })();
 

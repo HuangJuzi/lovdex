@@ -16,6 +16,23 @@
  *   done promise) plus the `providerSessionId` early-resolution promise, so
  *   `start()` resolves as soon as the provider-native id is known while the run
  *   keeps going in the background and `whenDone` gates completion.
+ *
+ * ## TASK 13 RECORDS (main-side porting contract — do not implement here)
+ *
+ * **List A — dual complete layers**: every non-claude runner pushes a terminal
+ * payload on `session:<appSessionId>` that consists of BOTH a wrapped
+ * `{ _remoteNorm: true, message: createCompleteMessage(...) }` (the transcript
+ * complete) AND a raw `{ type: 'complete', exitCode }` marker (see
+ * `makeCompleteMarker`). The claude runner pushes ONLY the raw marker. Task 13's
+ * `_remoteNorm` unwrapping must therefore treat the RAW marker purely as a
+ * finish/done signal and MUST NOT re-normalize it into another complete,
+ * otherwise the main stream sees a double `complete`.
+ *
+ * **List B — `_remoteNorm` is currently zero-processed**: main's `normalizeRemoteEvent`
+ * has no branch for `{ _remoteNorm: true }` — if a `_remoteNorm` message leaks
+ * through it today, it is normalized as a raw claude SDK event and produces
+ * garbage. Task 13 must implement the passthrough (wire the wrapped `message`
+ * straight to the ws writer) BEFORE routing any of the three new providers.
  */
 import type { SessionStartParams } from '../agent-run.js';
 import { createAllowlistedFs } from '../fs.js';
@@ -217,9 +234,34 @@ export function makeRunRecord(params: SessionStartParams): {
   return { run, established, settleEstablished, doneResolve };
 }
 
-/** Terminal-marker payload pushing: main's routing finish()es on this shape. */
-export function makeCompleteMarker(runFailed: boolean, runError: string): LooseRecord {
-  return runFailed
-    ? { type: 'complete', _remoteErr: { exitCode: 1, error: runError } }
-    : { type: 'complete' };
+/**
+ * Terminal-marker payload pushed last on `session:<appSessionId>` so main's
+ * routing finish()es the run.
+ *
+ * The failure shape carries TOP-LEVEL `exitCode`/`error` (NOT a nested
+ * `_remoteErr`), matching the claude `terminalCompleteEvent` convention: main's
+ * existing `normalizeRemoteEvent` reads `raw.exitCode ?? 0`, so a nested marker
+ * would mis-report a failed run as `complete{exitCode:0}` clean success.
+ *
+ * - `done` — whether the run ended as a genuine success (exitCode 0). An
+ *   interrupted run passes `done: true` too (abort is not a *failed* run; the
+ *   plain marker is main's finish signal, and claude's abort marker carries no
+ *   exitCode either, defaulting to 0).
+ * - `err` — the failure message, surfaced as a top-level `error` string.
+ *
+ * TASK 13 LIST A (records for the main-side port): the three non-claude runners
+ * push BOTH a wrapped `_remoteNorm` `createCompleteMessage` (the normalized
+ * transcript complete) AND this raw `{type:'complete', exitCode}` marker. Task
+ * 13's `_remoteNorm` unwrapping must treat this RAW marker ONLY as a finish
+ * signal and MUST NOT re-normalize it (claude pushes only the raw marker; the
+ * three new runners are wrapped+raw double-layer), otherwise main emits a double
+ * `complete`.
+ */
+export function makeCompleteMarker(done: boolean, err?: unknown): LooseRecord {
+  const errMessage = err instanceof Error ? err.message : typeof err === 'string' ? err : '';
+  return {
+    type: 'complete',
+    exitCode: done ? 0 : 1,
+    ...(errMessage ? { error: errMessage } : {}),
+  };
 }
