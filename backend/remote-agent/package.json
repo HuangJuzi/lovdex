@@ -4,12 +4,13 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "esbuild src/index.ts --bundle --platform=node --format=esm --banner:js=\"import{createRequire}from'module';const require=createRequire(import.meta.url);\" --outfile=dist/lite.mjs",
+    "build": "esbuild src/index.ts --bundle --platform=node --format=esm --banner:js=\"import{createRequire as __createRequire}from'module';const require=__createRequire(import.meta.url);\" --outfile=dist/lite.mjs",
     "start": "node dist/lite.mjs",
     "test": "tsx --test src/tests/*.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.113",
+    "@openai/codex-sdk": "^0.144.6",
     "ws": "^8.14.0",
     "zod": "^3.23.0"
   },

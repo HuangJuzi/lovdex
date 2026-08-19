@@ -52,19 +52,15 @@ afterEach(() => {
   __resetRunManagersForTests();
 });
 
-test('registry: claude provider returns a full run-manager surface', () => {
-  const mgr = createRunManagerFor('claude', { push: () => {}, roots: ['/tmp'] });
-  assert.equal(typeof mgr.start, 'function');
-  assert.equal(typeof mgr.respond, 'function');
-  assert.equal(typeof mgr.whenDone, 'function');
-  assert.equal(typeof mgr.interrupt, 'function');
-  assert.equal(typeof mgr.interruptAll, 'function');
-});
-
-test('registry: unimplemented provider throws not-implemented (until Task 12)', () => {
-  assert.throws(() => createRunManagerFor('codex', { push: () => {}, roots: ['/tmp'] }), /not implemented/);
-  assert.throws(() => createRunManagerFor('opencode', { push: () => {}, roots: ['/tmp'] }), /not implemented/);
-  assert.throws(() => createRunManagerFor('qoder', { push: () => {}, roots: ['/tmp'] }), /not implemented/);
+test('registry: every provider returns a full run-manager surface', () => {
+  for (const provider of ['claude', 'codex', 'opencode', 'qoder'] as const) {
+    const mgr = createRunManagerFor(provider, { push: () => {}, roots: ['/tmp'] });
+    assert.equal(typeof mgr.start, 'function');
+    assert.equal(typeof mgr.respond, 'function');
+    assert.equal(typeof mgr.whenDone, 'function');
+    assert.equal(typeof mgr.interrupt, 'function');
+    assert.equal(typeof mgr.interruptAll, 'function');
+  }
 });
 
 test('session/start schema defaults provider to claude and configEnv to {}', () => {
@@ -128,15 +124,21 @@ test('configEnv absent ⇒ no env key set on the SDK options', async () => {
   assert.equal(captured!.env, undefined);
 });
 
-test('dispatch: session/start with codex provider raises not-implemented', async () => {
-  await assert.rejects(
-    handleRpc(
-      'session/start',
-      { ...baseParams, provider: 'codex' },
-      cfg,
-    ),
-    /not implemented/,
-  );
+test('dispatch: session/start rejects a cwd outside the roots for every provider', async () => {
+  // Non-spawning wiring check: each provider manager validates the cwd against
+  // the allowlisted roots before touching its CLI/SDK. (The fs layer throws
+  // either "path outside allowed root" for an escape attempt or
+  // "cwd outside allowed roots" for a missing/non-directory target.)
+  for (const provider of ['codex', 'opencode', 'qoder'] as const) {
+    await assert.rejects(
+      handleRpc(
+        'session/start',
+        { ...baseParams, appSessionId: `s-out-${provider}`, provider, cwd: '/nope/outside' },
+        cfg,
+      ),
+      /outside allowed/,
+    );
+  }
 });
 
 test('dispatch: session/interrupt and approval/respond shape responses on unknown targets', async () => {
