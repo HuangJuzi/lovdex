@@ -74,6 +74,9 @@ export interface Project {
   isOperatorWorkspace?: boolean;
   /** Display name of the bound remote host, or null/undefined for local projects. */
   remoteHostName?: string | null;
+  /** DB id of the bound remote host (for per-host provider availability), or
+   *  null/undefined for local projects. */
+  remoteHostId?: string | null;
   [key: string]: unknown;
 }
 

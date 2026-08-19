@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import { memo, useCallback, useMemo } from 'react';
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import type { Dispatch, RefObject, SetStateAction } from 'react';
 
 import type { ChatMessage } from '../../types/types';
@@ -9,6 +9,7 @@ import type {
   LLMProvider,
   ProviderModelsDefinition,
 } from '../../../../types/app';
+import { api } from '../../../../utils/api';
 import { getIntrinsicMessageKey } from '../../utils/messageKeys';
 import { groupConsecutiveTools, isToolGroupItem } from '../../utils/toolGrouping';
 import type { WorkflowState } from '../../tools/workflowState';
@@ -17,6 +18,8 @@ import MessageComponent from './MessageComponent';
 import ProviderSelectionEmptyState from './ProviderSelectionEmptyState';
 import ToolGroupContainer from './ToolGroupContainer';
 import LoadAllMessagesOverlay from './LoadAllMessagesOverlay';
+
+const ALL_PROVIDERS: LLMProvider[] = ['claude', 'codex', 'opencode', 'qoder'];
 
 interface ChatMessagesPaneProps {
   scrollContainerRef: RefObject<HTMLDivElement>;
@@ -167,6 +170,35 @@ function ChatMessagesPane({
     [messageKeyMap],
   );
 
+  // Install availability of the four providers on the machine that will execute
+  // the session: the local machine for ordinary projects, the bound remote host
+  // for remote projects. Drives the provider-picker filtering (and the
+  // auto-jump off an uninstalled provider) inside ProviderSelectionEmptyState.
+  const [installedProviders, setInstalledProviders] = useState<Record<LLMProvider, boolean> | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setInstalledProviders(null);
+    (async () => {
+      const resolveHost = selectedProject?.remoteHostId
+        ? await api.getRemoteHostProviders(selectedProject.remoteHostId)
+        : await api.getInstalledProviders();
+      if (cancelled) return;
+      const byProvider = Object.fromEntries(
+        resolveHost.map((p: { provider: LLMProvider; installed: boolean }) => [p.provider, p.installed]),
+      );
+      setInstalledProviders(
+        ALL_PROVIDERS.reduce(
+          (acc, p) => ({ ...acc, [p]: byProvider[p] === true }),
+          {} as Record<LLMProvider, boolean>,
+        ),
+      );
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedProject?.remoteHostId]);
+
   return (
     <div
       ref={scrollContainerRef}
@@ -205,6 +237,7 @@ function ChatMessagesPane({
           isTaskMasterInstalled={isTaskMasterInstalled}
           onShowAllTasks={onShowAllTasks}
           setInput={setInput}
+          installedProviders={installedProviders}
         />
       ) : (
         <>

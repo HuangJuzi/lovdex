@@ -111,6 +111,7 @@ export const projectsDb = {
         // (remote_host_id IS NULL) leave it NULL.
         return db.prepare(`
             SELECT p.project_id, p.project_path, p.custom_project_name, p.isStarred, p.isArchived, p.is_explicit,
+                   p.remote_host_id AS remote_host_id,
                    h.name AS remote_host_name
             FROM projects p
             LEFT JOIN remote_hosts h ON h.host_id = p.remote_host_id
@@ -126,6 +127,7 @@ export const projectsDb = {
         const db = getConnection();
         return db.prepare(`
             SELECT p.project_id, p.project_path, p.custom_project_name, p.isStarred, p.isArchived, p.is_explicit,
+                   p.remote_host_id AS remote_host_id,
                    h.name AS remote_host_name
             FROM projects p
             LEFT JOIN remote_hosts h ON h.host_id = p.remote_host_id

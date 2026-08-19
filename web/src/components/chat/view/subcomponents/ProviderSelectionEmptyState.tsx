@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Check, ChevronDown } from "lucide-react";
 import { Trans, useTranslation } from "react-i18next";
 
@@ -63,6 +63,13 @@ type ProviderSelectionEmptyStateProps = {
   isTaskMasterInstalled: boolean | null;
   onShowAllTasks?: (() => void) | null;
   setInput: React.Dispatch<React.SetStateAction<string>>;
+  /**
+   * Per-provider install availability, resolved from the local machine or the
+   * project's bound remote host. `null` while the probe is still loading —
+   * provider groups are hidden until it resolves so the picker never lists a
+   * provider the target machine cannot execute.
+   */
+  installedProviders: Record<LLMProvider, boolean> | null;
 };
 
 type ProviderGroup = {
@@ -120,17 +127,42 @@ export default function ProviderSelectionEmptyState({
   isTaskMasterInstalled,
   onShowAllTasks,
   setInput,
+  installedProviders,
 }: ProviderSelectionEmptyStateProps) {
   const { t } = useTranslation("chat");
   const [dialogOpen, setDialogOpen] = useState(false);
 
   const visibleProviderGroups = useMemo<ProviderGroup[]>(() => {
-    return PROVIDER_META.map((p) => ({
-      id: p.id,
-      name: p.name,
-      models: providerModelCatalog[p.id]?.OPTIONS ?? [],
-    }));
-  }, [providerModelCatalog]);
+    // While the install availability probe is still in flight, hide the groups
+    // rather than momentarily offering providers the target machine may not
+    // have — the picker settles into its final list on the same fetch.
+    if (installedProviders === null) return [];
+    return PROVIDER_META.filter((m) => installedProviders[m.id] !== false)
+      .map((p) => ({
+        id: p.id,
+        name: p.name,
+        models: providerModelCatalog[p.id]?.OPTIONS ?? [],
+      }));
+  }, [installedProviders, providerModelCatalog]);
+
+  const noProvidersInstalled =
+    installedProviders !== null && visibleProviderGroups.length === 0;
+
+  // If the availability map resolves and the currently-selected provider turns
+  // out not to be installed, jump to the first available provider (PROVIDER_META
+  // order) and persist the choice the same way a manual pick does. If NONE are
+  // available, leave the selection untouched — the none-installed copy renders
+  // below and the user is directed to install/settings.
+  useEffect(() => {
+    if (installedProviders === null) return;
+    if (installedProviders[provider] !== false) return;
+    const firstAvailable = PROVIDER_META.find(
+      (p) => installedProviders[p.id] === true,
+    )?.id;
+    if (!firstAvailable) return;
+    setProvider(firstAvailable);
+    localStorage.setItem("selected-provider", firstAvailable);
+  }, [installedProviders, provider, setProvider]);
 
   const nextTaskPrompt = t("tasks.nextTaskPrompt", {
     defaultValue: "Start the next task",
@@ -195,6 +227,21 @@ export default function ProviderSelectionEmptyState({
             </p>
           </div>
 
+          {noProvidersInstalled ? (
+            <div className="mx-auto max-w-xs rounded-lg border border-border/60 bg-muted/20 px-4 py-6 text-center">
+              <p className="text-sm font-medium text-foreground">
+                {t("providerSelection.noneInstalled", {
+                  defaultValue: "No provider is installed on the target machine",
+                })}
+              </p>
+              <p className="mt-2 text-xs text-muted-foreground">
+                {t("providerSelection.noneInstalledHint", {
+                  defaultValue: "Install a provider CLI (claude, codex, opencode or qodercli) or check your provider settings",
+                })}
+              </p>
+            </div>
+          ) : (
+            <>
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
               <Card
@@ -332,6 +379,8 @@ export default function ProviderSelectionEmptyState({
               }}
             />
           </p>
+            </>
+          )}
         </div>
       </div>
     );

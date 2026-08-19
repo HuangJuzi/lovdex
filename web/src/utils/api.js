@@ -208,6 +208,20 @@ export const api = {
   getFiles: (projectId, options = {}) =>
     authenticatedFetch(`/api/projects/${projectId}/files`, options),
 
+  // Provider install availability used to filter the provider picker.
+  // Local (this machine): backend-side probe with a 60s TTL cache.
+  getInstalledProviders() {
+    return authenticatedFetch('/api/providers/installed')
+      .then(async (res) => (await res.json())?.data?.providers ?? []);
+  },
+  // Remote host: registry cache over the lite's `hello` providers payload /
+  // a prior `providers/probe` rpc; `refresh` re-runs the probe.
+  getRemoteHostProviders(hostId, { refresh = false } = {}) {
+    const q = refresh ? '?refresh=1' : '';
+    return authenticatedFetch(`/api/remote-agents/${hostId}/providers${q}`)
+      .then(async (res) => (await res.json())?.data?.providers ?? []);
+  },
+
   // File operations
   createFile: (projectId, { path, type, name }) =>
     authenticatedFetch(`/api/projects/${projectId}/files/create`, {

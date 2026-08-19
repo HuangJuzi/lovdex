@@ -604,6 +604,12 @@ export type ProjectRepositoryRow = {
    * absent from row-level lookups that do not join.
    */
   remote_host_name?: string | null;
+  /**
+   * DB id of the bound remote host, joined from `projects.remote_host_id` by
+   * the same list queries. NULL for local projects. Drives the frontend's
+   * remote provider-availability lookup for the picker.
+   */
+  remote_host_id?: string | null;
 };
 
 /**

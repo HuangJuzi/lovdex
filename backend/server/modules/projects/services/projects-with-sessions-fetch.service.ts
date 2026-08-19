@@ -40,6 +40,11 @@ export type ProjectListItem = {
    * the sidebar remote marker. Joined from `remote_hosts.name` in the list query.
    */
   remoteHostName: string | null;
+  /**
+   * DB id of the bound remote host, or `null` for local projects. Drives the
+   * frontend's per-host provider-availability lookup for the provider picker.
+   */
+  remoteHostId: string | null;
   sessions: SessionSummary[];
   sessionMeta: {
     hasMore: boolean;
@@ -223,6 +228,7 @@ export async function getProjectsWithSessions(
     isStarred?: number;
     is_explicit?: number;
     remote_host_name?: string | null;
+    remote_host_id?: string | null;
   }>).filter((row) =>
     Boolean(row.is_explicit) || (operatorWorkspaceRoot !== null && row.project_path === operatorWorkspaceRoot)
   );
@@ -289,6 +295,7 @@ export async function getProjectsWithSessions(
       isMainAgentWorkspace,
       isOperatorWorkspace,
       remoteHostName: row.remote_host_name ?? null,
+      remoteHostId: row.remote_host_id ?? null,
       sessions,
       sessionMeta: {
         hasMore: false,
@@ -325,6 +332,7 @@ export async function getArchivedProjectsWithSessions(
     isStarred?: number;
     is_explicit?: number;
     remote_host_name?: string | null;
+    remote_host_id?: string | null;
   }>).filter((row) => Boolean(row.is_explicit));
 
   const archivedProjects: ArchivedProjectListItem[] = [];
@@ -348,6 +356,7 @@ export async function getArchivedProjectsWithSessions(
       isMainAgentWorkspace: false,
       isOperatorWorkspace,
       remoteHostName: row.remote_host_name ?? null,
+      remoteHostId: row.remote_host_id ?? null,
       isArchived: true,
       sessions: sessionsPage.sessions,
       sessionMeta: {
