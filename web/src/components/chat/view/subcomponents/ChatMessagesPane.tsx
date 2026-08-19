@@ -180,19 +180,34 @@ function ChatMessagesPane({
     let cancelled = false;
     setInstalledProviders(null);
     (async () => {
-      const resolveHost = selectedProject?.remoteHostId
-        ? await api.getRemoteHostProviders(selectedProject.remoteHostId)
-        : await api.getInstalledProviders();
-      if (cancelled) return;
-      const byProvider = Object.fromEntries(
-        resolveHost.map((p: { provider: LLMProvider; installed: boolean }) => [p.provider, p.installed]),
-      );
-      setInstalledProviders(
-        ALL_PROVIDERS.reduce(
-          (acc, p) => ({ ...acc, [p]: byProvider[p] === true }),
-          {} as Record<LLMProvider, boolean>,
-        ),
-      );
+      try {
+        const resolveHost = selectedProject?.remoteHostId
+          ? await api.getRemoteHostProviders(selectedProject.remoteHostId)
+          : await api.getInstalledProviders();
+        if (cancelled) return;
+        const byProvider = Object.fromEntries(
+          resolveHost.map((p: { provider: LLMProvider; installed: boolean }) => [p.provider, p.installed]),
+        );
+        setInstalledProviders(
+          ALL_PROVIDERS.reduce(
+            (acc, p) => ({ ...acc, [p]: byProvider[p] === true }),
+            {} as Record<LLMProvider, boolean>,
+          ),
+        );
+      } catch (error) {
+        // Probe failed (network / backend / offline remote host): degrade to
+        // "no filtering" (everything available) instead of leaving the state
+        // stuck on null — which would blank the picker — or showing the
+        // "none installed" copy for providers the backend could not reach.
+        console.error('Failed to resolve provider install availability:', error);
+        if (cancelled) return;
+        setInstalledProviders(
+          ALL_PROVIDERS.reduce(
+            (acc, p) => ({ ...acc, [p]: true }),
+            {} as Record<LLMProvider, boolean>,
+          ),
+        );
+      }
     })();
     return () => {
       cancelled = true;

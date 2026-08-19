@@ -209,17 +209,21 @@ export const api = {
     authenticatedFetch(`/api/projects/${projectId}/files`, options),
 
   // Provider install availability used to filter the provider picker.
-  // Local (this machine): backend-side probe with a 60s TTL cache.
-  getInstalledProviders() {
-    return authenticatedFetch('/api/providers/installed')
-      .then(async (res) => (await res.json())?.data?.providers ?? []);
+  // Local (this machine): backend-side probe with a 60s TTL cache. A non-OK
+  // response throws so the caller can degrade gracefully instead of treating
+  // a backend/remote-host error as "nothing installed".
+  async getInstalledProviders() {
+    const res = await authenticatedFetch('/api/providers/installed');
+    if (!res.ok) throw new Error(`installed providers request failed: ${res.status}`);
+    return (await res.json())?.data?.providers ?? [];
   },
   // Remote host: registry cache over the lite's `hello` providers payload /
   // a prior `providers/probe` rpc; `refresh` re-runs the probe.
-  getRemoteHostProviders(hostId, { refresh = false } = {}) {
+  async getRemoteHostProviders(hostId, { refresh = false } = {}) {
     const q = refresh ? '?refresh=1' : '';
-    return authenticatedFetch(`/api/remote-agents/${hostId}/providers${q}`)
-      .then(async (res) => (await res.json())?.data?.providers ?? []);
+    const res = await authenticatedFetch(`/api/remote-agents/${hostId}/providers${q}`);
+    if (!res.ok) throw new Error(`remote providers request failed: ${res.status}`);
+    return (await res.json())?.data?.providers ?? [];
   },
 
   // File operations

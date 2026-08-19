@@ -65,9 +65,17 @@ type ProviderSelectionEmptyStateProps = {
   setInput: React.Dispatch<React.SetStateAction<string>>;
   /**
    * Per-provider install availability, resolved from the local machine or the
-   * project's bound remote host. `null` while the probe is still loading —
-   * provider groups are hidden until it resolves so the picker never lists a
-   * provider the target machine cannot execute.
+   * project's bound remote host.
+   *
+   * Contract:
+   * - `null` — the probe is still loading (or the caller has not resolved it
+   *   yet): all provider groups are hidden and the picker shows a loading
+   *   placeholder; callers must not read individual entries while `null`.
+   * - `false` — the provider is not installed on the target machine and its
+   *   group is hidden.
+   * - `true` / missing key — treated as available (groups filter on
+   *   `installedProviders[id] !== false`, so a provider the backend did not
+   *   report is still offered rather than silently hidden).
    */
   installedProviders: Record<LLMProvider, boolean> | null;
 };
@@ -287,11 +295,19 @@ export default function ProviderSelectionEmptyState({
                   })}
                 />
                 <CommandList className="max-h-[350px]">
-                  <CommandEmpty>
-                    {t("providerSelection.noModelsFound", {
-                      defaultValue: "No models found.",
-                    })}
-                  </CommandEmpty>
+                  {installedProviders === null ? (
+                    <CommandItem disabled className="ml-4 border-l border-border/40 pl-4 text-muted-foreground">
+                      {t("providerSelection.loadingModels", {
+                        defaultValue: "Loading models…",
+                      })}
+                    </CommandItem>
+                  ) : (
+                    <CommandEmpty>
+                      {t("providerSelection.noModelsFound", {
+                        defaultValue: "No models found.",
+                      })}
+                    </CommandEmpty>
+                  )}
                   {visibleProviderGroups.map((group, idx) => (
                     <CommandGroup
                       key={group.id}
