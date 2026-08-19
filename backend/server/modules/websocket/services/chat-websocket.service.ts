@@ -12,6 +12,8 @@ function dbg(line: string): void {
 }
 
 import { sessionsDb } from '@/modules/database/index.js';
+import { appConfig as getAppConfig } from '@/modules/config/config.js';
+import { buildProviderConfigEnv } from '@/modules/config/env-sync.js';
 import { chatRunRegistry, getTaskLinkage } from '@/modules/websocket/services/chat-run-registry.service.js';
 import { connectedClients, WS_OPEN_STATE } from '@/modules/websocket/services/websocket-state.service.js';
 import { getGlobalImageAssetsDir, normalizeImageDescriptors } from '@/shared/image-attachments.js';
@@ -266,6 +268,10 @@ async function handleChatSend(
     // queryClaudeSDK operator branch.
     isOperator: Boolean(session.is_operator),
   };
+
+  // Remote spawns forward the provider's config env (baseUrl/apiKey/model) to
+  // the lite in session/start via configEnv; local runtimes ignore the field.
+  runtimeOptions.configEnv = buildProviderConfigEnv(getAppConfig().get(), provider);
 
   try {
     dbg(`[chat.send] spawning claude for ${sessionId} cwd=${runtimeOptions.cwd} resume=${runtimeOptions.resume}`);

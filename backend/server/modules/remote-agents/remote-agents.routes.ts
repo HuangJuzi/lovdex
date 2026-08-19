@@ -316,7 +316,33 @@ export function createRemoteAgentsRouter(deps: RemoteAgentsRouterDeps): express.
     }),
   );
 
-  // 7. Remove a host: drop the DB row, clear its registry session bindings,
+  // 7. Probe a host's installed providers. Serves the registry cache (last
+  //    value either from the lite's `hello` providers payload or a prior
+  //    probe); `?refresh=1` (or an empty cache) re-runs the lite-side
+  //    `providers/probe` rpc and refreshes the cache.
+  router.get(
+    '/:hostId/providers',
+    asyncHandler(async (req, res) => {
+      const hostId = typeof req.params.hostId === 'string' ? req.params.hostId : '';
+      const host = deps.repo.getById(hostId);
+      if (!host) {
+        throw new AppError('remote host not found', { code: 'REMOTE_HOST_NOT_FOUND', statusCode: 404 });
+      }
+      const refresh = readQueryString(req.query.refresh) === '1';
+      let providers = deps.registry.getHostProviders(hostId);
+      if (refresh || !providers || providers.length === 0) {
+        if (!deps.registry.isOnline(hostId)) {
+          throw new AppError('remote host is offline', { code: 'REMOTE_HOST_OFFLINE', statusCode: 409 });
+        }
+        const result = await deps.registry.rpc<{ providers: unknown[] }>(hostId, 'providers/probe', { refresh: true });
+        providers = result.providers ?? [];
+        deps.registry.setHostProviders(hostId, providers);
+      }
+      res.json(createApiSuccessResponse({ providers, refresh }));
+    }),
+  );
+
+  // 8. Remove a host: drop the DB row, clear its registry session bindings,
   //    stop any ssh -R tunnel and close the live socket so the agent tears
   //    down immediately (4001 'host removed') rather than lingering until its
   //    next heartbeat.

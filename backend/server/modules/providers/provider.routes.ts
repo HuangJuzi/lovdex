@@ -3,12 +3,15 @@ import fs from 'node:fs';
 
 import { getOperatorConfig } from '@/modules/operators/operator.config.js';
 import { providerAuthService } from '@/modules/providers/services/provider-auth.service.js';
+import { getInstalledProviders } from '@/modules/providers/services/provider-auth.service.js';
 import { providerCapabilitiesService } from '@/modules/providers/services/provider-capabilities.service.js';
 import { providerMcpService } from '@/modules/providers/services/mcp.service.js';
 import { providerModelsService } from '@/modules/providers/services/provider-models.service.js';
 import { providerSkillsService } from '@/modules/providers/services/skills.service.js';
 import { sessionConversationsSearchService } from '@/modules/providers/services/session-conversations-search.service.js';
 import { sessionsService } from '@/modules/providers/services/sessions.service.js';
+import { lookupRemoteHost } from '@/modules/remote-agents/remote-projects.index.js';
+import { getRemoteAgentsRuntime } from '@/modules/remote-agents/runtime.js';
 import type {
   LLMProvider,
   McpScope,
@@ -377,6 +380,16 @@ const parseChangeActiveModelPayload = (payload: unknown): ProviderChangeActiveMo
   };
 };
 
+// Registered BEFORE the `/:provider/...` routes so the single-segment path is
+// never swallowed by a `/:provider` pattern.
+router.get(
+  '/installed',
+  asyncHandler(async (_req: Request, res: Response) => {
+    const providers = await getInstalledProviders();
+    res.json(createApiSuccessResponse({ providers }));
+  }),
+);
+
 router.get(
   '/:provider/auth/status',
   asyncHandler(async (req: Request, res: Response) => {
@@ -548,6 +561,28 @@ router.post(
       return;
     }
     const projectPath = typeof body.projectPath === 'string' ? body.projectPath : '';
+    // Install guard: the target machine (remote host or this one) must actually
+    // have the requested provider before we allocate a session for it. A remote
+    // host consults its probe cache (registry); a local target probes this host
+    // (60s TTL cached).
+    const normalizedProjectPath = projectPath.trim();
+    const hostId = lookupRemoteHost(normalizedProjectPath);
+    let targetInstalled = false;
+    if (hostId) {
+      const hostProviders = getRemoteAgentsRuntime().registry.getHostProviders(hostId);
+      if (hostProviders && hostProviders.some((p) => (p as { provider?: string }).provider === provider)) {
+        targetInstalled = true;
+      }
+    } else {
+      const installed = await getInstalledProviders();
+      targetInstalled = installed.some((p) => p.provider === provider && p.installed);
+    }
+    if (!targetInstalled) {
+      throw new AppError(`Provider "${provider}" is not installed on the target machine`, {
+        code: 'PROVIDER_NOT_INSTALLED',
+        statusCode: 400,
+      });
+    }
     const result = sessionsService.createAppSession(provider, projectPath, false);
     res.status(201).json(createApiSuccessResponse(result));
   }),

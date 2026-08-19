@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 import { createAppConfig } from '../config.js';
-import { syncProviderEnv, OWNED_ANTHROPIC_ENV } from '../env-sync.js';
+import { syncProviderEnv, OWNED_ANTHROPIC_ENV, buildProviderConfigEnv } from '../env-sync.js';
 
 const TOUCHED_KEYS = [
   'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CLI_PATH',
@@ -172,4 +172,79 @@ test('OWNED_ANTHROPIC_ENV lists all claude-owned env keys incl _NAME mirrors', (
   ];
   assert.deepStrictEqual([...OWNED_ANTHROPIC_ENV].sort(), [...expected].sort());
   assert.strictEqual(OWNED_ANTHROPIC_ENV.length, 11);
+});
+
+test('buildProviderConfigEnv maps claude config into a Record (no process.env side effects)', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lovdex-env-'));
+  const cfg = createAppConfig({ dataDir: dir });
+  cfg.update({
+    providers: {
+      claude: {
+        baseUrl: 'https://proxy.example/anthropic',
+        apiKey: 'sk-gen-env',
+        defaultModel: 'model-default',
+        haikuModel: 'model-haiku',
+        opusModel: 'model-opus',
+        sonnetModel: 'model-sonnet',
+        cliPath: '/opt/claude/bin/claude',
+      },
+    },
+  });
+  const env = buildProviderConfigEnv(cfg.get(), 'claude');
+  assert.strictEqual(env.ANTHROPIC_BASE_URL, 'https://proxy.example/anthropic');
+  assert.strictEqual(env.ANTHROPIC_API_KEY, 'sk-gen-env');
+  assert.strictEqual(env.ANTHROPIC_AUTH_TOKEN, 'sk-gen-env');
+  assert.strictEqual(env.ANTHROPIC_MODEL, 'model-default');
+  assert.strictEqual(env.ANTHROPIC_DEFAULT_HAIKU_MODEL, 'model-haiku');
+  assert.strictEqual(env.ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME, 'model-haiku');
+  assert.strictEqual(env.ANTHROPIC_DEFAULT_SONNET_MODEL, 'model-sonnet');
+  assert.strictEqual(env.CLAUDE_CLI_PATH, '/opt/claude/bin/claude');
+  // buildProviderConfigEnv must NOT mutate process.env (the host env may
+  // already carry these vars from the supervisor — a pure function leaves them).
+  const snapshot = { ...process.env };
+  buildProviderConfigEnv(cfg.get(), 'claude');
+  for (const [key, value] of Object.entries(process.env)) {
+    assert.strictEqual(value, snapshot[key], `buildProviderConfigEnv mutated process.env.${key}`);
+  }
+});
+
+test('buildProviderConfigEnv hides unset fields and maps codex/opencode/qoder', () => {
+  const savedHome = process.env.HOME;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lovdex-env-'));
+  // Point HOME at the temp data dir so the codex ~/.codex/auth.json reuse is a
+  // deterministic miss (the developer machine's own auth.json must not leak in).
+  process.env.HOME = dir;
+  try {
+    const cfg = createAppConfig({ dataDir: dir });
+    cfg.update({
+      providers: {
+        // Blank every claude field so the configEnv for claude is fully empty
+        // (the schema defaults are non-empty sophnet URLs/model ids).
+        claude: {
+          apiKey: '', authToken: '', baseUrl: '', defaultModel: '',
+          haikuModel: '', opusModel: '', sonnetModel: '', cliPath: 'claude',
+        },
+        codex: { binPath: 'codex' },
+        opencode: { binPath: '/opt/opencode/bin/opencode', apiKeys: { OPENROUTER_API_KEY: 'or-key' } },
+        qoder: { personalAccessToken: 'qoder-pat' },
+      },
+    });
+    const c = cfg.get();
+
+    const claudeEnv = buildProviderConfigEnv(c, 'claude');
+    assert.deepStrictEqual(claudeEnv, {});
+
+    const codexEnv = buildProviderConfigEnv(c, 'codex');
+    assert.strictEqual(codexEnv.CODEX_PATH_OVERRIDE, undefined, 'default "codex" bin hides the override');
+    assert.strictEqual(codexEnv.OPENAI_API_KEY, undefined, 'no local codex auth.json under the isolated HOME');
+
+    const opencodeEnv = buildProviderConfigEnv(c, 'opencode');
+    assert.strictEqual(opencodeEnv.OPENCODE_BIN, '/opt/opencode/bin/opencode');
+    assert.strictEqual(opencodeEnv.OPENROUTER_API_KEY, 'or-key');
+
+    const qoderEnv = buildProviderConfigEnv(c, 'qoder');
+    assert.strictEqual(qoderEnv.QODER_PERSONAL_ACCESS_TOKEN, 'qoder-pat');
+  } finally {
+    process.env.HOME = savedHome;
+  }
 });

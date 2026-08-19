@@ -12,6 +12,10 @@
  * ANTHROPIC_API_KEY another provider shares via opencode.apiKeys. Everything
  * else (codex/opencode/qoder) keeps the legacy non-empty-only semantics.
  */
+import { existsSync, readFileSync } from 'node:fs';
+import os from 'node:os';
+
+import type { LLMProvider } from '@/shared/types.js';
 import type { AppConfig } from './config.js';
 
 /** Every env var owned by `providers.claude` config. The supervisor filters
@@ -89,4 +93,65 @@ function setOrDelete(key: string, value: string | undefined): void {
   const v = typeof value === 'string' ? value.trim() : '';
   if (v) process.env[key] = v;
   else delete process.env[key];
+}
+
+/**
+ * Builds the per-provider config env a REMOTE lite host should run a session
+ * with. Same source fields as {@link syncProviderEnv} (so main and remote
+ * agree), but returns a `Record` for the `session/start` `configEnv` param
+ * instead of writing `process.env` (the lite overlays it onto its own child
+ * process env, never the daemon's). Only explicitly-configured values are
+ * included; empty/unset fields are hidden so the lite's own environment is
+ * left alone.
+ */
+export function buildProviderConfigEnv(cfg: AppConfig, provider: LLMProvider): Record<string, string> {
+  const out: Record<string, string> = {};
+  const put = (key: string, value: string | undefined): void => {
+    const v = typeof value === 'string' ? value.trim() : '';
+    if (v) out[key] = v;
+  };
+  const { providers } = cfg;
+  switch (provider) {
+    case 'claude': {
+      const c = providers.claude;
+      put('ANTHROPIC_BASE_URL', c.baseUrl);
+      put('ANTHROPIC_API_KEY', c.apiKey);
+      put('ANTHROPIC_AUTH_TOKEN', c.apiKey || c.authToken);
+      put('ANTHROPIC_MODEL', c.defaultModel);
+      put('ANTHROPIC_DEFAULT_HAIKU_MODEL', c.haikuModel);
+      put('ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME', c.haikuModel);
+      put('ANTHROPIC_DEFAULT_OPUS_MODEL', c.opusModel);
+      put('ANTHROPIC_DEFAULT_OPUS_MODEL_NAME', c.opusModel);
+      put('ANTHROPIC_DEFAULT_SONNET_MODEL', c.sonnetModel);
+      put('ANTHROPIC_DEFAULT_SONNET_MODEL_NAME', c.sonnetModel);
+      put('CLAUDE_CLI_PATH', c.cliPath && c.cliPath.trim() !== 'claude' ? c.cliPath : undefined);
+      break;
+    }
+    case 'codex': {
+      put('CODEX_PATH_OVERRIDE', providers.codex.binPath && providers.codex.binPath.trim() !== 'codex' ? providers.codex.binPath : undefined);
+      // Reuse the local codex auth.json OPENAI_API_KEY when present, so a
+      // remote host can authenticate without its own codex login.
+      const home = process.env.HOME ?? os.homedir();
+      const authPath = `${home}/.codex/auth.json`;
+      if (existsSync(authPath)) {
+        try {
+          const auth = JSON.parse(readFileSync(authPath, 'utf8')) as { OPENAI_API_KEY?: unknown };
+          if (typeof auth.OPENAI_API_KEY === 'string') put('OPENAI_API_KEY', auth.OPENAI_API_KEY);
+        } catch {
+          /* unreadable/unparseable auth file — remote handles its own auth */
+        }
+      }
+      break;
+    }
+    case 'opencode': {
+      put('OPENCODE_BIN', providers.opencode.binPath && providers.opencode.binPath.trim() !== 'opencode' ? providers.opencode.binPath : undefined);
+      for (const [key, value] of Object.entries(providers.opencode.apiKeys)) put(key, value);
+      break;
+    }
+    case 'qoder': {
+      put('QODER_PERSONAL_ACCESS_TOKEN', providers.qoder.personalAccessToken);
+      break;
+    }
+  }
+  return out;
 }

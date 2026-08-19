@@ -64,7 +64,7 @@ test('lookupHost null -> localSpawn is called, no remote rpc', async () => {
     localCalled = [command, options, writer];
     return 'local-result';
   };
-  const wrapped = routing.wrapSpawn(localSpawn);
+  const wrapped = routing.wrapSpawn('claude', localSpawn);
   const writer = fakeWriter();
   const res = await wrapped('hi', { projectPath: '/other', appSessionId: 's1' }, writer);
   assert.equal(res, 'local-result');
@@ -84,7 +84,7 @@ test('remote spawn: rpc, session push routing, resolves after complete', async (
     normalizeEvent: (raw) => (raw.type === 'complete' ? [] : [raw]),
   });
   const writer = fakeWriter();
-  const wrapped = routing.wrapSpawn(async () => {
+  const wrapped = routing.wrapSpawn('claude', async () => {
     throw new Error('localSpawn must not be called on remote path');
   });
 
@@ -128,7 +128,7 @@ test('approval round-trip: push -> permission_request -> resolve sends approval/
     normalizeEvent: (raw) => (raw.type === 'complete' ? [] : [raw]),
   });
   const writer = fakeWriter();
-  const wrapped = routing.wrapSpawn(async () => undefined);
+  const wrapped = routing.wrapSpawn('claude', async () => undefined);
   const p = wrapped('go', { appSessionId: 's1', projectPath: '/srv/app', sessionId: null }, writer);
   await tick();
   const startFrame = hostWs.sent.find((f) => f.method === 'session/start')!;
@@ -170,6 +170,9 @@ test('approval round-trip: push -> permission_request -> resolve sends approval/
   assert.ok(respondFrame, 'approval/respond rpc sent to host');
   assert.equal((respondFrame!.params as Record<string, unknown>).requestId, 'req1');
   assert.deepEqual((respondFrame!.params as Record<string, unknown>).decision, { allow: true });
+  // Resolve the in-flight approval/respond so its 60s rpc timer is released.
+  registry.resolveRpc(respondFrame!.id as string, { ok: true });
+  await tick();
 
   emitPush({ topic: 'session:s1', payload: { type: 'complete' }, from: 'h1' });
   await p;
@@ -185,7 +188,7 @@ test('getPendingApprovals returns remote-session approvals', async () => {
     normalizeEvent: (raw) => (raw.type === 'complete' ? [] : [raw]),
   });
   const writer = fakeWriter();
-  const p = routing.wrapSpawn(async () => undefined)(
+  const p = routing.wrapSpawn('claude', async () => undefined)(
     'go',
     { appSessionId: 's1', projectPath: '/srv/app', sessionId: null },
     writer,
@@ -284,7 +287,7 @@ test('remote spawn without appSessionId throws', async () => {
   });
   const writer = fakeWriter();
   await assert.rejects(
-    () => routing.wrapSpawn(async () => undefined)('go', { projectPath: '/srv/app' }, writer),
+    () => routing.wrapSpawn('claude', async () => undefined)('go', { projectPath: '/srv/app' }, writer),
     /remote spawn requires appSessionId/,
   );
   routing.dispose();
@@ -299,7 +302,7 @@ test('rpc error on session/start cleans up handler and rethrows', async () => {
     normalizeEvent: (raw) => [raw],
   });
   const writer = fakeWriter();
-  const p = routing.wrapSpawn(async () => undefined)(
+  const p = routing.wrapSpawn('claude', async () => undefined)(
     'go',
     { appSessionId: 's1', projectPath: '/srv/app', sessionId: null },
     writer,
@@ -324,7 +327,7 @@ test('complete before session/start rpc resolves still resolves, no sessionHost 
     normalizeEvent: (raw) => (raw.type === 'complete' ? [] : [raw]),
   });
   const writer = fakeWriter();
-  const p = routing.wrapSpawn(async () => undefined)(
+  const p = routing.wrapSpawn('claude', async () => undefined)(
     'go',
     { appSessionId: 's1', projectPath: '/srv/app', sessionId: null },
     writer,
@@ -352,7 +355,7 @@ test('session event before rpc resolves still forwards to writer', async () => {
     normalizeEvent: (raw) => (raw.type === 'complete' ? [] : [raw]),
   });
   const writer = fakeWriter();
-  const p = routing.wrapSpawn(async () => undefined)(
+  const p = routing.wrapSpawn('claude', async () => undefined)(
     'go',
     { appSessionId: 's1', projectPath: '/srv/app', sessionId: null },
     writer,
@@ -436,7 +439,7 @@ test('host disconnect mid-run rejects the spawn with /went offline/ and cleans h
     normalizeEvent: (raw) => (raw.type === 'complete' ? [] : [raw]),
   });
   const writer = fakeWriter();
-  const p = routing.wrapSpawn(async () => undefined)(
+  const p = routing.wrapSpawn('claude', async () => undefined)(
     'go',
     { appSessionId: 's1', projectPath: '/srv/app', sessionId: null },
     writer,
@@ -468,7 +471,7 @@ test('getPendingApprovalsForAppSession returns approvals for fresh runs', async 
     normalizeEvent: (raw) => (raw.type === 'complete' ? [] : [raw]),
   });
   const writer = fakeWriter();
-  const p = routing.wrapSpawn(async () => undefined)(
+  const p = routing.wrapSpawn('claude', async () => undefined)(
     'go',
     { appSessionId: 's1', projectPath: '/srv/app', sessionId: null },
     writer,
@@ -494,5 +497,232 @@ test('getPendingApprovalsForAppSession returns approvals for fresh runs', async 
   // sweep removed the approval mirror too
   assert.equal(routing.getPendingApprovalsForAppSession('s1').length, 0);
   assert.equal(registry.getSessionHost('s1'), undefined);
+  routing.dispose();
+});
+
+test('wrapSpawn(provider) threads provider + configEnv into session/start', async () => {
+  const registry = createRemoteAgentsRegistry();
+  const hostWs = registerHost(registry, 'h1');
+  const routing = createRemoteRouting({
+    lookupHost: (p) => (p === '/srv/app' ? 'h1' : null),
+    registry,
+    normalizeEvent: (raw) => [raw],
+  });
+  const writer = fakeWriter();
+  const p = routing.wrapSpawn('qoder', async () => undefined)(
+    'do it',
+    {
+      appSessionId: 's1',
+      projectPath: '/srv/app',
+      cwd: '/srv/app',
+      sessionId: null,
+      configEnv: { QODER_PERSONAL_ACCESS_TOKEN: 'pat' },
+    },
+    writer,
+  );
+  await tick();
+  const startFrame = hostWs.sent.find((f) => f.method === 'session/start')!;
+  assert.ok(startFrame, 'session/start rpc sent');
+  const params = startFrame!.params as Record<string, unknown>;
+  assert.equal(params.provider, 'qoder');
+  assert.equal(params.appSessionId, 's1');
+  assert.deepEqual(params.configEnv, { QODER_PERSONAL_ACCESS_TOKEN: 'pat' });
+  registry.resolveRpc(startFrame!.id as string, { ok: true, data: { providerSessionId: 'P1' } });
+  await tick();
+  emitPush({ topic: 'session:s1', payload: { type: 'complete' }, from: 'h1' });
+  await p;
+  routing.dispose();
+});
+
+test('_remoteNorm messages pass through w.send without normalizeEvent', async () => {
+  const registry = createRemoteAgentsRegistry();
+  const hostWs = registerHost(registry, 'h1');
+  let normalizeCalls = 0;
+  const routing = createRemoteRouting({
+    lookupHost: () => 'h1',
+    registry,
+    normalizeEvent: (raw) => {
+      normalizeCalls += 1;
+      return [raw];
+    },
+  });
+  const writer = fakeWriter();
+  const p = routing.wrapSpawn('codex', async () => undefined)(
+    'do',
+    { appSessionId: 's1', projectPath: '/srv/app', sessionId: null },
+    writer,
+  );
+  await tick();
+  const startFrame = hostWs.sent.find((f) => f.method === 'session/start')!;
+  registry.resolveRpc(startFrame.id as string, { ok: true, data: { providerSessionId: 'P1' } });
+  await tick();
+  writer.sent.length = 0;
+  // The lite pushes an ALREADY-normalized message (T12 runners wrap it).
+  const normalized = { kind: 'assistant', content: 'hi', sessionId: 'P1' };
+  emitPush({ topic: 'session:s1', payload: { _remoteNorm: true, message: normalized }, from: 'h1' });
+  await tick();
+  assert.equal(writer.sent.length, 1);
+  assert.deepEqual(writer.sent[0], normalized);
+  assert.equal(normalizeCalls, 0, 'normalizeEvent must not run on _remoteNorm messages');
+  emitPush({ topic: 'session:s1', payload: { type: 'complete' }, from: 'h1' });
+  await p;
+  routing.dispose();
+});
+
+test('raw complete for a non-claude provider is finish-only (no re-normalize, no double complete)', async () => {
+  const registry = createRemoteAgentsRegistry();
+  const hostWs = registerHost(registry, 'h1');
+  let normalizeCalls = 0;
+  const routing = createRemoteRouting({
+    lookupHost: () => 'h1',
+    registry,
+    normalizeEvent: (raw) => {
+      normalizeCalls += 1;
+      return [raw];
+    },
+  });
+  const writer = fakeWriter();
+  const p = routing.wrapSpawn('opencode', async () => undefined)(
+    'do',
+    { appSessionId: 's1', projectPath: '/srv/app', sessionId: null },
+    writer,
+  );
+  await tick();
+  const startFrame = hostWs.sent.find((f) => f.method === 'session/start')!;
+  registry.resolveRpc(startFrame.id as string, { ok: true, data: { providerSessionId: 'P1' } });
+  await tick();
+  writer.sent.length = 0;
+  // The runner already pushed its normalized terminal via _remoteNorm, then
+  // the raw complete marker — the marker must ONLY finish, not normalize again.
+  emitPush({
+    topic: 'session:s1',
+    payload: { _remoteNorm: true, message: { kind: 'complete', sessionId: 'P1', exitCode: 0 } },
+    from: 'h1',
+  });
+  await tick();
+  emitPush({ topic: 'session:s1', payload: { type: 'complete' }, from: 'h1' });
+  const result = await p;
+  assert.equal(result, undefined);
+  assert.equal(normalizeCalls, 0, 'raw complete of non-claude must not hit normalizeEvent');
+  const completes = writer.sent.filter((m) => (m as { kind?: string }).kind === 'complete');
+  assert.equal(completes.length, 1, 'exactly one complete delivered');
+  routing.dispose();
+});
+
+test('claude raw complete still normalizes into a CompleteMessage then finishes', async () => {
+  const registry = createRemoteAgentsRegistry();
+  const hostWs = registerHost(registry, 'h1');
+  const seen: Record<string, unknown>[] = [];
+  const routing = createRemoteRouting({
+    lookupHost: () => 'h1',
+    registry,
+    normalizeEvent: (raw) => {
+      seen.push(raw);
+      return [{ kind: 'complete', exitCode: 0 }];
+    },
+  });
+  const writer = fakeWriter();
+  const p = routing.wrapSpawn('claude', async () => undefined)(
+    'do',
+    { appSessionId: 's1', projectPath: '/srv/app', sessionId: null },
+    writer,
+  );
+  await tick();
+  const startFrame = hostWs.sent.find((f) => f.method === 'session/start')!;
+  registry.resolveRpc(startFrame.id as string, { ok: true, data: { providerSessionId: 'P1' } });
+  await tick();
+  writer.sent.length = 0;
+  emitPush({ topic: 'session:s1', payload: { type: 'complete', exitCode: 0 }, from: 'h1' });
+  const result = await p;
+  assert.equal(result, undefined);
+  assert.equal(seen.length, 1, 'claude raw complete went through normalizeEvent');
+  assert.deepEqual(writer.sent[0], { kind: 'complete', exitCode: 0 });
+  routing.dispose();
+});
+
+test('permission_request carries the actual provider id, not a hardcoded claude', async () => {
+  const registry = createRemoteAgentsRegistry();
+  const hostWs = registerHost(registry, 'h1');
+  const routing = createRemoteRouting({
+    lookupHost: () => 'h1',
+    registry,
+    normalizeEvent: (raw) => [raw],
+  });
+  const writer = fakeWriter();
+  const p = routing.wrapSpawn('qoder', async () => undefined)(
+    'go',
+    { appSessionId: 's1', projectPath: '/srv/app', sessionId: null },
+    writer,
+  );
+  await tick();
+  const startFrame = hostWs.sent.find((f) => f.method === 'session/start')!;
+  registry.resolveRpc(startFrame.id as string, { ok: true, data: { providerSessionId: 'P1' } });
+  await tick();
+  emitPush({
+    topic: 'approval:reqQ',
+    payload: { appSessionId: 's1', approval: { name: 'Bash', input: { command: 'ls' } } },
+    from: 'h1',
+  });
+  await tick();
+  const permReq = writer.sent.find((m) => (m as Record<string, unknown>).kind === 'permission_request');
+  assert.ok(permReq, 'permission_request forwarded');
+  assert.equal((permReq as Record<string, unknown>).provider, 'qoder');
+  assert.equal(routing.getPendingApprovalsForAppSession('s1').length, 1);
+  emitPush({ topic: 'session:s1', payload: { type: 'complete' }, from: 'h1' });
+  await p;
+  routing.dispose();
+});
+
+test('cancelled approval push forwards permission_cancelled and cleans the pending entry', async () => {
+  const registry = createRemoteAgentsRegistry();
+  const hostWs = registerHost(registry, 'h1');
+  const routing = createRemoteRouting({
+    lookupHost: () => 'h1',
+    registry,
+    normalizeEvent: (raw) => [raw],
+  });
+  const writer = fakeWriter();
+  const p = routing.wrapSpawn('qoder', async () => undefined)(
+    'go',
+    { appSessionId: 's1', projectPath: '/srv/app', sessionId: null },
+    writer,
+  );
+  await tick();
+  const startFrame = hostWs.sent.find((f) => f.method === 'session/start')!;
+  registry.resolveRpc(startFrame.id as string, { ok: true, data: { providerSessionId: 'P1' } });
+  await tick();
+
+  // A normal approval push first mirrors it as pending (the popup is shown).
+  emitPush({
+    topic: 'approval:reqC',
+    payload: { appSessionId: 's1', approval: { name: 'Bash', input: { command: 'ls' } } },
+    from: 'h1',
+  });
+  await tick();
+  assert.equal(routing.getPendingApprovalsForAppSession('s1').length, 1, 'normal push mirrored');
+
+  // The timeout/cancel marker on the SAME requestId must clear it, not mirror.
+  emitPush({
+    topic: 'approval:reqC',
+    payload: { appSessionId: 's1', approval: { name: 'Bash', cancelled: true } },
+    from: 'h1',
+  });
+  await tick();
+  const cancelled = writer.sent.find((m) => (m as Record<string, unknown>).kind === 'permission_cancelled');
+  assert.ok(cancelled, 'permission_cancelled forwarded');
+  assert.equal((cancelled as Record<string, unknown>).requestId, 'reqC');
+  assert.equal((cancelled as Record<string, unknown>).provider, 'qoder');
+  // The first (normal) push still surfaced its permission_request; the cancel
+  // marker must NOT add a second request, only the cancellation.
+  assert.equal(
+    writer.sent.filter((m) => (m as Record<string, unknown>).kind === 'permission_request').length,
+    1,
+    'permission_request surfaced from the normal push',
+  );
+  // The pending entry was cleaned from BOTH the registry and the local mirror.
+  assert.equal(registry.takePendingApproval('reqC'), undefined, 'no stale registry pending entry');
+  assert.equal(routing.getPendingApprovalsForAppSession('s1').length, 0, 'no stale local mirror');
+  emitPush({ topic: 'session:s1', payload: { type: 'complete' }, from: 'h1' });
+  await p;
   routing.dispose();
 });

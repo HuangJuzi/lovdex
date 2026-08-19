@@ -198,16 +198,16 @@ setOnlineHostsLookup(() => remoteAgentsRegistry.list());
 // (interactive chat.send path) and the headless task-run launcher (operator
 // start_task_execution path) so there is one source of truth.
 //
-// The remote routing wraps ONLY the claude provider: the lite agent speaks
-// claude (its capabilities are session/claude); codex/opencode/qoder remain
-// strictly local (M3 review fix). A claude spawn whose project path resolves to
-// a remote host is forwarded over the ws rpc/push bus; local paths pass
-// straight through to the in-process SDK.
+// All four providers are routed through remoteRouting.wrapSpawn: a spawn whose
+// project path resolves to a remote host is forwarded over the ws rpc/push bus
+// (each provider knows its id so session/start can dispatch on the lite, and
+// the lite's `_remoteNorm` messages pass through untouched); local paths fall
+// straight through to the in-process runner.
 const spawnFns = {
-    claude: remoteRouting.wrapSpawn(queryClaudeSDK),
-    codex: queryCodex,
-    opencode: queryOpenCode,
-    qoder: queryQoder,
+    claude: remoteRouting.wrapSpawn('claude', queryClaudeSDK),
+    codex: remoteRouting.wrapSpawn('codex', queryCodex),
+    opencode: remoteRouting.wrapSpawn('opencode', queryOpenCode),
+    qoder: remoteRouting.wrapSpawn('qoder', queryQoder),
 };
 
 // Single WebSocket server that handles chat.

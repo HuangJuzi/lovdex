@@ -21,6 +21,7 @@ const PROJECTS_DDL =
   'CREATE TABLE IF NOT EXISTS projects (project_id TEXT PRIMARY KEY NOT NULL, project_path TEXT NOT NULL UNIQUE, remote_host_id TEXT)';
 
 type FakeOpenWs = WebSocket & { closed: boolean; closeCode: number | undefined };
+type FakeRpcWs = FakeOpenWs & { sent: Record<string, unknown>[] };
 
 /** A fake open WebSocket the registry treats as live for isOnline/rpc. */
 function fakeOpenWs(): FakeOpenWs {
@@ -34,6 +35,34 @@ function fakeOpenWs(): FakeOpenWs {
     ws.closeCode = code;
   };
   return ws;
+}
+
+/** A fake open ws that also RECORDS rpc_req frames so tests can resolve them. */
+function fakeRpcWs(): FakeRpcWs {
+  const ws: FakeRpcWs = {
+    readyState: WebSocket.OPEN,
+    closed: false,
+    closeCode: undefined,
+    sent: [],
+    close(code?: number) {
+      ws.closed = true;
+      ws.closeCode = code;
+    },
+    send(raw: string, cb?: (err?: Error) => void) {
+      ws.sent.push(JSON.parse(raw) as Record<string, unknown>);
+      cb?.();
+    },
+  } as unknown as FakeRpcWs;
+  return ws;
+}
+
+/** Polls until `pred` is truthy or the timeout (default 2s) elapses. */
+async function waitFor(pred: () => boolean, timeoutMs = 2000): Promise<void> {
+  const start = Date.now();
+  while (!pred()) {
+    if (Date.now() - start > timeoutMs) throw new Error('waitFor timeout');
+    await new Promise((r) => setTimeout(r, 10));
+  }
 }
 
 type StubFsClient = RemoteFsClient & { listCalls: { hostId: string; path: string }[] };
@@ -759,6 +788,100 @@ test('DELETE /:id stops the host tunnel', async () => {
     const res = await fetch(`${h.base}/api/remote-agents/h1`, { method: 'DELETE' });
     assert.equal(res.status, 200);
     assert.deepEqual(h.stopCalls, ['h1']);
+  } finally {
+    await h.close();
+  }
+});
+
+test('GET /:id/providers serves the registry cache without an rpc', async () => {
+  const h = await makeHarness();
+  try {
+    h.repo.create({ host_id: 'h1', name: 'dev1', host: '10.0.0.5', ssh_user: 'root' });
+    h.registry.register({ hostId: 'h1', roots: ['/home/root'], capabilities: [] }, fakeOpenWs());
+    h.registry.setHostProviders('h1', [{ provider: 'claude', installed: true }]);
+
+    const res = await fetch(`${h.base}/api/remote-agents/h1/providers`);
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as { data: { providers: { provider: string; installed: boolean }[]; refresh: boolean } };
+    assert.equal(body.data.refresh, false);
+    assert.deepEqual(body.data.providers, [{ provider: 'claude', installed: true }]);
+  } finally {
+    await h.close();
+  }
+});
+
+test('GET /:id/providers?refresh=1 re-probes the host and updates the cache', async () => {
+  const h = await makeHarness();
+  try {
+    h.repo.create({ host_id: 'h1', name: 'dev1', host: '10.0.0.5', ssh_user: 'root' });
+    const ws = fakeRpcWs();
+    h.registry.register({ hostId: 'h1', roots: ['/home/root'], capabilities: [] }, ws);
+    h.registry.setHostProviders('h1', [{ provider: 'claude', installed: true }]);
+
+    const p = fetch(`${h.base}/api/remote-agents/h1/providers?refresh=1`);
+    await waitFor(() => ws.sent.some((f) => f.method === 'providers/probe'));
+    const probeFrame = ws.sent.find((f) => f.method === 'providers/probe')!;
+    assert.deepEqual(probeFrame.params, { refresh: true });
+    h.registry.resolveRpc(probeFrame.id as string, {
+      ok: true,
+      data: { providers: [
+        { provider: 'claude', installed: true },
+        { provider: 'codex', installed: false },
+      ] },
+    });
+    const res = await p;
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as { data: { providers: unknown[]; refresh: boolean } };
+    assert.equal(body.data.refresh, true);
+    assert.equal((body.data.providers as unknown[]).length, 2);
+    // The refreshed probe result replaced the stale cache.
+    assert.deepEqual(h.registry.getHostProviders('h1'), body.data.providers);
+  } finally {
+    await h.close();
+  }
+});
+
+test('GET /:id/providers on an online host with an empty cache falls back to a probe', async () => {
+  const h = await makeHarness();
+  try {
+    h.repo.create({ host_id: 'h1', name: 'dev1', host: '10.0.0.5', ssh_user: 'root' });
+    const ws = fakeRpcWs();
+    h.registry.register({ hostId: 'h1', roots: ['/home/root'], capabilities: [] }, ws);
+
+    const p = fetch(`${h.base}/api/remote-agents/h1/providers`);
+    await waitFor(() => ws.sent.some((f) => f.method === 'providers/probe'));
+    const probeFrame = ws.sent.find((f) => f.method === 'providers/probe')!;
+    h.registry.resolveRpc(probeFrame.id as string, { ok: true, data: { providers: [{ provider: 'claude', installed: true }] } });
+    const res = await p;
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as { data: { providers: unknown[] } };
+    assert.equal((body.data.providers as unknown[]).length, 1);
+    assert.deepEqual(h.registry.getHostProviders('h1'), body.data.providers);
+  } finally {
+    await h.close();
+  }
+});
+
+test('GET /:id/providers?refresh=1 on an offline host → 409 REMOTE_HOST_OFFLINE', async () => {
+  const h = await makeHarness();
+  try {
+    h.repo.create({ host_id: 'h1', name: 'dev1', host: '10.0.0.5', ssh_user: 'root' });
+    const res = await fetch(`${h.base}/api/remote-agents/h1/providers?refresh=1`);
+    assert.equal(res.status, 409);
+    const body = (await res.json()) as { error: { code: string } };
+    assert.equal(body.error.code, 'REMOTE_HOST_OFFLINE');
+  } finally {
+    await h.close();
+  }
+});
+
+test('GET /:id/providers for a missing host → 404 REMOTE_HOST_NOT_FOUND', async () => {
+  const h = await makeHarness();
+  try {
+    const res = await fetch(`${h.base}/api/remote-agents/nope/providers`);
+    assert.equal(res.status, 404);
+    const body = (await res.json()) as { error: { code: string } };
+    assert.equal(body.error.code, 'REMOTE_HOST_NOT_FOUND');
   } finally {
     await h.close();
   }

@@ -1,4 +1,5 @@
 import { makeSessionStartParamsSchema } from '@/shared/agent-runtime/protocol.js';
+import type { LLMProvider } from '@/shared/types.js';
 import { createNormalizedMessage } from '@/shared/utils.js';
 import { addPushListener, removePushListener } from './remote-agent.server.js';
 import type { PushEvent } from './remote-agent.server.js';
@@ -60,7 +61,7 @@ type SessionState = {
  * saw the push last). `dispose()` unsubscribes it and clears its state.
  */
 export function createRemoteRouting(deps: RemoteRoutingDeps): {
-  wrapSpawn(localSpawn: SpawnFn): SpawnFn;
+  wrapSpawn(provider: LLMProvider, localSpawn: SpawnFn): SpawnFn;
   wrapAbort(localAbort: (providerSessionId: string) => Promise<boolean>): (providerSessionId: string) => Promise<boolean>;
   wrapResolveToolApproval(localResolve: (requestId: string, payload: unknown) => void): (requestId: string, payload: unknown) => void;
   getPendingApprovals(providerSessionId: string): { requestId: string; toolName: string; input: unknown; sessionId: string }[];
@@ -133,7 +134,7 @@ export function createRemoteRouting(deps: RemoteRoutingDeps): {
     for (const appSessionId of affectedSessions) failSession(appSessionId);
   };
 
-  function wrapSpawn(localSpawn: SpawnFn): SpawnFn {
+  function wrapSpawn(provider: LLMProvider, localSpawn: SpawnFn): SpawnFn {
     return async function spawn(command, options, writer) {
       const projectPath = (options.projectPath ?? options.cwd) as string | undefined;
       const hostId = deps.lookupHost(projectPath);
@@ -147,11 +148,13 @@ export function createRemoteRouting(deps: RemoteRoutingDeps): {
       const params = makeSessionStartParamsSchema().parse({
         appSessionId,
         providerSessionId,
+        provider,
         command,
         cwd: projectPath,
         model: options.model,
         permissionMode: (options.permissionMode as string | undefined) ?? 'default',
         includePartialMessages: options.includePartialMessages === true,
+        configEnv: (options.configEnv as Record<string, string> | undefined) ?? {},
       });
 
       return await new Promise<unknown>((resolve, reject) => {
@@ -176,35 +179,78 @@ export function createRemoteRouting(deps: RemoteRoutingDeps): {
         };
         sessionStates.set(appSessionId, { hostId, fail });
 
+        // claude pushes RAW SDK events (its `complete` must be normalized
+        // into a CompleteMessage); the other runners push already-normalized
+        // `_remoteNorm` messages plus a raw `complete` that is finish-only.
+        const isClaude = provider === 'claude';
+
         // Install BEFORE the rpc so no event is missed.
         const handler: SessionHandler = (event) => {
           // Approval envelope: main forwards a permission_request to the
-          // client and mirrors the pending approval locally.
+          // client and mirrors the pending approval locally. When the host
+          // reports the approval was cancelled (qoder timeout/interrupt), the
+          // pending entry is cleaned and the client gets the local
+          // `permission_cancelled` equivalent instead.
           if (event.__remoteApproval === true) {
             const requestId = String(event.requestId ?? '');
             const approval = (event.approval ?? {}) as Record<string, unknown>;
+            const entry = registry.getSessionHost(appSessionId);
+            const sessionId = entry?.providerSessionId ?? providerSessionId;
+            if ((approval as { cancelled?: unknown }).cancelled === true) {
+              registry.takePendingApproval(requestId);
+              localApprovals.delete(requestId);
+              w.send(
+                createNormalizedMessage({
+                  kind: 'permission_cancelled',
+                  requestId,
+                  reason: 'cancelled',
+                  sessionId,
+                  provider,
+                }),
+              );
+              return;
+            }
             const toolName = String(approval.name ?? approval.toolName ?? 'UnknownTool');
             const input = approval.input;
             localApprovals.set(requestId, { appSessionId, toolName, input });
-            const entry = registry.getSessionHost(appSessionId);
             w.send(
               createNormalizedMessage({
                 kind: 'permission_request',
                 requestId,
                 toolName,
                 input,
-                sessionId: entry?.providerSessionId ?? providerSessionId,
-                provider: 'claude',
+                sessionId,
+                provider,
               }),
             );
             return;
           }
 
-          const entry = registry.getSessionHost(appSessionId);
-          const sid = (event.session_id as string | undefined) ?? entry?.providerSessionId ?? providerSessionId;
+          // T12 runners (codex/opencode/qoder) push already-normalized
+          // messages wrapped in a `_remoteNorm` envelope — pass them through
+          // untouched. Running normalizeEvent on a NormalizedMessage would
+          // treat it as a raw SDK event and corrupt it.
+          if (event._remoteNorm === true) {
+            w.send(event.message);
+            return;
+          }
+
+          const sessionEntry = registry.getSessionHost(appSessionId);
+          const sid = (event.session_id as string | undefined) ?? sessionEntry?.providerSessionId ?? providerSessionId;
+          if (event.type === 'complete') {
+            // claude's raw `complete` still needs normalization into a
+            // CompleteMessage; the other runners already delivered their
+            // normalized terminal via _remoteNorm, so for them this raw
+            // marker is a finish signal only (no double complete).
+            if (isClaude) {
+              const msgs = normalizeEvent(event, sid ?? null);
+              for (const m of msgs) w.send(m);
+            }
+            finish(undefined);
+            return;
+          }
           const msgs = normalizeEvent(event, sid ?? null);
           for (const m of msgs) w.send(m);
-          if (event.type === 'complete') finish(undefined);
         };
         sessionHandlers.set(appSessionId, handler);
 

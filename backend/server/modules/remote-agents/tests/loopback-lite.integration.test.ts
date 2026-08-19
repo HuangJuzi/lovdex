@@ -218,7 +218,7 @@ test(
         throw new Error('must not run locally');
       };
 
-      const result = await routing.wrapSpawn(localSpawn)('do it', {
+      const result = await routing.wrapSpawn('claude', localSpawn)('do it', {
         appSessionId: 's1',
         projectPath: '/srv/app',
         cwd: '/srv/app',
@@ -303,7 +303,7 @@ test(
         throw new Error('must not run locally');
       };
 
-      const runPromise = routing.wrapSpawn(localSpawn)('do it', {
+      const runPromise = routing.wrapSpawn('claude', localSpawn)('do it', {
         appSessionId: 's1',
         projectPath: '/srv/app',
         cwd: '/srv/app',
