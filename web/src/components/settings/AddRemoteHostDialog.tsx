@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
+import { Check, Copy } from 'lucide-react';
 
 import { api } from '../../utils/api';
+import { copyTextToClipboard } from '../../utils/clipboard';
 import { Button } from '../../shared/view/ui';
 import { Dialog, DialogContent, DialogTitle } from '../../shared/view/ui/Dialog';
 
@@ -66,6 +68,10 @@ export function AddRemoteHostDialog({ open, onClose, onAdded }: AddRemoteHostDia
   const [phase, setPhase] = useState('');
   const [error, setError] = useState<string | null>(null);
 
+  // 「已装 Lovdex 公钥」模式下按需展示/复制公钥。
+  const [pubkey, setPubkey] = useState('');
+  const [pubkeyCopied, setPubkeyCopied] = useState(false);
+
   // Guards against setState after the dialog closes/unmounts mid-poll.
   const activeRef = useRef(true);
   const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -94,12 +100,27 @@ export function AddRemoteHostDialog({ open, onClose, onAdded }: AddRemoteHostDia
     setRunning(false);
     setPhase('');
     setError(null);
+    setPubkeyCopied(false);
+    // 需要时展示 Lovdex 公钥（供「已装公钥」模式手动注入参考）。
+    void api.get('/remote-agents/pubkey').then(async (res) => {
+      if (!res.ok || !activeRef.current) return;
+      const body = (await res.json().catch(() => null)) as { data?: { publicKey?: string } } | null;
+      setPubkey(body?.data?.publicKey ?? '');
+    });
   }, [open]);
 
   function stopPolling() {
     if (pollTimer.current) {
       clearInterval(pollTimer.current);
       pollTimer.current = null;
+    }
+  }
+
+  async function copyPubkey() {
+    const ok = await copyTextToClipboard(pubkey);
+    if (ok) {
+      setPubkeyCopied(true);
+      window.setTimeout(() => setPubkeyCopied(false), 1500);
     }
   }
 
@@ -321,6 +342,23 @@ export function AddRemoteHostDialog({ open, onClose, onAdded }: AddRemoteHostDia
               </label>
             </div>
           </div>
+
+          {authType === 'key' && (
+            <div className="text-xs text-muted-foreground">
+              目标机需已包含 Lovdex 公钥（未装的机器请改用上方「密码」模式，可自动注入）。
+              {pubkey ? (
+                <button
+                  type="button"
+                  onClick={() => void copyPubkey()}
+                  className="ml-2 inline-flex items-center gap-1 text-foreground underline"
+                  disabled={running}
+                >
+                  {pubkeyCopied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                  {pubkeyCopied ? '已复制' : '复制 Lovdex 公钥'}
+                </button>
+              ) : null}
+            </div>
+          )}
 
           {authType === 'password' && (
             <div>

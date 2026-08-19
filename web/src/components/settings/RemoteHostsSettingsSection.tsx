@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Check, Copy, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { Plus, RefreshCw, Trash2 } from 'lucide-react';
 
 import { api } from '../../utils/api';
-import { copyTextToClipboard } from '../../utils/clipboard';
 import { Button } from '../../shared/view/ui';
 
 import { AddRemoteHostDialog } from './AddRemoteHostDialog';
@@ -22,7 +21,6 @@ type RemoteHost = {
 };
 
 type HostsResponse = { data?: { hosts?: RemoteHost[] } };
-type PubkeyResponse = { data?: { publicKey?: string } };
 type DeployResponse = { data?: { status?: string; message?: string } };
 
 const POLL_INTERVAL_MS = 3000;
@@ -56,20 +54,18 @@ async function readErrorMessage(res: Response, fallback: string): Promise<string
 }
 
 /**
- * 远程机器设置：注册/部署/删除远程 lite agent 主机，并展示 Lovdex 公钥以便
+ * 远程机器设置：添加（弹窗一键注入公钥+部署）、部署/删除远程 lite agent 主机。
  * 手动写入目标机 authorized_keys。部署是阻塞式 ssh 调用，发起后本地进入
  * "部署中…" 并每 ~3s 轮询 GET / 直到状态不再是 deploying。
  */
 export function RemoteHostsSettingsSection() {
   const [hosts, setHosts] = useState<RemoteHost[]>([]);
-  const [publicKey, setPublicKey] = useState('');
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   // Add-host dialog.
   const [addOpen, setAddOpen] = useState(false);
 
-  const [pubkeyCopied, setPubkeyCopied] = useState(false);
   // Per-host transient action state.
   const [deployingIds, setDeployingIds] = useState<ReadonlySet<string>>(new Set());
   const [actionError, setActionError] = useState<string | null>(null);
@@ -89,17 +85,9 @@ export function RemoteHostsSettingsSection() {
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([
-      loadHosts(),
-      api.get('/remote-agents/pubkey').then(async (res) => {
-        if (!res.ok) return '';
-        const body = (await res.json()) as PubkeyResponse;
-        return body.data?.publicKey ?? '';
-      }),
-    ])
-      .then(([, key]) => {
+    loadHosts()
+      .then(() => {
         if (cancelled) return;
-        setPublicKey(key);
         setLoaded(true);
       })
       .catch((err: unknown) => {
@@ -197,14 +185,6 @@ export function RemoteHostsSettingsSection() {
     }
   }
 
-  async function copyPubkey() {
-    const ok = await copyTextToClipboard(publicKey);
-    if (ok) {
-      setPubkeyCopied(true);
-      window.setTimeout(() => setPubkeyCopied(false), 1500);
-    }
-  }
-
   if (loadError) {
     return (
       <div className="flex flex-col items-center gap-3 py-10">
@@ -221,30 +201,6 @@ export function RemoteHostsSettingsSection() {
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Public key */}
-      <section className="rounded-lg border border-border bg-card p-4">
-        <h2 className="mb-1 text-sm font-semibold text-foreground">Lovdex 公钥</h2>
-        <p className="mb-2 text-xs text-muted-foreground">
-          将下列公钥追加到目标机的 <code>~/.ssh/authorized_keys</code>，Lovdex 才能通过 SSH 部署 lite agent。
-        </p>
-        <div className="flex items-start gap-2">
-          <textarea
-            readOnly
-            value={publicKey || '（未生成公钥）'}
-            className="h-16 w-full resize-none rounded-md border border-border bg-muted px-2 py-1.5 font-mono text-xs text-foreground"
-          />
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => void copyPubkey()}
-            disabled={!publicKey}
-            title="复制公钥"
-          >
-            {pubkeyCopied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-          </Button>
-        </div>
-      </section>
-
       {/* Add host */}
       <section className="flex items-center justify-between rounded-lg border border-border bg-card p-4">
         <div>
