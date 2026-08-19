@@ -829,7 +829,7 @@ git commit -m "feat(remote-agent-lite): git/exec + providers/probe + fs write rp
     },
 ```
 
-并在模块顶部加 `const hostProviders = new Map<string, unknown[]>();`
+> 修订（T5 质量评审）：`hostProviders` 改为 **registry 实例内部**救（闭包内 `const hostProviders = new Map<string, unknown[]>>()`），并在 `doUnregister` 里 `hostProviders.delete(hostId)`——避免模块级全局泄漏/断连期间读陈旧缓存/测试实例间共享。`rpc()` 对已 abort 的 signal 提前 reject（`if (signal?.aborted) return Promise.reject(...)`），abort 监听器在正常 settle 时移除。
 
 同时给 `rpc()` 增加可选 `signal`：
 
