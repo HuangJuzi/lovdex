@@ -74,6 +74,23 @@ function stubFsClient(dirs: { name: string; type: 'dir' | 'file' | 'symlink'; si
     async read() {
       throw new Error('not used');
     },
+    // Write-family surface is added by a later task; these list/stat-only
+    // route tests never hit it.
+    async tree() {
+      throw new Error('not used');
+    },
+    async write() {
+      throw new Error('not used');
+    },
+    async create() {
+      throw new Error('not used');
+    },
+    async rename() {
+      throw new Error('not used');
+    },
+    async delete() {
+      throw new Error('not used');
+    },
   };
 }
 
@@ -592,6 +609,21 @@ test('GET /:id/dirs RPC failure → 502 REMOTE_FS_ERROR', async () => {
       throw new Error('remote rpc timed out: fs/list');
     },
     async read() {
+      throw new Error('not used');
+    },
+    async tree() {
+      throw new Error('not used');
+    },
+    async write() {
+      throw new Error('not used');
+    },
+    async create() {
+      throw new Error('not used');
+    },
+    async rename() {
+      throw new Error('not used');
+    },
+    async delete() {
       throw new Error('not used');
     },
   };
