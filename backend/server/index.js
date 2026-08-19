@@ -80,7 +80,7 @@ import { createRemoteRouting } from './modules/remote-agents/remote-spawn.js';
 import { createRemoteFsClient } from './modules/remote-agents/remote-fs.service.js';
 import { createRemoteAgentsRouter } from './modules/remote-agents/remote-agents.routes.js';
 import { setRemoteAgentsRuntime } from './modules/remote-agents/runtime.js';
-import { refreshRemoteProjectsIndex, lookupRemoteHost } from './modules/remote-agents/remote-projects.index.js';
+import { refreshRemoteProjectsIndex, lookupRemoteHost, setOnlineHostsLookup } from './modules/remote-agents/remote-projects.index.js';
 import { runBootstrap } from './modules/remote-agents/bootstrap.service.js';
 import { createSshRunner, createScpPush, createSshpassPubkeyInjector } from './modules/remote-agents/ssh-runner.js';
 import { buildLitePackage } from './modules/remote-agents/lite-package.js';
@@ -190,6 +190,9 @@ const remoteRouting = createRemoteRouting({
     normalizeEvent: normalizeRemoteEvent,
 });
 setRemoteAgentsRuntime({ registry: remoteAgentsRegistry, fsClient: remoteFsClient });
+// The path-routing fallback reads the LIVE registry on every lookup (worktrees
+// and other non-project paths), so hand it a lazy thunk rather than a snapshot.
+setOnlineHostsLookup(() => remoteAgentsRegistry.list());
 
 // Provider runtimes keyed by provider id. Shared by the WebSocket server
 // (interactive chat.send path) and the headless task-run launcher (operator

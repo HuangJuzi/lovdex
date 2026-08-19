@@ -152,6 +152,80 @@ test('rpc times out, clears the pending entry, and a late reply is a no-op', asy
   assert.equal(reg.pendingCount(), 0);
 });
 
+test('list exposes live host ids and roots, dropped on disconnect', () => {
+  const reg = createRemoteAgentsRegistry();
+  const a = fakeWs();
+  const b = fakeWs();
+  reg.register({ hostId: 'h1', roots: ['/srv/app'], capabilities: [] }, a as unknown as WebSocket);
+  reg.register({ hostId: 'h2', roots: ['/data'], capabilities: [] }, b as unknown as WebSocket);
+  assert.deepEqual(reg.list(), [
+    { hostId: 'h1', roots: ['/srv/app'] },
+    { hostId: 'h2', roots: ['/data'] },
+  ]);
+  reg.disconnect('h1', a as unknown as WebSocket);
+  assert.deepEqual(reg.list(), [{ hostId: 'h2', roots: ['/data'] }]);
+});
+
+test('host providers cache round-trips suite setHostProviders/getHostProviders', () => {
+  const reg = createRemoteAgentsRegistry();
+  assert.equal(reg.getHostProviders('h1'), undefined);
+  reg.setHostProviders('h1', [{ provider: 'claude', installed: true, version: '1.0.0' }]);
+  assert.equal(reg.getHostProviders('h1')?.length, 1);
+  // null or empty clears back to an empty array
+  reg.setHostProviders('h1', null);
+  assert.deepEqual(reg.getHostProviders('h1'), []);
+});
+
+test('cancelRpc sends an rpc_cancel frame only for a pending rpc on an open socket', () => {
+  const reg = createRemoteAgentsRegistry();
+  const ws = fakeWs();
+  reg.register({ hostId: 'h1', roots: [], capabilities: [] }, ws as unknown as WebSocket);
+  reg.rpc('h1', 'git/exec', { args: ['fetch'], cwd: '/srv' }, 5000);
+  const id = JSON.parse(ws.sent[0]).id;
+  reg.cancelRpc('bogus'); // unknown id is a no-op
+  assert.equal(ws.sent.length, 1);
+  reg.cancelRpc(id);
+  assert.equal(ws.sent.length, 2);
+  const frame = JSON.parse(ws.sent[1]);
+  assert.equal(frame.type, 'rpc_cancel');
+  assert.equal(frame.id, id);
+  // pending rpc untouched: a late reply still resolves it
+  reg.resolveRpc(id, { ok: true, data: { ok: 1 } });
+  assert.equal(reg.pendingCount(), 0);
+});
+
+test('rpc abort signal rejects the pending rpc and notifies the host with rpc_cancel', async () => {
+  const reg = createRemoteAgentsRegistry();
+  const ws = fakeWs();
+  reg.register({ hostId: 'h1', roots: [], capabilities: [] }, ws as unknown as WebSocket);
+  const controller = new AbortController();
+  const p = reg.rpc('h1', 'git/exec', { args: ['status'], cwd: '/srv' }, 5000, controller.signal);
+  const id = JSON.parse(ws.sent[0]).id;
+  controller.abort();
+  await assert.rejects(p, /remote rpc aborted: git\/exec/);
+  assert.equal(reg.pendingCount(), 0);
+  // rpc_req followed by an rpc_cancel for the same id
+  assert.equal(ws.sent.length, 2);
+  const cancel = JSON.parse(ws.sent[1]);
+  assert.equal(cancel.type, 'rpc_cancel');
+  assert.equal(cancel.id, id);
+});
+
+test('rpc abort after resolve is a no-op (single settle)', async () => {
+  const reg = createRemoteAgentsRegistry();
+  const ws = fakeWs();
+  reg.register({ hostId: 'h1', roots: [], capabilities: [] }, ws as unknown as WebSocket);
+  const controller = new AbortController();
+  const p = reg.rpc('h1', 'fs/stat', { path: '/x' }, 2000, controller.signal);
+  const id = JSON.parse(ws.sent[0]).id;
+  reg.resolveRpc(id, { ok: true, data: 'ok' });
+  const res = await p;
+  assert.equal(res, 'ok');
+  assert.equal(reg.pendingCount(), 0);
+  controller.abort(); // must not throw or re-settle
+  assert.equal(ws.sent.length, 1); // no rpc_cancel after settle
+});
+
 test('session + approval indexes route lookups', () => {
   const reg = createRemoteAgentsRegistry();
   assert.equal(reg.getSessionHostByProvider('NOPE'), undefined);

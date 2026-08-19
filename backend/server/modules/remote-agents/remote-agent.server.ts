@@ -95,6 +95,7 @@ export function createRemoteAgentConnectionHandler(deps: RemoteAgentServerDeps) 
           return;
         }
         deps.registry.register({ hostId: f.hostId, roots: f.roots, capabilities: f.capabilities }, ws);
+        if (f.providers) deps.registry.setHostProviders(f.hostId, f.providers);
         hostId = f.hostId;
         deps.onHostOnline?.(hostId);
         ws.send(JSON.stringify({ type: 'rpc_res', id: 'hello', ok: true, data: { accepted: true } }));

@@ -84,6 +84,35 @@ test('hello registers host, replies accepted, pong touches seen, close tears dow
   assert.deepEqual(offline, ['h1']);
 });
 
+test('hello carries providers probe result into the registry cache', () => {
+  const registry = createRemoteAgentsRegistry();
+  const handler = createRemoteAgentConnectionHandler({ verifyToken: () => 'h1', registry });
+  const ws = makeFakeWs();
+  handler(ws as never, {});
+  ws._fire(
+    'message',
+    JSON.stringify({
+      type: 'hello',
+      hostId: 'h1',
+      agentVersion: '1',
+      nodeVersion: '20',
+      os: 'linux',
+      roots: ['/srv'],
+      capabilities: ['session/claude'],
+      providers: [
+        { provider: 'claude', installed: true, version: '1.0.0' },
+        { provider: 'codex', installed: false, version: null },
+      ],
+    }),
+  );
+  assert.equal(registry.isOnline('h1'), true);
+  const providers = registry.getHostProviders('h1') as { provider: string; installed: boolean }[];
+  assert.equal(providers.length, 2);
+  assert.equal(providers[0].provider, 'claude');
+  assert.equal(providers[0].installed, true);
+  assert.equal(providers[1].provider, 'codex');
+});
+
 test('bad json replies with error frame', () => {
   const registry = createRemoteAgentsRegistry();
   const handler = createRemoteAgentConnectionHandler({ verifyToken: () => 'h1', registry });

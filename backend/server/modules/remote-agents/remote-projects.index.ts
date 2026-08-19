@@ -16,6 +16,19 @@
 let projectPathToHostId = new Map<string, string>();
 
 /**
+ * Live online-host snapshot provider, injected at boot by index.js. Returns the
+ * registry's current live connections (`{ hostId, roots }[]`) or null when the
+ * routing layer has not been wired yet. Used as the fallback for paths that are
+ * NOT project rows (worktrees, ad-hoc dirs) — see {@link lookupHostForPath}.
+ */
+let hostsLookup: (() => { hostId: string; roots: string[] }[] | null) | null = null;
+
+/** Inject the online-hosts snapshot thunk (index.js wires it after registry construction). */
+export function setOnlineHostsLookup(fn: () => { hostId: string; roots: string[] }[] | null): void {
+  hostsLookup = fn;
+}
+
+/**
  * Rebuild the whole index from the current project rows. Called at boot and
  * after project mutations. A full rebuild (rather than incremental patching)
  * keeps the index a pure projection of the DB with no drift.
@@ -41,4 +54,32 @@ export function refreshRemoteProjectsIndex(
 export function lookupRemoteHost(projectPath: string | undefined): string | null {
   if (!projectPath) return null;
   return projectPathToHostId.get(projectPath) ?? null;
+}
+
+/**
+ * Resolve which remote host (if any) backs an absolute path. Exact
+ * project-path map hits win; otherwise the longest roots-prefix match across
+ * the live online hosts wins (covers worktrees and other paths outside the
+ * projects table). No match → null (local).
+ */
+export function lookupHostForPath(absPath: string | undefined): string | null {
+  if (!absPath) return null;
+  const exact = projectPathToHostId.get(absPath);
+  if (exact) return exact;
+  if (!hostsLookup) return null;
+  const hosts = hostsLookup();
+  if (!hosts) return null;
+  let bestHost: string | null = null;
+  let bestLen = 0;
+  for (const h of hosts) {
+    for (const root of h.roots) {
+      if (absPath === root || absPath.startsWith(root + '/')) {
+        if (root.length > bestLen) {
+          bestHost = h.hostId;
+          bestLen = root.length;
+        }
+      }
+    }
+  }
+  return bestHost;
 }

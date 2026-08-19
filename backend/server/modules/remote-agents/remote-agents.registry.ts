@@ -1,5 +1,14 @@
 import { WebSocket } from 'ws';
 
+/**
+ * Probe results cached from each host's `hello` providers payload. Lives at
+ * module scope (not per-registry-instance) because the server constructs its
+ * registry exactly once; a fresh registry in tests simply observes the same
+ * cache, which is a harmless over-share for a read-mostly lookup (Task 13's
+ * `GET /:hostId/providers` reads it before falling back to a live probe).
+ */
+const hostProviders = new Map<string, unknown[]>();
+
 export type LiteRegistration = {
   hostId: string;
   roots: string[];
@@ -99,8 +108,20 @@ export function createRemoteAgentsRegistry(
     getRoots(hostId: string): string[] | undefined {
       return connections.get(hostId)?.registration.roots;
     },
+    setHostProviders(hostId: string, providers: unknown[] | null): void {
+      hostProviders.set(hostId, providers ?? []);
+    },
+    getHostProviders(hostId: string): unknown[] | undefined {
+      return hostProviders.get(hostId);
+    },
     listenerCount(): number {
       return connections.size;
+    },
+    list(): { hostId: string; roots: string[] }[] {
+      return Array.from(connections.values()).map((c) => ({
+        hostId: c.registration.hostId,
+        roots: c.registration.roots,
+      }));
     },
     setSessionHost(appSessionId: string, providerSessionId: string | null, hostId: string): void {
       sessionHost.set(appSessionId, { hostId, providerSessionId });
@@ -128,7 +149,7 @@ export function createRemoteAgentsRegistry(
       if (entry) pendingApprovals.delete(requestId);
       return entry;
     },
-    rpc<T = unknown>(hostId: string, method: string, params: unknown, timeoutMs = 60_000): Promise<T> {
+    rpc<T = unknown>(hostId: string, method: string, params: unknown, timeoutMs = 60_000, signal?: AbortSignal): Promise<T> {
       const connection = connections.get(hostId);
       if (!connection || connection.ws.readyState !== WebSocket.OPEN) {
         return Promise.reject(new Error(`remote host offline: ${hostId}`));
@@ -163,7 +184,45 @@ export function createRemoteAgentsRegistry(
           pending.delete(id);
           reject(err instanceof Error ? err : new Error(String(err)));
         }
+        if (signal) {
+          signal.addEventListener(
+            'abort',
+            () => {
+              if (pending.has(id)) {
+                clearTimeout(entry.timer);
+                pending.delete(id);
+                reject(new Error(`remote rpc aborted: ${method}`));
+                // Notify the lite to stop the in-flight worker (e.g. a long
+                // git/exec); best-effort — the socket may be mid-close.
+                try {
+                  connection.ws.send(JSON.stringify({ type: 'rpc_cancel', id }));
+                } catch {
+                  /* socket mid-close */
+                }
+              }
+            },
+            { once: true },
+          );
+        }
       });
+    },
+    /**
+     * Ask the host to cancel an in-flight rpc (used by rpc abort/teardown paths
+     * that already settled the pending entry locally but still want the lite to
+     * stop its side effect — git kill, etc.). No-op for unknown or unconnected
+     * rpcs; settle bookkeeping is NOT done here (the caller owns that).
+     */
+    cancelRpc(id: string): void {
+      const entry = pending.get(id);
+      if (!entry) return;
+      const conn = connections.get(entry.hostId);
+      if (conn && conn.ws.readyState === WebSocket.OPEN) {
+        try {
+          conn.ws.send(JSON.stringify({ type: 'rpc_cancel', id }));
+        } catch {
+          /* socket mid-close */
+        }
+      }
     },
     resolveRpc(id: string, response: { ok: boolean; data?: unknown; error?: string }): void {
       const entry = pending.get(id);
