@@ -77,7 +77,7 @@ import { operatorAuditDb } from './modules/database/repositories/operator-audit.
 import { createRemoteAgentsRegistry } from './modules/remote-agents/remote-agents.registry.js';
 import { createRemoteAgentWss } from './modules/remote-agents/remote-agent.server.js';
 import { createRemoteRouting } from './modules/remote-agents/remote-spawn.js';
-import { createRemoteFsClient } from './modules/remote-agents/remote-fs.service.js';
+import { createRemoteFsClient, REMOTE_MAX_READ_BYTES, REMOTE_MAX_UPLOAD_BYTES } from './modules/remote-agents/remote-fs.service.js';
 import { createRemoteAgentsRouter } from './modules/remote-agents/remote-agents.routes.js';
 import { setRemoteAgentsRuntime, getRemoteAgentsRuntime } from './modules/remote-agents/runtime.js';
 import { refreshRemoteProjectsIndex, lookupRemoteHost, setOnlineHostsLookup } from './modules/remote-agents/remote-projects.index.js';
@@ -805,6 +805,27 @@ app.get('/api/projects/:projectId/files/content', authenticateToken, async (req,
             return res.status(403).json({ error: 'Path must be under project root' });
         }
 
+        // Route to a remote host when the project is backed by one. The remote
+        // read returns base64 (capped at 32 MiB) instead of a local stream.
+        const hostId = lookupRemoteHost(projectRoot);
+        if (hostId) {
+            const { fsClient } = getRemoteAgentsRuntime();
+            let remote;
+            try {
+                remote = await fsClient.read(hostId, resolved, REMOTE_MAX_READ_BYTES, 'base64');
+            } catch (error) {
+                return res.status(resolveErrorCode(error) === 'ENOENT' ? 404 : 500).json({
+                    error: resolveErrorCode(error) === 'ENOENT' ? 'File not found' : error.message,
+                });
+            }
+            if (remote.truncated) {
+                return res.status(413).json({ error: 'File too large to preview/download remotely (limit 32MB)' });
+            }
+            const mimeType = mime.lookup(resolved) || 'application/octet-stream';
+            res.setHeader('Content-Type', mimeType);
+            return res.end(Buffer.from(remote.content, 'base64'));
+        }
+
         // Check if file exists
         try {
             await fsPromises.access(resolved);
@@ -1352,6 +1373,94 @@ const uploadFilesHandler = async (req, res) => {
                 }
                 resolvedTargetDir = validation.resolved;
                 console.log('[DEBUG] Resolved target dir:', resolvedTargetDir);
+            }
+
+            // Route to a remote host when the project is backed by one. The lite
+            // fs/write does not create missing parent dirs, so ancestors are
+            // created first (mirrors the local mkdir -p below). Multer uses disk
+            // storage here, so each temp file's Buffer is re-read for the RPC.
+            const hostId = lookupRemoteHost(projectRoot);
+            if (hostId) {
+                const { fsClient } = getRemoteAgentsRuntime();
+                const ensureRemoteParent = async (startDir, stopDir) => {
+                    // Ancestor chain from startDir up to (but excluding) stopDir,
+                    // deepest first. stopDir is always an ancestor of startDir.
+                    const chain = [];
+                    let cursor = startDir;
+                    while (cursor !== stopDir && cursor.startsWith(stopDir)) {
+                        chain.push(cursor);
+                        const next = path.dirname(cursor);
+                        if (next === cursor) break;
+                        cursor = next;
+                    }
+                    // First existing level scanning deepest→shallowest; every
+                    // level shallower than it must already exist.
+                    let deepestExisting = -1;
+                    for (let i = 0; i < chain.length; i++) {
+                        const s = await fsClient.stat(hostId, chain[i]);
+                        if (s.exists) { deepestExisting = i; break; }
+                    }
+                    // Create missing dirs top-down (shallowest missing first).
+                    for (let i = (deepestExisting === -1 ? chain.length : deepestExisting) - 1; i >= 0; i--) {
+                        await fsClient.create(hostId, path.dirname(chain[i]), 'directory', path.basename(chain[i]));
+                    }
+                };
+
+                // Ensure the target directory itself exists on the remote host.
+                await ensureRemoteParent(resolvedTargetDir, path.resolve(projectRoot));
+
+                const uploadedFiles = [];
+                for (let i = 0; i < req.files.length; i++) {
+                    const file = req.files[i];
+                    // Use relative path if provided (for folder uploads), otherwise use originalname
+                    const fileName = (filePaths && filePaths[i]) ? filePaths[i] : file.originalname;
+                    const destPath = path.join(resolvedTargetDir, fileName);
+
+                    // Validate destination path
+                    const destValidation = validatePathInProject(projectRoot, destPath);
+                    if (!destValidation.valid) {
+                        // Clean up temp file
+                        await fsPromises.unlink(file.path).catch(() => {});
+                        continue;
+                    }
+
+                    if (file.size > REMOTE_MAX_UPLOAD_BYTES) {
+                        // Remove any temp files left behind before aborting.
+                        for (const f of req.files) {
+                            await fsPromises.unlink(f.path).catch(() => {});
+                        }
+                        return res.status(413).json({ error: `File ${file.originalname} exceeds 32MB remote upload limit` });
+                    }
+                    const buf = await fsPromises.readFile(file.path);
+                    if (buf.length > REMOTE_MAX_UPLOAD_BYTES) {
+                        for (const f of req.files) {
+                            await fsPromises.unlink(f.path).catch(() => {});
+                        }
+                        return res.status(413).json({ error: `File ${file.originalname} exceeds 32MB remote upload limit` });
+                    }
+
+                    // Ensure parent directory exists for nested folder uploads.
+                    await ensureRemoteParent(path.dirname(destPath), resolvedTargetDir);
+
+                    await fsClient.write(hostId, destValidation.resolved, buf.toString('base64'), 'base64');
+                    await fsPromises.unlink(file.path).catch(() => {});
+
+                    uploadedFiles.push({
+                        name: fileName,
+                        path: destValidation.resolved,
+                        size: buf.length,
+                        mimeType: file.mimetype
+                    });
+                }
+
+                return res.json({
+                    success: true,
+                    files: uploadedFiles,
+                    uploadedCount: uploadedFiles.length,
+                    requestedFileCount,
+                    targetPath: resolvedTargetDir,
+                    message: `Uploaded ${uploadedFiles.length} ${uploadedFiles.length === 1 ? 'file' : 'files'} successfully`
+                });
             }
 
             // Ensure target directory exists
