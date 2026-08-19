@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import type { Project } from '../../types/app';
 
-import { ASSISTANT_OPTION_VALUE, projectPathOf, taskFormProjects } from './projectOptions';
+import { ASSISTANT_OPTION_VALUE, projectPathOf, taskFormProjects, taskProjectLabel, toProjectOption } from './projectOptions';
 
 const mkProject = (over: Partial<Project> & { displayName: string; fullPath: string }): Project => ({
   projectId: over.fullPath,
@@ -45,4 +45,40 @@ test('taskFormProjects excludes operator workspace projects too', () => {
   const plain = mkProject({ displayName: 'alpha', fullPath: '/a' });
   const out = taskFormProjects([plain, ws]);
   assert.deepEqual(out.map((p) => p.fullPath), ['/a']);
+});
+
+test('taskProjectLabel prefixes the remote host name for remote projects', () => {
+  const p = { projectId: 'p1', displayName: 'MyApp', fullPath: '/r/app', remoteHostName: 'dev-01' };
+  assert.equal(taskProjectLabel(p as Project, new Set()), '🌐 dev-01 · MyApp');
+});
+
+test('taskProjectLabel leaves local projects untouched', () => {
+  const p = { projectId: 'p1', displayName: 'MyApp', fullPath: '/local/app' };
+  assert.equal(taskProjectLabel(p as Project, new Set()), 'MyApp');
+});
+
+test('toProjectOption carries remote fields for the scheduled-task dropdown', () => {
+  const p = {
+    projectId: 'p1',
+    displayName: 'MyApp',
+    fullPath: '/r/app',
+    remoteHostId: 'h1',
+    remoteHostName: 'dev-01',
+  };
+  assert.deepEqual(toProjectOption(p as Project, new Set()), {
+    value: '/r/app',
+    label: 'MyApp',
+    remoteHostId: 'h1',
+    remoteHostName: 'dev-01',
+  });
+});
+
+test('toProjectOption keeps remote fields null for local projects', () => {
+  const p = { projectId: 'p2', displayName: 'Local', fullPath: '/l/proj' };
+  assert.deepEqual(toProjectOption(p as Project, new Set()), {
+    value: '/l/proj',
+    label: 'Local',
+    remoteHostId: null,
+    remoteHostName: null,
+  });
 });

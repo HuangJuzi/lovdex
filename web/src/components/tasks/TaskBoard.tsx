@@ -34,7 +34,9 @@ import { TaskCard } from './TaskCard';
 import { HomeButton } from './TaskBackNav';
 import { buildTaskChatSend, TASK_RETRY_MESSAGE } from './taskExecution';
 import { deriveTaskName } from './taskName';
-import { ASSISTANT_OPTION_VALUE, projectPathOf, taskFormProjects } from './projectOptions';
+import { ASSISTANT_OPTION_VALUE, projectPathOf, taskFormProjects, taskProjectLabel, toProjectOption } from './projectOptions';
+import { useTaskEngineAvailability } from './useTaskEngineAvailability';
+import { TaskEngineSelect } from './TaskEngineSelect';
 import { LABEL_META, LABEL_ORDER, PRIORITY_META, PRIORITY_ORDER, STATUS_META, STATUS_ORDER, groupByStatus } from './taskStatus';
 import { TaskFilterBar } from './TaskFilterBar';
 import { ScheduledTasksPanel, type ScheduledTasksPanelHandle } from './ScheduledTasksPanel';
@@ -165,15 +167,30 @@ export function TaskBoardPage() {
   // rule as the create form / detail page: use the display name, and append the
   // unique path only when the name collides.
   const projectOptions = useMemo(
-    () =>
-      taskFormProjects(projects).map((project) => {
-        const path = projectPathOf(project);
-        const name = project.displayName || path;
-        const label = duplicateProjectNames.has(name) && name !== path ? `${name} — ${path}` : name;
-        return { value: path, label };
-      }),
+    () => taskFormProjects(projects).map((project) => toProjectOption(project, duplicateProjectNames)),
     [projects, duplicateProjectNames],
   );
+
+  // Engine candidates follow the target machine: the remote host's installed
+  // providers for a remote project, the local machine's for a local one.
+  const newProjectRecord = useMemo(
+    () => taskFormProjects(projects).find((p) => projectPathOf(p) === newProjectPath) ?? null,
+    [projects, newProjectPath],
+  );
+  const newEngineAvailability = useTaskEngineAvailability(
+    newProjectRecord ? { value: projectPathOf(newProjectRecord), remoteHostId: newProjectRecord.remoteHostId ?? null } : null,
+    newProjectPath === ASSISTANT_OPTION_VALUE,
+  );
+
+  // Keep the picked engine valid once the availability settles: jump to the
+  // first installed engine when the current pick is not installed there.
+  useEffect(() => {
+    if (newEngineAvailability.status !== 'ready') return;
+    if (newEngineAvailability.options.length === 0) return;
+    if (!newEngineAvailability.options.includes(newEngine)) {
+      setNewEngine(newEngineAvailability.options[0]);
+    }
+  }, [newEngineAvailability, newEngine]);
 
   // Load the project list once for the create form. The `/api/projects`
   // response JSON is an array of projects; the display name lives in
@@ -267,6 +284,10 @@ export function TaskBoardPage() {
     const prompt = newPrompt.trim();
     const isAssistant = projectPath === ASSISTANT_OPTION_VALUE || !projectPath;
     if (!prompt) return;
+    if (!isAssistant && newEngineAvailability.status === 'unavailable') {
+      window.alert(newEngineAvailability.hint);
+      return;
+    }
     // Name is optional: fall back to a locally distilled label from the prompt.
     const title = newName.trim() || deriveTaskName(prompt);
     try {
@@ -485,12 +506,13 @@ export function TaskBoardPage() {
                   <option value={ASSISTANT_OPTION_VALUE}>🤖 Lovdex助手</option>
                   {taskFormProjects(projects).map((project) => {
                     const path = projectPathOf(project);
-                    const name = project.displayName || path;
-                    const label =
-                      duplicateProjectNames.has(name) && name !== path ? `${name} — ${path}` : name;
                     return (
-                      <option key={project.projectId} value={path} title={path}>
-                        {label}
+                      <option
+                        key={project.projectId}
+                        value={path}
+                        title={project.remoteHostName ? `${project.remoteHostName}:${path}` : path}
+                      >
+                        {taskProjectLabel(project, duplicateProjectNames)}
                       </option>
                     );
                   })}
@@ -498,16 +520,11 @@ export function TaskBoardPage() {
               </div>
               <div className="flex flex-col gap-1">
                 <label className="text-xs font-medium text-muted-foreground">执行引擎</label>
-                <select
-                  className="h-9 w-full rounded-md border border-border bg-muted px-2 py-1.5 text-sm text-foreground"
-                  value={newEngine}
-                  onChange={(e) => setNewEngine(e.target.value as TaskEngine)}
-                >
-                  <option value="claude">Claude Code</option>
-                  <option value="codex">Codex</option>
-                  <option value="opencode">OpenCode</option>
-                  <option value="qoder">Qoder</option>
-                </select>
+                <TaskEngineSelect
+                  availability={newEngineAvailability}
+                  value={newEngineAvailability.status === 'unavailable' ? '' : newEngine}
+                  onChange={(engine) => setNewEngine(engine)}
+                />
               </div>
               <div className="flex flex-col gap-1">
                 <label className="text-xs font-medium text-muted-foreground">模型</label>

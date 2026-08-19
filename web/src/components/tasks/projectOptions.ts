@@ -20,3 +20,31 @@ export function taskFormProjects(projects: Project[]): Project[] {
       return (a.displayName || projectPathOf(a)).localeCompare(b.displayName || projectPathOf(b));
     });
 }
+
+/**
+ * Display label for a project in a task form `<option>`. Native `<option>`
+ * elements can only carry text (no styled badge), so the remote marker is a
+ * `🌐 <hostName> ·` text prefix; the path shows in the option title.
+ */
+export function taskProjectLabel(project: Project, duplicateNames: Set<string>): string {
+  const path = projectPathOf(project);
+  const name = project.displayName || path;
+  const base = duplicateNames.has(name) && name !== path ? `${name} — ${path}` : name;
+  return project.remoteHostName ? `🌐 ${project.remoteHostName} · ${base}` : base;
+}
+
+/** TaskProjectOption ({ value, label } + remote fields) for the scheduled form. */
+export function toProjectOption(
+  project: Project,
+  duplicateNames: Set<string>,
+): { value: string; label: string; remoteHostId: string | null; remoteHostName: string | null } {
+  const path = projectPathOf(project);
+  const name = project.displayName || path;
+  const label = duplicateNames.has(name) && name !== path ? `${name} — ${path}` : name;
+  return {
+    value: path,
+    label,
+    remoteHostId: project.remoteHostId ?? null,
+    remoteHostName: project.remoteHostName ?? null,
+  };
+}
