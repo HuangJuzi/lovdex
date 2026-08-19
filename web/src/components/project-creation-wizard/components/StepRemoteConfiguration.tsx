@@ -69,9 +69,11 @@ export default function StepRemoteConfiguration({
       setDirsLoading(true);
       setDirsError(null);
       browseRemoteDirs(hostId, targetPath)
-        .then((entries) => {
-          setDirs(entries.filter((entry) => entry.type === 'dir' || entry.type === 'directory'));
-          setBrowsePath(targetPath);
+        .then(({ path, dirs }) => {
+          setDirs(dirs.filter((entry) => entry.type === 'dir' || entry.type === 'directory'));
+          // The lite resolves '~' server-side; adopt the REAL absolute path so
+          // subsequent drill/up joins never lose the /home/<user> prefix.
+          setBrowsePath(path || targetPath);
         })
         .catch((err: unknown) => {
           setDirsError(err instanceof Error ? err.message : '浏览目录失败');

@@ -2,6 +2,16 @@ import type { RemoteStat } from '@/shared/agent-runtime/protocol.js';
 
 import type { RemoteAgentsRegistry } from './remote-agents.registry.js';
 
+/** One entry of a remote directory listing (mirrors the lite's fs.ts shape). */
+export type RemoteDirEntry = {
+  name: string;
+  type: 'dir' | 'file' | 'symlink';
+  size: number | null;
+};
+
+/** fs/list result: the RESOLVED absolute path + the entries under it. */
+export type RemoteDirList = { path: string; entries: RemoteDirEntry[] };
+
 /**
  * Filesystem RPC client over a remote lite agent.
  *
@@ -12,11 +22,7 @@ import type { RemoteAgentsRegistry } from './remote-agents.registry.js';
  */
 export type RemoteFsClient = {
   stat(hostId: string, pathText: string): Promise<RemoteStat>;
-  list(
-    hostId: string,
-    pathText: string,
-    maxEntries?: number,
-  ): Promise<{ name: string; type: 'dir' | 'file' | 'symlink'; size: number | null }[]>;
+  list(hostId: string, pathText: string, maxEntries?: number): Promise<RemoteDirList>;
   read(hostId: string, pathText: string, maxBytes?: number): Promise<{ content: string; truncated: boolean }>;
 };
 

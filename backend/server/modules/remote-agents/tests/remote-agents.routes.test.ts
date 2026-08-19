@@ -69,7 +69,7 @@ function stubFsClient(dirs: { name: string; type: 'dir' | 'file' | 'symlink'; si
     },
     async list(hostId: string, pathText: string) {
       listCalls.push({ hostId, path: pathText });
-      return dirs;
+      return { path: pathText === '~' ? '/home/root' : pathText, entries: dirs };
     },
     async read() {
       throw new Error('not used');

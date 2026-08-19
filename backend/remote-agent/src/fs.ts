@@ -10,6 +10,12 @@ import path from 'node:path';
  * checked against the configured `roots` whitelist before any syscall. Symlink
  * and `..` traversal that escapes a root is rejected (`resolveWithin`).
  */
+export type RemoteDirEntry = {
+  name: string;
+  type: 'dir' | 'file' | 'symlink';
+  size: number | null;
+};
+
 export type AllowlistedFs = {
   stat(p: string): Promise<{
     exists: boolean;
@@ -21,7 +27,7 @@ export type AllowlistedFs = {
   list(
     p: string,
     maxEntries?: number,
-  ): Promise<{ name: string; type: 'dir' | 'file' | 'symlink'; size: number | null }[]>;
+  ): Promise<{ path: string; entries: RemoteDirEntry[] }>;
   read(p: string, maxBytes?: number): Promise<{ content: string; truncated: boolean }>;
 };
 
@@ -133,12 +139,17 @@ export function createAllowlistedFs(opts: {
       // an unbounded readdir/slice.
       const count = Math.min(maxEntries, MAX_ENTRIES_CAP);
       const dirents = await fsp.readdir(target, { withFileTypes: true });
-      return dirents.slice(0, count).map((d) => ({
-        name: d.name,
-        type: d.isDirectory() ? 'dir' : d.isSymbolicLink() ? 'symlink' : 'file',
-        // size stays null in Phase 1 — do not stat each entry.
-        size: null,
-      }));
+      return {
+        // Return the RESOLVED absolute path so the UI can join children onto
+        // it — browsing a token like '~' must not lose the /home/<user> prefix.
+        path: target,
+        entries: dirents.slice(0, count).map((d) => ({
+          name: d.name,
+          type: d.isDirectory() ? 'dir' : d.isSymbolicLink() ? 'symlink' : 'file',
+          // size stays null in Phase 1 — do not stat each entry.
+          size: null,
+        })),
+      };
     },
 
     async read(p, maxBytes = defaultMaxReadBytes) {

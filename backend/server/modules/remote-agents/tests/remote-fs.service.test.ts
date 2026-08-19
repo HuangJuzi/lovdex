@@ -34,13 +34,13 @@ test('stat delegates to rpc fs/stat with the path', async () => {
 });
 
 test('list delegates to rpc fs/list with default maxEntries', async () => {
-  const entries = [{ name: 'a', type: 'file' as const, size: 3 }];
-  const { reg, calls } = fakeRegistry(() => entries);
+  const listing = { path: '/srv/app', entries: [{ name: 'a', type: 'file' as const, size: 3 }] };
+  const { reg, calls } = fakeRegistry(() => listing);
   const client = createRemoteFsClient(() => reg);
 
   const result = await client.list('h2', '/srv/app');
 
-  assert.deepEqual(result, entries);
+  assert.deepEqual(result, listing);
   assert.deepEqual(calls, [{ hostId: 'h2', method: 'fs/list', params: { path: '/srv/app', maxEntries: 200 } }]);
 });
 

@@ -54,8 +54,11 @@ test('list: returns entry names and types', async () => {
   await fsp.writeFile(path.join(root, 'bfile'), 'x');
   await fsp.symlink(path.join(root, 'bfile'), path.join(root, 'clink'));
 
-  const entries = await api.list(root);
-  const byName = new Map(entries.map((e) => [e.name, e]));
+  const result = await api.list(root);
+  // The response carries the RESOLVED path (so UI joins cannot lose a '~'
+  // expansion) together with the entries.
+  assert.equal(result.path, root);
+  const byName = new Map(result.entries.map((e) => [e.name, e]));
   assert.equal(byName.get('adir')?.type, 'dir');
   assert.equal(byName.get('bfile')?.type, 'file');
   assert.equal(byName.get('clink')?.type, 'symlink');
@@ -67,8 +70,9 @@ test('list: respects maxEntries', async () => {
   const root = await mkroot();
   const api = createAllowlistedFs({ roots: [root] });
   for (let i = 0; i < 5; i += 1) await fsp.writeFile(path.join(root, `f${i}`), '');
-  const entries = await api.list(root, 3);
+  const { path: resolved, entries } = await api.list(root, 3);
   assert.equal(entries.length, 3);
+  assert.equal(resolved, root);
 });
 
 test('read: returns file content; truncated flag when file exceeds maxBytes', async () => {
@@ -141,8 +145,12 @@ test('handleRpc dispatches fs/stat, fs/list, fs/read to the allowlisted fs', asy
   assert.equal(stat.exists, true);
   assert.equal(stat.isFile, true);
 
-  const list = (await handleRpc('fs/list', { path: root }, cfg)) as { name: string }[];
-  assert.ok(list.some((e) => e.name === 'x.txt'));
+  const list = (await handleRpc('fs/list', { path: root }, cfg)) as {
+    path: string;
+    entries: { name: string }[];
+  };
+  assert.equal(list.path, root, 'fs/list returns the resolved absolute path');
+  assert.ok(list.entries.some((e) => e.name === 'x.txt'));
 
   const read = (await handleRpc('fs/read', { path: path.join(root, 'x.txt') }, cfg)) as {
     content: string;

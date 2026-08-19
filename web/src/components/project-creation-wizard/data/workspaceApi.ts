@@ -128,7 +128,7 @@ type RemoteHostsListResponse = {
 };
 
 type RemoteDirsResponse = {
-  data?: { dirs?: RemoteDirEntry[] };
+  data?: { dirs?: RemoteDirEntry[]; path?: string };
   error?: string | { message?: string };
 };
 
@@ -161,11 +161,15 @@ export const fetchOnlineRemoteHosts = async (): Promise<RemoteHostOption[]> => {
     }));
 };
 
+/** Result of browsing one remote directory level: the RESOLVED absolute path
+ * (the lite expands '~' and the response reflects the real path) + entries. */
+export type RemoteDirBrowse = { path: string; dirs: RemoteDirEntry[] };
+
 /** Browses one remote directory level for the remote path picker. */
 export const browseRemoteDirs = async (
   hostId: string,
   parentPath: string,
-): Promise<RemoteDirEntry[]> => {
+): Promise<RemoteDirBrowse> => {
   const response = await api.get(
     `/remote-agents/${encodeURIComponent(hostId)}/dirs?path=${encodeURIComponent(parentPath)}`,
   );
@@ -173,7 +177,7 @@ export const browseRemoteDirs = async (
   if (!response.ok) {
     throw new Error(resolveErrorText(data.error, 'Failed to browse remote directory'));
   }
-  return data.data?.dirs ?? [];
+  return { path: data.data?.path ?? '', dirs: data.data?.dirs ?? [] };
 };
 
 /** Creates a remote-bound project; returns the created project like the local flow. */

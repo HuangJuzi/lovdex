@@ -305,8 +305,8 @@ export function createRemoteAgentsRouter(deps: RemoteAgentsRouterDeps): express.
 
       const path = readQueryString(req.query.path) || '~';
       try {
-        const dirs = await deps.fsClient.list(host.host_id, path);
-        res.json(createApiSuccessResponse({ dirs }));
+        const listing = await deps.fsClient.list(host.host_id, path);
+        res.json(createApiSuccessResponse({ dirs: listing.entries, path: listing.path }));
       } catch (error) {
         throw new AppError(error instanceof Error ? error.message : 'remote filesystem RPC failed', {
           code: 'REMOTE_FS_ERROR',
