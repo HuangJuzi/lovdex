@@ -383,7 +383,12 @@ app.use('/api/remote-agents', authenticateToken, createRemoteAgentsRouter({
             esbuildBin: path.join(__dirname, '..', 'node_modules', 'esbuild', 'bin', 'esbuild'),
         });
         try {
-            return await runBootstrap(input, {
+            // litePackagePath belongs on the BootstrapInput (runBootstrap reads
+            // input.litePackagePath and pushes it to ~/.lovdex-remote/lite.tgz);
+            // passing it in deps was silently ignored and left the remote with
+            // no runnable bundle → install.sh "nothing to run" (fix).
+            const inputWithPackage = { ...input, litePackagePath: tarballPath };
+            return await runBootstrap(inputWithPackage, {
                 runner: createSshRunner(),
                 push: createScpPush({
                     identityFile: input.identityFile,
@@ -392,7 +397,6 @@ app.use('/api/remote-agents', authenticateToken, createRemoteAgentsRouter({
                 }),
                 installScriptPath: path.join(__dirname, '..', 'remote-agent', 'deploy', 'install.sh'),
                 unitTemplatePath: path.join(__dirname, '..', 'remote-agent', 'deploy', 'systemd-unit.template'),
-                litePackagePath: tarballPath,
             });
         } finally {
             // The bundle was built for THIS deploy only; drop the temp tarball.
