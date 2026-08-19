@@ -1,8 +1,13 @@
-import { test } from 'node:test';
+import { afterEach, beforeEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { createClaudeRunManager, type QuerySdkLike } from '../agent-run.js';
-import { handleRpc } from '../rpc-dispatch.js';
+import {
+  __resetRunManagersForTests,
+  __setDispatchQuerySdkForTests,
+  handleRpc,
+  setPushEmitter,
+} from '../rpc-dispatch.js';
 import { createRunManagerFor } from '../providers/registry.js';
 import { makeSessionStartParamsSchema } from '../../../server/shared/agent-runtime/protocol.js';
 
@@ -16,6 +21,14 @@ function makePush() {
   };
 }
 
+async function waitFor(pred: () => boolean, ms = 1000): Promise<void> {
+  const deadline = Date.now() + ms;
+  while (!pred()) {
+    if (Date.now() > deadline) throw new Error('timeout waiting for condition');
+    await new Promise((r) => setTimeout(r, 2));
+  }
+}
+
 const baseParams = {
   appSessionId: 's1',
   providerSessionId: null,
@@ -24,6 +37,20 @@ const baseParams = {
 };
 
 const cfg = { roots: ['/tmp'] } as never;
+
+// Isolate the dispatch-level run-manager cache: clear the injected SDK so the
+// real claude bridge is never consulted, and drop every cached manager so a
+// prior test's parked runs or injected querySdk cannot leak into the next one
+// (a leftover cached manager would ignore a later test's fresh fake SDK, and a
+// leftover run would pollute the "unknown target" assertions).
+beforeEach(() => {
+  __setDispatchQuerySdkForTests(null);
+  __resetRunManagersForTests();
+});
+afterEach(() => {
+  __setDispatchQuerySdkForTests(null);
+  __resetRunManagersForTests();
+});
 
 test('registry: claude provider returns a full run-manager surface', () => {
   const mgr = createRunManagerFor('claude', { push: () => {}, roots: ['/tmp'] });
@@ -117,5 +144,60 @@ test('dispatch: session/interrupt and approval/respond shape responses on unknow
   assert.deepEqual(
     await handleRpc('approval/respond', { requestId: 'x', decision: { allow: true } }, cfg),
     { accepted: false },
+  );
+});
+
+test('dispatch: session/interrupt routes to the provider manager that started the run', async () => {
+  const collected: Pushed[] = [];
+  setPushEmitter((t, p) => collected.push({ topic: t, payload: p }));
+  let release: () => void = () => {};
+  const gate = new Promise<void>((r) => (release = r));
+  __setDispatchQuerySdkForTests(async function* () {
+    yield { type: 'assistant', session_id: 'prov-disp', message: {} };
+    await gate; // stay active until the test interrupts
+    yield { type: 'result', session_id: 'prov-disp', subtype: 'success' };
+  });
+
+  const start = await handleRpc(
+    'session/start',
+    { ...baseParams, appSessionId: 'd-int', command: 'why', configEnv: { X: '1' } },
+    cfg,
+  );
+  assert.equal((start as { providerSessionId: string }).providerSessionId, 'prov-disp');
+
+  const res = await handleRpc('session/interrupt', { appSessionId: 'd-int' }, cfg);
+  assert.deepEqual(res, { interrupted: true });
+
+  release();
+  await waitFor(() =>
+    collected.some(
+      (p) => p.topic === 'session:d-int' && (p.payload as { type?: string }).type === 'complete',
+    ),
+  );
+});
+
+test('dispatch: approval/respond resolves a pending canUseTool decision across handleRpc', async () => {
+  const collected: Pushed[] = [];
+  setPushEmitter((t, p) => collected.push({ topic: t, payload: p }));
+  let decision: unknown;
+  __setDispatchQuerySdkForTests(async function* (_command, options) {
+    yield { type: 'assistant', session_id: 'prov-appr', message: {} };
+    const canUseTool = (options as { canUseTool: Function }).canUseTool;
+    decision = await canUseTool('Bash', { command: 'ls' }, { toolUseID: 'tu-disp' });
+    yield { type: 'result', session_id: 'prov-appr', subtype: 'success' };
+  });
+
+  const startP = handleRpc('session/start', { ...baseParams, appSessionId: 'd-appr' }, cfg);
+  await waitFor(() => collected.some((p) => p.topic === 'approval:tu-disp'));
+
+  const res = await handleRpc('approval/respond', { requestId: 'tu-disp', decision: { allow: true } }, cfg);
+  assert.deepEqual(res, { accepted: true });
+
+  await startP;
+  assert.deepEqual(decision, { behavior: 'allow' });
+  await waitFor(() =>
+    collected.some(
+      (p) => p.topic === 'session:d-appr' && (p.payload as { type?: string }).type === 'complete',
+    ),
   );
 });

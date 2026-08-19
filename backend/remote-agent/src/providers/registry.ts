@@ -1,5 +1,5 @@
 import type { RemoteProvider } from '../../../server/shared/agent-runtime/protocol.js';
-import type { RunManager } from '../agent-run.js';
+import type { QuerySdkLike, RunManager } from '../agent-run.js';
 import { createClaudeRunManager } from '../agent-run.js';
 
 /**
@@ -10,6 +10,8 @@ import { createClaudeRunManager } from '../agent-run.js';
 export type RunManagerDeps = {
   push: (topic: string, payload: unknown) => void;
   roots?: string[];
+  /** Test seam only — injected SDK; absent => the real claude query bridge. */
+  querySdk?: QuerySdkLike;
 };
 
 /**

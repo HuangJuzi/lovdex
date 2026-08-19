@@ -2,7 +2,7 @@ import { createAllowlistedFs } from './fs.js';
 import { createGitService } from './git.js';
 import { probeRemoteHost } from './probe.js';
 import { createRunManagerFor } from './providers/registry.js';
-import type { RunManager } from './agent-run.js';
+import type { QuerySdkLike, RunManager } from './agent-run.js';
 import type { RemoteAgentConfig } from './config.js';
 import type { RemoteProvider } from '../../server/shared/agent-runtime/protocol.js';
 import { makeGitExecParamsSchema, makeSessionStartParamsSchema } from '../../server/shared/agent-runtime/protocol.js';
@@ -18,11 +18,46 @@ export function setPushEmitter(fn: (topic: string, payload: unknown) => void): v
   pushEmitter = fn;
 }
 
-/** The process-wide run managers, cached per (provider, roots). `session/start`,
+/**
+ * The process-wide run managers, cached per (provider, roots). `session/start`,
  * `session/interrupt`, `approval/respond` and session/messages MUST all hit the
  * SAME manager instance for a given (provider, roots) — the managers track
- * `runs`/`approvals` internally, keyed by appSessionId / requestId. */
+ * `runs`/`approvals` internally, keyed by appSessionId / requestId.
+ *
+ * Known caveats (I2 reproducing surface, to be tightened in T12/T13):
+ *  - Disconnect race: `createAgentRunManager.start()` runs the allowlisted-roots
+ *    `stat` BEFORE `runs.set(appSessionId, …)`, so a ws drop inside that window
+ *    leaves a run invisible to `interruptAllFor` until it registers — a stale
+ *    run can survive a reconnect (the pre-existing I2 failure mode).
+ *  - Same appSessionId under two different providers would run in parallel
+ *    (each provider has its own manager). Today only `claude` exists and main
+ *    generates globally-unique appSessionIds, so this is inert — revisit once
+ *    Task 12 adds the other providers.
+ */
 const runManagers = new Map<string, RunManager>();
+
+/** Test-only SDK injection; see {@link __setDispatchQuerySdkForTests}. */
+let dispatchQuerySdk: QuerySdkLike | null = null;
+
+/**
+ * TEST SEAM ONLY — inject a fake SDK so dispatch-level tests can drive
+ * `session/start` → `session/interrupt` / `approval/respond` through a real
+ * cached manager without spawning the actual claude subprocess. Pass `null` to
+ * restore the real SDK bridge. Double underscore marks it test-only; do not
+ * call from production code.
+ */
+export function __setDispatchQuerySdkForTests(fn: QuerySdkLike | null): void {
+  dispatchQuerySdk = fn;
+}
+
+/**
+ * TEST SEAM ONLY — drop every cached manager so a later `runManagerFor` rebuilds
+ * one (picking up the currently injected querySdk). Double underscore marks it
+ * test-only.
+ */
+export function __resetRunManagersForTests(): void {
+  runManagers.clear();
+}
 
 function runManagerFor(cfg: RemoteAgentConfig, provider: RemoteProvider): RunManager {
   const key = provider + '\0' + cfg.roots.join('\0');
@@ -31,6 +66,7 @@ function runManagerFor(cfg: RemoteAgentConfig, provider: RemoteProvider): RunMan
     m = createRunManagerFor(provider, {
       push: (topic, payload) => pushEmitter(topic, payload),
       roots: cfg.roots,
+      ...(dispatchQuerySdk ? { querySdk: dispatchQuerySdk } : {}),
     });
     runManagers.set(key, m);
   }
@@ -38,18 +74,14 @@ function runManagerFor(cfg: RemoteAgentConfig, provider: RemoteProvider): RunMan
 }
 
 /**
- * The (legacy) claude run manager for a config. Kept exported so index.ts and
- * any existing callers that pinned the single-provider surface keep working;
- * it is the same instance the (provider, roots) cache hands out for 'claude'.
- */
-export function agentRunsFor(cfg: RemoteAgentConfig): RunManager {
-  return runManagerFor(cfg, 'claude');
-}
-
-/**
  * Interrupt every active run across ALL provider managers — used when the ws
  * connection is dropped, so a later re-send with the same providerSessionId
  * does not collide with a stale run. Returns the total interrupted.
+ *
+ * `cfg` is retained for signature symmetry with the other dispatch helpers
+ * (`runManagerFor`, `handleRpc`), but the sweep covers every cached manager
+ * regardless of which roots or provider it belongs to — a dropped connection
+ * means every in-flight run on this lite must stop.
  */
 export function interruptAllFor(cfg: RemoteAgentConfig): number {
   let interrupted = 0;
