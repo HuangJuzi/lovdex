@@ -99,9 +99,12 @@ else
   echo "[install] warning: loginctl not available — ${USER_NAME} must be able to run systemctl --user" >&2
 fi
 
-# 5. Reload + enable+start. --now enables and starts in one step; re-running is
-#    a no-op beyond a restart, so the install stays idempotent.
+# 5. Reload + enable + RESTART. A plain `enable --now` would be a no-op when
+#    the service is already running — a redeploy that pushed a NEW bundle would
+#    leave the OLD process in memory (the updated dist/lite.mjs never takes
+#    effect). Always restart so an install always runs the freshest artifact.
 systemctl --user daemon-reload
-systemctl --user enable --now "${UNIT_NAME}"
+systemctl --user enable "${UNIT_NAME}"
+systemctl --user restart "${UNIT_NAME}"
 
-echo "[install] ${UNIT_NAME} enabled and started"
+echo "[install] ${UNIT_NAME} enabled and restarted"
