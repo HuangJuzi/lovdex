@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 
 import { cn } from '../../lib/utils';
 import { IS_PLATFORM } from '../../constants/config';
-import { BackToTasksButton } from '../tasks/TaskBackNav';
+import { HomeButton } from '../tasks/TaskBackNav';
 
 import { ProviderSettingsForm } from './ProviderSettingsPage';
 import { OperatorSettingsForm } from './OperatorSettingsForm';
@@ -38,7 +38,7 @@ export default function SettingsPage() {
   return (
     <div className="flex h-dvh flex-col bg-background">
       <header className="pwa-header-safe flex flex-shrink-0 items-center gap-2 border-b border-border/60 bg-background px-3 py-1.5 sm:px-4 sm:py-2">
-        <BackToTasksButton />
+        <HomeButton />
         <h1 className="ml-2 text-sm font-semibold text-foreground">设置</h1>
       </header>
 

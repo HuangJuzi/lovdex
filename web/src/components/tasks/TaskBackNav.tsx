@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { cn } from '../../lib/utils';
 import { Button } from '../../shared/view/ui';
 
-/** 「← 返回任务面板」chunky 按钮，供 SettingsPage 头部复用。 */
+/** 「← 返回任务面板」chunky 按钮。 */
 export function BackToTasksButton({ className }: { className?: string }) {
   const navigate = useNavigate();
   return (
@@ -32,9 +32,12 @@ export function HomeButton({ className }: { className?: string }) {
       size="toolbar"
       className={cn('gap-1.5', className)}
       onClick={() => navigate('/')}
+      title="返回主页"
+      aria-label="返回主页"
     >
       <Home />
-      返回主页
+      {/* 移动端（<640px）只留返回图标 */}
+      <span className="hidden sm:inline">返回主页</span>
     </Button>
   );
 }
