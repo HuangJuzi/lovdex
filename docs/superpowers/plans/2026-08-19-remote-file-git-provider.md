@@ -1755,6 +1755,10 @@ router.get(
 
 > `lookupRemoteHost` 需要在 `provider-routes` 侧导入（`@/modules/remote-agents/remote-projects.index.js`）；`remoteRegistry` 从 runtime seam 取。主机离线（探针缓存空）时 `hostProviders` 为空 → `targetInstalled=false` → 400。这一行为可接受：离线主机开不了会话。若需要离线也放行，按 `REMOTE_HOST_OFFLINE` 单独提示（记录为后续优化）。
 
+> ⚠️ **Task 13 跨任务清单（T12 评审产生，必须处理）：**
+> - **A. 事件拆包**：T12 之后三个新 runner（codex/opencode/qoder）推送 `{ _remoteNorm: true, message: NormalizedMessage }` 形状的 session 消息，且尾部**双发**：先是 wrapped `createCompleteMessage`（正常化的终态），再是 raw `{ type:'complete' }` 标记。claude 只推 raw 标记。Task 13 的 `wrapSpawn` session handler 必须：对 `_remoteNorm` 消息做 passthrough 直接 `w.send(message)`（不经过 `normalizeEvent`/`transformMessage`，否则按 claude 原始事件处理出垃圾）；对 raw `{ type:'complete' }` 只作 `finish()` 信号、**不再 re-normalize**（否则出现双 complete）。
+> - **B. approval 去重**：qoder 的 `approval:<id>` 推送已由 T12 收敛为单通道（不再附 permission_request session 消息）。main 的 `__remoteApproval` handler 负责转成权限弹窗；`cancelled: true` 标记需转发为本地等价的 `permission_cancelled` 语义（可先转发成 permission_request 后由前端自行判断，或直接落 cancelled 消息——实现时参考本地 qoder 的 `permission_cancelled`）。
+
 - [ ] **Step 4: spawnFns 全 provider 包裹 + session/start 带 provider/configEnv**
 
 `remote-spawn.ts`：`wrapSpawn(localSpawn)` 变体改为 `wrapSpawn(provider, localSpawn)`，并在 params 构建处加：
