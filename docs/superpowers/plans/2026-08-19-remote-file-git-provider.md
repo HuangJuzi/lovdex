@@ -300,6 +300,8 @@ function formatPermissions(mode: number): { permissions: string; permissionsRwx:
 
 - [ ] **Step 2: 扩展 `AllowlistedFs` 类型与 `createAllowlistedFs` 返回值**
 
+> ⚠️ 前置改动（T2 审查结论）：把 `fs.ts` 顶部的 `MAX_READ_BYTES_CAP` 从 16MiB 提到 **32MiB**，与 main 端 `REMOTE_MAX_READ_BYTES` 对齐，保证 16–32MB 文件的远程预览/下载不会因 lite 硬上限被提前截断（`Math.min(maxBytes, MAX_READ_BYTES_CAP)`，line ~50）。
+
 ```ts
 export type AllowlistedFs = {
   stat(p: string): Promise<{ exists: boolean; isDirectory: boolean; isFile: boolean; size: number; mtimeMs: number }>;
