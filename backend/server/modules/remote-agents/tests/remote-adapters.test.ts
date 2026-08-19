@@ -127,6 +127,18 @@ test('remote-aware fs access throws ENOENT for a missing remote path', async () 
   });
 });
 
+test('remote-aware fs stat rejects ENOENT for a missing remote path', async () => {
+  const fsAsync = createRemoteAwareFileSystem({
+    localFs: {} as never,
+    getRemoteFs: (() => ({
+      stat: async () => ({ exists: false, isDirectory: false, isFile: false, size: 0, mtimeMs: 0 }),
+    })) as never,
+    lookupHost: () => 'h1',
+  });
+
+  await assert.rejects(fsAsync.stat('/home/u/missing'), /ENOENT/);
+});
+
 test('remote-aware fs readFile routes to RPC and returns content', async () => {
   const calls: { p: string; maxBytes: number; enc: string }[] = [];
   const fsAsync = createRemoteAwareFileSystem({

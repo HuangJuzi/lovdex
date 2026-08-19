@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events';
 import type { Stats } from 'node:fs';
 import { PassThrough } from 'node:stream';
 
-import type { RemoteFsClient } from './remote-fs.service.js';
+import { REMOTE_MAX_READ_BYTES, type RemoteFsClient } from './remote-fs.service.js';
 
 /**
  * Remote-aware adapters that let the git routes' local `spawn('git', …)` and
@@ -130,14 +130,16 @@ export function createRemoteAwareFileSystem(opts: {
     if (!s.exists) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
   });
 
-  wrapPath('stat', async (hostId: string, p: string) =>
-    toStatsLike(await opts.getRemoteFs().stat(hostId, p)),
-  );
+  wrapPath('stat', async (hostId: string, p: string) => {
+    const s = await opts.getRemoteFs().stat(hostId, p);
+    if (!s.exists) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+    return toStatsLike(s);
+  });
 
   wrapPath('readFile', async (hostId: string, p: string, enc?: string) => {
     const r = await opts
       .getRemoteFs()
-      .read(hostId, p, 32 * 1024 * 1024, enc === 'base64' ? 'base64' : 'utf8');
+      .read(hostId, p, REMOTE_MAX_READ_BYTES, enc === 'base64' ? 'base64' : 'utf8');
     if (r.truncated) throw Object.assign(new Error('file too large'), { code: 'ETOOBIG' });
     return r.content;
   });
