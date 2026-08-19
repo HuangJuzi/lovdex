@@ -15,6 +15,11 @@ export type GitIdentity = { name: string; email: string } | null;
  * schema the lite uses, so params sent over the wire always satisfy lite-side
  * parsing. `getRegistry` is a thunk so the live registry is resolved lazily
  * (the runtime seam is wired at boot, after construction).
+ *
+ * An identity is only sent when BOTH name and email are non-empty strings: the
+ * wire schema accepts empty strings (`z.string()`), and a value like
+ * `-c user.name=` with an empty name would override the remote's real global
+ * config, so empty parts must never reach the lite.
  */
 export type RemoteGitClient = {
   exec(
@@ -28,10 +33,16 @@ export function createRemoteGitClient(getRegistry: () => RemoteAgentsRegistry): 
   const reg = () => getRegistry();
   return {
     exec(hostId, args, opts) {
+      // Guard empty parts: the schema would accept `name: ''`, but an empty
+      // `-c user.name=` would clobber the remote's own global config.
+      const identity =
+        opts.identity && opts.identity.name && opts.identity.email
+          ? { name: opts.identity.name, email: opts.identity.email }
+          : undefined;
       const params = makeGitExecParamsSchema().parse({
         args,
         cwd: opts.cwd,
-        ...(opts.identity ? { identity: opts.identity } : {}),
+        ...(identity ? { identity } : {}),
         ...(opts.timeoutMs !== undefined ? { timeoutMs: opts.timeoutMs } : {}),
       });
       return reg().rpc<GitExecResult>(hostId, 'git/exec', params, opts.timeoutMs ?? 300_000, opts.signal);
@@ -44,11 +55,17 @@ export function createRemoteGitClient(getRegistry: () => RemoteAgentsRegistry): 
  * value only when BOTH name and email are configured; any failure (git not
  * installed, no config, ...) yields an empty string for that key, and a partial
  * config degrades to null so the remote keeps using its own global config.
+ *
+ * `getEnv` is injectable so tests can point git at an isolated HOME/XDG
+ * (defaults to the real process env).
  */
-export function readLocalGitIdentity(): GitIdentity {
+export function readLocalGitIdentity(getEnv: () => NodeJS.ProcessEnv = () => process.env): GitIdentity {
   const get = (key: string): string => {
     try {
-      return execFileSync('git', ['config', '--global', '--get', key], { encoding: 'utf8' }).trim();
+      return execFileSync('git', ['config', '--global', '--get', key], {
+        encoding: 'utf8',
+        env: getEnv(),
+      }).trim();
     } catch {
       return '';
     }
