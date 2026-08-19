@@ -9,7 +9,12 @@ import { taskDeadlineInfo } from './taskDeadline';
 import { formatAbsoluteTime, formatRelativeTime, taskTimeLabel } from './taskTimestamp';
 import { SubStatusBadge } from './SubStatusBadge';
 
-export type TaskProjectOption = { value: string; label: string };
+export type TaskProjectOption = {
+  value: string;
+  label: string;
+  remoteHostId?: string | null;
+  remoteHostName?: string | null;
+};
 
 type TaskCardProps = {
   task: Task;

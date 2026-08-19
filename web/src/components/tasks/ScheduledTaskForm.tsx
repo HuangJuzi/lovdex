@@ -1,10 +1,12 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { ScheduledTask, ScheduledTaskScheduleType, TaskEngine, TaskLabel, TaskPriority } from '../../types/app';
 
 import { Button, Dialog, DialogContent, DialogTitle, Input } from '../../shared/view/ui';
 import { ASSISTANT_OPTION_VALUE } from './projectOptions';
 import { LABEL_META, LABEL_ORDER, PRIORITY_META, PRIORITY_ORDER } from './taskStatus';
 import type { TaskProjectOption } from './TaskCard';
+import { useTaskEngineAvailability } from './useTaskEngineAvailability';
+import { TaskEngineSelect } from './TaskEngineSelect';
 
 export type ScheduledTaskDraft = {
   title: string;
@@ -75,8 +77,29 @@ export function ScheduledTaskForm({ open, initial, projectOptions, submitting, e
   const set = <K extends keyof ScheduledTaskDraft>(key: K, value: ScheduledTaskDraft[K]) =>
     setDraft((d) => ({ ...d, [key]: value }));
 
+  const selectedProjectOption = projectOptions.find((o) => o.value === draft.projectPath) ?? null;
+  const engineAvailability = useTaskEngineAvailability(
+    selectedProjectOption
+      ? { value: selectedProjectOption.value, remoteHostId: selectedProjectOption.remoteHostId ?? null }
+      : null,
+    draft.projectPath === ASSISTANT_OPTION_VALUE,
+  );
+
+  // Keep the picked engine valid once availability settles.
+  useEffect(() => {
+    if (engineAvailability.status !== 'ready') return;
+    if (engineAvailability.options.length === 0) return;
+    if (!engineAvailability.options.includes(draft.executorProvider)) {
+      set('executorProvider', engineAvailability.options[0]);
+    }
+  }, [engineAvailability, draft.executorProvider, draft.projectPath]);
+
   const submit = () => {
     setLocalError(null);
+    if (engineAvailability.status === 'unavailable') {
+      setLocalError(engineAvailability.hint);
+      return;
+    }
     if (!draft.title.trim()) { setLocalError('标题不能为空'); return; }
     if (draft.scheduleType === 'cron' && !draft.cronExpr.trim()) { setLocalError('请填写 cron 表达式'); return; }
     if (draft.scheduleType === 'once' && !draft.runAt) { setLocalError('请选择触发时间'); return; }
@@ -104,18 +127,20 @@ export function ScheduledTaskForm({ open, initial, projectOptions, submitting, e
             <select className={fieldCls} value={draft.projectPath} onChange={(e) => set('projectPath', e.target.value)}>
               <option value={ASSISTANT_OPTION_VALUE}>🤖 Lovdex助手</option>
               {projectOptions.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
+                <option key={o.value} value={o.value} title={o.remoteHostName ? `${o.remoteHostName}:${o.value}` : o.value}>
+                  {o.remoteHostName ? `🌐 ${o.remoteHostName} · ${o.label}` : o.label}
+                </option>
               ))}
             </select>
           </div>
           <div className="flex flex-col gap-1">
             <label className="text-xs font-medium text-muted-foreground">执行引擎</label>
-            <select className={fieldCls} value={draft.executorProvider} onChange={(e) => set('executorProvider', e.target.value as TaskEngine)}>
-              <option value="claude">Claude Code</option>
-              <option value="codex">Codex</option>
-              <option value="opencode">OpenCode</option>
-              <option value="qoder">Qoder</option>
-            </select>
+            <TaskEngineSelect
+              availability={engineAvailability}
+              value={engineAvailability.status === 'unavailable' ? '' : draft.executorProvider}
+              onChange={(engine) => set('executorProvider', engine)}
+              className={fieldCls}
+            />
           </div>
           <div className="flex flex-col gap-1">
             <label className="text-xs font-medium text-muted-foreground">优先级</label>
