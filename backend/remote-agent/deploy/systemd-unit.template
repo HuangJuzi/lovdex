@@ -6,6 +6,10 @@
 # ~/.config/systemd/user/lovdex-agent.service. Home is expressed with the
 # systemd specifier %h so it is never hardcoded. EnvironmentFile provides the
 # Claude API key written by the bootstrap service (~/.lovdex-remote/.env, 0600).
+# The `-` prefix tolerates the file's absence: bootstrap only writes .env when
+# an API key is provisioned, and systemd would otherwise fail the whole unit
+# ("Failed to load environment files" → result 'resources') — the lite crashes
+# before it can connect back.
 #
 # The daemon (`dist/lite.mjs`) halts claude sessions and closes the ws on
 # SIGTERM; ExecStop is explicit only for clarity (systemd would send SIGTERM to
@@ -22,7 +26,7 @@ ExecStart=__NODE_BIN__ %h/.lovdex-remote/dist/lite.mjs
 ExecStop=/bin/kill -TERM $MAINPID
 Restart=on-failure
 RestartSec=3
-EnvironmentFile=%h/.lovdex-remote/.env
+EnvironmentFile=-%h/.lovdex-remote/.env
 
 [Install]
 WantedBy=default.target
