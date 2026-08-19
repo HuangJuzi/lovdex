@@ -44,6 +44,27 @@ export type SessionStartParams = {
   model?: string;
   permissionMode?: string;
   includePartialMessages?: boolean;
+  /**
+   * Per-session provider configuration (API keys, model env, …), delivered from
+   * main's `makeSessionStartParamsSchema` (which defaults it to `{}`). Merged
+   * over `process.env` in the options handed to the SDK on this run only — never
+   * written to the lite's own `process.env`.
+   */
+  configEnv?: Record<string, string>;
+};
+
+/**
+ * The manager surface shared by every provider runner (claude today; codex /
+ * opencode / qoder land in a later task). Cached per (provider, roots) in
+ * rpc-dispatch so `session/interrupt` / `approval/respond` / `session/messages`
+ * always reach the same instance that handled `session/start`.
+ */
+export type RunManager = {
+  start(params: SessionStartParams): Promise<{ providerSessionId: string }>;
+  respond(requestId: string, decision: unknown): boolean;
+  whenDone(appSessionId: string): Promise<void>;
+  interrupt(appSessionId: string): boolean;
+  interruptAll(): number;
 };
 
 /** A tool-permission request object as surfaced by the SDK `canUseTool`. */
@@ -239,6 +260,13 @@ export function createAgentRunManager(deps: AgentRunManagerDeps) {
     };
     if (params.model !== undefined) sdkOptions.model = params.model;
 
+    // Per-session provider config: merge over process.env (a bare env would
+    // strip PATH and break the claude spawn driver). Scoped to THIS run's SDK
+    // options — never written to the lite's process.env.
+    if (params.configEnv && Object.keys(params.configEnv).length > 0) {
+      sdkOptions.env = { ...process.env, ...params.configEnv };
+    }
+
     // Drive the SDK loop off the awaited rpc path so the rpc_res can return
     // early; the run keeps tracking here so `interrupt` / `respond` keep
     // working and the terminal complete is pushed exactly once.
@@ -335,3 +363,9 @@ export function createAgentRunManager(deps: AgentRunManagerDeps) {
 
   return { start, respond, whenDone, interrupt, interruptAll };
 }
+
+/**
+ * Provider-named alias of {@link createAgentRunManager} — the claude runner.
+ * The registry dispatches `provider === 'claude'` here.
+ */
+export const createClaudeRunManager = createAgentRunManager;

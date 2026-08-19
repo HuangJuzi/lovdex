@@ -1,9 +1,11 @@
-import { createAgentRunManager, type SessionStartParams } from './agent-run.js';
 import { createAllowlistedFs } from './fs.js';
 import { createGitService } from './git.js';
 import { probeRemoteHost } from './probe.js';
+import { createRunManagerFor } from './providers/registry.js';
+import type { RunManager } from './agent-run.js';
 import type { RemoteAgentConfig } from './config.js';
-import { makeGitExecParamsSchema } from '../../server/shared/agent-runtime/protocol.js';
+import type { RemoteProvider } from '../../server/shared/agent-runtime/protocol.js';
+import { makeGitExecParamsSchema, makeSessionStartParamsSchema } from '../../server/shared/agent-runtime/protocol.js';
 
 /**
  * Bridge to the current WebSocket push bus. index.ts calls {@link setPushEmitter}
@@ -16,21 +18,44 @@ export function setPushEmitter(fn: (topic: string, payload: unknown) => void): v
   pushEmitter = fn;
 }
 
-/** The process-wide agent-run manager. Pushes route through the live emitter. */
-export function agentRunsFor(cfg: RemoteAgentConfig): ReturnType<typeof createAgentRunManager> {
-  const key = cfg.roots.join('\0');
-  if (cachedRunsKey !== null && cachedRunsKey === key && cachedRuns !== null) return cachedRuns;
-  cachedRunsKey = key;
-  cachedRuns = createAgentRunManager({
-    push: (topic, payload) => pushEmitter(topic, payload),
-    // I4: runs must start inside an allowlisted root — reject outside cwds.
-    roots: cfg.roots,
-  });
-  return cachedRuns;
+/** The process-wide run managers, cached per (provider, roots). `session/start`,
+ * `session/interrupt`, `approval/respond` and session/messages MUST all hit the
+ * SAME manager instance for a given (provider, roots) — the managers track
+ * `runs`/`approvals` internally, keyed by appSessionId / requestId. */
+const runManagers = new Map<string, RunManager>();
+
+function runManagerFor(cfg: RemoteAgentConfig, provider: RemoteProvider): RunManager {
+  const key = provider + '\0' + cfg.roots.join('\0');
+  let m = runManagers.get(key);
+  if (!m) {
+    m = createRunManagerFor(provider, {
+      push: (topic, payload) => pushEmitter(topic, payload),
+      roots: cfg.roots,
+    });
+    runManagers.set(key, m);
+  }
+  return m;
 }
 
-let cachedRunsKey: string | null = null;
-let cachedRuns: ReturnType<typeof createAgentRunManager> | null = null;
+/**
+ * The (legacy) claude run manager for a config. Kept exported so index.ts and
+ * any existing callers that pinned the single-provider surface keep working;
+ * it is the same instance the (provider, roots) cache hands out for 'claude'.
+ */
+export function agentRunsFor(cfg: RemoteAgentConfig): RunManager {
+  return runManagerFor(cfg, 'claude');
+}
+
+/**
+ * Interrupt every active run across ALL provider managers — used when the ws
+ * connection is dropped, so a later re-send with the same providerSessionId
+ * does not collide with a stale run. Returns the total interrupted.
+ */
+export function interruptAllFor(cfg: RemoteAgentConfig): number {
+  let interrupted = 0;
+  for (const m of runManagers.values()) interrupted += m.interruptAll();
+  return interrupted;
+}
 
 /**
  * Lazy memoized allowlisted fs, keyed by the joined roots. The parsed config is
@@ -61,7 +86,7 @@ export function makeProbeAccessor() {
 /**
  * Dispatches an `rpc_req` method to its handler.
  *
- * - `session/start`     → begin a claude run (resolves with providerSessionId).
+ * - `session/start`     → begin a provider run (claude today; codex/opencode/qoder land Task 12), resolves with providerSessionId. configEnv is injected per start() call.
  * - `session/interrupt` → signal the run to stop (`{ interrupted: boolean }`).
  * - `approval/respond`  → resolve a pending tool approval (`{ accepted: boolean }`).
  * - `fs/stat|list|read|write|tree|create|rename|delete` → allowlisted fs ops scoped to `cfg.roots`.
@@ -80,15 +105,27 @@ export async function handleRpc(
     // implemented in v1 — remote history falls back to main's local
     // ~/.claude/projects (empty for a remote host). A Phase 2 lite
     // `session/messages` handler will serve the transcript over the rpc bus.
-    return agentRunsFor(cfg).start(params as SessionStartParams);
+    const parsed = makeSessionStartParamsSchema().parse(params as unknown);
+    // configEnv reaches the run per `start()` call (in the parsed params), NOT
+    // baked into the cached manager — each session may carry its own env.
+    return runManagerFor(cfg, parsed.provider).start(parsed);
   }
   if (method === 'session/interrupt') {
     const { appSessionId } = params as { appSessionId: string };
-    return { interrupted: agentRunsFor(cfg).interrupt(appSessionId) };
+    // The interrupt target is identified by appSessionId, which only the run's
+    // OWN provider manager holds — try each cached manager in turn (a given
+    // appSessionId belongs to exactly one run).
+    for (const m of runManagers.values()) {
+      if (m.interrupt(appSessionId)) return { interrupted: true };
+    }
+    return { interrupted: false };
   }
   if (method === 'approval/respond') {
     const { requestId, decision } = params as { requestId: string; decision: unknown };
-    return { accepted: agentRunsFor(cfg).respond(requestId, decision) };
+    for (const m of runManagers.values()) {
+      if (m.respond(requestId, decision)) return { accepted: true };
+    }
+    return { accepted: false };
   }
   if (method === 'fs/stat' || method === 'fs/list' || method === 'fs/read') {
     const fsApi = allowlistedFsFor(cfg);

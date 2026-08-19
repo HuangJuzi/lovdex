@@ -3,7 +3,7 @@ import { pathToFileURL } from 'node:url';
 
 import { makePing } from '../../server/shared/agent-runtime/protocol.js';
 import { loadConfigFile, type RemoteAgentConfig } from './config.js';
-import { handleRpc, setPushEmitter, agentRunsFor } from './rpc-dispatch.js';
+import { handleRpc, interruptAllFor, setPushEmitter } from './rpc-dispatch.js';
 
 const HEARTBEAT_MS = 15_000;
 const RECONNECT_MS = 3_000;
@@ -217,9 +217,10 @@ export function createLiteService(cfg: RemoteAgentConfig): LiteService {
     }
     // I2 review fix: a dropped connection must not leave runs "active" on this
     // side — a later re-send with the same providerSessionId would otherwise
-    // fail with `session already running`. Interrupt everything so a retry
-    // starts a fresh run. Mid-turn state is lost (no transparent adopt in v1).
-    const interrupted = agentRunsFor(cfg).interruptAll();
+    // fail with `session already running`. Interrupt everything (across ALL
+    // provider managers) so a retry starts a fresh run. Mid-turn state is lost
+    // (no transparent adopt in v1).
+    const interrupted = interruptAllFor(cfg);
     if (interrupted > 0) {
       console.warn(`[remote-agent] interrupted ${interrupted} active run(s) on connection close`);
     }
