@@ -662,6 +662,10 @@ export function migrateRemoteHostsTable(db: Database): void {
   db.exec('CREATE INDEX IF NOT EXISTS idx_remote_hosts_status ON remote_hosts(status)');
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_remote_hosts_token ON remote_hosts(agent_token_hash)');
 
+  // ssh -R reverse-tunnel support: opt-in per host (upgraded installs).
+  const remoteHostsColumns = getTableInfo(db, 'remote_hosts').map((column) => column.name);
+  addColumnToTableIfNotExists(db, 'remote_hosts', remoteHostsColumns, 'tunnel_port', 'INTEGER');
+
   const columns = getTableInfo(db, 'projects').map((column) => column.name);
   addColumnToTableIfNotExists(db, 'projects', columns, 'remote_host_id', 'TEXT');
 }

@@ -84,6 +84,7 @@ import { refreshRemoteProjectsIndex, lookupRemoteHost } from './modules/remote-a
 import { runBootstrap } from './modules/remote-agents/bootstrap.service.js';
 import { createSshRunner, createScpPush, createSshpassPubkeyInjector } from './modules/remote-agents/ssh-runner.js';
 import { buildLitePackage } from './modules/remote-agents/lite-package.js';
+import { createRemoteTunnels } from './modules/remote-agents/remote-tunnels.js';
 import { createCompleteMessage } from './shared/utils.js';
 
 const __dirname = getModuleDir(import.meta.url);
@@ -347,12 +348,18 @@ app.use('/api/projects', authenticateToken, projectModuleRoutes);
 
 // Remote-agent REST: host CRUD, pubkey, deploy (blocking ssh/scp bootstrap) and
 // remote directory browsing. Behind the same auth gate as the rest of /api.
+// Per-host ssh -R reverse tunnels: hosts whose subnet cannot reach this server
+// (VLAN/firewall isolated) reconnect through a main→target forward instead of
+// dialing the LAN URL directly — see remote-tunnels.ts.
+const remoteTunnels = createRemoteTunnels({ identityFile, forwardPort: cfg.server.port });
+
 app.use('/api/remote-agents', authenticateToken, createRemoteAgentsRouter({
     repo: remoteHostsDb,
     registry: remoteAgentsRegistry,
     fsClient: remoteFsClient,
     publicKey: remotePublicKey,
     identityFile,
+    tunnels: remoteTunnels,
     // The lite dials back to this ws URL. The localhost default is correct for
     // loopback E2E (ssh host == the Lovdex host); for a real remote host the
     // operator MUST set LOVDEX_PUBLIC_WS_URL to an address reachable from it.
@@ -1869,6 +1876,14 @@ async function startServer() {
             console.log(`${c.info('[INFO]')} Installed at: ${c.dim(appInstallPath)}`);
             console.log(`${c.tip('[TIP]')}  Run "cloudcli status" for full configuration details`);
             console.log('');
+
+            // Re-establish any per-host ssh -R tunnels whose hosts have one
+            // configured (survives backend restarts).
+            try {
+                remoteTunnels.syncFromHosts(remoteHostsDb.list());
+            } catch (error) {
+                console.warn('[remote-tunnel] boot sync failed:', error instanceof Error ? error.message : String(error));
+            }
 
             // Start watching the projects folder for changes
             await initializeSessionsWatcher();

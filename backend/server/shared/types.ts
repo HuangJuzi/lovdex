@@ -1037,6 +1037,8 @@ export type RemoteHostRow = {
   status: 'offline' | 'online' | 'deploying' | 'error';
   last_error: string | null;
   last_seen_at: string | null;
+  /** ssh -R reverse-tunnel local port on the target (NULL = dial back directly). */
+  tunnel_port: number | null;
   created_at: string;
   updated_at: string;
 };

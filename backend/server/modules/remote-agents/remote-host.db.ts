@@ -4,12 +4,13 @@ import { REMOTE_HOSTS_TABLE_SCHEMA_SQL } from '@/modules/database/schema.js';
 import type { RemoteHostRow } from '@/shared/types.js';
 
 export type RemoteHostsRepository = {
-  create(input: { host_id: string; name: string; host: string; ssh_user: string; port?: number }): string;
+  create(input: { host_id: string; name: string; host: string; ssh_user: string; port?: number; tunnel_port?: number | null }): string;
   getById(hostId: string): RemoteHostRow | null;
   list(): RemoteHostRow[];
   updateStatus(hostId: string, status: RemoteHostRow['status'], lastError?: string | null): void;
   touchSeen(hostId: string): void;
   setTokenHash(hostId: string, hash: string): void;
+  setTunnelPort(hostId: string, port: number | null): void;
   getByTokenHash(hash: string): RemoteHostRow | null;
   remove(hostId: string): void;
   findHostForProjectPath(projectPath: string): RemoteHostRow | null;
@@ -20,10 +21,10 @@ export function createRemoteHostsDb(db: Database.Database): RemoteHostsRepositor
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_remote_hosts_token ON remote_hosts(agent_token_hash)');
   const get = db.prepare('SELECT * FROM remote_hosts WHERE host_id = ?');
   return {
-    create({ host_id, name, host, ssh_user, port = 22 }) {
+    create({ host_id, name, host, ssh_user, port = 22, tunnel_port = null }) {
       db.prepare(
-        'INSERT INTO remote_hosts (host_id, name, host, port, ssh_user, status) VALUES (?, ?, ?, ?, ?, ?)',
-      ).run(host_id, name, host, port, ssh_user, 'offline');
+        'INSERT INTO remote_hosts (host_id, name, host, port, ssh_user, status, tunnel_port) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      ).run(host_id, name, host, port, ssh_user, 'offline', tunnel_port);
       return host_id;
     },
     getById(hostId) {
@@ -58,6 +59,11 @@ export function createRemoteHostsDb(db: Database.Database): RemoteHostsRepositor
       db.prepare(
         'UPDATE remote_hosts SET agent_token_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE host_id = ?',
       ).run(hash, hostId);
+    },
+    setTunnelPort(hostId, port) {
+      db.prepare(
+        'UPDATE remote_hosts SET tunnel_port = ?, updated_at = CURRENT_TIMESTAMP WHERE host_id = ?',
+      ).run(port, hostId);
     },
     getByTokenHash(hash) {
       const row = db.prepare('SELECT * FROM remote_hosts WHERE agent_token_hash = ?').get(hash) as

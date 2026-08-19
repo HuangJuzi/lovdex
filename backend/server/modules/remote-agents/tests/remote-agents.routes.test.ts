@@ -13,6 +13,7 @@ import { createRemoteAgentsRegistry, type RemoteAgentsRegistry } from '../remote
 import type { RemoteFsClient } from '../remote-fs.service.js';
 import { createRemoteHostsDb, type RemoteHostsRepository } from '../remote-host.db.js';
 import { createRemoteAgentsRouter, type RemoteAgentsRouterDeps } from '../remote-agents.routes.js';
+import type { RemoteTunnelsManager, TunnelHost } from '../remote-tunnels.js';
 
 // Minimal projects table so the remote hosts repo (which joins projects for
 // findHostForProjectPath) can be created against :memory: without error.
@@ -36,6 +37,28 @@ function fakeOpenWs(): FakeOpenWs {
 }
 
 type StubFsClient = RemoteFsClient & { listCalls: { hostId: string; path: string }[] };
+
+/** A tunnel manager stub recording ensure/stop calls (never spawns ssh). */
+function stubTunnels() {
+  const ensureCalls: TunnelHost[] = [];
+  const stopCalls: string[] = [];
+  const running = new Set<string>();
+  const tunnels: RemoteTunnelsManager = {
+    ensure(host) {
+      ensureCalls.push(host);
+      if (host.tunnel_port !== null && host.tunnel_port !== undefined) running.add(host.host_id);
+    },
+    stop(hostId) {
+      stopCalls.push(hostId);
+      running.delete(hostId);
+    },
+    isRunning: (hostId) => running.has(hostId),
+    lastError: () => null,
+    syncFromHosts: () => undefined,
+    close: () => undefined,
+  };
+  return { tunnels, ensureCalls, stopCalls };
+}
 
 function stubFsClient(dirs: { name: string; type: 'dir' | 'file' | 'symlink'; size: number | null }[]): StubFsClient {
   const listCalls: { hostId: string; path: string }[] = [];
@@ -61,6 +84,8 @@ type Harness = {
   db: Database.Database;
   tokenForCalls: string[];
   bootstrapCalls: BootstrapInput[];
+  ensureCalls: TunnelHost[];
+  stopCalls: string[];
   close: () => Promise<void>;
 };
 
@@ -74,6 +99,7 @@ async function makeHarness(
   db.exec(PROJECTS_DDL);
   const repo = createRemoteHostsDb(db);
   const registry = createRemoteAgentsRegistry();
+  const { tunnels, ensureCalls, stopCalls } = stubTunnels();
 
   const tokenForCalls: string[] = [];
   const bootstrapCalls: BootstrapInput[] = [];
@@ -98,6 +124,7 @@ async function makeHarness(
       }),
     identityFile: overrides.identityFile ?? '/home/lovdex/.ssh/id_ed25519',
     serverUrl: overrides.serverUrl ?? 'ws://main:4000/api/remote-agents/ws',
+    tunnels: overrides.tunnels ?? tunnels,
     injectPubkey: overrides.injectPubkey,
   };
 
@@ -126,6 +153,8 @@ async function makeHarness(
     db,
     tokenForCalls,
     bootstrapCalls,
+    ensureCalls,
+    stopCalls,
     close: () =>
       new Promise<void>((resolve) => {
         server.close(() => {
@@ -601,6 +630,103 @@ test('DELETE /:id removes the host row, sweeps its sessions and closes the live 
     // tears down immediately instead of lingering until its next heartbeat.
     assert.equal(ws.closed, true);
     assert.equal(ws.closeCode, 4001);
+  } finally {
+    await h.close();
+  }
+});
+
+test('POST /:id/tunnel persists the port and starts the manager; DELETE clears+stops', async () => {
+  const h = await makeHarness();
+  try {
+    h.repo.create({ host_id: 'h1', name: 'dev1', host: '10.0.0.5', ssh_user: 'root' });
+
+    const enable = await fetch(`${h.base}/api/remote-agents/h1/tunnel`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ port: 13188 }),
+    });
+    assert.equal(enable.status, 200);
+    const enableBody = (await enable.json()) as { data: { tunnel_port: number; tunnel_running: boolean } };
+    assert.equal(enableBody.data.tunnel_port, 13188);
+    assert.equal(enableBody.data.tunnel_running, true);
+    assert.equal(h.repo.getById('h1')?.tunnel_port, 13188);
+    // ensure() received the full host + the new port (deploy reuses this too).
+    assert.equal(h.ensureCalls.length, 1);
+    assert.equal(h.ensureCalls[0]?.host_id, 'h1');
+    assert.equal(h.ensureCalls[0]?.tunnel_port, 13188);
+
+    // The row now advertises the tunnel to the list consumers.
+    const list = await fetch(`${h.base}/api/remote-agents/`);
+    const listBody = (await list.json()) as {
+      data: { hosts: { tunnel_port: number | null; tunnel_running: boolean }[] };
+    };
+    assert.equal(listBody.data.hosts[0]?.tunnel_port, 13188);
+    assert.equal(listBody.data.hosts[0]?.tunnel_running, true);
+
+    const disable = await fetch(`${h.base}/api/remote-agents/h1/tunnel`, { method: 'DELETE' });
+    assert.equal(disable.status, 200);
+    const disableBody = (await disable.json()) as { data: { tunnel_port: null } };
+    assert.equal(disableBody.data.tunnel_port, null);
+    assert.equal(h.repo.getById('h1')?.tunnel_port, null);
+    assert.deepEqual(h.stopCalls, ['h1']);
+  } finally {
+    await h.close();
+  }
+});
+
+test('POST /:id/tunnel rejects non-port values with 400', async () => {
+  const h = await makeHarness();
+  try {
+    h.repo.create({ host_id: 'h1', name: 'dev1', host: '10.0.0.5', ssh_user: 'root' });
+    for (const port of [undefined, 'abc', 0, 80, 70000, 12.5]) {
+      const res = await fetch(`${h.base}/api/remote-agents/h1/tunnel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ port }),
+      });
+      assert.equal(res.status, 400, `port=${String(port)} should be rejected`);
+      const body = (await res.json()) as { error: { code: string } };
+      assert.equal(body.error.code, 'REMOTE_TUNNEL_INVALID_PORT');
+    }
+    assert.equal(h.ensureCalls.length, 0, 'no tunnel ensure on invalid ports');
+  } finally {
+    await h.close();
+  }
+});
+
+test('POST /:id/deploy on a tunnel host points the lite at a loopback URL and ensures the tunnel', async () => {
+  const h = await makeHarness({
+    bootstrapImpl: async (input) => ({ status: 'online', message: 'deployed', hostId: input.hostId }),
+  });
+  try {
+    h.repo.create({ host_id: 'h1', name: 'dev1', host: '10.0.0.5', ssh_user: 'root' });
+    h.repo.setTunnelPort('h1', 13188);
+
+    const res = await fetch(`${h.base}/api/remote-agents/h1/deploy`, { method: 'POST' });
+    assert.equal(res.status, 200);
+
+    // Tunnel re-ensured before bootstrap so the lite can dial back instantly.
+    assert.equal(h.ensureCalls.length, 1);
+    assert.equal(h.ensureCalls[0]?.tunnel_port, 13188);
+
+    const call = h.bootstrapCalls[0];
+    assert.ok(call);
+    assert.equal(call.serverUrl, 'ws://127.0.0.1:13188/api/remote-agents/ws');
+    assert.equal(call.hostId, 'h1');
+  } finally {
+    await h.close();
+  }
+});
+
+test('DELETE /:id stops the host tunnel', async () => {
+  const h = await makeHarness();
+  try {
+    h.repo.create({ host_id: 'h1', name: 'dev1', host: '10.0.0.5', ssh_user: 'root' });
+    h.repo.setTunnelPort('h1', 13188);
+
+    const res = await fetch(`${h.base}/api/remote-agents/h1`, { method: 'DELETE' });
+    assert.equal(res.status, 200);
+    assert.deepEqual(h.stopCalls, ['h1']);
   } finally {
     await h.close();
   }

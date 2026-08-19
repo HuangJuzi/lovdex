@@ -18,6 +18,8 @@ type RemoteHost = {
   last_error: string | null;
   last_seen_at: string | null;
   online: boolean;
+  tunnel_port: number | null;
+  tunnel_running: boolean;
 };
 
 type HostsResponse = { data?: { hosts?: RemoteHost[] } };
@@ -54,8 +56,8 @@ function deriveHostState(host: RemoteHost): {
       return {
         label: '未连接',
         dotClass: 'bg-amber-500',
-        hint: '部署命令已完成，但 lite 尚未连回主站。等待几秒后若无变化，请点「重新部署」'
-          + '（并确认主站 LOVDEX_PUBLIC_WS_URL 指向本机对目标机可达的地址）。',
+        hint: '部署命令已完成，但 lite 尚未连回主站。等待几秒后若无变化：确认 LOVDEX_PUBLIC_WS_URL'
+          + '指向本机对目标机可达的地址，或为本机启用下方「SSH 隧道」后重新部署。',
         hintTone: 'warn',
       };
     case 'error':
@@ -124,6 +126,8 @@ export function RemoteHostsSettingsSection() {
   const [actionError, setActionError] = useState<string | null>(null);
   // Transient deploy outcome note (cleared on next deploy).
   const [deployNotes, setDeployNotes] = useState<Record<string, string>>({});
+  // Per-host tunnel port drafts (default suggestion for enabling a tunnel).
+  const [tunnelDrafts, setTunnelDrafts] = useState<Record<string, string>>({});
 
   // Synchronous double-click guard: a ref, not state — two clicks in the same
   // render tick would both see the same `deployingIds` value.
@@ -254,6 +258,47 @@ export function RemoteHostsSettingsSection() {
     }
   }
 
+  // Enable an ssh -R reverse tunnel: the lite then dials back through it
+  // (ws://127.0.0.1:<port> on the target) — for hosts that cannot reach the
+  // main server's LAN address at all (VLAN/firewall-isolated subnets).
+  async function handleEnableTunnel(host: RemoteHost) {
+    const port = Number.parseInt(tunnelDrafts[host.host_id]?.trim() || '', 10);
+    if (!Number.isInteger(port) || port < 1024 || port > 65535) {
+      setActionError('隧道端口需为 1024-65535 的整数');
+      return;
+    }
+    setActionError(null);
+    try {
+      const res = await api.post(`/remote-agents/${encodeURIComponent(host.host_id)}/tunnel`, {
+        port,
+      });
+      if (!res.ok) {
+        setActionError(await readErrorMessage(res, `启用 ${host.name} 隧道失败`));
+        return;
+      }
+      await loadHosts().catch(() => undefined);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : '启用隧道失败');
+    }
+  }
+
+  async function handleDisableTunnel(host: RemoteHost) {
+    if (!window.confirm(`停用「${host.name}」的 SSH 隧道？其 lite 将改为直连主站。`)) {
+      return;
+    }
+    setActionError(null);
+    try {
+      const res = await api.delete(`/remote-agents/${encodeURIComponent(host.host_id)}/tunnel`);
+      if (!res.ok) {
+        setActionError(await readErrorMessage(res, `停用 ${host.name} 隧道失败`));
+        return;
+      }
+      await loadHosts().catch(() => undefined);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : '停用隧道失败');
+    }
+  }
+
   if (loadError) {
     return (
       <div className="flex flex-col items-center gap-3 py-10">
@@ -356,6 +401,54 @@ export function RemoteHostsSettingsSection() {
                         title={state.hint}
                       >
                         {state.hint.length > 120 ? `${state.hint.slice(0, 120)}…` : state.hint}
+                      </div>
+                    )}
+                    {host.tunnel_running || host.tunnel_port ? (
+                      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+                        <span
+                          className={
+                            host.tunnel_running ? 'text-emerald-600' : 'text-amber-600'
+                          }
+                        >
+                          SSH 隧道：127.0.0.1:{host.tunnel_port}
+                          {host.tunnel_running ? ' ✓ 已建立' : '（未建立连接，等待重连…）'}
+                        </span>
+                        <button
+                          type="button"
+                          className="text-muted-foreground underline"
+                          disabled={isDeploying}
+                          onClick={() => void handleDisableTunnel(host)}
+                          title="停用隧道后 lite 将直连主站"
+                        >
+                          停用隧道
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                        <span>目标机连不回主站？</span>
+                        <input
+                          type="number"
+                          min={1024}
+                          max={65535}
+                          className="h-7 w-20 rounded-md border border-border bg-muted px-1.5 text-xs text-foreground"
+                          value={tunnelDrafts[host.host_id] ?? '13188'}
+                          disabled={isDeploying}
+                          onChange={(e) =>
+                            setTunnelDrafts((prev) => ({
+                              ...prev,
+                              [host.host_id]: e.target.value,
+                            }))
+                          }
+                        />
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={isDeploying}
+                          onClick={() => void handleEnableTunnel(host)}
+                          title="建立 ssh -R 反隧道，让 lite 经 127.0.0.1 连回主站"
+                        >
+                          启用隧道
+                        </Button>
                       </div>
                     )}
                   </div>

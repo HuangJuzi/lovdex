@@ -114,6 +114,10 @@ CREATE TABLE IF NOT EXISTS remote_hosts (
     status TEXT NOT NULL DEFAULT 'offline',
     last_error TEXT,
     last_seen_at DATETIME,
+    -- ssh -R reverse-tunnel local port on the target (NULL = dial back
+    -- directly). When set, deploy points the lite at ws://127.0.0.1:<port>
+    -- and the main host maintains a per-host ssh -N -R tunnel.
+    tunnel_port INTEGER,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );

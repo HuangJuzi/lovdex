@@ -6,6 +6,7 @@ import type { BootstrapInput, BootstrapResult } from './bootstrap.service.js';
 import type { RemoteAgentsRegistry } from './remote-agents.registry.js';
 import type { RemoteFsClient } from './remote-fs.service.js';
 import type { RemoteHostsRepository } from './remote-host.db.js';
+import type { RemoteTunnelsManager } from './remote-tunnels.js';
 import type { SshpassPubkeyInjector } from './ssh-runner.js';
 
 export type RemoteAgentsRouterDeps = {
@@ -25,8 +26,14 @@ export type RemoteAgentsRouterDeps = {
   bootstrap: (input: BootstrapInput) => Promise<BootstrapResult>;
   /** Path to the Lovdex ed25519 private key used for ssh, or null. */
   identityFile: string | null;
-  /** Main server ws URL the lite connects back to. */
+  /** Main server ws URL the lite connects back to (default for non-tunnel hosts). */
   serverUrl: string;
+  /**
+   * Per-host ssh -R reverse tunnels (see remote-tunnels.ts). Hosts with a
+   * `tunnel_port` get `ws://127.0.0.1:<port>` as their lite serverUrl instead
+   * of the global one — for targets that cannot reach the main server at all.
+   */
+  tunnels: RemoteTunnelsManager;
   /**
    * One-time password → pubkey injector (ssh-copy-id equivalent). When
    * configured, `authType: 'password'` registration uses the supplied password
@@ -68,6 +75,8 @@ export function createRemoteAgentsRouter(deps: RemoteAgentsRouterDeps): express.
         last_error: host.last_error,
         last_seen_at: host.last_seen_at,
         online: deps.registry.isOnline(host.host_id),
+        tunnel_port: host.tunnel_port,
+        tunnel_running: host.tunnel_port !== null && deps.tunnels.isRunning(host.host_id),
       }));
       res.json(createApiSuccessResponse({ hosts }));
     }),
@@ -184,6 +193,12 @@ export function createRemoteAgentsRouter(deps: RemoteAgentsRouterDeps): express.
 
       let result: BootstrapResult;
       try {
+        // Tunnel hosts dial their own loopback through the ssh -R forward (they
+        // cannot reach the main server's LAN address at all); (re)ensure the
+        // forward is up before pushing config so the lite connects immediately.
+        if (host.tunnel_port !== null) {
+          deps.tunnels.ensure(host);
+        }
         result = await deps.bootstrap({
           host: host.host,
           port: host.port,
@@ -193,7 +208,9 @@ export function createRemoteAgentsRouter(deps: RemoteAgentsRouterDeps): express.
           // persists the same sha256) — a running lite is never bricked by an
           // interrupted deploy resetting its auth.
           token: deps.tokenFor(hostId),
-          serverUrl: deps.serverUrl,
+          serverUrl: host.tunnel_port
+            ? `ws://127.0.0.1:${host.tunnel_port}/api/remote-agents/ws`
+            : deps.serverUrl,
           hostId: host.host_id,
           roots,
         });
@@ -221,7 +238,52 @@ export function createRemoteAgentsRouter(deps: RemoteAgentsRouterDeps): express.
     }),
   );
 
-  // 5. Browse remote directories for the "pick a project folder" flow.
+  // 5. Enable / disable the per-host ssh -R reverse tunnel. When enabled, the
+  //    host's lite connects BACK through the tunnel (ws://127.0.0.1:<port>)
+  //    instead of the global serverUrl — for targets that cannot reach the
+  //    main server's LAN address (VLAN-isolated / firewalled subnets).
+  router.post(
+    '/:hostId/tunnel',
+    asyncHandler(async (req, res) => {
+      const hostId = typeof req.params.hostId === 'string' ? req.params.hostId : '';
+      const host = deps.repo.getById(hostId);
+      if (!host) {
+        throw new AppError('remote host not found', {
+          code: 'REMOTE_HOST_NOT_FOUND',
+          statusCode: 404,
+        });
+      }
+      const portRaw = (req.body as Record<string, unknown> | undefined)?.port;
+      const port = typeof portRaw === 'number' ? portRaw : Number.parseInt(String(portRaw ?? ''), 10);
+      // Loophack binds are unprivileged on the target; reject ports < 1024.
+      if (!Number.isInteger(port) || port < 1024 || port > 65535) {
+        throw new AppError('tunnel port must be an integer in [1024, 65535]', {
+          code: 'REMOTE_TUNNEL_INVALID_PORT',
+          statusCode: 400,
+        });
+      }
+      deps.repo.setTunnelPort(hostId, port);
+      deps.tunnels.ensure({ ...host, tunnel_port: port });
+      res.json(
+        createApiSuccessResponse({
+          tunnel_port: port,
+          tunnel_running: deps.tunnels.isRunning(hostId),
+        }),
+      );
+    }),
+  );
+
+  router.delete(
+    '/:hostId/tunnel',
+    asyncHandler(async (req, res) => {
+      const hostId = typeof req.params.hostId === 'string' ? req.params.hostId : '';
+      deps.repo.setTunnelPort(hostId, null);
+      deps.tunnels.stop(hostId);
+      res.json(createApiSuccessResponse({ tunnel_port: null }));
+    }),
+  );
+
+  // 6. Browse remote directories for the "pick a project folder" flow.
   router.get(
     '/:hostId/dirs',
     asyncHandler(async (req, res) => {
@@ -254,9 +316,10 @@ export function createRemoteAgentsRouter(deps: RemoteAgentsRouterDeps): express.
     }),
   );
 
-  // 6. Remove a host: drop the DB row, clear its registry session bindings and
-  // close the live socket so the agent tears down immediately (4001 'host
-  // removed') rather than lingering until its next heartbeat.
+  // 7. Remove a host: drop the DB row, clear its registry session bindings,
+  //    stop any ssh -R tunnel and close the live socket so the agent tears
+  //    down immediately (4001 'host removed') rather than lingering until its
+  //    next heartbeat.
   router.delete(
     '/:hostId',
     asyncHandler(async (req, res) => {
@@ -264,6 +327,7 @@ export function createRemoteAgentsRouter(deps: RemoteAgentsRouterDeps): express.
       deps.repo.remove(hostId);
       deps.registry.clearSessionsForHost(hostId);
       deps.registry.closeHost(hostId);
+      deps.tunnels.stop(hostId);
       res.json(createApiSuccessResponse({ removed: true }));
     }),
   );
