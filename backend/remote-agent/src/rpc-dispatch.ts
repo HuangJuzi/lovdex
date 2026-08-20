@@ -2,10 +2,11 @@ import { createAllowlistedFs } from './fs.js';
 import { createGitService } from './git.js';
 import { probeRemoteHost } from './probe.js';
 import { createRunManagerFor } from './providers/registry.js';
+import { readSessionMessagesDir } from './transcript.js';
 import type { QuerySdkLike, RunManager } from './agent-run.js';
 import type { RemoteAgentConfig } from './config.js';
 import type { RemoteProvider } from '../../server/shared/agent-runtime/protocol.js';
-import { makeGitExecParamsSchema, makeSessionStartParamsSchema } from '../../server/shared/agent-runtime/protocol.js';
+import { makeGitExecParamsSchema, makeSessionMessagesParamsSchema, makeSessionStartParamsSchema } from '../../server/shared/agent-runtime/protocol.js';
 
 /**
  * Bridge to the current WebSocket push bus. index.ts calls {@link setPushEmitter}
@@ -119,6 +120,7 @@ export function makeProbeAccessor() {
  * Dispatches an `rpc_req` method to its handler.
  *
  * - `session/start`     → begin a provider run (claude today; codex/opencode/qoder land Task 12), resolves with providerSessionId. configEnv is injected per start() call.
+ * - `session/messages`  → read a session's transcript ON THIS HOST and return the raw file contents (remote chat history; claude/qoder).
  * - `session/interrupt` → signal the run to stop (`{ interrupted: boolean }`).
  * - `approval/respond`  → resolve a pending tool approval (`{ accepted: boolean }`).
  * - `fs/stat|list|read|write|tree|create|rename|delete` → allowlisted fs ops scoped to `cfg.roots`.
@@ -133,14 +135,23 @@ export async function handleRpc(
   controller?: AbortController,
 ): Promise<unknown> {
   if (method === 'session/start') {
-    // I3 note (Phase 2): session/messages (remote chat history) is NOT
-    // implemented in v1 — remote history falls back to main's local
-    // ~/.claude/projects (empty for a remote host). A Phase 2 lite
-    // `session/messages` handler will serve the transcript over the rpc bus.
     const parsed = makeSessionStartParamsSchema().parse(params as unknown);
     // configEnv reaches the run per `start()` call (in the parsed params), NOT
     // baked into the cached manager — each session may carry its own env.
     return runManagerFor(cfg, parsed.provider).start(parsed);
+  }
+  if (method === 'session/messages') {
+    // Remote chat history: the transcript is written by the provider CLI on
+    // THIS host, so the lite reads it and ships the raw file contents back.
+    // Main-side `fetchHistory` decodes them with the shared parser — no parse
+    // logic lives here, so local and remote history stay in sync.
+    const parsed = makeSessionMessagesParamsSchema().parse(params as unknown);
+    const { transcript, agentFiles } = readSessionMessagesDir(
+      parsed.provider,
+      parsed.projectPath,
+      parsed.providerSessionId,
+    );
+    return { transcript, agentFiles };
   }
   if (method === 'session/interrupt') {
     const { appSessionId } = params as { appSessionId: string };

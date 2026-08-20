@@ -8,6 +8,7 @@ import {
   makePing,
   decodeAgentFrameIn,
   makeSessionStartParamsSchema,
+  makeSessionMessagesParamsSchema,
 } from '../protocol.js';
 
 test('rpc request frame encodes/decodes round-trip', () => {
@@ -29,6 +30,22 @@ test('session/start params schema validates required fields and defaults provide
   assert.equal(ok.providerSessionId, null);
   assert.equal(ok.cwd, '/s');
   assert.throws(() => schema.parse({ appSessionId: 's1', command: 'hi' })); // cwd required
+});
+
+test('session/messages params schema validates provider/sessionId/projectPath', () => {
+  const schema = makeSessionMessagesParamsSchema();
+  const ok = schema.parse({
+    provider: 'claude',
+    providerSessionId: 'sid-x',
+    projectPath: '/home/sophgo/workpath',
+  });
+  assert.equal(ok.provider, 'claude');
+  assert.equal(ok.projectPath, '/home/sophgo/workpath');
+  // provider restricted to the remote provider set
+  assert.throws(() => schema.parse({ provider: 'bogus', providerSessionId: 'sid', projectPath: '/p' }));
+  // required fields enforced
+  assert.throws(() => schema.parse({ provider: 'qoder', providerSessionId: 'sid' }));
+  assert.throws(() => schema.parse({ provider: 'qoder', projectPath: '/p' }));
 });
 
 test('isAgentFrameOut accepts fully-formed outbound frames', () => {

@@ -131,6 +131,7 @@ test('runGitCommand routes a hosted cwd to the remote git RPC and maps the resul
       },
     } as never,
     fsClient: {} as never,
+    historyClient: {} as never,
   });
 
   const res = await runGitCommand(['rev-parse', 'HEAD'], '/home/u/repo');
@@ -160,6 +161,7 @@ test('runGitCommand converts a remote git/exec failure into a GIT_COMMAND_FAILED
       }),
     } as never,
     fsClient: {} as never,
+    historyClient: {} as never,
   });
 
   await assert.rejects(
@@ -181,6 +183,7 @@ test('runGitCommand maps a remote transport failure to a GIT_REMOTE_EXEC_FAILED 
       },
     } as never,
     fsClient: {} as never,
+    historyClient: {} as never,
   });
 
   // A transport hiccup must never be misread downstream as NOT_A_GIT_REPOSITORY;
@@ -233,6 +236,7 @@ test('pathExists routes a hosted path to the remote fs stat and maps stat.exists
         return { exists: true, isDirectory: true, isFile: false, size: 0, mtimeMs: 0 };
       },
     } as never,
+    historyClient: {} as never,
   });
 
   assert.equal(await worktreeFileSystem.pathExists('/home/u/repo'), true);
@@ -247,6 +251,7 @@ test('pathExists returns false when the remote stat reports a missing path', asy
     fsClient: {
       stat: async () => ({ exists: false, isDirectory: false, isFile: false, size: 0, mtimeMs: 0 }),
     } as never,
+    historyClient: {} as never,
   });
 
   assert.equal(await worktreeFileSystem.pathExists('/home/u/repo/missing'), false);

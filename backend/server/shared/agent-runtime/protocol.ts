@@ -204,6 +204,37 @@ export function makeSessionStartParamsSchema() {
 }
 
 /**
+ * Zod schema for the `session/messages` `rpc_req` params — the remote chat
+ * history pull. `provider` picks the transcript directory layout on the remote
+ * host (claude/qoder write JSONL under `~/.claude|.qoder/projects`), and the
+ * lite returns the raw file CONTENTS (transcript + subagent `agent-*.jsonl`)
+ * so all parsing/normalization stays main-side. Restricting the enum to
+ * REMOTE_PROVIDERS keeps the wire shape provider-agnostic; the lite handler
+ * rejects providers whose transcript format is not implemented yet.
+ */
+export function makeSessionMessagesParamsSchema() {
+  return z.object({
+    provider: z.enum(REMOTE_PROVIDERS),
+    providerSessionId: z.string().min(1),
+    projectPath: z.string().min(1),
+  });
+}
+
+export type SessionMessagesParams = z.infer<ReturnType<typeof makeSessionMessagesParamsSchema>>;
+
+/**
+ * `session/messages` success payload: the main transcript file content plus
+ * each `agent-<id>.jsonl` sibling under the same provider project directory,
+ * keyed by agent id. Empty string / empty record mean "no transcript yet" —
+ * the same `{ messages: [] }` the Phase-1 stub returned, but with real data
+ * when the remote run has produced a file.
+ */
+export type RemoteSessionMessagesResult = {
+  transcript: string;
+  agentFiles: Record<string, string>;
+};
+
+/**
  * `fs.stat`-style metadata returned for a remote path.
  */
 export type RemoteStat = {

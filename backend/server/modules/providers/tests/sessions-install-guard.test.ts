@@ -53,6 +53,7 @@ async function makeHarness(): Promise<Harness> {
       rpc: async (_h: string, _m: string) => ({ providers: probeResult }),
     } as never,
     fsClient: {} as never,
+    historyClient: {} as never,
   });
 
   const app = express();

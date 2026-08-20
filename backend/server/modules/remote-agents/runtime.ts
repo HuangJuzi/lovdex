@@ -1,5 +1,6 @@
 import type { RemoteAgentsRegistry } from './remote-agents.registry.js';
 import type { RemoteFsClient } from './remote-fs.service.js';
+import type { RemoteHistoryClient } from './remote-history.service.js';
 
 /**
  * Late-bound runtime seam for the remote-agents module.
@@ -13,6 +14,7 @@ import type { RemoteFsClient } from './remote-fs.service.js';
 export type RemoteAgentsRuntime = {
   registry: RemoteAgentsRegistry;
   fsClient: RemoteFsClient;
+  historyClient: RemoteHistoryClient;
 };
 
 let runtime: RemoteAgentsRuntime | null = null;

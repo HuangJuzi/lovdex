@@ -1,13 +1,14 @@
 import fs from 'node:fs';
-import fsp from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import readline from 'node:readline';
 
 import type { IProviderSessions } from '@/shared/interfaces.js';
 import type { AnyRecord, FetchHistoryOptions, FetchHistoryResult, NormalizedMessage } from '@/shared/types.js';
 import { createNormalizedMessage, generateMessageId, readObjectRecord, sliceTailPage } from '@/shared/utils.js';
 import { sessionsDb } from '@/modules/database/index.js';
+import { getRemoteAgentsRuntime } from '@/modules/remote-agents/runtime.js';
+import { lookupRemoteHost } from '@/modules/remote-agents/remote-projects.index.js';
+import { assembleHistoryRecords, readTranscriptDir } from '@/modules/providers/list/shared/transcript-history.js';
 
 const PROVIDER = 'claude';
 
@@ -74,72 +75,6 @@ type ClaudeHistoryMessagesResult =
     limit?: number | null;
   };
 
-async function parseAgentTools(filePath: string): Promise<AnyRecord[]> {
-  const tools: AnyRecord[] = [];
-
-  try {
-    const fileStream = fs.createReadStream(filePath);
-    const rl = readline.createInterface({
-      input: fileStream,
-      crlfDelay: Infinity,
-    });
-
-    for await (const line of rl) {
-      if (!line.trim()) {
-        continue;
-      }
-
-      try {
-        const entry = JSON.parse(line) as AnyRecord;
-
-        if (entry.message?.role === 'assistant' && Array.isArray(entry.message?.content)) {
-          for (const part of entry.message.content as AnyRecord[]) {
-            if (part.type === 'tool_use') {
-              tools.push({
-                toolId: part.id,
-                toolName: part.name,
-                toolInput: part.input,
-                timestamp: entry.timestamp,
-              });
-            }
-          }
-        }
-
-        if (entry.message?.role === 'user' && Array.isArray(entry.message?.content)) {
-          for (const part of entry.message.content as AnyRecord[]) {
-            if (part.type !== 'tool_result') {
-              continue;
-            }
-
-            const tool = tools.find((candidate) => candidate.toolId === part.tool_use_id);
-            if (!tool) {
-              continue;
-            }
-
-            tool.toolResult = {
-              content: typeof part.content === 'string'
-                ? part.content
-                : Array.isArray(part.content)
-                  ? part.content
-                    .map((contentPart: AnyRecord) => contentPart?.text || '')
-                    .join('\n')
-                  : JSON.stringify(part.content),
-              isError: Boolean(part.is_error),
-            };
-          }
-        }
-      } catch {
-        // Skip malformed lines that can happen during concurrent writes.
-      }
-    }
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.warn(`Error parsing agent file ${filePath}:`, message);
-  }
-
-  return tools;
-}
-
 async function getSessionMessages(
   sessionId: string,
   providerSessionId: string,
@@ -169,68 +104,8 @@ async function getSessionMessages(
       return { messages: [], total: 0, hasMore: false };
     }
 
-    const projectDir = path.dirname(jsonLPath);
-    const files = await fsp.readdir(projectDir);
-    const agentFiles = files.filter((file) => file.endsWith('.jsonl') && file.startsWith('agent-'));
-
-    const messages: AnyRecord[] = [];
-    const agentToolsCache = new Map<string, AnyRecord[]>();
-
-    const fileStream = fs.createReadStream(jsonLPath);
-    const rl = readline.createInterface({
-      input: fileStream,
-      crlfDelay: Infinity,
-    });
-
-    for await (const line of rl) {
-      if (!line.trim()) {
-        continue;
-      }
-
-      try {
-        const entry = JSON.parse(line) as AnyRecord;
-        if (entry.sessionId === providerSessionId) {
-          messages.push(entry);
-        }
-      } catch {
-        // Skip malformed JSONL lines that can happen during concurrent writes.
-      }
-    }
-
-    const agentIds = new Set<string>();
-    for (const message of messages) {
-      const agentId = message.toolUseResult?.agentId;
-      if (agentId) {
-        agentIds.add(String(agentId));
-      }
-    }
-
-    for (const agentId of agentIds) {
-      const agentFileName = `agent-${agentId}.jsonl`;
-      if (!agentFiles.includes(agentFileName)) {
-        continue;
-      }
-
-      const agentFilePath = path.join(projectDir, agentFileName);
-      const tools = await parseAgentTools(agentFilePath);
-      agentToolsCache.set(agentId, tools);
-    }
-
-    for (const message of messages) {
-      const agentId = message.toolUseResult?.agentId;
-      if (!agentId) {
-        continue;
-      }
-
-      const agentTools = agentToolsCache.get(String(agentId));
-      if (agentTools && agentTools.length > 0) {
-        message.subagentTools = agentTools;
-      }
-    }
-
-    const sortedMessages = messages.sort(
-      (a, b) => new Date(a.timestamp || 0).getTime() - new Date(b.timestamp || 0).getTime(),
-    );
+    const { transcript, agentFiles } = await readTranscriptDir(jsonLPath, path.dirname(jsonLPath));
+    const sortedMessages = assembleHistoryRecords(transcript, agentFiles, providerSessionId);
     const total = sortedMessages.length;
 
     if (limit === null) {
@@ -269,6 +144,14 @@ const INTERNAL_CONTENT_PREFIXES = [
   '<system-reminder>',
   'Caveat:',
   '[Request interrupted',
+  // CLI-injected "thinking-only" nudge. The Claude Code CLI appends this
+  // synthetic user turn whenever an assistant turn produces only a thinking
+  // block (no text/tool_use) — rampant with third-party reasoning models
+  // (DeepSeek/Kimi/GLM) whose reasoning arrives as standalone thinking turns.
+  // It is an internal control prompt, never a real user message. The live SDK
+  // stream tags it isSynthetic (not isMeta), so the isMeta guard alone misses
+  // it; matching the content prefix hides it on both the live and replay paths.
+  '[Your previous response had no visible output',
 ] as const;
 
 function isInternalContent(content: string): boolean {
@@ -849,9 +732,23 @@ export class ClaudeSessionsProvider implements IProviderSessions {
 
     let result: ClaudeHistoryResult;
     try {
-      // Load full history first so `total` reflects frontend-normalized messages,
-      // not raw JSONL records.
-      result = await getSessionMessages(sessionId, providerSessionId, null, 0);
+      // Remote-hosted sessions keep their transcript on the lite host; ask the
+      // lite to read it back over `session/messages` (raw file contents) and
+      // decode through the same content-based pipeline local files use. Phase 1
+      // shipped without this branch, which left every remote session blank.
+      const hostId = options.projectPath ? lookupRemoteHost(options.projectPath) : null;
+      if (hostId) {
+        const fetched = await getRemoteAgentsRuntime().historyClient.fetchMessages(hostId, {
+          provider: PROVIDER,
+          providerSessionId,
+          projectPath: options.projectPath ?? '',
+        });
+        result = assembleHistoryRecords(fetched.transcript, fetched.agentFiles, providerSessionId);
+      } else {
+        // Load full history first so `total` reflects frontend-normalized messages,
+        // not raw JSONL records.
+        result = await getSessionMessages(sessionId, providerSessionId, null, 0);
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.warn(`[ClaudeProvider] Failed to load session ${sessionId}:`, message);

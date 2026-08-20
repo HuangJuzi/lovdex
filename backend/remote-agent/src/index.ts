@@ -99,9 +99,10 @@ export async function handleIncomingFrame(
 
 function buildHelloFrame(cfg: RemoteAgentConfig): string {
   // capabilities: every RPC method the dispatcher understands is advertised so
-  // main can offer the host's full surface. session/* stays claude-only probe-
-  // aware: the lite currently runs ONE provider CLI (claude); codex/opencode/
-  // qoder generalization lands with the multi-provider session/start work.
+  // main can offer the host's full surface. session/start stays claude-only
+  // probe-aware: the lite currently runs ONE provider CLI (claude); codex/
+  // opencode/qoder generalization lands with the multi-provider session/start
+  // work. session/messages (remote history) serves the claude/qoder transcript.
   return JSON.stringify({
     type: 'hello',
     hostId: cfg.hostId,
@@ -111,6 +112,7 @@ function buildHelloFrame(cfg: RemoteAgentConfig): string {
     roots: cfg.roots,
     capabilities: [
       'session/claude',
+      'session/messages',
       'fs/stat',
       'fs/list',
       'fs/read',

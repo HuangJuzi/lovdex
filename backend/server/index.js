@@ -78,6 +78,7 @@ import { createRemoteAgentsRegistry } from './modules/remote-agents/remote-agent
 import { createRemoteAgentWss } from './modules/remote-agents/remote-agent.server.js';
 import { createRemoteRouting } from './modules/remote-agents/remote-spawn.js';
 import { createRemoteFsClient, REMOTE_MAX_READ_BYTES, REMOTE_MAX_UPLOAD_BYTES } from './modules/remote-agents/remote-fs.service.js';
+import { createRemoteHistoryClient } from './modules/remote-agents/remote-history.service.js';
 import { createRemoteAgentsRouter } from './modules/remote-agents/remote-agents.routes.js';
 import { setRemoteAgentsRuntime, getRemoteAgentsRuntime } from './modules/remote-agents/runtime.js';
 import { refreshRemoteProjectsIndex, lookupRemoteHost, setOnlineHostsLookup } from './modules/remote-agents/remote-projects.index.js';
@@ -166,14 +167,14 @@ try {
 // and the routing subscribes the push bus exactly once at construction.
 const remoteAgentsRegistry = createRemoteAgentsRegistry();
 const remoteFsClient = createRemoteFsClient(() => remoteAgentsRegistry);
+const remoteHistoryClient = createRemoteHistoryClient(() => remoteAgentsRegistry);
 // Raw lite SDK event → writer-ready NormalizedMessage[]. Mirrors the local
 // claude path: synthetic `complete` becomes a completion message; every other
 // event flows through transformMessage + the shared session normalizer.
 //
-// I3 note (Phase 2): remote `session/messages` (chat history) is NOT
-// implemented in v1 — remote session history falls back to main's local
-// ~/.claude/projects, which is empty for a remote host. Phase 2 adds a lite
-// `session/messages` handler that serves the transcript over the rpc bus.
+// Remote chat history rides the `session/messages` RPC (lite reads the
+// transcript it owns and returns raw file contents) — fetchHistory in the
+// claude/qoder providers routes to it via remoteHistoryClient below.
 const normalizeRemoteEvent = (raw, sid) => {
     if (raw && typeof raw === 'object' && raw.type === 'complete') {
         // exitCode travels on the payload: the lite pushes exitCode 1 + error on
@@ -189,7 +190,7 @@ const remoteRouting = createRemoteRouting({
     registry: remoteAgentsRegistry,
     normalizeEvent: normalizeRemoteEvent,
 });
-setRemoteAgentsRuntime({ registry: remoteAgentsRegistry, fsClient: remoteFsClient });
+setRemoteAgentsRuntime({ registry: remoteAgentsRegistry, fsClient: remoteFsClient, historyClient: remoteHistoryClient });
 // The path-routing fallback reads the LIVE registry on every lookup (worktrees
 // and other non-project paths), so hand it a lazy thunk rather than a snapshot.
 setOnlineHostsLookup(() => remoteAgentsRegistry.list());

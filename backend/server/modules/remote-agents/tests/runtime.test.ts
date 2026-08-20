@@ -9,6 +9,7 @@ function fakeRuntime(): Parameters<typeof setRemoteAgentsRuntime>[0] {
   return {
     registry: {} as unknown as RemoteAgentsRegistry,
     fsClient: {} as unknown as RemoteFsClient,
+    historyClient: {} as never,
   };
 }
 
