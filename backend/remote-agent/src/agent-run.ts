@@ -95,18 +95,25 @@ function fallbackId(): string {
 /**
  * Translate a decision from {@link respond} (or a timeout auto-deny) into an
  * SDK `PermissionResult`.
+ *
+ * The CLI (SDK 0.3.210) schema-validates the canUseTool result and REJECTS an
+ * allow decision lacking `updatedInput` ("Tool permission request failed:
+ * ... expected record, received undefined" at `updatedInput`). So every allow
+ * branch must carry a valid `updatedInput` — the tool input the call should run
+ * with (the original input, or an explicit override from the decision).
  */
-function toPermissionResult(decision: unknown): PermissionResult {
+function toPermissionResult(decision: unknown, fallbackInput?: Record<string, unknown>): PermissionResult {
   if (decision && typeof decision === 'object') {
     const d = decision as Record<string, unknown>;
+    const allowInput = (d.updatedInput as Record<string, unknown> | undefined) ?? fallbackInput;
     // Already an SDK-shaped result: pass its behavior through.
-    if (d.behavior === 'allow') return { behavior: 'allow', updatedInput: d.updatedInput as Record<string, unknown> | undefined };
+    if (d.behavior === 'allow') return { behavior: 'allow', updatedInput: allowInput };
     if (d.behavior === 'deny') return { behavior: 'deny', message: typeof d.message === 'string' ? d.message : 'denied' };
-    if (d.allow) return { behavior: 'allow' };
+    if (d.allow) return { behavior: 'allow', updatedInput: allowInput };
     if (d.deny) return { behavior: 'deny', message: typeof d.message === 'string' ? d.message : 'denied by operator' };
   }
   // Truthy scalar → allow; everything else → deny.
-  if (decision) return { behavior: 'allow' };
+  if (decision) return { behavior: 'allow', updatedInput: fallbackInput };
   return { behavior: 'deny', message: 'denied' };
 }
 
@@ -242,7 +249,7 @@ export function createAgentRunManager(deps: AgentRunManagerDeps) {
         deps.push(`approval:${requestId}`, { appSessionId, approval });
       });
 
-      return toPermissionResult(decision);
+      return toPermissionResult(decision, input);
     };
 
     // Mirror the local path (server/claude-sdk.js): `resume` carries the

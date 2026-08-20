@@ -196,7 +196,8 @@ test('dispatch: approval/respond resolves a pending canUseTool decision across h
   assert.deepEqual(res, { accepted: true });
 
   await startP;
-  assert.deepEqual(decision, { behavior: 'allow' });
+  // CLI schema requires updatedInput on allow — falls back to the original input.
+  assert.deepEqual(decision, { behavior: 'allow', updatedInput: { command: 'ls' } });
   await waitFor(() =>
     collected.some(
       (p) => p.topic === 'session:d-appr' && (p.payload as { type?: string }).type === 'complete',

@@ -140,7 +140,49 @@ test('canUseTool emits an approval push and awaits the decision', async () => {
   assert.equal(mgr.respond(requestId, { allow: true }), true);
   await startP;
   await mgr.whenDone('s1');
-  assert.deepEqual(permissionResult, { behavior: 'allow' });
+  // The CLI schema requires updatedInput on allow (the original tool input when
+  // the decision carries no explicit override).
+  assert.deepEqual(permissionResult, { behavior: 'allow', updatedInput: { command: 'ls' } });
+});
+
+test('allow decision carries updatedInput across every allow branch (CLI schema)', async () => {
+  const showResult = async (
+    respondWith: unknown,
+    toolInput: Record<string, unknown>,
+  ): Promise<unknown> => {
+    const localPushed: Pushed[] = [];
+    let captured: unknown;
+    const querySdk: QuerySdkLike = async function* (_command, options) {
+      yield { type: 'assistant', session_id: 'prov-allow', message: {} };
+      const canUseTool = (options as { canUseTool: Function }).canUseTool;
+      captured = await canUseTool('Bash', toolInput, { toolUseID: 'tu-allow' });
+      yield { type: 'result', session_id: 'prov-allow', subtype: 'success' };
+    };
+    const mgr = createAgentRunManager({ push: (t, p) => localPushed.push({ topic: t, payload: p }), querySdk });
+    const startP = mgr.start({ ...baseParams, appSessionId: 's-allow' });
+    await waitFor(() => localPushed.some((p) => p.topic.startsWith('approval:')));
+    const requestId = localPushed.find((p) => p.topic.startsWith('approval:'))!.topic.slice('approval:'.length);
+    mgr.respond(requestId, respondWith);
+    await startP;
+    await mgr.whenDone('s-allow');
+    return captured;
+  };
+
+  // { allow: true } without updatedInput falls back to the original tool input.
+  assert.deepEqual(
+    await showResult({ allow: true }, { command: 'ls' }),
+    { behavior: 'allow', updatedInput: { command: 'ls' } },
+  );
+  // 'allow' truthy scalar path also falls back to the original input.
+  assert.deepEqual(
+    await showResult(true, { command: 'pwd' }),
+    { behavior: 'allow', updatedInput: { command: 'pwd' } },
+  );
+  // SDK-shaped passthrough with an explicit updatedInput keeps the override.
+  assert.deepEqual(
+    await showResult({ behavior: 'allow', updatedInput: { command: 'ls -la' } }, { command: 'ls' }),
+    { behavior: 'allow', updatedInput: { command: 'ls -la' } },
+  );
 });
 
 test('canUseTool deny produces a deny PermissionResult', async () => {
