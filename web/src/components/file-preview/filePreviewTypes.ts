@@ -1,8 +1,9 @@
-export type FileKind = 'markdown' | 'text' | 'code' | 'image' | 'unsupported';
+export type FileKind =
+  'markdown' | 'html' | 'text' | 'code' | 'image' | 'unsupported';
 
 export type FileClassification = {
   kind: FileKind;
-  /** Prism language id for `code`/`text` kinds; undefined otherwise. */
+  /** Prism language id for text-backed preview kinds; undefined otherwise. */
   language?: string;
 };
 
@@ -13,9 +14,30 @@ export const MAX_PREVIEW_LINES = 5000;
 
 const MARKDOWN_EXTS = new Set(['md', 'markdown']);
 
-const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico']);
+const HTML_EXTS = new Set(['html', 'htm']);
 
-const TEXT_EXTS = new Set(['txt', 'log', 'csv', 'env', 'ini', 'conf', 'text', 'gitignore', 'envrc']);
+const IMAGE_EXTS = new Set([
+  'png',
+  'jpg',
+  'jpeg',
+  'gif',
+  'svg',
+  'webp',
+  'bmp',
+  'ico',
+]);
+
+const TEXT_EXTS = new Set([
+  'txt',
+  'log',
+  'csv',
+  'env',
+  'ini',
+  'conf',
+  'text',
+  'gitignore',
+  'envrc',
+]);
 
 // Extension -> Prism language id. Extensions not listed here fall through
 // to TEXT_EXTS, and if not found there either, become 'unsupported'.
@@ -29,7 +51,6 @@ const CODE_LANG_MAP: Record<string, string> = {
   yaml: 'yaml',
   yml: 'yaml',
   xml: 'xml',
-  html: 'markup',
   css: 'css',
   scss: 'scss',
   sh: 'bash',
@@ -45,7 +66,8 @@ const CODE_LANG_MAP: Record<string, string> = {
 };
 
 // Strip a trailing `:line` / `:line:col` suffix (e.g. `src/foo.ts:130:5`).
-const stripLineSuffix = (value: string): string => value.replace(/:\d+(?::\d+)?$/, '');
+const stripLineSuffix = (value: string): string =>
+  value.replace(/:\d+(?::\d+)?$/, '');
 
 const getExtension = (filePath: string): string => {
   const cleaned = stripLineSuffix(filePath.trim());
@@ -70,6 +92,9 @@ export function classifyFile(filePath: string): FileClassification {
   }
   if (MARKDOWN_EXTS.has(ext)) {
     return { kind: 'markdown', language: 'markdown' };
+  }
+  if (HTML_EXTS.has(ext)) {
+    return { kind: 'html', language: 'markup' };
   }
   if (IMAGE_EXTS.has(ext)) {
     return { kind: 'image' };

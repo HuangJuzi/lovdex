@@ -2,14 +2,19 @@ import { useEffect, useRef, useState } from 'react';
 
 import { api } from '../../utils/api';
 
-import { classifyFile, MAX_PREVIEW_BYTES, MAX_PREVIEW_LINES, type FileKind } from './filePreviewTypes';
+import {
+  classifyFile,
+  MAX_PREVIEW_BYTES,
+  MAX_PREVIEW_LINES,
+  type FileKind,
+} from './filePreviewTypes';
 
 export type FileContentState = {
   loading: boolean;
   error: string | null;
   kind: FileKind;
   language?: string;
-  /** Text body for markdown/text/code kinds. */
+  /** Text body for markdown/html/text/code kinds. */
   content: string | null;
   /** Object URL for image kinds. */
   blobUrl: string | null;
@@ -36,7 +41,9 @@ export function useFileContent(
   projectId: string | null | undefined,
   filePath: string | null | undefined,
 ): FileContentState {
-  const { kind, language } = filePath ? classifyFile(filePath) : { kind: 'unsupported' as FileKind, language: undefined };
+  const { kind, language } = filePath
+    ? classifyFile(filePath)
+    : { kind: 'unsupported' as FileKind, language: undefined };
   const [state, setState] = useState<FileContentState>({
     loading: false,
     error: null,
@@ -58,7 +65,13 @@ export function useFileContent(
 
     if (!projectId || !filePath) {
       revokePrevious();
-      setState((s) => ({ ...s, loading: false, error: null, content: null, blobUrl: null }));
+      setState((s) => ({
+        ...s,
+        loading: false,
+        error: null,
+        content: null,
+        blobUrl: null,
+      }));
       return;
     }
 

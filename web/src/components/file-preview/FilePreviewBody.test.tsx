@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import i18n from 'i18next';
@@ -55,6 +56,27 @@ test('code kind renders the file content', () => {
     />,
   );
   assert.match(html, /hello world/);
+});
+
+test('html kind renders a sandboxed iframe preview by default', () => {
+  const html = renderToStaticMarkup(
+    <FilePreviewBody
+      kind="html"
+      language="markup"
+      filePath="index.html"
+      content="<h1>Hello HTML</h1><script>window.answer = 42</script>"
+      blobUrl={null}
+      truncated={false}
+    />,
+  );
+  assert.match(html, /<iframe/);
+  assert.match(html, /title="index\.html"/);
+  assert.match(
+    html,
+    /sandbox="allow-scripts allow-forms allow-modals allow-popups"/,
+  );
+  assert.doesNotMatch(html, /allow-same-origin/);
+  assert.match(html, /srcDoc=/);
 });
 
 test('image kind renders an img with the blob url', () => {
