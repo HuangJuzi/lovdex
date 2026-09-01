@@ -91,6 +91,10 @@ export const TASK_RETRY_MESSAGE = '上次执行中断/出错了，请重试继�
  * `content` defaults to the task's execution prompt (`taskPromptOf`). Retry
  * passes `TASK_RETRY_MESSAGE` instead so the agent continues the existing
  * conversation rather than restarting from scratch.
+ *
+ * On first-run (no explicit `content`), a non-empty `context_summary` is
+ * prepended as a `【任务历史上下文·从来源会话压缩】` block so a new task starts
+ * with the source session's compressed context.
  */
 export function buildTaskChatSend(sessionId: string, task: Task, content?: string): TaskChatSend {
   const toolsSettings = readToolsSettings(task.executor_provider);

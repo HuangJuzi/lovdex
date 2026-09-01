@@ -117,3 +117,8 @@ test('buildTaskChatSend leaves content unchanged when context_summary absent', (
   const frame = buildTaskChatSend('s1', noCtx);
   assert.equal(frame.content, '把登录页 500 报错修好');
 });
+
+test('buildTaskChatSend skips a blank context_summary', () => {
+  const frame = buildTaskChatSend('s1', { ...task, context_summary: '   ' } as Task);
+  assert.equal(frame.content, '把登录页 500 报错修好');
+});
