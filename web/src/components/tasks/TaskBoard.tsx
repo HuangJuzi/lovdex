@@ -17,6 +17,7 @@ import type {
   TaskPriority,
 } from '../../types/app';
 import { api, authenticatedFetch } from '../../utils/api';
+import { resolveSessionTitle } from '../../utils/sessionTitle';
 
 // Matches the `/api/providers/:provider/models` response consumed by
 // useChatProviderState: `{ success, data: { models: { OPTIONS, DEFAULT } } }`.
@@ -140,6 +141,9 @@ export function TaskBoardPage() {
   const [newDeadline, setNewDeadline] = useState('');
   const [newLabel, setNewLabel] = useState<TaskLabel>('other');
   const [newRemark, setNewRemark] = useState('');
+  // 新建任务可选「上下文来源」会话：选中后后台把该会话压缩进任务 context_summary，
+  // 首次执行时注入。空串 = 不选（白纸开始，与旧行为一致）。
+  const [newSourceSessionId, setNewSourceSessionId] = useState('');
   const [projects, setProjects] = useState<Project[]>([]);
   const [models, setModels] = useState<ProviderModelOption[]>([]);
   const [newModel, setNewModel] = useState('');
@@ -177,6 +181,16 @@ export function TaskBoardPage() {
     () => taskFormProjects(projects).find((p) => projectPathOf(p) === newProjectPath) ?? null,
     [projects, newProjectPath],
   );
+  const sourceSessionOptions = useMemo(() => {
+    if (!newProjectRecord) return [];
+    return [...(newProjectRecord.sessions ?? [])]
+      .sort((a, b) => {
+        const at = new Date(a.updated_at || a.lastActivity || 0).getTime();
+        const bt = new Date(b.updated_at || b.lastActivity || 0).getTime();
+        return bt - at;
+      })
+      .filter((s) => s.id);
+  }, [newProjectRecord]);
   const newEngineAvailability = useTaskEngineAvailability(
     newProjectRecord ? { value: projectPathOf(newProjectRecord), remoteHostId: newProjectRecord.remoteHostId ?? null } : null,
     newProjectPath === ASSISTANT_OPTION_VALUE,
@@ -260,6 +274,7 @@ export function TaskBoardPage() {
     setNewDeadline('');
     setNewLabel('other');
     setNewRemark('');
+    setNewSourceSessionId('');
   }
 
   function openCreateForm() {
@@ -303,6 +318,7 @@ export function TaskBoardPage() {
         isOperator: isAssistant,
         label: newLabel,
         remark: newRemark.trim() || null,
+        sourceSessionId: newSourceSessionId || undefined,
       });
       if (!res.ok) {
         const err = await res.json().catch(() => null);
@@ -516,6 +532,21 @@ export function TaskBoardPage() {
                       </option>
                     );
                   })}
+                </select>
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-medium text-muted-foreground">上下文来源（可选）</label>
+                <select
+                  className="h-10 w-full rounded-xl border-2 border-border bg-card px-3 py-1.5 text-sm text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+                  value={newSourceSessionId}
+                  onChange={(e) => setNewSourceSessionId(e.target.value)}
+                >
+                  <option value="">（无）白纸开始</option>
+                  {sourceSessionOptions.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {resolveSessionTitle(s) || s.id.slice(0, 8)}
+                    </option>
+                  ))}
                 </select>
               </div>
               <div className="flex flex-col gap-1">
