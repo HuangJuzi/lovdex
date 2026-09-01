@@ -4,7 +4,7 @@
 
 **Goal:** 新建任务表单可选一个历史会话作为上下文来源，后台把该会话 transcript 压缩成固定模板摘要落盘到任务 `context_summary`，新任务首次执行时把摘要拼进首条消息。
 
-**Architecture:** 后端起一条后台链路 `POST /api/tasks`（带 `sourceSessionId`）→ `tasksService.createTask` 校验来源会话归属项目并调度压缩 → `task-context.service` 读 transcript、headless Claude 一次生成摘要、写回任务 `context_summary`；前端「新建任务」表单加可选下拉 + `buildTaskChatSend` 首轮注入摘要。摘要为纯文本，走现成 `chat.send` 链路，四 provider 通用；不选来源时行为与现在完全一致。
+**Architecture:** 后端起一条后台链路 `POST /api/tasks`（带 `sourceSessionId`）→ `tasksService.createTask` 校验来源会话归属项目并调度压缩 → `task-context.service` 读 transcript、headless Claude 一次生成摘要、写回任务 `context_summary`；前端「新建任务」表单加可选下拉 + `buildTaskChatSend` 注入摘要（只要有非空摘要即注入，首轮与 retry 均如此）。摘要为纯文本，走现成 `chat.send` 链路，四 provider 通用；不选来源时行为与现在完全一致。
 
 **Tech Stack:** 后端 Express + better-sqlite3 + @anthropic-ai/claude-agent-sdk（headless `query`）+ node:test；前端 React + `npx tsx --test`。
 
@@ -27,7 +27,7 @@
 
 **前端**
 - Modify `web/src/types/app.ts` — `Task.context_summary`
-- Modify `web/src/components/tasks/taskExecution.ts` — `buildTaskChatSend` 首轮注入
+- Modify `web/src/components/tasks/taskExecution.ts` — `buildTaskChatSend` 摘要注入（有摘要即注入）
 - Modify `web/src/components/tasks/TaskBoard.tsx` — 新建表单加「上下文来源」下拉 + body 带 `sourceSessionId`
 
 **测试**
@@ -852,11 +852,11 @@ test('buildTaskChatSend prepends context_summary on first-run default content', 
   assert.ok(frame.content.includes('把登录页 500 报错修好'));
 });
 
-test('buildTaskChatSend does not prepend context_summary on explicit content (retry)', () => {
+test('buildTaskChatSend injects context_summary even on explicit content (retry picks it up)', () => {
   const withCtx = { ...task, context_summary: '## 项目背景\n先前决策 A' } as Task;
   const frame = buildTaskChatSend('s1', withCtx, TASK_RETRY_MESSAGE);
-  assert.equal(frame.content, TASK_RETRY_MESSAGE);
-  assert.ok(!frame.content.includes('## 项目背景'));
+  assert.match(frame.content, /^【任务历史上下文·从来源会话压缩】\n## 项目背景\n先前决策 A/);
+  assert.ok(frame.content.includes('上次执行中断/出错了，请重试继续完成'));
 });
 
 test('buildTaskChatSend leaves content unchanged when context_summary absent', () => {
@@ -887,12 +887,12 @@ Expected: FAIL — `context_summary` 不在 Task 类型/未注入。
 ```ts
 export function buildTaskChatSend(sessionId: string, task: Task, content?: string): TaskChatSend {
   const toolsSettings = readToolsSettings(task.executor_provider);
-  // 首轮执行（未显式传 content）时，若任务带 context_summary，把它作为历史
-  // 上下文前缀注入——解决新任务零历史执行缺背景信息的问题。retry 显式传
-  // content（TASK_RETRY_MESSAGE）时不注入，保持续聊原意。
+  // 摘要注入：只要任务带非空 context_summary，就把它作为历史上下文前缀注入
+  // 首条消息（首轮或 retry 均可）——解决新任务零历史执行缺背景信息的问题，
+  // 并让压缩晚于首轮启动时，后续 retry 仍能补带摘要。无摘要时原样返回。
   const summary = task.context_summary?.trim();
   const base = content ?? taskPromptOf(task);
-  const finalContent = content === undefined && summary ? `【任务历史上下文·从来源会话压缩】\n${summary}\n\n${base}` : base;
+  const finalContent = summary ? `【任务历史上下文·从来源会话压缩】\n${summary}\n\n${base}` : base;
   return {
     type: 'chat.send',
     sessionId,
@@ -1031,7 +1031,7 @@ Expected: PASS。
 - 选一个历史会话 → 创建任务 → 稍后（几秒~几十秒）GET `/api/tasks` 返回该任务时 `context_summary` 有值（固定模板）。
 - 对该任务「开始执行」→ 打开会话查看首条消息应带「【任务历史上下文·从来源会话压缩】」前缀。
 - 不选来源创建任务 → 行为与改动前完全一致（`context_summary` null、首条消息无前缀）。
-- 建任务后立刻启动（摘要未就绪）→ 任务正常启动，首条无前缀；等摘要就绪后重试 → retry 不带前缀（保持续聊原意，符合一期范围）。
+- 建任务后立刻启动（摘要未就绪）→ 任务正常启动，首条无前缀；等摘要就绪后重试 → retry 带前缀（补带摘要，闭环缺上下文场景）。
 
 - [ ] **Step 4: 汇总变更集 + 确认零新增基线错误**
 
@@ -1049,6 +1049,6 @@ cd /mnt/b/workdir/github/lovdex && git status && git log --oneline -8
 - [ ] 不预览不打断、后台异步压缩 — Task 5（schedule fire-and-forget）✅
 - [ ] 摘要固定模板（背景/决策/交接/环境/注意事项）— Task 5 `buildPrompt` ✅
 - [ ] 全部 four provider 通用 — 注入走 `chat.send`、摘要为纯文本 Task 7 ✅
-- [ ] 首次执行注入、retry 不注入（一期）— Task 7 ✅
-- [ ] 摘要未就绪就启动 → 本次不带、后续 retry 保持续聊 — Task 7 语义 + Task 9 手工冒烟 ✅
+- [ ] 有非空摘要即注入（首轮 + retry，重复注入可接受）— Task 7 ✅
+- [ ] 摘要未就绪就启动 → 本次不带、后续 retry 补带 — Task 7 语义 + Task 9 手工冒烟 ✅
 - [ ] 不选来源零变化；会话转任务入口不动 — Task 8 默认空 + 未改 ConvertToTaskDialog ✅

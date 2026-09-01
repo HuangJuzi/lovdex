@@ -63,7 +63,7 @@ createTask 创建任务行（context_summary=null）
 `buildTaskChatSend`（web `taskExecution.ts`）构建 `chat.send` 时，若任务 `context_summary` 非空，将其拼进首条 user 消息前缀再发。
 
 - 落入现有 `chat.send` 链路 → 四 provider（claude/qoder/codex/opencode）通用，无需逐个 runner 改造。
-- 首轮发送时读取当时的 `context_summary`；retry（原地续聊）沿用现有 `TASK_RETRY_MESSAGE` 逻辑，若字段已有值也可在其前追加摘要（二期可调，一期只做首轮注入）。
+- 每次发送时读取当时的 `context_summary`；只要字段有值（无论首轮还是 retry 的 `TASK_RETRY_MESSAGE`）都注入前缀，重复注入同一段摘要是可接受的无害上下文重复。
 
 ### 前端
 
@@ -86,7 +86,7 @@ createTask 创建任务行（context_summary=null）
 | 压缩时机 | 建任务后后台异步，不阻塞创建 |
 | 摘要未就绪就启动 | 本次不带、下次/重试带上（兜底，非阻塞） |
 | 摘要结构 | 固定模板（背景/决策/交接/环境/注意事项） |
-| 注入点 | 首条 user 消息前缀，走 chat.send |
+| 注入点 | 首条 user 消息前缀，走 chat.send；只要有非空摘要即注入（首轮与 retry 均为） |
 | provider 覆盖 | 全 provider（摘要为纯文本，注入链路已通用） |
 | 会话转任务入口 | 保持原样，不合并 |
 
