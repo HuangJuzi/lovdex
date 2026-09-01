@@ -92,18 +92,21 @@ export const TASK_RETRY_MESSAGE = '上次执行中断/出错了，请重试继�
  * passes `TASK_RETRY_MESSAGE` instead so the agent continues the existing
  * conversation rather than restarting from scratch.
  *
- * On first-run (no explicit `content`), a non-empty `context_summary` is
- * prepended as a `【任务历史上下文·从来源会话压缩】` block so a new task starts
- * with the source session's compressed context.
+ * Whenever the task has a non-empty `context_summary` (first run or retry alike),
+ * it is prepended as a `【任务历史上下文·从来源会话压缩】` block so the run starts
+ * with the source session's compressed context. Repeated injection of the same
+ * summary across first run and retry is a harmless context duplication and is
+ * accepted — the point is a retry still picks up the summary even if async
+ * compression was not ready before the first run.
  */
 export function buildTaskChatSend(sessionId: string, task: Task, content?: string): TaskChatSend {
   const toolsSettings = readToolsSettings(task.executor_provider);
-  // 首轮执行（未显式传 content）时，若任务带 context_summary，把它作为历史
-  // 上下文前缀注入——解决新任务零历史执行缺背景信息的问题。retry 显式传
-  // content（TASK_RETRY_MESSAGE）时不注入，保持续聊原意。
+  // 只要有非空 context_summary 就注入（首轮或重试均可）：把来源会话的压缩
+  // 历史上下文作为前缀传给 agent——解决新任务零历史执行缺背景信息的问题，
+  // 也保证首轮压缩未就绪时重试仍能带上摘要。无摘要（或全空白）时原样返回。
   const summary = task.context_summary?.trim();
   const base = content ?? taskPromptOf(task);
-  const finalContent = content === undefined && summary ? `【任务历史上下文·从来源会话压缩】\n${summary}\n\n${base}` : base;
+  const finalContent = summary ? `【任务历史上下文·从来源会话压缩】\n${summary}\n\n${base}` : base;
   return {
     type: 'chat.send',
     sessionId,
