@@ -1389,6 +1389,10 @@ ${priorVerdictContext}
  * joined output (or null). Used by the task-context compression job to turn a
  * compacted transcript into a fixed-template context summary. `queryFn` is the
  * test seam (defaults to the SDK `query`).
+ *
+ * Unlike `runOperatorHeadless` (which swallows + logs errors and resolves), a
+ * run failure here rejects to the caller — so the compression job can
+ * distinguish "no output" (`null`) from "run failed" (rejection).
  */
 export async function runOneShotClaudeText({ prompt, systemPrompt, model, queryFn } = {}) {
   const cfg = getOperatorConfig();

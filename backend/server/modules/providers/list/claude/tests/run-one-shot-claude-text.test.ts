@@ -31,3 +31,36 @@ test('runOneShotClaudeText joins multiple text blocks', async () => {
   const text = await runOneShotClaudeText({ prompt: 'p', systemPrompt: 's', queryFn });
   assert.equal(text, 'a\nb');
 });
+
+test('runOneShotClaudeText builds headless sdkOptions with closed tools + bypassPermissions', async () => {
+  let captured: { options?: Record<string, unknown> } = {};
+  const queryFn = async function* (args: { options: Record<string, unknown> }) {
+    captured = { options: args.options };
+    yield { type: 'result', result: '' };
+  };
+  await runOneShotClaudeText({ prompt: 'p', systemPrompt: '是系统提示', queryFn });
+  const options = captured.options!;
+  assert.ok(options, 'expected query to be called with options');
+  assert.deepEqual(options.tools, [], 'built-in tools must be disabled (closed tool set)');
+  assert.equal(options.permissionMode, 'bypassPermissions');
+  assert.equal(options.systemPrompt, '是系统提示');
+  assert.ok(options.cwd, 'cwd from operator config must be set');
+});
+
+test('runOneShotClaudeText returns null for whitespace-only output', async () => {
+  const queryFn = async function* () {
+    yield { type: 'assistant', message: { content: [{ type: 'text', text: '   \n  ' }] } };
+  };
+  const text = await runOneShotClaudeText({ prompt: 'p', systemPrompt: 's', queryFn });
+  assert.equal(text, null);
+});
+
+test('runOneShotClaudeText propagates a throwing generator as a rejection', async () => {
+  const queryFn = async function* () {
+    throw new Error('llm unavailable');
+  };
+  await assert.rejects(
+    runOneShotClaudeText({ prompt: 'p', systemPrompt: 's', queryFn }),
+    /llm unavailable/,
+  );
+});
