@@ -23,6 +23,7 @@ type StoredTask = {
   completed_at: string | null;
   created_at: string;
   updated_at: string;
+  context_summary: string | null;
 };
 
 function makeDbStub() {
@@ -41,6 +42,7 @@ function makeDbStub() {
     completed_at: null,
     created_at: '2026-01-01T00:00:00.000Z',
     updated_at: '2026-01-01T00:00:00.000Z',
+    context_summary: null,
   });
 
   const calls: { linkSession: { taskId: string; sessionId: string }[] } = { linkSession: [] };
@@ -60,6 +62,7 @@ function makeDbStub() {
         ...input,
         status: input.status ?? 'todo',
         session_id: input.sessionId ?? null,
+        context_summary: null,
       };
       tasks.set('t1', row as unknown as StoredTask);
       return row;
@@ -102,6 +105,7 @@ function makeDbStub() {
       tasks.delete(id);
     },
     moveTask: () => {},
+    updateTaskContextSummary: () => {},
   };
 
   return { db: db as unknown as TaskDbLike, calls };
@@ -201,6 +205,7 @@ test('getTaskBySessionId returns the decorated task for a linked session', () =>
     status: 'in_progress', executor_provider: 'claude', executor_model: null,
     position: 0, session_id: 's1', started_at: null, completed_at: null,
     created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z',
+    context_summary: null,
   };
   const db = {
     createTask: () => row,
@@ -804,4 +809,67 @@ test('syncTaskTitleFromSession skips blank or unchanged titles', () => {
   assert.equal(svc.syncTaskTitleFromSession('s1', '   '), null);
   assert.equal(svc.syncTaskTitleFromSession('s1', 'x'), null);
   assert.equal(events.length, 0);
+});
+
+function makeSessionsStub(sessions: Array<{ id: string; project_path: string }>) {
+  return {
+    getSessionById: (id: string) => sessions.find((s) => s.id === id) ?? null,
+  } as unknown as typeof import('@/modules/database/index.js').sessionsDb;
+}
+
+test('createTask with sourceSessionId validates session exists + project match and fires onContextSourceProvided', () => {
+  const events: unknown[] = [];
+  const hooks: Array<[string, string]> = [];
+  const svc = createTasksService(makeDbStub().db, {
+    broadcast: (e) => events.push(e),
+    deps: {
+      projectsDb: makeProjectStub('/p'),
+      sessionsDb: makeSessionsStub([{ id: 'src1', project_path: '/p' }]),
+    },
+    onContextSourceProvided: (taskId, sourceSessionId) => hooks.push([taskId, sourceSessionId]),
+  });
+  const task = svc.createTask({
+    title: 'x',
+    projectPath: '/p',
+    executorProvider: 'claude',
+    sourceSessionId: 'src1',
+  });
+  assert.equal((task as { context_summary: string | null }).context_summary, null);
+  assert.deepEqual(hooks, [['t1', 'src1']]);
+});
+
+test('createTask with sourceSessionId rejects a session from another project', () => {
+  const svc = createTasksService(makeDbStub().db, {
+    broadcast: () => {},
+    deps: {
+      projectsDb: makeProjectStub('/p'),
+      sessionsDb: makeSessionsStub([{ id: 'src1', project_path: '/other' }]),
+    },
+  });
+  assert.throws(
+    () => svc.createTask({ title: 'x', projectPath: '/p', executorProvider: 'claude', sourceSessionId: 'src1' }),
+    /session does not belong/,
+  );
+});
+
+test('createTask with unknown sourceSessionId rejects', () => {
+  const svc = createTasksService(makeDbStub().db, {
+    broadcast: () => {},
+    deps: { projectsDb: makeProjectStub('/p'), sessionsDb: makeSessionsStub([]) },
+  });
+  assert.throws(
+    () => svc.createTask({ title: 'x', projectPath: '/p', executorProvider: 'claude', sourceSessionId: 'nope' }),
+    /session not found/,
+  );
+});
+
+test('createTask without sourceSessionId never fires onContextSourceProvided', () => {
+  const hooks: Array<[string, string]> = [];
+  const svc = createTasksService(makeDbStub().db, {
+    broadcast: () => {},
+    deps: { projectsDb: makeProjectStub('/p') },
+    onContextSourceProvided: (taskId, sourceSessionId) => hooks.push([taskId, sourceSessionId]),
+  });
+  svc.createTask({ title: 'x', projectPath: '/p', executorProvider: 'claude' });
+  assert.deepEqual(hooks, []);
 });

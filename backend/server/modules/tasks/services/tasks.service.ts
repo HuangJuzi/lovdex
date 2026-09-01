@@ -51,6 +51,7 @@ export type TaskDbLike = Pick<
   | 'deleteTask'
   | 'moveTask'
   | 'writeSummary'
+  | 'updateTaskContextSummary'
 >;
 
 type CreateTaskInput = {
@@ -67,6 +68,12 @@ type CreateTaskInput = {
   label?: TaskLabel;
   remark?: string | null;
   sourceScheduleId?: string | null;
+  /**
+   * 可选：新建任务时引用一个历史会话，后台把该会话压缩成 context_summary
+   * 注入首次执行。语义与 sessionId（任务执行的会话链接）不同——来源会话仅
+   * 作为参考历史，不会挂到任务上，允许已被其它任务关联。
+   */
+  sourceSessionId?: string | null;
 };
 
 /**
@@ -110,6 +117,14 @@ export function createTasksService(
      * linked session, in which case the caller typically no-ops.
      */
     onTaskCompleted?: (taskId: string, title: string, sessionId: string | null) => void;
+    /**
+     * Fired right after a task is created with a `sourceSessionId`. Hook in
+     * the background context-compression job here (task-context.service).
+     * Optional so unit tests and callers without the compression wire are
+     * unaffected. Fire-and-forget inside the hook — createTask itself is
+     * synchronous and never awaits it.
+     */
+    onContextSourceProvided?: (taskId: string, sourceSessionId: string) => void;
   },
 ) {
   const resolveDb = db;
@@ -253,6 +268,17 @@ export function createTasksService(
           throw new AppError('session is already linked to a task', { code: 'SESSION_ALREADY_LINKED', statusCode: 409 });
         }
       }
+      // sourceSessionId: 来源会话仅作参考历史。校验三件事——存在、归属项目一致、
+      // 不要求未被其他任务关联（它可能就是前序任务的会话）。
+      if (input.sourceSessionId != null) {
+        const srcSession = resolveSession(input.sourceSessionId);
+        if (!srcSession) {
+          throw new AppError(`session not found: ${input.sourceSessionId}`, { code: 'SESSION_NOT_FOUND', statusCode: 404 });
+        }
+        if (normalizeProjectPath(srcSession.project_path ?? '') !== normalizeProjectPath(input.projectPath)) {
+          throw new AppError('session does not belong to this project', { code: 'SESSION_PROJECT_MISMATCH', statusCode: 409 });
+        }
+      }
       const row = resolveDb.createTask({
         projectPath,
         title: input.title,
@@ -269,7 +295,19 @@ export function createTasksService(
         sourceScheduleId: input.sourceScheduleId ?? null,
       });
       emit({ kind: 'task_upserted', task: row, actor: 'user' });
+      if (input.sourceSessionId != null) {
+        opts.onContextSourceProvided?.(row.task_id, input.sourceSessionId);
+      }
       return decorate(row);
+    },
+
+    setTaskContextSummary(taskId: string, summary: string): TaskRow | null {
+      const row = resolveDb.getTask(taskId);
+      if (!row) return null;
+      resolveDb.updateTaskContextSummary(taskId, summary);
+      const updated = resolveDb.getTask(taskId) ?? row;
+      emit({ kind: 'task_upserted', task: updated, actor: 'engine' });
+      return decorate(updated);
     },
 
     getTask(taskId: string): TaskRow | null {
