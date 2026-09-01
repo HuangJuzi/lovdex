@@ -56,6 +56,7 @@ function makeRow(overrides: Partial<Row> = {}): Row {
     is_operator: 0,
     label: 'other',
     remark: null,
+    context_summary: null,
     ...overrides,
   };
 }

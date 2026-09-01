@@ -35,6 +35,7 @@ function makeRow(overrides: Partial<TaskRow> = {}): TaskRow {
     is_operator: 0,
     label: 'other',
     remark: null,
+    context_summary: null,
     ...overrides,
   };
 }

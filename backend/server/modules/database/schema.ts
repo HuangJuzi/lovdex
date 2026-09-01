@@ -186,6 +186,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     label             TEXT NOT NULL DEFAULT 'other'
                       ${LABEL_CHECK},
     remark            TEXT,
+    context_summary   TEXT,
     source_schedule_id TEXT
 );
 `;

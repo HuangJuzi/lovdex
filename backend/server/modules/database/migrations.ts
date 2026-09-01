@@ -444,6 +444,7 @@ const migrateTasksTable = (db: Database): void => {
   addColumnToTableIfNotExists(db, 'tasks', taskColumnNames, 'is_operator', 'INTEGER DEFAULT 0');
   addColumnToTableIfNotExists(db, 'tasks', taskColumnNames, 'label', "TEXT NOT NULL DEFAULT 'other' CHECK (label IN ('bug','feature','optimization','refactor','docs','other'))");
   addColumnToTableIfNotExists(db, 'tasks', taskColumnNames, 'remark', 'TEXT');
+  addColumnToTableIfNotExists(db, 'tasks', taskColumnNames, 'context_summary', 'TEXT');
 
   const tasksTableSql = (db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'").get() as { sql?: string } | undefined)?.sql ?? '';
   if (!tasksTableSql.includes('sub_status')) {

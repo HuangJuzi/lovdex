@@ -260,4 +260,9 @@ export const tasksDb = {
     const sets = ['status = ?', 'position = ?', 'updated_at = CURRENT_TIMESTAMP', ...statusTimestampSets(current.status, status)];
     db.prepare(`UPDATE tasks SET ${sets.join(', ')} WHERE task_id = ?`).run(status, position, taskId);
   },
+
+  updateTaskContextSummary(taskId: string, summary: string): void {
+    const db = getConnection();
+    db.prepare('UPDATE tasks SET context_summary = ?, updated_at = CURRENT_TIMESTAMP WHERE task_id = ?').run(summary, taskId);
+  },
 };

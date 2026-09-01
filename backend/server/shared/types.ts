@@ -955,6 +955,8 @@ export type TaskRow = {
   is_operator: number; // 0 | 1 — 1 = Lovdex 助手任务
   label: TaskLabel;
   remark: string | null;
+  /** 新建任务时从来源会话压缩出的上下文摘要（可选，后台异步生成）。 */
+  context_summary: string | null;
   /**
    * Realtime-only flag (never persisted): true when the linked session currently
    * has a pending tool-approval request. Decorated by the tasks service from the
