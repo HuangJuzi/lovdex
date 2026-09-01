@@ -88,3 +88,27 @@ test('POST /api/tasks/batch-delete rejects an empty or oversized list', async (t
   assert.strictEqual(big.status, 400);
   assert.deepEqual(deleted.calls, []);
 });
+
+test('POST /api/tasks forwards sourceSessionId to createTask', async (t) => {
+  const created: Array<Record<string, unknown>> = [];
+  const app = express();
+  app.use(express.json());
+  const fakeService = {
+    createTask: (input: Record<string, unknown>) => {
+      created.push(input);
+      return { task_id: 't1', project_path: String(input.projectPath), title: String(input.title), context_summary: null };
+    },
+  } as unknown as TasksService;
+  app.use('/api/tasks', buildTasksRouter(fakeService, { createSession: () => 's1' }));
+  const server = app.listen(0);
+  t.after(() => server.close());
+  const { port } = server.address() as { port: number };
+  const res = await fetch(`http://127.0.0.1:${port}/api/tasks`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ projectPath: '/p', title: 'x', sourceSessionId: 'src1' }),
+  });
+  assert.equal(res.status, 201);
+  assert.equal(created.length, 1);
+  assert.equal(created[0].sourceSessionId, 'src1');
+});
