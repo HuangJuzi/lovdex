@@ -517,7 +517,10 @@ export function TaskBoardPage() {
                 <select
                   className="h-10 w-full rounded-xl border-2 border-border bg-card px-3 py-1.5 text-sm text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
                   value={newProjectPath}
-                  onChange={(e) => setNewProjectPath(e.target.value)}
+                  onChange={(e) => {
+                    setNewProjectPath(e.target.value);
+                    setNewSourceSessionId('');
+                  }}
                 >
                   <option value={ASSISTANT_OPTION_VALUE}>🤖 Lovdex助手</option>
                   {taskFormProjects(projects).map((project) => {
