@@ -268,8 +268,8 @@ export function createTasksService(
           throw new AppError('session is already linked to a task', { code: 'SESSION_ALREADY_LINKED', statusCode: 409 });
         }
       }
-      // sourceSessionId: 来源会话仅作参考历史。校验三件事——存在、归属项目一致、
-      // 不要求未被其他任务关联（它可能就是前序任务的会话）。
+      // sourceSessionId: 来源会话仅作参考历史。校验存在、归属项目一致两点，并刻意
+      // 不检查 SESSION_ALREADY_LINKED——来源可能就是前序任务的会话。
       if (input.sourceSessionId != null) {
         const srcSession = resolveSession(input.sourceSessionId);
         if (!srcSession) {

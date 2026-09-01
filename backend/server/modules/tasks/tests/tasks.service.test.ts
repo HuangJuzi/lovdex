@@ -105,7 +105,10 @@ function makeDbStub() {
       tasks.delete(id);
     },
     moveTask: () => {},
-    updateTaskContextSummary: () => {},
+    updateTaskContextSummary: (id: string, summary: string) => {
+      const current = tasks.get(id);
+      if (current) tasks.set(id, { ...current, context_summary: summary } as StoredTask);
+    },
   };
 
   return { db: db as unknown as TaskDbLike, calls };
@@ -872,4 +875,23 @@ test('createTask without sourceSessionId never fires onContextSourceProvided', (
   });
   svc.createTask({ title: 'x', projectPath: '/p', executorProvider: 'claude' });
   assert.deepEqual(hooks, []);
+});
+
+test('setTaskContextSummary persists, broadcasts engine task_upserted and returns decorated row', () => {
+  const events: unknown[] = [];
+  const { db } = makeDbStub();
+  const svc = createTasksService(db, { broadcast: (e) => events.push(e) });
+  const updated = svc.setTaskContextSummary('t1', '## 背景\n先前决策 A');
+  assert.equal((updated as { context_summary: string | null }).context_summary, '## 背景\n先前决策 A');
+  assert.equal((db.getTask('t1') as { context_summary: string | null }).context_summary, '## 背景\n先前决策 A');
+  assert.equal(events.length, 1);
+  assert.equal((events[0] as { actor: string }).actor, 'engine');
+  assert.equal((events[0] as { task: { context_summary: string | null } }).task.context_summary, '## 背景\n先前决策 A');
+});
+
+test('setTaskContextSummary for a missing task returns null and does not broadcast', () => {
+  const events: unknown[] = [];
+  const svc = createTasksService(makeDbStub().db, { broadcast: (e) => events.push(e) });
+  assert.equal(svc.setTaskContextSummary('nope', 's'), null);
+  assert.equal(events.length, 0);
 });
