@@ -1382,6 +1382,48 @@ ${priorVerdictContext}
   }
 }
 
+/**
+ * One-shot headless Claude text run: NOT a live session, NO websocket, NO
+ * tools. Runs the SDK `query` with all built-in tools disabled and
+ * bypassPermissions, then collects the assistant text blocks and returns the
+ * joined output (or null). Used by the task-context compression job to turn a
+ * compacted transcript into a fixed-template context summary. `queryFn` is the
+ * test seam (defaults to the SDK `query`).
+ */
+export async function runOneShotClaudeText({ prompt, systemPrompt, model, queryFn } = {}) {
+  const cfg = getOperatorConfig();
+  const sdkOptions = {
+    env: { ...process.env },
+    pathToClaudeCodeExecutable: resolveClaudeCodeExecutablePath(process.env.CLAUDE_CLI_PATH),
+    cwd: cfg.workspace,
+    model: model || cfg.model || getClaudeFallbackModels().DEFAULT,
+    // Closed tool set: no Bash/Edit/Write/AskUserQuestion — pure text in/out.
+    tools: [],
+    permissionMode: 'bypassPermissions',
+    allowDangerouslySkipPermissions: true,
+    systemPrompt,
+    settingSources: ['project', 'user', 'local'],
+  };
+  // Third-party reasoning models must skip extended thinking (same rule as the
+  // interactive path — see shouldDisableClaudeThinking).
+  applyClaudeThinkingDisable(sdkOptions);
+
+  const queryInstance = (queryFn ?? query)({ prompt, options: sdkOptions });
+  const parts = [];
+  for await (const message of queryInstance) {
+    if (message?.type !== 'assistant') continue;
+    const content = message?.message?.content;
+    if (!Array.isArray(content)) continue;
+    for (const block of content) {
+      if (block?.type === 'text' && typeof block.text === 'string') {
+        parts.push(block.text);
+      }
+    }
+  }
+  const text = parts.join('\n').trim();
+  return text || null;
+}
+
 // Export public API
 export {
   queryClaudeSDK,
