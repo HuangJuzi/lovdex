@@ -94,10 +94,16 @@ export const TASK_RETRY_MESSAGE = '上次执行中断/出错了，请重试继�
  */
 export function buildTaskChatSend(sessionId: string, task: Task, content?: string): TaskChatSend {
   const toolsSettings = readToolsSettings(task.executor_provider);
+  // 首轮执行（未显式传 content）时，若任务带 context_summary，把它作为历史
+  // 上下文前缀注入——解决新任务零历史执行缺背景信息的问题。retry 显式传
+  // content（TASK_RETRY_MESSAGE）时不注入，保持续聊原意。
+  const summary = task.context_summary?.trim();
+  const base = content ?? taskPromptOf(task);
+  const finalContent = content === undefined && summary ? `【任务历史上下文·从来源会话压缩】\n${summary}\n\n${base}` : base;
   return {
     type: 'chat.send',
     sessionId,
-    content: content ?? taskPromptOf(task),
+    content: finalContent,
     options: {
       model: task.executor_model || undefined,
       permissionMode: 'default',

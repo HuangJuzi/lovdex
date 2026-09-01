@@ -97,3 +97,23 @@ test('TASK_RETRY_MESSAGE is non-empty and mentions retrying', () => {
   assert.ok(TASK_RETRY_MESSAGE.length > 0);
   assert.match(TASK_RETRY_MESSAGE, /重试/);
 });
+
+test('buildTaskChatSend prepends context_summary on first-run default content', () => {
+  const withCtx = { ...task, context_summary: '## 项目背景\n先前决策 A' } as Task;
+  const frame = buildTaskChatSend('s1', withCtx);
+  assert.match(frame.content, /^【任务历史上下文·从来源会话压缩】\n## 项目背景\n先前决策 A/);
+  assert.ok(frame.content.includes('把登录页 500 报错修好'));
+});
+
+test('buildTaskChatSend does not prepend context_summary on explicit content (retry)', () => {
+  const withCtx = { ...task, context_summary: '## 项目背景\n先前决策 A' } as Task;
+  const frame = buildTaskChatSend('s1', withCtx, TASK_RETRY_MESSAGE);
+  assert.equal(frame.content, TASK_RETRY_MESSAGE);
+  assert.ok(!frame.content.includes('## 项目背景'));
+});
+
+test('buildTaskChatSend leaves content unchanged when context_summary absent', () => {
+  const noCtx = { ...task, context_summary: null } as Task;
+  const frame = buildTaskChatSend('s1', noCtx);
+  assert.equal(frame.content, '把登录页 500 报错修好');
+});

@@ -121,6 +121,8 @@ export interface Task {
   is_operator: number; // 0 | 1 — 1 = Lovdex 助手任务
   label: TaskLabel;
   remark: string | null;
+  /** 新建任务时从来源会话压缩出的上下文摘要（可选，后台异步生成）。 */
+  context_summary: string | null;
   /** 定时任务来源：关联 scheduled_tasks.schedule_id（由定时任务创建的任务才有值）。 */
   source_schedule_id: string | null;
   created_at: string;
