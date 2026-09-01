@@ -80,7 +80,7 @@ CREATE TABLE tasks (
 );
 `;
 
-function columnNames(db: Database): Set<string> {
+function columnNames(db: Database.Database): Set<string> {
   return new Set(
     (db.prepare('PRAGMA table_info(tasks)').all() as { name: string }[]).map((c) => c.name),
   );
