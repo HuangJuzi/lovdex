@@ -54,7 +54,7 @@ test('runTaskContextCompression swallows transcript read errors via onError', as
     title: 'x',
     deps: {
       fetchHistory: async () => { throw new Error('transcript gone'); },
-      runOneShot: async () => 'should not run',
+      runOneShot: async () => { assert.fail('must not run after transcript read failure'); },
       writeBack: () => {},
     },
     onError: (e) => errors.push(e),
@@ -92,4 +92,31 @@ test('scheduleTaskContextCompression dedupes per in-flight task and swallows err
   await new Promise((r) => setTimeout(r, 20));
   assert.equal(runs, 1);
   assert.equal(errors.length, 1);
+});
+
+test('scheduleTaskContextCompression reruns a taskId after the first run completes', async () => {
+  let runs = 0;
+  scheduleTaskContextCompression({
+    sourceSessionId: 'src1',
+    taskId: 't1',
+    title: 'x',
+    deps: {
+      fetchHistory: async () => ({ messages: MESSAGES }),
+      runOneShot: async () => { runs += 1; return null; },
+      writeBack: () => {},
+    },
+  });
+  await new Promise((r) => setTimeout(r, 10)); // 第一发完成
+  scheduleTaskContextCompression({
+    sourceSessionId: 'src1',
+    taskId: 't1',
+    title: 'x',
+    deps: {
+      fetchHistory: async () => ({ messages: MESSAGES }),
+      runOneShot: async () => { runs += 1; return null; },
+      writeBack: () => {},
+    },
+  });
+  await new Promise((r) => setTimeout(r, 10));
+  assert.equal(runs, 2); // 完成后再调度同一 taskId 应再次执行
 });

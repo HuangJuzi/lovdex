@@ -12,9 +12,10 @@
  * block the created task or crash the caller. The task is created normally with
  * context_summary NULL; the summary arrives later asynchronously.
  *
- * `runOneShot` defaults to the real headless helper in claude-sdk.js (lazy
- * import so unit tests never pull the SDK); `writeBack` defaults to a
- * tasks-service hook passed by the caller (avoids a hard service dependency).
+ * `runOneShot`, `writeBack` and `fetchHistory` are injected deps provided by the
+ * caller (index.js wiring, Task 6): runOneShot = the headless claude-sdk helper,
+ * writeBack = a tasks-service hook. Keeping them injected keeps this module
+ * import-free so unit tests never pull the SDK.
  */
 
 export type TaskContextCompressionDeps = {
@@ -33,6 +34,30 @@ export type TaskContextCompressionArgs = {
 
 /** Max messages pulled from the source transcript. */
 const MAX_MESSAGES = 200;
+
+/** Upper bound on the transcript text handed to the compression model. */
+const MAX_TRANSCRIPT_CHARS = 60_000;
+
+/** Upper bound on one background compression run (headless CLI may stall). */
+const RUN_TIMEOUT_MS = 120_000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`task-context compression timed out after ${ms}ms`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
+function reportError(onError: ((error: unknown) => void) | undefined, error: unknown): void {
+  try {
+    onError?.(error);
+  } catch {
+    // onError 回调自身抛错时吞掉，避免级联
+  }
+}
 
 /**
  * Compact normalized session messages to plain text so the compression prompt
@@ -100,28 +125,38 @@ export async function runTaskContextCompression(args: TaskContextCompressionArgs
       const messages = Array.isArray(first?.messages) ? first.messages : [];
       transcript = compactTranscriptToText(messages);
     } catch (e) {
-      onError?.(e);
+      reportError(onError, e);
       return; // 读不到 transcript => 不压缩，保持 NULL
     }
-    const summary = await deps.runOneShot({
-      prompt: buildPrompt(title, transcript),
-      systemPrompt: CONTEXT_SYSTEM_PROMPT,
-    });
+    // Aggregate cap: worst case 200 msgs × 1200 chars 会超上下文，截断到常量上限。
+    transcript = transcript.slice(0, MAX_TRANSCRIPT_CHARS);
+    let summary: string | null = null;
+    try {
+      summary = await withTimeout(
+        deps.runOneShot({
+          prompt: buildPrompt(title, transcript),
+          systemPrompt: CONTEXT_SYSTEM_PROMPT,
+        }),
+        RUN_TIMEOUT_MS,
+      );
+    } catch (e) {
+      reportError(onError, e); // 超时/失败 => 保持 NULL，不写回
+    }
     if (summary) {
       deps.writeBack(taskId, summary);
     }
   } catch (e) {
-    onError?.(e);
+    reportError(onError, e);
   }
 }
 
-/** fire-and-forget + in-flight per-task dedupe。 */
+/** fire-and-forget + in-flight per-task dedupe. */
 export function scheduleTaskContextCompression(args: TaskContextCompressionArgs): void {
   const { taskId } = args;
   if (inFlight.has(taskId)) return;
   inFlight.add(taskId);
   void runTaskContextCompression(args)
-    .catch((e) => args.onError?.(e))
+    .catch((e) => reportError(args.onError, e))
     .finally(() => inFlight.delete(taskId));
 }
 
