@@ -31,6 +31,7 @@ import {
     getPendingApprovalsForSession,
     adaptTasksServiceForOperatorTools,
     initOperatorHeadless,
+    runOneShotClaudeText,
     transformMessage,
 } from './claude-sdk.js';
 import {
@@ -62,6 +63,7 @@ import { buildOperatorRouter } from './modules/operators/operator.routes.js';
 import { cleanOperatorWorkspaceLegacySessions } from './modules/operators/operator-cleanup.service.js';
 import { scheduleAutoVerdict } from './modules/operators/operator-verdict.service.js';
 import { sessionsService, setSessionRenameHook } from './modules/providers/services/sessions.service.js';
+import { scheduleTaskContextCompression } from './modules/tasks/services/task-context.service.js';
 import { createSessionTransferService } from './modules/providers/services/session-transfer.service.js';
 import { validateApiKey, authenticateToken, authenticateWebSocket } from './middleware/auth.js';
 import { IS_PLATFORM } from './constants/config.js';
@@ -461,6 +463,22 @@ const tasksService = createTasksService(tasksDb, {
         const sessionRow = sessionsDb.getSessionById(sessionId);
         const isOperator = Boolean(sessionRow?.is_operator);
         scheduleAutoVerdict(sessionId, taskId, title, isOperator);
+    },
+    // Task-context compression (spec 2026-08-31-task-context-source-design):
+    // createTask 带 sourceSessionId 时后台把来源会话压缩成 context_summary。
+    onContextSourceProvided: (taskId, sourceSessionId) => {
+      scheduleTaskContextCompression({
+        taskId,
+        sourceSessionId,
+        title: tasksService.getTask(taskId)?.title ?? '',
+        deps: {
+          fetchHistory: sessionsService.fetchHistory.bind(sessionsService),
+          runOneShot: runOneShotClaudeText,
+          writeBack: (tid, summary) => tasksService.setTaskContextSummary(tid, summary),
+        },
+        onError: (e) =>
+          console.error('[task-context] compression failed', { taskId, sourceSessionId }, e),
+      });
     },
 });
 // Wire session lifecycle → task status transitions (task↔session linkage).
