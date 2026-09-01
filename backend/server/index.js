@@ -467,18 +467,18 @@ const tasksService = createTasksService(tasksDb, {
     // Task-context compression (spec 2026-08-31-task-context-source-design):
     // createTask 带 sourceSessionId 时后台把来源会话压缩成 context_summary。
     onContextSourceProvided: (taskId, sourceSessionId) => {
-      scheduleTaskContextCompression({
-        taskId,
-        sourceSessionId,
-        title: tasksService.getTask(taskId)?.title ?? '',
-        deps: {
-          fetchHistory: sessionsService.fetchHistory.bind(sessionsService),
-          runOneShot: runOneShotClaudeText,
-          writeBack: (tid, summary) => tasksService.setTaskContextSummary(tid, summary),
-        },
-        onError: (e) =>
-          console.error('[task-context] compression failed', { taskId, sourceSessionId }, e),
-      });
+        scheduleTaskContextCompression({
+            taskId,
+            sourceSessionId,
+            title: tasksService.getTask(taskId)?.title ?? '',
+            deps: {
+                fetchHistory: sessionsService.fetchHistory.bind(sessionsService),
+                runOneShot: runOneShotClaudeText,
+                writeBack: (tid, summary) => tasksService.setTaskContextSummary(tid, summary),
+            },
+            onError: (e) =>
+                console.error('[task-context] compression failed', { taskId, sourceSessionId }, e),
+        });
     },
 });
 // Wire session lifecycle → task status transitions (task↔session linkage).
