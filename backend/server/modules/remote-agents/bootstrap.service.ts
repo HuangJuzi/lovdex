@@ -175,7 +175,7 @@ export async function runBootstrap(
   if (!node.ok) {
     return {
       status: 'error',
-      message: `node not found on remote — install node >=20 first (prepare couldn't provision it: ${node.stderr.trim() || 'node unavailable'})`,
+      message: `node not found on remote — install node >=20 first${push ? ` (prepare couldn't provision it: ${node.stderr.trim() || 'node unavailable'})` : `: ${node.stderr.trim() || 'node unavailable'}`}`,
       hostId,
     };
   }
@@ -194,7 +194,7 @@ export async function runBootstrap(
   if (!claude.ok) {
     return {
       status: 'error',
-      message: `claude not installed — run: npm i -g @anthropic-ai/claude-code (prepare couldn't provision it: ${claude.stderr.trim() || 'claude unavailable'})`,
+      message: `claude not installed — run: npm i -g @anthropic-ai/claude-code${push ? ` (prepare couldn't provision it: ${claude.stderr.trim() || 'claude unavailable'})` : `: ${claude.stderr.trim() || 'claude unavailable'}`}`,
       hostId,
     };
   }
