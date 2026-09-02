@@ -15,11 +15,15 @@ type RemoteHost = {
 
 type HostsResponse = { data?: { hosts?: RemoteHost[] } };
 type AddHostResponse = { data?: { hostId?: string } };
-type DeployResponse = { data?: { status?: string; message?: string } };
 
 type AuthType = 'password' | 'key';
 
 const POLL_INTERVAL_MS = 3000;
+
+// After deploy returns, keep polling this long for the lite to actually dial
+// back (online=true). "status===online" only means install.sh finished — it is
+// NOT the success signal.
+const ONLINE_GRACE_MS = 30_000;
 
 async function readErrorMessage(res: Response, fallback: string): Promise<string> {
   const body = (await res.json().catch(() => null)) as
@@ -124,12 +128,13 @@ export function AddRemoteHostDialog({ open, onClose, onAdded }: AddRemoteHostDia
     }
   }
 
-  // Poll GET / until the host reaches a TERMINAL status (online or error).
-  // The row defaults to 'offline' before the deploy handler flips it to
-  // 'deploying', so a non-terminal status must NEVER settle the poll — a stale
-  // 'offline' snapshot would misclassify a successful deploy as failed.
-  function pollUntilSettled(hostId: string): Promise<RemoteHost | null> {
+  // Poll GET / until the lite actually dials back (online=true), the bootstrap
+  // hard-fails (status=error), or the grace deadline elapses. "status===online"
+  // is NOT terminal — it merely means install.sh finished; the definitive signal
+  // that the device is usable (and appears in 新建项目) is online=true.
+  function waitForOnline(hostId: string, graceMs: number): Promise<RemoteHost | null> {
     return new Promise((resolve) => {
+      const deadline = Date.now() + graceMs;
       const tick = () => {
         void api
           .get('/remote-agents')
@@ -142,13 +147,11 @@ export function AddRemoteHostDialog({ open, onClose, onAdded }: AddRemoteHostDia
               resolve(null);
               return;
             }
-            const terminal =
-              !!row && (row.online === true || row.status === 'online' || row.status === 'error');
-            if (terminal) {
+            const done = !!row && (row.online === true || row.status === 'error' || Date.now() >= deadline);
+            if (done) {
               stopPolling();
               resolve(row);
             }
-            // Row missing / still 'deploying' / still 'offline' → keep polling.
           })
           .catch(() => {
             // Non-fatal during polling; keep trying.
@@ -208,35 +211,31 @@ export function AddRemoteHostDialog({ open, onClose, onAdded }: AddRemoteHostDia
         setPassword('');
       }
 
-      // 2. Deploy (blocking ssh/scp). Await the response FIRST so the server's
-      //    'deploying' → terminal flip is already committed when the poll starts;
-      //    the deploy response carries the authoritative classification.
+      // 2. Deploy (blocking ssh/scp; includes dependency prep + auto-tunnel).
       setPhase('部署中…');
       const deployRes = await api.post(`/remote-agents/${encodeURIComponent(hostId)}/deploy`, {});
       if (!deployRes.ok) {
         setError(await readErrorMessage(deployRes, '部署失败'));
         return;
       }
-      const deployBody = (await deployRes.json()) as DeployResponse;
-      const deployStatus = deployBody.data?.status;
-      const deployMessage = deployBody.data?.message;
 
-      // Safety-net poll: confirm the list reflects a TERMINAL status (it settled
-      // instantly here since deploy already flipped the row).
-      setPhase('检测中…');
-      const terminalRow = await pollUntilSettled(hostId);
+      // 3. Wait for the lite to actually connect back (green = 真在线). Only
+      //    then is the device usable and visible in 新建项目 — never false-success
+      //    on "install.sh finished" (status==='online' but online=false).
+      setPhase('等待上线…');
+      const terminalRow = await waitForOnline(hostId, ONLINE_GRACE_MS);
       if (!activeRef.current) return;
 
-      // 3. Classify. 'online' from the deploy response is authoritative; the
-      //    polled row corroborates it and carries the persisted last_error.
-      if (deployStatus === 'online' || terminalRow?.online || terminalRow?.status === 'online') {
+      if (terminalRow?.online === true) {
         onAdded();
         onClose();
         return;
       }
-
-      const lastError = terminalRow?.last_error ? truncate(terminalRow.last_error) : deployMessage ?? '';
-      setError(lastError || '部署未成功，主机未上线');
+      if (terminalRow?.status === 'error') {
+        setError(terminalRow.last_error ? truncate(terminalRow.last_error) : '部署失败');
+      } else {
+        setError('部署命令已完成，但 lite 尚未连回主站。检查隧道/网络后点「重试」，或在设置中启用 SSH 隧道。');
+      }
       // The host row exists (registered) — refresh the list so it shows up.
       onAdded();
     } catch (err) {
