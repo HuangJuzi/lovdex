@@ -35,7 +35,8 @@ export type RemoteAgentsRouterDeps = {
   /**
    * Per-host ssh -R reverse tunnels (see remote-tunnels.ts). Hosts with a
    * `tunnel_port` get `ws://127.0.0.1:<port>` as their lite serverUrl instead
-   * of the global one — for targets that cannot reach the main server at all.
+   * of the configured `publicWsUrl` — for targets that cannot reach the main
+   * server at all.
    */
   tunnels: RemoteTunnelsManager;
   /**
@@ -254,7 +255,7 @@ export function createRemoteAgentsRouter(deps: RemoteAgentsRouterDeps): express.
 
   // 5. Enable / disable the per-host ssh -R reverse tunnel. When enabled, the
   //    host's lite connects BACK through the tunnel (ws://127.0.0.1:<port>)
-  //    instead of the global serverUrl — for targets that cannot reach the
+  //    instead of a direct publicWsUrl — for targets that cannot reach the
   //    main server's LAN address (VLAN-isolated / firewalled subnets).
   router.post(
     '/:hostId/tunnel',
