@@ -85,6 +85,7 @@ test('with push+unit, install.sh + unit template are pushed and install runs', a
 
   assert.equal(result.status, 'online');
   assert.deepEqual(pushCalls, [
+    { localPath: 'remote-agent/deploy/prepare-remote.sh', remotePath: '~/.lovdex-remote/prepare-remote.sh' },
     { localPath: '/local/install.sh', remotePath: '~/.lovdex-remote/install.sh' },
     { localPath: 'remote-agent/deploy/systemd-unit.template', remotePath: '~/.lovdex-remote/lovdex-agent.service' },
     { localPath: '/build/lite.tgz', remotePath: '~/.lovdex-remote/lite.tgz' },
@@ -126,6 +127,56 @@ test('node missing returns error hint and stops before install', async () => {
   const joined = calls.map((c) => c.join(' '));
   assert.ok(!joined.some((c) => c.includes('install.sh')), 'must not run install after node probe fails');
   assert.ok(!joined.some((c) => c.includes('claude -v')), 'must not probe claude after node fails');
+});
+
+test('with push, prepare-remote.sh is pushed and run before the node probe', async () => {
+  const { runner, calls } = fakeRunner({ fail: ['node -v'] });
+  const { push, calls: pushCalls } = fakePush();
+
+  const result = await runBootstrap(baseInput, { runner, push });
+
+  assert.equal(result.status, 'error');
+  assert.deepEqual(pushCalls, [
+    { localPath: 'remote-agent/deploy/prepare-remote.sh', remotePath: '~/.lovdex-remote/prepare-remote.sh' },
+  ]);
+  const joined = calls.map((c) => c.join(' '));
+  const prepIdx = joined.findIndex((c) => c.includes('prepare-remote.sh'));
+  const nodeIdx = joined.findIndex((c) => c.includes('node -v'));
+  assert.ok(prepIdx >= 0, 'prepare script is run');
+  assert.ok(nodeIdx > prepIdx, 'node probe happens after prepare');
+});
+
+test('prepare failure surfaces a dependency-prepare error', async () => {
+  const { runner } = fakeRunner({ fail: ['prepare-remote.sh'] });
+  const { push } = fakePush();
+
+  const result = await runBootstrap(baseInput, { runner, push });
+
+  assert.equal(result.status, 'error');
+  assert.match(result.message ?? '', /dependency prepare failed/);
+});
+
+test('node present but <20 returns a too-old version error', async () => {
+  const { runner } = fakeRunner({
+    stdout: (argv) => (argv.join(' ').includes('node -v') ? 'v18.19.0' : ''),
+  });
+  const { push } = fakePush();
+
+  const result = await runBootstrap(baseInput, { runner, push });
+
+  assert.equal(result.status, 'error');
+  assert.match(result.message ?? '', /too old/);
+});
+
+test('no push skips prepare and still gates on the node probe', async () => {
+  const { runner, calls } = fakeRunner({ fail: ['node -v'] });
+
+  const result = await runBootstrap(baseInput, { runner });
+
+  assert.equal(result.status, 'error');
+  assert.match(result.message ?? '', /node not found/i);
+  const joined = calls.map((c) => c.join(' '));
+  assert.ok(!joined.some((c) => c.includes('prepare-remote.sh')), 'no prepare script without a push seam');
 });
 
 test('claude missing returns install hint', async () => {

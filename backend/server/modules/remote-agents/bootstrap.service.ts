@@ -59,6 +59,8 @@ const REMOTE_LITE_TARBALL = `${REMOTE_DIR}/lite.tgz`;
 /** Default deploy artifacts, relative to the backend working directory. */
 const DEFAULT_INSTALL_SCRIPT = 'remote-agent/deploy/install.sh';
 const DEFAULT_UNIT_TEMPLATE = 'remote-agent/deploy/systemd-unit.template';
+const DEFAULT_PREPARE_SCRIPT = 'remote-agent/deploy/prepare-remote.sh';
+const REMOTE_PREPARE_PATH = `${REMOTE_DIR}/prepare-remote.sh`;
 
 function sha256(value: string): string {
   return createHash('sha256').update(value).digest('hex');
@@ -112,7 +114,7 @@ function writeRemoteFileArgs(
 
 export async function runBootstrap(
   input: BootstrapInput,
-  deps: { runner?: SshRunner; push?: FilePush; installScriptPath?: string; unitTemplatePath?: string },
+  deps: { runner?: SshRunner; push?: FilePush; prepareScriptPath?: string; installScriptPath?: string; unitTemplatePath?: string },
 ): Promise<BootstrapResult> {
   const runner = deps.runner;
   if (!runner) {
@@ -137,6 +139,7 @@ export async function runBootstrap(
   const hostId = input.hostId ?? randomUUID();
 
   const run = (rest: string[]) => runner(sshArgs(remote, id, port, rest));
+  const push = deps.push;
 
   // 1. probe: uname (fail early if unreachable / not a POSIX host).
   const uname = await run(['uname', '-a']);
@@ -144,36 +147,59 @@ export async function runBootstrap(
     return { status: 'error', message: `remote unreachable: ${uname.stderr.trim() || 'uname failed'}`, hostId };
   }
 
-  // 2. probe: node.
-  const node = await run(['node', '-v']);
-  if (!node.ok) {
-    return {
-      status: 'error',
-      message: 'node not found on remote — install node >=20 first (see deploy/install.sh)',
-      hostId,
-    };
-  }
-
-  // 3. probe: claude CLI. Note this probe runs inside an ssh login shell where
-  //    nvm / npm globals are on PATH; the systemd --user unit later runs with a
-  //    minimal PATH, so install.sh resolves absolute binaries and substitutes
-  //    them into the unit (deploy/install.sh + systemd-unit.template).
-  const claude = await run(['claude', '-v']);
-  if (!claude.ok) {
-    return {
-      status: 'error',
-      message: 'claude not installed — run: npm i -g @anthropic-ai/claude-code',
-      hostId,
-    };
-  }
-
-  // 4. create the remote dir.
+  // 2. create the remote dir — prepare/config/install all land here.
   const mk = await run(['mkdir', '-p', REMOTE_DIR]);
   if (!mk.ok) {
     return { status: 'error', message: `mkdir failed: ${mk.stderr.trim() || 'unknown'}`, hostId };
   }
 
-  // 5. write config.json (0600). JSON.stringify sanitizes the caller-provided
+  // 3. dependency prep: push + run prepare-remote.sh (installs node>=20 and the
+  //    claude CLI when missing). Skipped when no FilePush is wired — then the
+  //    node/claude probes below must already succeed on the target.
+  if (push) {
+    const prepareScriptPath = deps.prepareScriptPath ?? DEFAULT_PREPARE_SCRIPT;
+    const pushedPrepare = await push(prepareScriptPath, REMOTE_PREPARE_PATH);
+    if (!pushedPrepare.ok) {
+      return { status: 'error', message: `prepare script upload failed: ${pushedPrepare.error ?? 'unknown'}`, hostId };
+    }
+    const prep = await run(['bash', REMOTE_PREPARE_PATH]);
+    if (!prep.ok) {
+      return { status: 'error', message: `dependency prepare failed: ${prep.stderr.trim() || 'unknown'}`, hostId };
+    }
+  }
+
+  // 4. re-probe node (post-prep). Presence is the bar; version >=20 is a
+  //    best-effort guard when the version parses (prepare-remote.sh is the
+  //    strict gate).
+  const node = await run(['node', '-v']);
+  if (!node.ok) {
+    return {
+      status: 'error',
+      message: `node not found on remote — install node >=20 first (prepare couldn't provision it: ${node.stderr.trim() || 'node unavailable'})`,
+      hostId,
+    };
+  }
+  const nodeMajor = /^v?(\d+)/.exec(node.stdout.trim())?.[1];
+  if (nodeMajor && Number(nodeMajor) < 20) {
+    return {
+      status: 'error',
+      message: `node ${node.stdout.trim()} is too old — need node >=20`,
+      hostId,
+    };
+  }
+
+  // 5. probe claude CLI. install.sh resolves absolute binaries later; this is
+  //    only a clear, early failure surface (prepare also installs it).
+  const claude = await run(['claude', '-v']);
+  if (!claude.ok) {
+    return {
+      status: 'error',
+      message: `claude not installed — run: npm i -g @anthropic-ai/claude-code (prepare couldn't provision it: ${claude.stderr.trim() || 'claude unavailable'})`,
+      hostId,
+    };
+  }
+
+  // 6. write config.json (0600). JSON.stringify sanitizes the caller-provided
   //    serverUrl/token/roots so they embed safely inside the heredoc body.
   const config = {
     serverUrl: input.serverUrl,
@@ -188,7 +214,7 @@ export async function runBootstrap(
     return { status: 'error', message: `config write failed: ${cfg.stderr.trim() || 'unknown'}`, hostId };
   }
 
-  // 6. write the env file (0600) with the API key, if provided.
+  // 7. write the env file (0600) with the API key, if provided.
   if (input.apiKey) {
     if (input.apiKey.includes('\n')) {
       return { status: 'error', message: 'apiKey must not contain newlines', hostId };
@@ -200,8 +226,7 @@ export async function runBootstrap(
     }
   }
 
-  // 7. push install.sh + systemd unit + lite package, then run install.sh.
-  const push = deps.push;
+  // 8. push install.sh + systemd unit + lite package, then run install.sh.
   if (!push) {
     // No push seam: config/env are on the remote, but the service is not — never
     // report `online` for a half-finished deploy.
@@ -232,7 +257,7 @@ export async function runBootstrap(
     }
   }
 
-  // 8. run install.sh (deps/tarball + systemd unit install + enable --now).
+  // 9. run install.sh (deps/tarball + systemd unit install + enable --now).
   const install = await run(['bash', REMOTE_INSTALL_PATH]);
   if (!install.ok) {
     return { status: 'error', message: `install failed: ${install.stderr.trim() || 'unknown'}`, hostId };
