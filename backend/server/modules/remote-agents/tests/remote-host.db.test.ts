@@ -87,3 +87,16 @@ test('agent_token_hash is unique across hosts', () => {
   repo.setTokenHash('h1', 'dup-token');
   assert.throws(() => repo.setTokenHash('h2', 'dup-token'));
 });
+
+test('allocateTunnelPort starts at 20000 when no tunnel ports are used', () => {
+  repo.create({ host_id: 'h1', name: 'a', host: '10.0.0.1', ssh_user: 'root' });
+  assert.equal(repo.allocateTunnelPort(), 20000);
+});
+
+test('allocateTunnelPort returns the first free port above the used set', () => {
+  repo.create({ host_id: 'h1', name: 'a', host: '10.0.0.1', ssh_user: 'root' });
+  repo.create({ host_id: 'h2', name: 'b', host: '10.0.0.2', ssh_user: 'root' });
+  repo.setTunnelPort('h1', 20000);
+  repo.setTunnelPort('h2', 20001);
+  assert.equal(repo.allocateTunnelPort(), 20002);
+});

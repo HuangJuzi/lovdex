@@ -11,6 +11,7 @@ export type RemoteHostsRepository = {
   touchSeen(hostId: string): void;
   setTokenHash(hostId: string, hash: string): void;
   setTunnelPort(hostId: string, port: number | null): void;
+  allocateTunnelPort(): number;
   getByTokenHash(hash: string): RemoteHostRow | null;
   remove(hostId: string): void;
   findHostForProjectPath(projectPath: string): RemoteHostRow | null;
@@ -64,6 +65,16 @@ export function createRemoteHostsDb(db: Database.Database): RemoteHostsRepositor
       db.prepare(
         'UPDATE remote_hosts SET tunnel_port = ?, updated_at = CURRENT_TIMESTAMP WHERE host_id = ?',
       ).run(port, hostId);
+    },
+    allocateTunnelPort() {
+      const rows = db
+        .prepare('SELECT tunnel_port FROM remote_hosts WHERE tunnel_port IS NOT NULL')
+        .all() as { tunnel_port: number }[];
+      const used = new Set(rows.map((r) => r.tunnel_port));
+      let port = 20000;
+      while (port <= 60000 && used.has(port)) port += 1;
+      if (port > 60000) throw new Error('no free tunnel port in [20000, 60000]');
+      return port;
     },
     getByTokenHash(hash) {
       const row = db.prepare('SELECT * FROM remote_hosts WHERE agent_token_hash = ?').get(hash) as
