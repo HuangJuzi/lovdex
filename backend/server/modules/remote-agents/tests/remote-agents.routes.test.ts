@@ -169,7 +169,7 @@ async function makeHarness(
         return { status: 'online', message: 'deployed', hostId: input.hostId };
       }),
     identityFile: overrides.identityFile ?? '/home/lovdex/.ssh/id_ed25519',
-    serverUrl: overrides.serverUrl ?? 'ws://main:4000/api/remote-agents/ws',
+    publicWsUrl: overrides.publicWsUrl !== undefined ? overrides.publicWsUrl : 'ws://main:4000/api/remote-agents/ws',
     tunnels: overrides.tunnels ?? tunnels,
     injectPubkey: overrides.injectPubkey,
   };
@@ -453,6 +453,61 @@ test('POST /:id/deploy happy path → status online and repo status updated', as
     assert.equal(call.token, 'token-h1');
     assert.equal(call.serverUrl, 'ws://main:4000/api/remote-agents/ws');
     assert.ok(Array.isArray(call.roots) && call.roots.length >= 1, 'roots must have a placeholder');
+  } finally {
+    await h.close();
+  }
+});
+
+test('POST /:id/deploy auto-tunnels when no public WS URL is configured', async () => {
+  const h = await makeHarness({
+    publicWsUrl: null,
+    bootstrapImpl: async (input) => ({ status: 'online', message: 'deployed', hostId: input.hostId }),
+  });
+  try {
+    h.repo.create({ host_id: 'h1', name: 'dev1', host: '10.0.0.5', ssh_user: 'root' });
+
+    const res = await fetch(`${h.base}/api/remote-agents/h1/deploy`, { method: 'POST' });
+    assert.equal(res.status, 200);
+
+    const row = h.repo.getById('h1');
+    assert.ok(row?.tunnel_port && row.tunnel_port >= 20000 && row.tunnel_port <= 60000, 'auto-allocated a tunnel port');
+    assert.equal(h.ensureCalls.length, 1, 'tunnel ensured before bootstrap');
+    assert.equal(h.ensureCalls[0]?.tunnel_port, row?.tunnel_port);
+    assert.equal(h.bootstrapCalls[0]?.serverUrl, `ws://127.0.0.1:${row?.tunnel_port}/api/remote-agents/ws`);
+  } finally {
+    await h.close();
+  }
+});
+
+test('POST /:id/deploy goes direct when a public WS URL is configured', async () => {
+  const h = await makeHarness({
+    publicWsUrl: 'wss://lovdex.example.com/api/remote-agents/ws',
+  });
+  try {
+    h.repo.create({ host_id: 'h1', name: 'dev1', host: '10.0.0.5', ssh_user: 'root' });
+
+    const res = await fetch(`${h.base}/api/remote-agents/h1/deploy`, { method: 'POST' });
+    assert.equal(res.status, 200);
+    assert.equal(h.ensureCalls.length, 0, 'no tunnel in direct mode');
+    assert.equal(h.repo.getById('h1')?.tunnel_port, null);
+    assert.equal(h.bootstrapCalls[0]?.serverUrl, 'wss://lovdex.example.com/api/remote-agents/ws');
+  } finally {
+    await h.close();
+  }
+});
+
+test('POST /:id/deploy keeps an existing tunnel over a configured public URL', async () => {
+  const h = await makeHarness({
+    publicWsUrl: 'wss://lovdex.example.com/api/remote-agents/ws',
+  });
+  try {
+    h.repo.create({ host_id: 'h1', name: 'dev1', host: '10.0.0.5', ssh_user: 'root' });
+    h.repo.setTunnelPort('h1', 13188);
+
+    const res = await fetch(`${h.base}/api/remote-agents/h1/deploy`, { method: 'POST' });
+    assert.equal(res.status, 200);
+    assert.equal(h.ensureCalls.length, 1);
+    assert.equal(h.bootstrapCalls[0]?.serverUrl, 'ws://127.0.0.1:13188/api/remote-agents/ws');
   } finally {
     await h.close();
   }

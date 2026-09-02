@@ -26,8 +26,12 @@ export type RemoteAgentsRouterDeps = {
   bootstrap: (input: BootstrapInput) => Promise<BootstrapResult>;
   /** Path to the Lovdex ed25519 private key used for ssh, or null. */
   identityFile: string | null;
-  /** Main server ws URL the lite connects back to (default for non-tunnel hosts). */
-  serverUrl: string;
+  /**
+   * Public WS URL the lite dials back to for DIRECT (non-tunnel) hosts. When
+   * null, deploy auto-tunnels instead (ssh -R on the already-working main→target
+   * session) — used when the target cannot reach the main server directly.
+   */
+  publicWsUrl: string | null;
   /**
    * Per-host ssh -R reverse tunnels (see remote-tunnels.ts). Hosts with a
    * `tunnel_port` get `ws://127.0.0.1:<port>` as their lite serverUrl instead
@@ -193,11 +197,23 @@ export function createRemoteAgentsRouter(deps: RemoteAgentsRouterDeps): express.
 
       let result: BootstrapResult;
       try {
-        // Tunnel hosts dial their own loopback through the ssh -R forward (they
-        // cannot reach the main server's LAN address at all); (re)ensure the
-        // forward is up before pushing config so the lite connects immediately.
+        // Resolve the lite's dial-back address. Precedence: an existing tunnel
+        // wins (a user-configured/historical tunnel is never silently dropped),
+        // else a configured public WS URL (direct), else auto-tunnel — allocate
+        // a loopback port on the target and ride the already-working main→target
+        // ssh. The forward is (re)ensured before pushing config so the lite can
+        // connect back immediately.
+        let serverUrl: string;
         if (host.tunnel_port !== null) {
           deps.tunnels.ensure(host);
+          serverUrl = `ws://127.0.0.1:${host.tunnel_port}/api/remote-agents/ws`;
+        } else if (deps.publicWsUrl) {
+          serverUrl = deps.publicWsUrl;
+        } else {
+          const tunnelPort = deps.repo.allocateTunnelPort();
+          deps.repo.setTunnelPort(hostId, tunnelPort);
+          deps.tunnels.ensure({ ...host, tunnel_port: tunnelPort });
+          serverUrl = `ws://127.0.0.1:${tunnelPort}/api/remote-agents/ws`;
         }
         result = await deps.bootstrap({
           host: host.host,
@@ -208,9 +224,7 @@ export function createRemoteAgentsRouter(deps: RemoteAgentsRouterDeps): express.
           // persists the same sha256) — a running lite is never bricked by an
           // interrupted deploy resetting its auth.
           token: deps.tokenFor(hostId),
-          serverUrl: host.tunnel_port
-            ? `ws://127.0.0.1:${host.tunnel_port}/api/remote-agents/ws`
-            : deps.serverUrl,
+          serverUrl,
           hostId: host.host_id,
           roots,
         });
