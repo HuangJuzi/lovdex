@@ -373,10 +373,10 @@ app.use('/api/remote-agents', authenticateToken, createRemoteAgentsRouter({
     publicKey: remotePublicKey,
     identityFile,
     tunnels: remoteTunnels,
-    // The lite dials back to this ws URL. The localhost default is correct for
-    // loopback E2E (ssh host == the Lovdex host); for a real remote host the
-    // operator MUST set LOVDEX_PUBLIC_WS_URL to an address reachable from it.
-    serverUrl: process.env.LOVDEX_PUBLIC_WS_URL ?? `ws://localhost:${cfg.server.port}/api/remote-agents/ws`,
+    // Direct dial-back URL when LOVDEX_PUBLIC_WS_URL is set; otherwise deploy
+    // auto-tunnels (ssh -R) so targets that cannot reach the main server still
+    // connect back. Passed as null so the route can distinguish "not configured".
+    publicWsUrl: process.env.LOVDEX_PUBLIC_WS_URL ?? null,
     // One-time password → pubkey injection (ssh-copy-id equivalent) for the
     // add-host wizard. The password is used once to authorize the Lovdex pubkey
     // then discarded — never persisted. See createSshpassPubkeyInjector for the
@@ -416,6 +416,7 @@ app.use('/api/remote-agents', authenticateToken, createRemoteAgentsRouter({
                     remote: `${input.sshUser}@${input.host}`,
                 }),
                 installScriptPath: path.join(__dirname, '..', 'remote-agent', 'deploy', 'install.sh'),
+                prepareScriptPath: path.join(__dirname, '..', 'remote-agent', 'deploy', 'prepare-remote.sh'),
                 unitTemplatePath: path.join(__dirname, '..', 'remote-agent', 'deploy', 'systemd-unit.template'),
             });
         } finally {
