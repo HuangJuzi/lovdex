@@ -226,10 +226,13 @@ export function createTasksService(
     if (changed && actor === 'user') {
       resolveDb.updateTaskSubStatus(taskId, null);
     }
-    // 归档副作用：隐藏 / 恢复关联会话，使「项目下不再显示该 session」成立
-    // （项目侧列表查询都以 isArchived = 0 过滤，零改动）。无会话时静默跳过。
+    // 归档副作用：仅在归档转变（done→archived / archived→done）时隐藏 / 恢复关联
+    // 会话，使「项目下不再显示该 session」成立（项目侧列表查询都以 isArchived = 0
+    // 过滤，零改动）。守卫已保证这两个状态对只有上述转变；非归档转变（如用户拖到
+    // done、引擎 completed→in_review）不写 session 表，否则会静默撤销用户对此会话
+    // 的手动归档。无会话时静默跳过。
     const sessionDb = opts.deps?.sessionsDb ?? sessionsDb;
-    if (changed && row.session_id) {
+    if (changed && row.session_id && (status === 'archived' || row.status === 'archived')) {
       try {
         sessionDb.updateSessionIsArchived(row.session_id, status === 'archived');
       } catch (err) {
@@ -453,11 +456,16 @@ export function createTasksService(
       if (!isTaskStatus(status)) {
         throw new AppError(`invalid status: ${String(status)}`, { code: 'INVALID_STATUS', statusCode: 400 });
       }
+      const current = resolveDb.getTask(taskId);
+      if (!current) return null;
       if (status === 'archived') {
         throw new AppError('use archive action, not move, to archive a task', { code: 'INVALID_STATUS', statusCode: 400 });
       }
-      const current = resolveDb.getTask(taskId);
-      if (!current) return null;
+      if (current.status === 'archived') {
+        // archived 是终态：只能通过 applyStatusChange 回 done，move 不可经停
+        // （上一判断已排除 status === 'archived'，此处命中即是从档案状态移出）
+        throw new AppError('an archived task can only move back to done via unarchive', { code: 'INVALID_STATUS', statusCode: 400 });
+      }
       resolveDb.moveTask(taskId, status, beforeId, afterId);
       if (current.status !== status) {
         // Dragging to a different column re-positions the task: clear its tag.
@@ -524,6 +532,10 @@ export function createTasksService(
       if (!row) return;
       switch (state) {
         case 'running':
+          // archived 任务不再运行：忽略让会话被重新拉起的引擎回调，保持归档状态
+          // 与 verdict 字段原样（不吞运行时异常导致会话砖化——startRun 在注册 run
+          // 之后、try/catch 之外调用本回调，若此处抛错会话会被永久砖化）。
+          if (row.status === 'archived') break;
           // A live run means the agent is actively working, so the task must
           // read as in_progress — not just for the initial todo→in_progress
           // start, but whenever work resumes on a task that had settled into

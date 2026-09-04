@@ -287,11 +287,16 @@ test('archive: only from done; toggles linked session isArchived + clears sub_st
     const svc = makeService();
     svc.applyStatusChange(created.task_id, 'done', 'user');
     assert.equal(svc.getTask(created.task_id)?.status, 'done');
+    // 种一个持久 sub_status tag，验证归档把它清掉。断言用 raw row（tasksDb.getTask），
+    // 因为 decorate 对 archived 状态恒返回 null，svc.getTask 的断言是空泛的。
+    tasksDb.updateTaskSubStatus(created.task_id, 'done');
+    assert.equal(tasksDb.getTask(created.task_id)?.sub_status, 'done');
 
     svc.applyStatusChange(created.task_id, 'archived', 'user');
     const row = svc.getTask(created.task_id);
     assert.equal(row?.status, 'archived');
     assert.equal(row?.sub_status, null);
+    assert.equal(tasksDb.getTask(created.task_id)?.sub_status, null);
     assert.equal(sessionsDb.getSessionById('s1')?.isArchived, 1);
 
     // 取消归档
@@ -343,5 +348,17 @@ test('createTask rejects status=archived', async () => {
       () => svc.createTask({ projectPath: '/tmp/example-repo', title: 't', executorProvider: 'claude', status: 'archived' }),
       /invalid|archive/i,
     );
+  });
+});
+
+test('archive: engine running event on an archived task is ignored (no zombie run)', async () => {
+  await withIsolatedDatabase(() => {
+    const id = seedTask();
+    const svc = makeService();
+    svc.applyStatusChange(id, 'done', 'user');
+    svc.applyStatusChange(id, 'archived', 'user');
+    // 归档后引擎 running 回调不得抛错、不得改变状态
+    assert.doesNotThrow(() => svc.onSessionStatus('s1', 'running'));
+    assert.equal(svc.getTask(id)?.status, 'archived');
   });
 });
