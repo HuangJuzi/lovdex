@@ -137,3 +137,27 @@ test('card without onToggleSelect renders no checkbox', () => {
   const html = render(baseTask);
   assert.doesNotMatch(html, /type="checkbox"/);
 });
+
+test('done card renders an archive button', () => {
+  const html = render(
+    { ...baseTask, status: 'done' },
+    { onStatusChange: () => {} },
+  );
+  assert.match(html, /🗄 归档/);
+});
+
+test('archived card renders an unarchive button', () => {
+  const html = render(
+    { ...baseTask, status: 'archived' },
+    { onStatusChange: () => {} },
+  );
+  assert.match(html, /↩ 取消归档/);
+});
+
+test('archived card does not render open-session button', () => {
+  const html = render(
+    { ...baseTask, status: 'archived', session_id: 's1' },
+    { onOpenSession: () => {}, onStart: () => {}, onStatusChange: () => {} },
+  );
+  assert.doesNotMatch(html, /打开会话/);
+});

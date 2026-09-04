@@ -714,7 +714,7 @@ export function TaskBoardPage() {
             />
           ) : (
             <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-2 pb-3 sm:flex-row sm:gap-3 sm:overflow-x-auto sm:overflow-y-hidden sm:px-4 sm:pb-4">
-              {STATUS_ORDER.map((status) => (
+              {STATUS_ORDER.filter((status) => status !== 'archived' || filter.showArchived).map((status) => (
                 <div
                   key={status}
                   className="flex w-full flex-col rounded-2xl border border-border/70 bg-muted/30 shadow-[0_3px_0_rgba(30,27,50,0.07),0_12px_26px_rgba(35,33,41,0.07)] sm:min-w-64 sm:flex-1"

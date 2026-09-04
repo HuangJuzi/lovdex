@@ -128,7 +128,7 @@ export function ConvertToTaskDialog({
                 value={status}
                 onChange={(e) => setStatus(e.target.value as TaskStatus)}
               >
-                {STATUS_ORDER.map((s) => (
+                {STATUS_ORDER.filter((s) => s !== 'archived').map((s) => (
                   <option key={s} value={s}>
                     {STATUS_META[s].label}
                   </option>

@@ -213,6 +213,28 @@ export const TaskCard = memo(function TaskCard({
             ✓ 标记完成
           </button>
         )}
+        {task.status === 'done' && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onStatusChange?.('archived');
+            }}
+            className="min-h-9 min-w-0 flex-1 rounded-lg bg-gray-500/10 py-1.5 text-xs font-semibold text-gray-500 transition-colors hover:bg-gray-500/20 sm:min-h-0 shadow-[0_2px_0_rgba(30,27,50,0.08)] dark:text-gray-400"
+          >
+            🗄 归档
+          </button>
+        )}
+        {task.status === 'archived' && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onStatusChange?.('done');
+            }}
+            className="min-h-9 min-w-0 flex-1 rounded-lg bg-gray-500/10 py-1.5 text-xs font-semibold text-gray-500 transition-colors hover:bg-gray-500/20 sm:min-h-0 shadow-[0_2px_0_rgba(30,27,50,0.08)] dark:text-gray-400"
+          >
+            ↩ 取消归档
+          </button>
+        )}
         {task.session_id && onOpenSession &&
           (task.session_deleted ? (
             <button

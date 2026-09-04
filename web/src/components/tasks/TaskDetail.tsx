@@ -531,6 +531,22 @@ export function TaskDetailPage() {
                   ✓ 标记完成
                 </button>
               )}
+              {task.status === 'done' && (
+                <button
+                  className="flex-1 rounded-md bg-gray-500/15 px-4 py-2 text-sm font-semibold text-gray-500 hover:bg-gray-500/25 sm:w-auto sm:flex-none sm:px-6 dark:text-gray-400"
+                  onClick={() => updateStatus('archived')}
+                >
+                  🗄 归档
+                </button>
+              )}
+              {task.status === 'archived' && (
+                <button
+                  className="flex-1 rounded-md bg-gray-500/15 px-4 py-2 text-sm font-semibold text-gray-500 hover:bg-gray-500/25 sm:w-auto sm:flex-none sm:px-6 dark:text-gray-400"
+                  onClick={() => updateStatus('done')}
+                >
+                  ↩ 取消归档
+                </button>
+              )}
               <button
                 className="flex-1 rounded-md bg-red-500/10 px-4 py-2 text-sm text-red-500 hover:bg-red-500/20 dark:text-red-400 sm:w-auto sm:flex-none sm:px-6"
                 onClick={remove}
@@ -646,7 +662,7 @@ export function TaskDetailPage() {
                     value={task.status}
                     onChange={(e) => updateStatus(e.target.value as TaskStatus)}
                   >
-                    {STATUS_ORDER.map((s) => (
+                    {STATUS_ORDER.filter((s) => s !== 'archived').map((s) => (
                       <option key={s} value={s}>
                         {STATUS_META[s].label}
                       </option>

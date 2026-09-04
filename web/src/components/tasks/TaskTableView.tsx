@@ -409,6 +409,22 @@ function TaskRow({
               ✓ 标记完成
             </ActionBtn>
           )}
+          {task.status === 'done' && (
+            <ActionBtn
+              onClick={() => onStatusChange?.(task, 'archived')}
+              className="bg-gray-500/10 text-gray-500 dark:text-gray-400"
+            >
+              🗄 归档
+            </ActionBtn>
+          )}
+          {task.status === 'archived' && (
+            <ActionBtn
+              onClick={() => onStatusChange?.(task, 'done')}
+              className="bg-gray-500/10 text-gray-500 dark:text-gray-400"
+            >
+              ↩ 取消归档
+            </ActionBtn>
+          )}
           {task.session_id && onOpenSession &&
             (task.session_deleted ? (
               <ActionBtn disabled className="bg-muted text-muted-foreground" title="关联会话已被清理，历史记录不可再读取">
