@@ -204,3 +204,22 @@ test('toggleProjectFilter: adds and removes a value', () => {
   assert.deepEqual(toggleProjectFilter([], '/p1'), ['/p1']);
   assert.deepEqual(toggleProjectFilter(['/p1', '/p2'], '/p2'), ['/p1']);
 });
+
+test('filterTasks: archived tasks are hidden by default', () => {
+  const archived = mkTask({ task_id: 'a', status: 'archived' });
+  const done = mkTask({ task_id: 'b', status: 'done' });
+  const out = filterTasks([archived, done], filterOf({}), NOW);
+  assert.deepEqual(out.map((t) => t.task_id), ['b']);
+});
+
+test('filterTasks: showArchived=true includes archived tasks', () => {
+  const archived = mkTask({ task_id: 'a', status: 'archived' });
+  const done = mkTask({ task_id: 'b', status: 'done' });
+  const out = filterTasks([archived, done], filterOf({ showArchived: true }), NOW);
+  assert.deepEqual(out.map((t) => t.task_id), ['a', 'b']);
+});
+
+test('normalizeTaskFilter: missing showArchived defaults to false', () => {
+  assert.equal(normalizeTaskFilter({}).showArchived, false);
+  assert.equal(normalizeTaskFilter({ showArchived: true }).showArchived, true);
+});

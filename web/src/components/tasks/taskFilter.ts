@@ -11,6 +11,7 @@ export type TaskFilter = {
   preset: TaskFilterPreset;
   customFrom: string;
   customTo: string;
+  showArchived: boolean;
 };
 
 export const EMPTY_TASK_FILTER: TaskFilter = {
@@ -19,6 +20,7 @@ export const EMPTY_TASK_FILTER: TaskFilter = {
   preset: 'all',
   customFrom: '',
   customTo: '',
+  showArchived: false,
 };
 
 /**
@@ -47,6 +49,7 @@ export function normalizeTaskFilter(raw: unknown): TaskFilter {
         : 'all',
     customFrom: typeof src.customFrom === 'string' ? src.customFrom : '',
     customTo: typeof src.customTo === 'string' ? src.customTo : '',
+    showArchived: src.showArchived === true,
   };
 }
 
@@ -126,6 +129,7 @@ function taskDateValue(task: Task, field: TaskDateField): number | null {
 export function filterTasks(tasks: Task[], filter: TaskFilter, now: Date): Task[] {
   const range = resolveDateRange(filter, now);
   return tasks.filter((task) => {
+    if (!filter.showArchived && task.status === 'archived') return false;
     if (filter.projectPaths.length > 0) {
       const match =
         (filter.projectPaths.includes(ASSISTANT_OPTION_VALUE) && task.is_operator === 1) ||

@@ -115,6 +115,17 @@ export function TaskFilterBar({ projectOptions, filter, onChange }: TaskFilterBa
             />
           </div>
 
+          {/* 左二簇：显示归档开关（只控制是否展示 archived 任务，不点亮清除红点） */}
+          <div className="flex flex-wrap items-center gap-2">
+            <Pill
+              isActive={filter.showArchived}
+              onClick={() => onChange({ ...filter, showArchived: !filter.showArchived })}
+              title="显示已归档任务"
+            >
+              显示归档
+            </Pill>
+          </div>
+
           {/* 中左簇：日期字段 */}
           <PillBar>
             {DATE_FIELD_OPTIONS.map((o) => (
