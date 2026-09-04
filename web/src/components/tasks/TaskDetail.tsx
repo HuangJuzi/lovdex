@@ -523,7 +523,7 @@ export function TaskDetailPage() {
               </button>
             )}
             <div className="flex w-full gap-2 sm:gap-3">
-              {task.status !== 'done' && (
+              {task.status !== 'done' && task.status !== 'archived' && (
                 <button
                   className="flex-1 rounded-md bg-green-500/15 px-4 py-2 text-sm font-semibold text-green-500 hover:bg-green-500/25 dark:text-green-400 sm:w-auto sm:flex-none sm:px-6"
                   onClick={() => updateStatus('done')}
