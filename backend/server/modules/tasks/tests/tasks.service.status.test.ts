@@ -259,3 +259,16 @@ test('late verdict does not downgrade a task the user already marked done', asyn
     assert.notEqual(row?.sub_status, 'blocked');
   });
 });
+
+test('updateTaskStatus: done→archived keeps completed_at; archived→done keeps it', async () => {
+  await withIsolatedDatabase(() => {
+    projectsDb.createProjectPath('/tmp/example-repo');
+    const created = tasksDb.createTask({ projectPath: '/tmp/example-repo', title: 't', executorProvider: 'claude', status: 'done' });
+    const completed = tasksDb.getTask(created.task_id)!.completed_at;
+    assert.ok(completed, 'done task has completed_at');
+    tasksDb.updateTaskStatus(created.task_id, 'archived');
+    assert.equal(tasksDb.getTask(created.task_id)!.completed_at, completed);
+    tasksDb.updateTaskStatus(created.task_id, 'done');
+    assert.equal(tasksDb.getTask(created.task_id)!.completed_at, completed);
+  });
+});

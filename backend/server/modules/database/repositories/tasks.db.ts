@@ -44,8 +44,11 @@ function statusTimestampSets(from: TaskStatus, to: TaskStatus): string[] {
   if (from === to) return [];
   const sets: string[] = [];
   if (to === 'in_progress') sets.push('started_at = CURRENT_TIMESTAMP');
-  if (to === 'done') sets.push('completed_at = CURRENT_TIMESTAMP');
-  if (to !== 'done' && from === 'done') sets.push('completed_at = NULL');
+  // Archiving is not "completing now" (keep the real completion time), and
+  // unarchiving is not "reopening" (keep it too). Only a genuine done entry
+  // stamps completed_at.
+  if (to === 'done' && from !== 'archived') sets.push('completed_at = CURRENT_TIMESTAMP');
+  if (to !== 'done' && to !== 'archived' && from === 'done') sets.push('completed_at = NULL');
   return sets;
 }
 
