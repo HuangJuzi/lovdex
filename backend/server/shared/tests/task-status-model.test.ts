@@ -7,11 +7,16 @@ import {
   isSubStatus, isTaskDeadline, isTaskLabel, isTaskPriority, isTaskStatus,
 } from '@/shared/task-status.js';
 
-test('status list is the unified 4', () => {
-  assert.deepEqual([...STATUS_ORDER], ['todo', 'in_progress', 'in_review', 'done']);
+test('status list is the unified 5', () => {
+  assert.deepEqual([...STATUS_ORDER], ['todo', 'in_progress', 'in_review', 'done', 'archived']);
   assert.equal(isTaskStatus('todo'), true);
+  assert.equal(isTaskStatus('archived'), true);
   assert.equal(isTaskStatus('backlog'), false);
   assert.equal(isTaskStatus('blocked'), false);
+});
+
+test('archived is ordered after done and only reachable via status domain', () => {
+  assert.equal(STATUS_ORDER.indexOf('archived'), STATUS_ORDER.indexOf('done') + 1);
 });
 
 test('sub_status is the full 10', () => {

@@ -1,8 +1,9 @@
 /**
  * Single source of truth for the two-layer task status domain.
  *
- * Layer 1 `status` — board column (4 values): todo / in_progress / in_review /
- * done. `backlog` has been folded into `todo`.
+ * Layer 1 `status` — board column (5 values): todo / in_progress / in_review /
+ * done / archived. `backlog` has been folded into `todo`; `archived` is a pure
+ * user action (no AI verdict or run can set it).
  *
  * Layer 2 `sub_status` — the fine-grained badge shown at a card's bottom-left,
  * a refinement of the column it sits in. Persisted subset (DB CHECK) holds the
@@ -11,7 +12,7 @@
  * decorate() on every read.
  */
 
-export const TASK_STATUSES = ['todo', 'in_progress', 'in_review', 'done'] as const;
+export const TASK_STATUSES = ['todo', 'in_progress', 'in_review', 'done', 'archived'] as const;
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 
 export const STATUS_ORDER: readonly TaskStatus[] = TASK_STATUSES;
