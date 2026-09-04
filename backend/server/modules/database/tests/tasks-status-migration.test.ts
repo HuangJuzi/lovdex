@@ -7,6 +7,7 @@ import test from 'node:test';
 
 import { closeConnection, getConnection } from '@/modules/database/connection.js';
 import { initializeDatabase } from '@/modules/database/init-db.js';
+import { TASKS_TABLE_SCHEMA_SQL } from '@/modules/database/schema.js';
 
 const LEGACY_TASKS_DDL = `
 CREATE TABLE tasks (
@@ -111,6 +112,14 @@ CREATE TABLE tasks (
     verdict_at       DATETIME
 );
 `;
+
+// The immediate pre-archive schema: TASKS_TABLE_SCHEMA_SQL with 'archived'
+// removed from the status CHECK. This mirrors a production DB right before the
+// archived status shipped — its executor CHECK already carries opencode/qoder
+// and its sub_status/label CHECKs already carry waiting_answer/reminder, so it
+// trips NONE of the earlier rebuild gates. Only the new archived gate can
+// rebuild it, which makes this an exact probe for that gate.
+const PRE_ARCHIVE_TASKS_DDL = TASKS_TABLE_SCHEMA_SQL.replace(",'archived'", '');
 
 test('migrateTasksTable adds priority/deadline/is_operator/label/remark', async () => {
   const previousDatabasePath = process.env.DATABASE_PATH;
@@ -378,6 +387,100 @@ test('migrateTasksTable rebuilds label CHECK to include reminder and adds source
     assert.equal(row2.remark, 'note-remark');
     assert.equal(row2.is_operator, 1);
     assert.equal(row2.ai_summary, 'sum-text');
+  } finally {
+    closeConnection();
+    if (previousDatabasePath === undefined) delete process.env.DATABASE_PATH;
+    else process.env.DATABASE_PATH = previousDatabasePath;
+    await rm(tempDirectory, { recursive: true, force: true });
+  }
+});
+
+test('migrateTasksTable rebuilds to accept archived status, preserving rows', async () => {
+  const previousDatabasePath = process.env.DATABASE_PATH;
+  const tempDirectory = await mkdtemp(path.join(tmpdir(), 'migrate-tasks-archive-'));
+  const databasePath = path.join(tempDirectory, 'auth.db');
+
+  closeConnection();
+  process.env.DATABASE_PATH = databasePath;
+
+  const legacy = new Database(databasePath);
+  legacy.exec(`
+    CREATE TABLE projects (
+      project_id TEXT PRIMARY KEY NOT NULL,
+      project_path TEXT NOT NULL UNIQUE,
+      custom_project_name TEXT DEFAULT NULL,
+      isStarred BOOLEAN DEFAULT 0,
+      isArchived BOOLEAN DEFAULT 0
+    );
+  `);
+  legacy.exec(INTERMEDIATE_TASKS_DDL);
+  legacy.prepare(`INSERT INTO projects (project_id, project_path) VALUES (?, ?)`).run('p1', '/tmp/example-repo');
+  legacy.prepare(`INSERT INTO tasks (task_id, project_path, title, status) VALUES (?, ?, ?, ?)`).run('t-done', '/tmp/example-repo', 'done', 'done');
+  legacy.close();
+
+  await initializeDatabase();
+
+  try {
+    const db = getConnection();
+    const row = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'").get() as { sql: string };
+    assert.match(row.sql, /CHECK \(status IN \('todo','in_progress','in_review','done','archived'\)\)/);
+    const kept = db.prepare('SELECT task_id, status FROM tasks WHERE task_id = ?').get('t-done') as { task_id: string; status: string };
+    assert.equal(kept.status, 'done');
+  } finally {
+    closeConnection();
+    if (previousDatabasePath === undefined) delete process.env.DATABASE_PATH;
+    else process.env.DATABASE_PATH = previousDatabasePath;
+    await rm(tempDirectory, { recursive: true, force: true });
+  }
+});
+
+test('migrateTasksTable archived gate rebuilds a pre-archive-schema DB (and is idempotent)', async () => {
+  const previousDatabasePath = process.env.DATABASE_PATH;
+  const tempDirectory = await mkdtemp(path.join(tmpdir(), 'migrate-tasks-archive-gate-'));
+  const databasePath = path.join(tempDirectory, 'auth.db');
+
+  closeConnection();
+  process.env.DATABASE_PATH = databasePath;
+
+  const legacy = new Database(databasePath);
+  legacy.exec(`
+    CREATE TABLE projects (
+      project_id TEXT PRIMARY KEY NOT NULL,
+      project_path TEXT NOT NULL UNIQUE,
+      custom_project_name TEXT DEFAULT NULL,
+      isStarred BOOLEAN DEFAULT 0,
+      isArchived BOOLEAN DEFAULT 0
+    );
+  `);
+  legacy.exec(PRE_ARCHIVE_TASKS_DDL);
+  legacy.prepare(`INSERT INTO projects (project_id, project_path) VALUES (?, ?)`).run('p1', '/tmp/example-repo');
+  legacy.prepare(`INSERT INTO tasks (task_id, project_path, title, status) VALUES (?, ?, ?, ?)`).run('t-done', '/tmp/example-repo', 'done', 'done');
+  legacy.close();
+
+  await initializeDatabase();
+
+  try {
+    const db = getConnection();
+    const row = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'").get() as { sql: string };
+    assert.match(row.sql, /CHECK \(status IN \('todo','in_progress','in_review','done','archived'\)\)/);
+
+    // Pre-existing row survived the rename → recreate → copy chain.
+    const kept = db.prepare('SELECT task_id, status FROM tasks WHERE task_id = ?').get('t-done') as { task_id: string; status: string };
+    assert.equal(kept.status, 'done');
+
+    // The new capability is usable: an archived row round-trips.
+    db.prepare(`INSERT INTO tasks (task_id, project_path, title, status) VALUES (?, ?, ?, ?)`).run('t-arch', '/tmp/example-repo', 'archived item', 'archived');
+    const arch = db.prepare('SELECT status FROM tasks WHERE task_id = ?').get('t-arch') as { status: string };
+    assert.equal(arch.status, 'archived');
+
+    // Idempotent: a second run leaves the 5-status CHECK and both rows intact.
+    await initializeDatabase();
+    const row2 = db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'").get() as { sql: string };
+    assert.match(row2.sql, /CHECK \(status IN \('todo','in_progress','in_review','done','archived'\)\)/);
+    const keptDone = db.prepare('SELECT task_id, status FROM tasks WHERE task_id = ?').get('t-done') as { task_id: string; status: string };
+    assert.equal(keptDone.status, 'done');
+    const keptArch = db.prepare('SELECT task_id, status FROM tasks WHERE task_id = ?').get('t-arch') as { task_id: string; status: string };
+    assert.equal(keptArch.status, 'archived');
   } finally {
     closeConnection();
     if (previousDatabasePath === undefined) delete process.env.DATABASE_PATH;

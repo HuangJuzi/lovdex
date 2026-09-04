@@ -642,6 +642,35 @@ const migrateTasksTable = (db: Database): void => {
       db.exec('PRAGMA foreign_keys = ON');
     }
   }
+
+  // Rebuild tasks table when the archived status was added to the status CHECK.
+  // Same rename → recreate → copy → drop pattern as the engine rebuilds above.
+  const tasksSqlForArchive =
+    (db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'").get() as { sql?: string } | undefined)?.sql ?? '';
+  if (!tasksSqlForArchive.includes("'archived'")) {
+    console.log('Running migration: rebuild tasks table to accept archived status');
+    db.exec('PRAGMA foreign_keys = OFF');
+    try {
+      db.exec('BEGIN');
+      db.exec('ALTER TABLE tasks RENAME TO tasks_legacy_archived;');
+      db.exec(TASKS_TABLE_SCHEMA_SQL);
+      db.exec(`
+        INSERT INTO tasks (task_id, project_path, title, description, status, executor_provider, executor_model, position, session_id, started_at, completed_at, created_at, updated_at, ai_summary, sub_status, verdict_reason, verdict_at, priority, deadline, is_operator, label, remark, context_summary, source_schedule_id)
+        SELECT task_id, project_path, title, description, status, executor_provider, executor_model, position, session_id, started_at, completed_at, created_at, updated_at, ai_summary, sub_status, verdict_reason, verdict_at, priority, deadline, is_operator, label, remark, context_summary, source_schedule_id
+        FROM tasks_legacy_archived
+      `);
+      db.exec('DROP TABLE tasks_legacy_archived;');
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_tasks_project_status ON tasks(project_path, status);`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_tasks_session ON tasks(session_id);`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_tasks_source_schedule ON tasks(source_schedule_id);`);
+      db.exec('COMMIT');
+    } catch (rebuildError) {
+      db.exec('ROLLBACK');
+      throw rebuildError;
+    } finally {
+      db.exec('PRAGMA foreign_keys = ON');
+    }
+  }
 };
 
 /**

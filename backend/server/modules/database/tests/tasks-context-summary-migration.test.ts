@@ -28,12 +28,12 @@ CREATE TABLE tasks (
 
 // Current production schema shape MINUS the context_summary column: sub_status,
 // the opencode/qoder executor CHECK, source_schedule_id, the waiting_*
-// sub_status CHECK, and the reminder label CHECK are all present. Every rebuild
-// gate inside migrateTasksTable (two-layer status, executor engines, opencode,
-// waiting_*, label reminder) stays silent, so the ONLY mechanism that adds the
-// column on such a table is the in-place addColumnToTableIfNotExists(...,
-// 'context_summary', ...) ALTER — exactly the real rollout path for an
-// already-upgraded DB.
+// sub_status CHECK, the reminder label CHECK, and the archived status are all
+// present. Every rebuild gate inside migrateTasksTable (two-layer status,
+// executor engines, opencode, waiting_*, label reminder, archived) stays silent,
+// so the ONLY mechanism that adds the column on such a table is the in-place
+// addColumnToTableIfNotExists(..., 'context_summary', ...) ALTER — exactly the
+// real rollout path for an already-upgraded DB.
 const CURRENT_SHAPE_WITHOUT_CONTEXT_SUMMARY_DDL = `
 CREATE TABLE tasks (
     task_id           TEXT PRIMARY KEY NOT NULL,
@@ -41,7 +41,7 @@ CREATE TABLE tasks (
     title             TEXT NOT NULL,
     description       TEXT,
     status            TEXT NOT NULL DEFAULT 'todo'
-                      CHECK (status IN ('todo','in_progress','in_review','done')),
+                      CHECK (status IN ('todo','in_progress','in_review','done','archived')),
     executor_provider TEXT NOT NULL DEFAULT 'claude'
                       CHECK (executor_provider IN ('claude','codex','opencode','qoder')),
     executor_model    TEXT,
