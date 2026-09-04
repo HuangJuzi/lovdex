@@ -120,7 +120,6 @@ export function TaskFilterBar({ projectOptions, filter, onChange }: TaskFilterBa
             <Pill
               isActive={filter.showArchived}
               onClick={() => onChange({ ...filter, showArchived: !filter.showArchived })}
-              title="显示已归档任务"
             >
               显示归档
             </Pill>
