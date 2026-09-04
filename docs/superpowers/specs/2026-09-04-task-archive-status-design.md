@@ -1,7 +1,7 @@
 # 任务归档状态（Task Archive Status）设计
 
 日期：2026-09-04
-状态：已确认（方案 A + 纯用户动作 + 看板隐藏筛选可查 + 可取消归档）
+状态：已实现（feat/task-archive-status 分支 d6ab14a，待合入 main）
 
 ## 背景与目标
 
