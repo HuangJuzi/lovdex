@@ -202,6 +202,18 @@ test('startExecution links a session and returns its id', () => {
   assert.deepEqual(calls.linkSession, [{ taskId: 't1', sessionId: 'session-claude-/p' }]);
 });
 
+test('startExecution on an archived task is rejected', () => {
+  const { db, calls } = makeDbStub();
+  const svc = createTasksService(db, { broadcast: () => {} });
+  svc.applyStatusChange('t1', 'done', 'user');
+  svc.applyStatusChange('t1', 'archived', 'user');
+  assert.throws(
+    () => svc.startExecution('t1', () => 'new-sess'),
+    /archived/i,
+  );
+  assert.deepEqual(calls.linkSession, []);
+});
+
 test('getTaskBySessionId returns the decorated task for a linked session', () => {
   const row: StoredTask = {
     task_id: 't1', project_path: '/p', title: 't', description: null,

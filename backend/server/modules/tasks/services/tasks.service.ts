@@ -500,6 +500,9 @@ export function createTasksService(
     ): { sessionId: string } | null {
       const row = resolveDb.getTask(taskId);
       if (!row) return null;
+      if (row.status === 'archived') {
+        throw new AppError('an archived task cannot start execution; unarchive it first', { code: 'INVALID_STATUS', statusCode: 400 });
+      }
       const sessionId = createSession(row.executor_provider, row.project_path, Boolean(row.is_operator));
       // 用任务标题给新执行会话命名，侧边栏一眼看出这个会话属于哪个任务。
       // 新 app 会话 custom_name 为 NULL；claude/codex 同步器会保留非占位符的 custom_name。
