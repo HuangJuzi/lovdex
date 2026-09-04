@@ -435,6 +435,15 @@ test('migrateTasksTable rebuilds to accept archived status, preserving rows', as
 });
 
 test('migrateTasksTable archived gate rebuilds a pre-archive-schema DB (and is idempotent)', async () => {
+  // Guard the fixture derivation: PRE_ARCHIVE_TASKS_DDL strips 'archived' out of
+  // TASKS_TABLE_SCHEMA_SQL via the ",'archived'" anchor, which only matches while
+  // 'archived' sits comma-joined in the generated STATUS_CHECK. If TASK_STATUSES
+  // ordering ever drifts (e.g. 'archived' becomes the leading entry), the replace
+  // silently no-ops and this test would pass without ever reaching the archived
+  // rebuild gate below. Fail loudly instead of false-green.
+  assert.ok(TASKS_TABLE_SCHEMA_SQL.includes("'archived'"), 'TASKS_TABLE_SCHEMA_SQL must contain the archived status');
+  assert.ok(!PRE_ARCHIVE_TASKS_DDL.includes("'archived'"), 'PRE_ARCHIVE_TASKS_DDL must have archived stripped out');
+
   const previousDatabasePath = process.env.DATABASE_PATH;
   const tempDirectory = await mkdtemp(path.join(tmpdir(), 'migrate-tasks-archive-gate-'));
   const databasePath = path.join(tempDirectory, 'auth.db');
