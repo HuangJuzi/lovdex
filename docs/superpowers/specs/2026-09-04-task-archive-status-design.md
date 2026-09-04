@@ -59,7 +59,9 @@
   - 其余行为不变（`in_progress → done` 照常写完成时间；`done → todo` 照常清空）。
 - `createTask` 拒绝 `status === 'archived'`（任务从 todo 起步，创建即归档无意义）。
 
-### 2. 归档 / 取消归档（`tasks.service.ts`）
+### 2. 归档 / 取消归档与项目下会话隐藏（`tasks.service.ts`）
+
+**归档的首要效果就是「项目下不再显示该 session」**（用户的原始诉求）。原理：任务归档时把关联会话的 `sessions.isArchived` 置 1；项目侧会话列表的所有查询路径早已以 `isArchived = 0` 过滤，因此该会话自动从项目下消失，**后端列表查询零改动**。同一会话在侧边栏「归档会话」视图仍可见（可恢复），不丢数据。
 
 **归档**（`applyStatusChange(taskId, 'archived', 'user')`）：
 1. 校验当前 `status === 'done'`，否则 400 `INVALID_STATUS`（前置：只有完成可归档）；
@@ -121,6 +123,7 @@
   - 迁移测试：新 DB 建表含 archived；旧 DB（4 状态）升级后 CHECK 接受 archived。
   - `tasks.service.status.test.ts`：
     - `done → archived` 合法 + 会话 isArchived 置 1 + sub_status 清空；
+    - **集成**：归档后 `sessionsDb.getSessionsByProjectPath(projectPath)` / `getSessionsByProjectPathPage` 不再返回该 session；取消归档后重新返回；
     - `archived → done` 合法 + 会话 isArchived 置 0 + completed_at 不变；
     - `todo → archived`、`archived → in_progress` 拒绝；
     - engine actor 目标 archived 拒绝；
