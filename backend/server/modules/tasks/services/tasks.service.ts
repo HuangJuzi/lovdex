@@ -203,6 +203,20 @@ export function createTasksService(
     }
     const row = resolveDb.getTask(taskId);
     if (!row) return null;
+    // archived 是纯用户动作：只有 done 能进、只有 archived 能出（回到 done），
+    // 引擎永不写入 archived（double guard）。
+    if (status === 'archived') {
+      if (actor !== 'user') {
+        throw new AppError('only a user can archive a task', { code: 'INVALID_STATUS', statusCode: 400 });
+      }
+      if (row.status !== 'done') {
+        throw new AppError(`only completed tasks can be archived (current: ${row.status})`, { code: 'INVALID_STATUS', statusCode: 400 });
+      }
+    } else if (row.status === 'archived') {
+      if (status !== 'done') {
+        throw new AppError(`an archived task can only return to done (target: ${status})`, { code: 'INVALID_STATUS', statusCode: 400 });
+      }
+    }
     const changed = row.status !== status;
     resolveDb.updateTaskStatus(taskId, status);
     // A manual status change re-positions the task, so a sub_status tag from the
@@ -211,6 +225,17 @@ export function createTasksService(
     // running/completed/aborted clear it; writeSummary writes the verdict tag).
     if (changed && actor === 'user') {
       resolveDb.updateTaskSubStatus(taskId, null);
+    }
+    // 归档副作用：隐藏 / 恢复关联会话，使「项目下不再显示该 session」成立
+    // （项目侧列表查询都以 isArchived = 0 过滤，零改动）。无会话时静默跳过。
+    const sessionDb = opts.deps?.sessionsDb ?? sessionsDb;
+    if (changed && row.session_id) {
+      try {
+        sessionDb.updateSessionIsArchived(row.session_id, status === 'archived');
+      } catch (err) {
+        // 会话可能已被硬删（悬空外键）；任务状态仍生效，不阻断。
+        console.warn('[tasks] session archive side-effect skipped', { taskId, sessionId: row.session_id, err });
+      }
     }
     const updated = resolveDb.getTask(taskId) ?? row;
     emit({ kind: 'task_upserted', task: updated, actor });
@@ -225,6 +250,9 @@ export function createTasksService(
       const provider = input.executorProvider ?? 'claude';
       if (!isTaskStatus(status)) {
         throw new AppError(`invalid status: ${String(status)}`, { code: 'INVALID_STATUS', statusCode: 400 });
+      }
+      if (status === 'archived') {
+        throw new AppError('a task cannot be created as archived', { code: 'INVALID_STATUS', statusCode: 400 });
       }
       if (!isTaskEngine(provider)) {
         throw new AppError(`invalid executor_provider: ${String(provider)}`, { code: 'INVALID_EXECUTOR', statusCode: 400 });
@@ -424,6 +452,9 @@ export function createTasksService(
     moveTask(taskId: string, status: TaskStatus, beforeId: string | null, afterId: string | null): TaskRow | null {
       if (!isTaskStatus(status)) {
         throw new AppError(`invalid status: ${String(status)}`, { code: 'INVALID_STATUS', statusCode: 400 });
+      }
+      if (status === 'archived') {
+        throw new AppError('use archive action, not move, to archive a task', { code: 'INVALID_STATUS', statusCode: 400 });
       }
       const current = resolveDb.getTask(taskId);
       if (!current) return null;

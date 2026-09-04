@@ -7,6 +7,7 @@ import test from 'node:test';
 import { closeConnection, getConnection } from '@/modules/database/connection.js';
 import { initializeDatabase } from '@/modules/database/init-db.js';
 import { projectsDb } from '@/modules/database/repositories/projects.db.js';
+import { sessionsDb } from '@/modules/database/repositories/sessions.db.js';
 import { tasksDb } from '@/modules/database/repositories/tasks.db.js';
 import { createTasksService, type TaskBroadcast } from '../services/tasks.service.js';
 
@@ -273,5 +274,74 @@ test('updateTaskStatus: done→archived keeps completed_at; archived→done keep
     assert.equal(tasksDb.getTask(created.task_id)!.completed_at, completed);
     tasksDb.updateTaskStatus(created.task_id, 'done');
     assert.equal(tasksDb.getTask(created.task_id)!.completed_at, completed);
+  });
+});
+
+test('archive: only from done; toggles linked session isArchived + clears sub_status', async () => {
+  await withIsolatedDatabase(() => {
+    projectsDb.createProjectPath('/tmp/example-repo');
+    // 真实 session 行（session_id = 's1'），否则 isArchived 断言拿不到行
+    sessionsDb.createSession('s1', 'claude', '/tmp/example-repo');
+    const created = tasksDb.createTask({ projectPath: '/tmp/example-repo', title: 't', executorProvider: 'claude' });
+    tasksDb.linkSession(created.task_id, 's1');
+    const svc = makeService();
+    svc.applyStatusChange(created.task_id, 'done', 'user');
+    assert.equal(svc.getTask(created.task_id)?.status, 'done');
+
+    svc.applyStatusChange(created.task_id, 'archived', 'user');
+    const row = svc.getTask(created.task_id);
+    assert.equal(row?.status, 'archived');
+    assert.equal(row?.sub_status, null);
+    assert.equal(sessionsDb.getSessionById('s1')?.isArchived, 1);
+
+    // 取消归档
+    svc.applyStatusChange(created.task_id, 'done', 'user');
+    assert.equal(svc.getTask(created.task_id)?.status, 'done');
+    assert.equal(sessionsDb.getSessionById('s1')?.isArchived, 0);
+  });
+});
+
+test('archive: rejects non-done source and disallows other transitions out', async () => {
+  await withIsolatedDatabase(() => {
+    const id = seedTask();
+    const svc = makeService();
+    // todo 直接归档被拒
+    assert.throws(() => svc.applyStatusChange(id, 'archived', 'user'), /invalid|archive/i);
+    svc.applyStatusChange(id, 'done', 'user');
+    assert.equal(svc.getTask(id)?.status, 'done');
+    // archived 只能回 done
+    svc.applyStatusChange(id, 'archived', 'user');
+    assert.throws(() => svc.applyStatusChange(id, 'in_progress', 'user'), /invalid|archive/i);
+    assert.throws(() => svc.applyStatusChange(id, 'todo', 'user'), /invalid|archive/i);
+  });
+});
+
+test('archive: engine actor can never set archived', async () => {
+  await withIsolatedDatabase(() => {
+    const id = seedTask();
+    const svc = makeService();
+    svc.applyStatusChange(id, 'done', 'user');
+    assert.throws(() => svc.applyStatusChange(id, 'archived', 'engine'), /invalid|archive/i);
+  });
+});
+
+test('archive: no linked session is tolerated (task-only archive)', async () => {
+  await withIsolatedDatabase(() => {
+    projectsDb.createProjectPath('/tmp/example-repo');
+    const created = tasksDb.createTask({ projectPath: '/tmp/example-repo', title: 't', executorProvider: 'claude', status: 'done' });
+    const svc = makeService();
+    assert.doesNotThrow(() => svc.applyStatusChange(created.task_id, 'archived', 'user'));
+    assert.equal(svc.getTask(created.task_id)?.status, 'archived');
+  });
+});
+
+test('createTask rejects status=archived', async () => {
+  await withIsolatedDatabase(() => {
+    projectsDb.createProjectPath('/tmp/example-repo');
+    const svc = makeService();
+    assert.throws(
+      () => svc.createTask({ projectPath: '/tmp/example-repo', title: 't', executorProvider: 'claude', status: 'archived' }),
+      /invalid|archive/i,
+    );
   });
 });
