@@ -657,6 +657,13 @@ export function createTasksService(
       if (resolveDb.getTask(taskId)?.status === 'done') {
         return resolveDb.getTask(taskId);
       }
+      // An archived task is terminal: a late AI verdict must not stamp it.
+      // (归档即终态，AI verdict 不写 archived 行——否则 ai_summary/verdict_* 会
+      // 落到已归档任务上、下次取消归档后重新浮出，违反不变量。)
+      if (resolveDb.getTask(taskId)?.status === 'archived') {
+        const current = resolveDb.getTask(taskId);
+        return current ? decorate(current) : null;
+      }
       // A verdict that lands while the task is still in_progress is stale: the
       // task resumed (the user answered an AskUserQuestion and a fresh run
       // started) or never settled to in_review. Writing a failed/only_plan tag

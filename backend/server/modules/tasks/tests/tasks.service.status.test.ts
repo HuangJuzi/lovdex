@@ -362,3 +362,22 @@ test('archive: engine running event on an archived task is ignored (no zombie ru
     assert.equal(svc.getTask(id)?.status, 'archived');
   });
 });
+
+test('writeSummary does not stamp a late AI verdict on an archived task', async () => {
+  await withIsolatedDatabase(() => {
+    const id = seedTask();
+    const svc = makeService();
+    svc.applyStatusChange(id, 'done', 'user');
+    svc.applyStatusChange(id, 'archived', 'user');
+    // 归档是终态：迟到的 AI verdict 不写 archived 行的 audit 字段，也不抛错
+    assert.doesNotThrow(() => svc.writeSummary(id, { summary: 'late', verdict: 'done', reason: 'stale' }));
+    assert.equal(tasksDb.getTask(id)?.ai_summary, null);
+    assert.equal(tasksDb.getTask(id)?.verdict_reason, null);
+    assert.equal(tasksDb.getTask(id)?.sub_status, null);
+    assert.equal(svc.getTask(id)?.status, 'archived');
+    // 取消归档后仍无残留 verdict（从未被写）
+    svc.applyStatusChange(id, 'done', 'user');
+    assert.equal(svc.getTask(id)?.status, 'done');
+    assert.equal(tasksDb.getTask(id)?.ai_summary, null);
+  });
+});
