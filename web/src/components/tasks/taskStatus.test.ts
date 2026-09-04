@@ -26,8 +26,8 @@ function mkTask(task_id: string, status: Task['status']): Task {
   };
 }
 
-test('STATUS_ORDER is the unified 4', () => {
-  assert.deepEqual(STATUS_ORDER, ['todo', 'in_progress', 'in_review', 'done']);
+test('STATUS_ORDER is the unified 5, archived last', () => {
+  assert.deepEqual(STATUS_ORDER, ['todo', 'in_progress', 'in_review', 'done', 'archived']);
 });
 
 test('STATUS_META covers every status', () => {
@@ -49,6 +49,11 @@ test('groupByStatus buckets into 4 columns', () => {
   const g = groupByStatus(tasks);
   assert.equal(g['todo'].length, 1);
   assert.equal(g['done'].length, 1);
+});
+test('groupByStatus buckets archived tasks separately', () => {
+  const tasks = [mkTask('e', 'archived')];
+  const g = groupByStatus(tasks);
+  assert.equal(g['archived'].length, 1);
 });
 test('PRIORITY_META covers all priorities', () => {
   assert.deepEqual(PRIORITY_ORDER, ['P0', 'P1', 'P2', 'P3']);

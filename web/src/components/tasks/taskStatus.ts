@@ -2,13 +2,14 @@ import type { SubStatus, Task, TaskEngine, TaskPriority, TaskLabel, TaskStatus }
 
 import { taskTimeLabel } from './taskTimestamp';
 
-export const STATUS_ORDER: TaskStatus[] = ['todo', 'in_progress', 'in_review', 'done'];
+export const STATUS_ORDER: TaskStatus[] = ['todo', 'in_progress', 'in_review', 'done', 'archived'];
 
 export const STATUS_META: Record<TaskStatus, { label: string; color: string }> = {
   todo: { label: '待办', color: '#fbbf24' },
   in_progress: { label: '进行中', color: '#60a5fa' },
   in_review: { label: '评审', color: '#a78bfa' },
   done: { label: '完成', color: '#34d399' },
+  archived: { label: '已归档', color: '#9ca3af' },
 };
 
 export const SUB_STATUS_ORDER: SubStatus[] = [

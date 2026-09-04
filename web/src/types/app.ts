@@ -80,7 +80,7 @@ export interface Project {
   [key: string]: unknown;
 }
 
-export type TaskStatus = 'todo' | 'in_progress' | 'in_review' | 'done';
+export type TaskStatus = 'todo' | 'in_progress' | 'in_review' | 'done' | 'archived';
 export type SubStatus =
   | 'running'
   | 'failed'
