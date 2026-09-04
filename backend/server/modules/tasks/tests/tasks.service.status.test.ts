@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { closeConnection } from '@/modules/database/connection.js';
+import { closeConnection, getConnection } from '@/modules/database/connection.js';
 import { initializeDatabase } from '@/modules/database/init-db.js';
 import { projectsDb } from '@/modules/database/repositories/projects.db.js';
 import { tasksDb } from '@/modules/database/repositories/tasks.db.js';
@@ -264,6 +264,9 @@ test('updateTaskStatus: done→archived keeps completed_at; archived→done keep
   await withIsolatedDatabase(() => {
     projectsDb.createProjectPath('/tmp/example-repo');
     const created = tasksDb.createTask({ projectPath: '/tmp/example-repo', title: 't', executorProvider: 'claude', status: 'done' });
+    // 钉到固定过去值：CURRENT_TIMESTAMP 只有秒级分辨率，create→archive→unarchive
+    // 会在同一秒内发生，restamp 回归会被归一化后相等的字符串掩盖（假绿）。
+    getConnection().prepare("UPDATE tasks SET completed_at = '2020-01-01 00:00:00' WHERE task_id = ?").run(created.task_id);
     const completed = tasksDb.getTask(created.task_id)!.completed_at;
     assert.ok(completed, 'done task has completed_at');
     tasksDb.updateTaskStatus(created.task_id, 'archived');

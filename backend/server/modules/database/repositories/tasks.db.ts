@@ -37,6 +37,8 @@ function normalizeTimestamp(value?: string): string | null {
  * - entering in_progress  → started_at = now (refreshed on every re-run)
  * - entering done         → completed_at = now
  * - leaving done          → completed_at = NULL (task reopened, completion invalidated)
+ * - done↔archived         → completed_at untouched (archiving is not reopening,
+ *                          unarchiving is not completing)
  */
 function statusTimestampSets(from: TaskStatus, to: TaskStatus): string[] {
   // A same-status move (drag-reorder within a column) is not a transition —
@@ -44,9 +46,10 @@ function statusTimestampSets(from: TaskStatus, to: TaskStatus): string[] {
   if (from === to) return [];
   const sets: string[] = [];
   if (to === 'in_progress') sets.push('started_at = CURRENT_TIMESTAMP');
-  // Archiving is not "completing now" (keep the real completion time), and
-  // unarchiving is not "reopening" (keep it too). Only a genuine done entry
-  // stamps completed_at.
+  // Archiving is not "reopening" the task — keep the completion time recorded
+  // when it was actually done (a stale completed_at must not be NULLed).
+  // Unarchiving is not "completing it now" — the task was already done; don't
+  // re-stamp completed_at to the moment of unarchive.
   if (to === 'done' && from !== 'archived') sets.push('completed_at = CURRENT_TIMESTAMP');
   if (to !== 'done' && to !== 'archived' && from === 'done') sets.push('completed_at = NULL');
   return sets;
