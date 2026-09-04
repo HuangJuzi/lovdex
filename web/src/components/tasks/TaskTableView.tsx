@@ -28,6 +28,7 @@ const COLUMNS: { key?: TaskSortKey; label: string; alignRight?: boolean }[] = [
 type TaskTableViewProps = {
   tasks: Task[];
   projectOptions: TaskProjectOption[];
+  showArchived?: boolean;
   onStart?: (task: Task) => void;
   onStatusChange?: (task: Task, status: TaskStatus) => void;
   onOpenSession?: (task: Task) => void;
@@ -75,6 +76,7 @@ function ActionBtn({
 export function TaskTableView({
   tasks,
   projectOptions,
+  showArchived = false,
   onStart,
   onStatusChange,
   onOpenSession,
@@ -89,6 +91,12 @@ export function TaskTableView({
   const [sortDir, setSortDir] = useLocalStorage<TaskSortDir>('taskTableSortDir', 'desc');
   const [statusFilter, setStatusFilter] = useLocalStorage<TaskStatus[]>('taskTableStatusFilter', [...STATUS_ORDER]);
   const groups = useMemo(() => groupByStatus(tasks), [tasks]);
+  // 与看板列语义对齐：archived 默认被共享筛选（showArchived=false）排除，pills
+  // 里再显示一个恒为 0 的「已归档」是误导；打开「显示归档」后该状态才出现。
+  const statusesToRender = useMemo(
+    () => STATUS_ORDER.filter((s) => s !== 'archived' || showArchived),
+    [showArchived],
+  );
   const now = new Date();
 
   const toggleSort = (key: TaskSortKey) => {
@@ -110,7 +118,7 @@ export function TaskTableView({
     );
   }
 
-  const visibleStatuses = STATUS_ORDER.filter((s) => statusFilter.includes(s));
+  const visibleStatuses = statusesToRender.filter((s) => statusFilter.includes(s));
   const hasVisibleRows = visibleStatuses.some((s) => groups[s].length > 0);
 
   return (
@@ -122,12 +130,12 @@ export function TaskTableView({
       >
         <PillBar>
           <Pill
-            isActive={statusFilter.length === STATUS_ORDER.length}
-            onClick={() => setStatusFilter([...STATUS_ORDER])}
+            isActive={statusesToRender.every((s) => statusFilter.includes(s))}
+            onClick={() => setStatusFilter([...statusesToRender])}
           >
             全部
           </Pill>
-          {STATUS_ORDER.map((status) => (
+          {statusesToRender.map((status) => (
             <Pill
               key={status}
               isActive={statusFilter.includes(status)}

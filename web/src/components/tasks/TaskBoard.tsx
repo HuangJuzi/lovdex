@@ -703,6 +703,7 @@ export function TaskBoardPage() {
             <TaskTableView
               tasks={filteredTasks}
               projectOptions={projectOptions}
+              showArchived={filter.showArchived}
               onStart={runTask}
               onStatusChange={(task, status) => updateStatus(task, status)}
               onOpenSession={(task) => task.session_id && navigate(`/session/${task.session_id}`)}

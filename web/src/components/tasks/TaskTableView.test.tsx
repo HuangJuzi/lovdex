@@ -79,6 +79,34 @@ test('table renders exactly one open-session button for in_progress with only_pl
   assert.equal((html.match(/打开会话/g) || []).length, 1);
 });
 
+// 「已归档」pill 与看板列语义对齐：showArchived=false（默认）时归档任务被共享筛选
+// 排除，pill 永显 0 是误导；仅在开开关（showArchived=true）时才渲染该状态的行与计数。
+test('table hides 已归档 pill when showArchived is off', () => {
+  const html = renderToStaticMarkup(
+    React.createElement(TaskTableView, {
+      tasks: [mkTask({ task_id: 'a1', status: 'archived' })],
+      projectOptions: [],
+    }),
+  );
+  assert.doesNotMatch(html, /已归档/);
+});
+
+test('table shows 已归档 pill with real row when showArchived is on', () => {
+  const html = renderToStaticMarkup(
+    React.createElement(TaskTableView, {
+      tasks: [
+        mkTask({ task_id: 'a1', status: 'archived' }),
+        mkTask({ task_id: 'd1', status: 'done' }),
+      ],
+      projectOptions: [],
+      showArchived: true,
+    }),
+  );
+  assert.match(html, /已归档/);
+  // archived 任务行也出现在表格分组里（不是只有 pill 文案）
+  assert.match(html, /测试任务/);
+});
+
 test('table shows 会话被清理 instead of a dead 打开会话 for a cleaned session', () => {
   const html = renderToStaticMarkup(
     React.createElement(TaskTableView, {
