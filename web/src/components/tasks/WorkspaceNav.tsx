@@ -15,6 +15,8 @@ type WorkspaceNavProps = {
   onSelectTab?: (tab: WorkspaceTab) => void;
   /** 任务模式：点击 Chat/Files/源码管理 跳转到的任务关联项目路径。 */
   projectPath?: string;
+  /** git tab 的动态文案：有 repo 显示当前分支名，非 git 项目显示「非 Git 项目」。缺省回退「Source Control」。 */
+  gitTabLabel?: string;
   /** 选填：跟在 tabs 后面的右侧操作区（如「转为任务/任务详情」），由调用方控制条件渲染。 */
   children?: ReactNode;
   className?: string;
@@ -31,6 +33,7 @@ export function WorkspaceNav({
   activeTab,
   onSelectTab,
   projectPath,
+  gitTabLabel,
   children,
   className,
 }: WorkspaceNavProps) {
@@ -39,7 +42,7 @@ export function WorkspaceNav({
   const tabItems: { value: WorkspaceTab; label: string; icon: LucideIcon; iconClass: string }[] = [
     { value: 'chat', label: 'Chat', icon: MessageSquare, iconClass: 'text-sky-500' },
     { value: 'files', label: 'Files', icon: FolderOpen, iconClass: 'text-emerald-500' },
-    { value: 'git', label: 'Source Control', icon: GitBranch, iconClass: 'text-violet-500' },
+    { value: 'git', label: gitTabLabel ?? 'Source Control', icon: GitBranch, iconClass: 'text-violet-500' },
   ];
 
   const handleTab = (tab: WorkspaceTab) => {
@@ -88,8 +91,9 @@ export function WorkspaceNav({
             )}
           >
             <Icon className={cn('h-3.5 w-3.5 flex-shrink-0', isActive ? 'text-primary' : iconClass)} />
-            {/* 移动端（<640px）只留图标；断点与 Task 页 isMobile(640) 对齐。 */}
-            <span className="hidden sm:inline">{label}</span>
+            {/* 移动端（<640px）只留图标；断点与 Task 页 isMobile(640) 对齐。
+                分支名可能很长，桌面端加 max-w + truncate 防止撑破导航栏。 */}
+            <span className="hidden max-w-[10rem] truncate sm:inline">{label}</span>
           </button>
         );
       })}

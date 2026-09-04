@@ -21,6 +21,7 @@ import { useEditorSidebar } from '../../code-editor/hooks/useEditorSidebar';
 import EditorSidebar from '../../code-editor/view/EditorSidebar';
 import FileTree from '../../file-tree/view/FileTree';
 import GitPanel from '../../git-panel/view/GitPanel';
+import { useCurrentBranch } from '../../git-panel/hooks/useCurrentBranch';
 
 // Simplified edition: chat, files and git tabs remain. Shell, task-master,
 // browser-use and plugin panels were removed.
@@ -97,6 +98,15 @@ function MainContent({
     setPreview({ filePath });
   });
 
+  // Lightweight probe so the Source Control tab can show the checked-out branch
+  // (or a "not a git repository" hint) without mounting the full GitPanel.
+  const { branch: currentBranch, notGitRepository } = useCurrentBranch(selectedProject);
+  const gitTabLabel = selectedProject
+    ? notGitRepository
+      ? '非 Git 项目'
+      : currentBranch || undefined
+    : undefined;
+
   return (
     <div className="flex h-full flex-col">
       <header className="pwa-header-safe flex flex-shrink-0 items-center gap-2 border-b border-border/60 bg-background px-3 py-1.5 sm:px-4 sm:py-2">
@@ -112,6 +122,7 @@ function MainContent({
         <WorkspaceNav
           activeTab={activeTab}
           onSelectTab={(tab) => setActiveTab(tab)}
+          gitTabLabel={gitTabLabel}
           className="ml-auto flex-shrink-0"
         >
           {selectedProject && selectedSession && !linkedTask && (
