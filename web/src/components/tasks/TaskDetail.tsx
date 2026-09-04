@@ -514,14 +514,14 @@ export function TaskDetailPage() {
                   打开会话
                 </button>
               )
-            ) : (
+            ) : task.status !== 'archived' ? (
               <button
                 className="w-full rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90 sm:px-6 shadow-[0_2px_0_#1c3fa8]"
                 onClick={() => void startExecution()}
               >
                 ▶ 开始执行
               </button>
-            )}
+            ) : null}
             <div className="flex w-full gap-2 sm:gap-3">
               {task.status !== 'done' && task.status !== 'archived' && (
                 <button
@@ -667,6 +667,11 @@ export function TaskDetailPage() {
                         {STATUS_META[s].label}
                       </option>
                     ))}
+                    {task.status === 'archived' && (
+                      <option value="archived" disabled>
+                        {STATUS_META.archived.label}
+                      </option>
+                    )}
                   </select>
                 </div>
                 <div className="flex items-center gap-3">
