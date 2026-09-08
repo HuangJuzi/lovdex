@@ -89,11 +89,23 @@ function expandHome(p: string): string {
 }
 
 /**
+ * Expands `~` and lexically resolves a user-supplied path WITHOUT following
+ * symlinks. This is the DISPLAY/round-trip form: `fs/list` and `fs/tree`
+ * return it (and build node paths from it) so the UI keeps the path the user
+ * actually chose — a symlinked project root must not silently turn into its
+ * realpath target in the sidebar, wizard, terminal and file-open calls.
+ */
+function resolveDisplayPath(input: string): string {
+  return path.resolve(expandHome(input));
+}
+
+/**
  * Resolves a user-supplied path to a canonical absolute path: `~` expansion,
  * lexical resolve, then realpath of the nearest existing ancestor (targets may
  * not exist yet). Mirrors main's `resolveRealPath` in
  * `server/modules/operators/operator-exec.service.ts` — this is the
- * symlink/traversal guard.
+ * symlink/traversal guard used ONLY for the allowlist check, never for the
+ * paths echoed back to the client.
  */
 function resolveRealPath(input: string): string {
   let resolved = path.resolve(expandHome(input));
@@ -119,17 +131,25 @@ function resolveRealPath(input: string): string {
 /**
  * Resolve `input` and assert it lands inside `root`. The root is itself
  * realpath'd so that a symlinked root (e.g. macOS /tmp) still matches. Throws
- * `path outside allowed root` on any escape.
+ * `path outside allowed root` on any escape. Returns the DISPLAY path (lexical,
+ * symlink-preserving) on success — the security decision always uses the
+ * realpath form, but callers echo the lexical form back to the client.
  */
 function resolveWithin(input: string, root: string): string {
   const resolvedRoot = resolveRealPath(root);
   const resolved = resolveRealPath(input);
   const rel = path.relative(resolvedRoot, resolved);
-  if (rel === '' ) return resolved; // the root itself
   if (rel.startsWith('..') || path.isAbsolute(rel)) {
     throw new Error('path outside allowed root');
   }
-  return resolved;
+  // The input is inside the root. Echo the lexical (symlink-preserving) form,
+  // except when it IS the root itself resolved from a symlinked root — then
+  // the resolved root is the honest absolute path (e.g. '~' → /home/<user>).
+  const display = resolveDisplayPath(input);
+  if (path.relative(resolvedRoot, display).startsWith('..') || path.isAbsolute(path.relative(resolvedRoot, display))) {
+    return resolvedRoot;
+  }
+  return display;
 }
 
 /** Resolve within ANY of the configured roots; throw if it escapes all of them. */
@@ -332,7 +352,12 @@ export function createAllowlistedFs(opts: {
       const target = resolveWithinRoots(p, roots);
       for (const root of roots) {
         const resolvedRoot = resolveRealPath(root);
-        if (path.resolve(target) === resolvedRoot) throw new Error('cannot delete root');
+        // Compare BOTH forms: the lexical echo (symlinked roots keep their
+        // requested path) and the realpath target, so a symlinked root can
+        // never be deleted through either name.
+        if (path.resolve(target) === resolvedRoot || path.resolve(target) === path.resolve(root)) {
+          throw new Error('cannot delete root');
+        }
       }
       if (type === 'directory') await fsp.rm(target, { recursive: true, force: false });
       else await fsp.unlink(target);

@@ -131,6 +131,49 @@ test('whitelist: a symlinked directory inside root pointing outside rejects list
   await assert.rejects(api.list(link), /path outside allowed root/);
 });
 
+test('list: symlinked dir inside root keeps the requested path (not the realpath target)', async () => {
+  const root = await mkroot();
+  const realDir = path.join(root, 'realdir');
+  await fsp.mkdir(realDir);
+  await fsp.writeFile(path.join(realDir, 'file.txt'), 'x');
+  // The project root the user picked is a symlink to a real directory.
+  const linkRoot = path.join(root, 'linkroot');
+  await fsp.symlink(realDir, linkRoot);
+
+  const api = createAllowlistedFs({ roots: [root, linkRoot] });
+  const { path: listedPath } = await api.list(linkRoot);
+  // The UI round-trips this value (wizard staging, sidebar, file-open
+  // containment checks against the DB project path). Returning the realpath
+  // target here made symlinked remote projects display a different directory
+  // than the one the user chose.
+  assert.equal(listedPath, linkRoot);
+});
+
+test('list: a symlinked ROOT echoes the resolved root (e.g. "~" → /home/<user>)', async () => {
+  // Simulates the wizard's list('~'): the requested path sits OUTSIDE the
+  // lexical roots (roots are the realpath'd home) — the response must still be
+  // an absolute usable path, not the raw '~'.
+  const root = await mkroot();
+  const api = createAllowlistedFs({ roots: [root] });
+  const { path: listedPath } = await api.list(root);
+  assert.equal(listedPath, root);
+});
+
+test('tree: node paths are built from the requested path, not the realpath target', async () => {
+  const root = await mkroot();
+  const realDir = path.join(root, 'realdir');
+  await fsp.mkdir(realDir);
+  await fsp.writeFile(path.join(realDir, 'a.txt'), 'x');
+  const linkRoot = path.join(root, 'linkroot');
+  await fsp.symlink(realDir, linkRoot);
+
+  const api = createAllowlistedFs({ roots: [root, linkRoot] });
+  const { path: treePath, nodes } = await api.tree(linkRoot, 2, true);
+  assert.equal(treePath, linkRoot);
+  const byName = new Map(nodes.map((n) => [n.name, n]));
+  assert.equal(byName.get('a.txt')?.path, path.join(linkRoot, 'a.txt'));
+});
+
 // --- rpc-dispatch wiring ---
 
 test('handleRpc dispatches fs/stat, fs/list, fs/read to the allowlisted fs', async () => {

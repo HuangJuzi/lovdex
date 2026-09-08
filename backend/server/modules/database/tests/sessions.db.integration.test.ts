@@ -52,22 +52,27 @@ test('session archive queries hide archived rows from active project views', asy
   });
 });
 
-test('createSession reactivates archived rows when the session becomes active again', async () => {
+test('createSession preserves the archive flag when re-indexing an existing row', async () => {
   await withIsolatedDatabase(() => {
     sessionsDb.createSession('session-reused', 'claude', '/workspace/demo-project', 'First Name');
     sessionsDb.updateSessionIsArchived('session-reused', true);
 
+    // The provider synchronizers re-index a session on every transcript file
+    // event. Archiving a session (directly or via its task) must survive that
+    // re-index — otherwise the session resurrects into the active sidebar and
+    // the task board's 上下文来源 dropdown. Restore is an explicit user action
+    // (restoreSessionById), never a side effect of indexing.
     sessionsDb.createSession('session-reused', 'claude', '/workspace/demo-project', 'Updated Name');
 
     const activeSessions = sessionsDb.getAllSessions();
     const archivedSessions = sessionsDb.getArchivedSessions();
     const restoredSession = sessionsDb.getSessionById('session-reused');
 
-    assert.equal(activeSessions.length, 1);
-    assert.equal(activeSessions[0]?.session_id, 'session-reused');
-    assert.equal(activeSessions[0]?.custom_name, 'Updated Name');
-    assert.equal(archivedSessions.length, 0);
-    assert.equal(restoredSession?.isArchived, 0);
+    assert.equal(activeSessions.length, 0);
+    assert.deepEqual(archivedSessions.map((session) => session.session_id), ['session-reused']);
+    assert.equal(restoredSession?.isArchived, 1);
+    // Metadata still refreshes while archived.
+    assert.equal(restoredSession?.custom_name, 'Updated Name');
   });
 });
 

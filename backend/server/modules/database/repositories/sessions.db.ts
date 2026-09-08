@@ -68,6 +68,12 @@ export const sessionsDb = {
    * `provider_session_id` so a session that was first created by the app
    * (with an app-allocated `session_id`) is updated in place once its
    * transcript shows up on disk, instead of producing a duplicate row.
+   *
+   * A new row starts unarchived; re-indexing an existing row preserves its
+   * `isArchived` flag — otherwise a watcher event or rescan after the
+   * transcript changes would resurrect a soft-deleted session into the
+   * active sidebar and the task board's 上下文来源 dropdown. Unarchiving is
+   * the explicit `restoreSessionById` action.
    */
   createSession(
     providerSessionId: string,
@@ -97,13 +103,16 @@ export const sessionsDb = {
       .get(providerSessionId, provider) as { session_id: string } | undefined;
 
     if (existing) {
+      // Re-indexing (watcher event / rescan) must NOT resurrect a soft-deleted
+      // session: archiving a session — directly or by archiving its task — has
+      // to survive later transcript updates. Restore is an explicit user
+      // action (restoreSessionById), so only metadata is refreshed here.
       db.prepare(
         `UPDATE sessions SET
            provider = ?,
            updated_at = COALESCE(?, CURRENT_TIMESTAMP),
            project_path = ?,
            jsonl_path = ?,
-           isArchived = 0,
            custom_name = COALESCE(?, custom_name),
            summary = COALESCE(?, summary)
          WHERE session_id = ?`
@@ -122,7 +131,8 @@ export const sessionsDb = {
 
     // Sessions created outside the app (directly via the provider CLI) are
     // keyed by the provider-native id for both columns. The ON CONFLICT path
-    // covers legacy rows that predate the provider_session_id mapping.
+    // covers legacy rows that predate the provider_session_id mapping. As with
+    // the UPDATE branch above, re-indexing must not resurrect an archived row.
     db.prepare(
       `INSERT INTO sessions (session_id, provider, provider_session_id, custom_name, summary, project_path, jsonl_path, isArchived, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, 0, COALESCE(?, CURRENT_TIMESTAMP), COALESCE(?, CURRENT_TIMESTAMP))
@@ -132,7 +142,6 @@ export const sessionsDb = {
          updated_at = excluded.updated_at,
          project_path = excluded.project_path,
          jsonl_path = excluded.jsonl_path,
-         isArchived = 0,
          custom_name = COALESCE(excluded.custom_name, sessions.custom_name),
          summary = COALESCE(excluded.summary, sessions.summary)`
     ).run(
