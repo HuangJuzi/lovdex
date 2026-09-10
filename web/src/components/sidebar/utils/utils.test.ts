@@ -176,6 +176,17 @@ test('getRecentSessions sorts sessions without timestamps last', () => {
   assert.equal(out[1].session.id, 'a1');
 });
 
+test('getRecentSessions drops verdict sessions but keeps assistant chats', () => {
+  const verdict = { ...mkSession('v1', '2026-08-04T11:30:00Z'), is_verdict: 1 } as ProjectSession;
+  const assistant = mkSession('op1', '2026-08-04T10:00:00Z'); // is_verdict undefined → kept
+  const ws = mkProject('op-ws', 'operator-workspace', { sessions: [verdict, assistant] });
+  (ws as Project).isOperatorWorkspace = true;
+  const regular = mkProject('pA', 'A', { sessions: [mkSession('a1', '2026-08-04T11:00:00Z')] });
+
+  const out = getRecentSessions([regular, ws], 10);
+  assert.deepEqual(out.map((e) => e.session.id), ['a1', 'op1']);
+});
+
 test('formatCompactSessionAge renders compact relative time', () => {
   assert.equal(formatCompactSessionAge('2026-08-04T11:59:30Z', new Date('2026-08-04T12:00:00Z')), '<1m');
   assert.equal(formatCompactSessionAge('2026-08-04T11:55:00Z', new Date('2026-08-04T12:00:00Z')), '5m');

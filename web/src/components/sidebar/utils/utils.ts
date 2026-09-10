@@ -182,13 +182,15 @@ export type RecentSessionEntry = {
 
 /**
  * 跨项目打平会话，按最近活跃（lastActivity ?? createdAt）倒序，取前 limit 条。
- * 含助手（is_operator）会话——不排除 operator 工作区项目。
- * 每项目已加载 top-20 活跃会话，足以覆盖全局 top-10。
+ * 保留助手（is_operator）会话；排除 auto-verdict 会话（is_verdict=1，即「状态判断」
+ * 跑出的 headless 会话）。每项目已加载 top-20 活跃会话，足以覆盖全局 top-10。
  */
 export const getRecentSessions = (projects: Project[], limit = 10): RecentSessionEntry[] =>
   projects
     .flatMap((project) =>
-      (project.sessions ?? []).map((session) => ({ session, project })),
+      (project.sessions ?? [])
+        .filter((session) => session.is_verdict !== 1)
+        .map((session) => ({ session, project })),
     )
     .sort(
       (a, b) => getSessionDate(b.session).getTime() - getSessionDate(a.session).getTime(),
