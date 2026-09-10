@@ -806,6 +806,14 @@ export const runMigrations = (db: Database) => {
     addColumnToTableIfNotExists(db, 'sessions', sessionColumnNamesForSummary, 'is_operator', 'INTEGER DEFAULT 0');
     addColumnToTableIfNotExists(db, 'sessions', sessionColumnNamesForSummary, 'is_verdict', 'INTEGER DEFAULT 0');
 
+    // Backfill: headless auto-verdict sessions were indexed from disk before the
+    // is_verdict column existed, so they carry the default 0. Their summary is the
+    // verdict prompt ("你是 Lovdex Operator。判断任务 …"), deterministic for the
+    // operator headless run; is_operator = 0 excludes interactive Lovdex助手 chats.
+    db.prepare(
+      "UPDATE sessions SET is_verdict = 1 WHERE is_operator = 0 AND summary LIKE '你是 Lovdex Operator%'"
+    ).run();
+
     ensureProjectsForSessionPaths(db);
     migrateProjectsExplicitColumn(db);
     migrateRemoteHostsTable(db);
