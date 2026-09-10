@@ -72,3 +72,19 @@ test('non-explicit operator workspace is still listed and carries task sessions'
     assert.deepEqual(sessionIds, ['ws-assistant', 'ws-task']);
   });
 });
+
+test('session summaries carry is_verdict so the frontend can filter verdict sessions', async () => {
+  await withTempWorkspace(async (workspace) => {
+    projectsDb.createProjectPath(workspace);
+
+    sessionsDb.createAppSession('ws-assistant', 'claude', workspace, true);
+    sessionsDb.markSessionAsVerdict('ws-verdict', workspace);
+
+    const projects = await getProjectsWithSessions({ skipSynchronization: true });
+    const ws = projects.find((p) => p.fullPath === workspace);
+
+    const byId = new Map((ws?.sessions ?? []).map((s) => [s.id, s]));
+    assert.equal(byId.get('ws-verdict')?.is_verdict, 1);
+    assert.equal(byId.get('ws-assistant')?.is_verdict, 0);
+  });
+});

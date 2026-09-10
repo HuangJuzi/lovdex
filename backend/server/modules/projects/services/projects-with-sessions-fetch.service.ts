@@ -15,6 +15,7 @@ type SessionSummary = {
   custom_name: string | null;
   summary: string | null;
   messageCount: number;
+  is_verdict: number;
   lastActivity: string;
 };
 
@@ -23,6 +24,7 @@ type SessionRepositoryRow = {
   session_id: string;
   custom_name?: string | null;
   summary?: string | null;
+  is_verdict?: number;
   updated_at?: string | null;
   created_at?: string | null;
 };
@@ -140,6 +142,7 @@ function mapSessionRowToSummary(row: SessionRepositoryRow): SessionSummary {
     custom_name: row.custom_name ?? null,
     summary: row.summary ?? null,
     messageCount: 0,
+    is_verdict: row.is_verdict ?? 0,
     lastActivity: row.updated_at ?? row.created_at ?? new Date().toISOString(),
   };
 }
