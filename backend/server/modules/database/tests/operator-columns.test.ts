@@ -50,3 +50,11 @@ test('sessions table has is_operator', async () => {
     assert.ok(cols.map((c) => c.name).includes('is_operator'));
   });
 });
+
+test('sessions table has is_verdict', async () => {
+  await withIsolatedDatabase(() => {
+    const db = getConnection();
+    const cols = db.prepare('PRAGMA table_info(sessions)').all() as { name: string }[];
+    assert.ok(cols.map((c) => c.name).includes('is_verdict'));
+  });
+});

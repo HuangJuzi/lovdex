@@ -12,12 +12,13 @@ export type SessionRow = {
   summary: string | null;
   isArchived: number;
   is_operator: number;
+  is_verdict: number;
   created_at: string;
   updated_at: string;
 };
 
 const SESSION_ROW_COLUMNS =
-  'session_id, provider, provider_session_id, project_path, jsonl_path, custom_name, summary, isArchived, is_operator, created_at, updated_at';
+  'session_id, provider, provider_session_id, project_path, jsonl_path, custom_name, summary, isArchived, is_operator, is_verdict, created_at, updated_at';
 
 const SQLITE_UTC_TIMESTAMP_REGEX = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
 

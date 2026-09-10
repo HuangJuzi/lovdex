@@ -804,6 +804,7 @@ export const runMigrations = (db: Database) => {
     const sessionColumnNamesForSummary = sessionsTableInfoForSummary.map((column) => column.name);
     addColumnToTableIfNotExists(db, 'sessions', sessionColumnNamesForSummary, 'summary', 'TEXT');
     addColumnToTableIfNotExists(db, 'sessions', sessionColumnNamesForSummary, 'is_operator', 'INTEGER DEFAULT 0');
+    addColumnToTableIfNotExists(db, 'sessions', sessionColumnNamesForSummary, 'is_verdict', 'INTEGER DEFAULT 0');
 
     ensureProjectsForSessionPaths(db);
     migrateProjectsExplicitColumn(db);
