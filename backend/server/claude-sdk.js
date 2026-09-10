@@ -1262,6 +1262,7 @@ export function initOperatorHeadless(deps) {
  * @param {Function} [params.queryFn] - seam: inject a fake query() for tests
  * @param {object} [params.config]   - seam: inject operator config for tests
  * @param {object} [params.deps]     - seam: inject operator tool deps for tests
+ * @param {Function} [params.markVerdictSession] - seam: inject the verdict-session marker (defaults to sessionsDb.markSessionAsVerdict(sid, cfg.workspace)).
  */
 export async function runOperatorHeadless({ sessionId, taskId, title, promptOverride, queryFn, config, deps, markVerdictSession }) {
   const cfg = config ?? getOperatorConfig();
@@ -1377,15 +1378,12 @@ ${priorVerdictContext}
     for await (const message of queryInstance) {
       if (!capturedSessionId && message?.session_id) {
         capturedSessionId = message.session_id;
-      }
-    }
-
-    if (capturedSessionId) {
-      const mark = markVerdictSession ?? ((sid) => sessionsDb.markSessionAsVerdict(sid, cfg.workspace));
-      try {
-        mark(capturedSessionId);
-      } catch (e) {
-        console.error('[operator-headless] mark verdict session failed', e);
+        const mark = markVerdictSession ?? ((sid) => sessionsDb.markSessionAsVerdict(sid, cfg.workspace));
+        try {
+          mark(capturedSessionId);
+        } catch (e) {
+          console.error('[operator-headless] mark verdict session failed', e);
+        }
       }
     }
   } catch (e) {
