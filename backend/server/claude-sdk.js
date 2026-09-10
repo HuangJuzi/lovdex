@@ -36,6 +36,7 @@ import { buildOperatorTools, lastAssistantText } from './modules/operators/opera
 import { getOperatorConfig } from './modules/operators/operator.config.js';
 import { guardTaskRunToolInput, resolveWorkflowsEnabled } from './modules/operators/task-run-guard.js';
 import { isTaskStatus } from './modules/database/repositories/tasks.db.js';
+import { sessionsDb } from './modules/database/index.js';
 import { z } from 'zod';
 import { appConfig } from './modules/config/config.js';
 
@@ -1262,7 +1263,7 @@ export function initOperatorHeadless(deps) {
  * @param {object} [params.config]   - seam: inject operator config for tests
  * @param {object} [params.deps]     - seam: inject operator tool deps for tests
  */
-export async function runOperatorHeadless({ sessionId, taskId, title, promptOverride, queryFn, config, deps }) {
+export async function runOperatorHeadless({ sessionId, taskId, title, promptOverride, queryFn, config, deps, markVerdictSession }) {
   const cfg = config ?? getOperatorConfig();
   if (!cfg.enabled || !cfg.auto_verdict_enabled) return;
 
@@ -1372,8 +1373,20 @@ ${priorVerdictContext}
     // Drain the stream to completion. Headless = no ws: we deliberately do NOT
     // emit any websocket messages. We only care that write_task_summary was
     // invoked as a side effect of the agent running to completion.
-    for await (const _message of queryInstance) {
-      // intentionally empty — drain without emitting
+    let capturedSessionId = null;
+    for await (const message of queryInstance) {
+      if (!capturedSessionId && message?.session_id) {
+        capturedSessionId = message.session_id;
+      }
+    }
+
+    if (capturedSessionId) {
+      const mark = markVerdictSession ?? ((sid) => sessionsDb.markSessionAsVerdict(sid, cfg.workspace));
+      try {
+        mark(capturedSessionId);
+      } catch (e) {
+        console.error('[operator-headless] mark verdict session failed', e);
+      }
     }
   } catch (e) {
     // Per spec: 失败 try/catch 记日志，不抛. A headless verdict failure must

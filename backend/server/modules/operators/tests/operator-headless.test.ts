@@ -528,6 +528,48 @@ test('runOperatorHeadless still runs when the transcript has a final assistant o
   assert.equal(called, true, 'query was NOT called despite a readable transcript');
 });
 
+test('runOperatorHeadless marks the verdict session id captured from the stream', async () => {
+  let marked: string | null = null;
+  const queryFn = () => {
+    return (async function* () {
+      yield { session_id: 'verdict-123', type: 'system' };
+      yield { type: 'assistant', message: { content: [{ type: 'text', text: 'ok' }] } };
+    })();
+  };
+
+  await runOperatorHeadless({
+    sessionId: 'sess-123',
+    taskId: 'task-456',
+    title: 'x',
+    queryFn: queryFn as never,
+    deps: fakeDeps() as never,
+    config: fakeConfig(),
+    markVerdictSession: (sid: string) => {
+      marked = sid;
+    },
+  });
+
+  assert.equal(marked, 'verdict-123');
+});
+
+test('runOperatorHeadless does not mark when the stream has no session id', async () => {
+  let marked: string | null = null;
+
+  await runOperatorHeadless({
+    sessionId: 'sess-123',
+    taskId: 'task-456',
+    title: 'x',
+    queryFn: () => emptyIterable(),
+    deps: fakeDeps() as never,
+    config: fakeConfig(),
+    markVerdictSession: (sid: string) => {
+      marked = sid;
+    },
+  });
+
+  assert.equal(marked, null);
+});
+
 test('default verdict prompt reserves needs_review for unfinished verification / uncommitted code / user acceptance', async () => {
   // Regression: the "polite question → done" escape hatch was over-applied, so
   // unverified work ("要不要我跑验证？"), uncommitted code, and pending user
