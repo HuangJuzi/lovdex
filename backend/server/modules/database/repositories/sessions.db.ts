@@ -192,6 +192,27 @@ export const sessionsDb = {
   },
 
   /**
+   * Marks a headless auto-verdict session so the sidebar「最近任务」list can
+   * exclude it. A verdict run is a fresh SDK session minted inside the
+   * operator workspace (is_operator=0, is_verdict=1), distinct from interactive
+   * Lovdex助手 chats (is_operator=1). Upserts so the mark is correct whether it
+   * lands before or after the synchronizer indexes the transcript; createSession's
+   * re-index branch never touches is_verdict, so the flag survives later rescans.
+   */
+  markSessionAsVerdict(sessionId: string, projectPath: string, provider = 'claude'): void {
+    const db = getConnection();
+    const normalizedProjectPath = normalizeProjectPathForProvider(provider, projectPath);
+
+    projectsDb.createProjectPath(normalizedProjectPath);
+
+    db.prepare(
+      `INSERT INTO sessions (session_id, provider, provider_session_id, custom_name, summary, project_path, jsonl_path, isArchived, is_operator, is_verdict, created_at, updated_at)
+       VALUES (?, ?, ?, NULL, NULL, ?, NULL, 0, 0, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+       ON CONFLICT(session_id) DO UPDATE SET is_verdict = 1`
+    ).run(sessionId, provider, sessionId, normalizedProjectPath);
+  },
+
+  /**
    * Records the provider-native session id for one app-allocated session.
    *
    * If the filesystem watcher indexed the provider transcript before this

@@ -119,3 +119,41 @@ test('getNonOperatorSessionsByProjectPath returns only is_operator=0 rows for th
     assert.deepEqual(ids, ['op-1']);
   });
 });
+
+test('markSessionAsVerdict creates a verdict row when none exists', async () => {
+  await withIsolatedDatabase(() => {
+    sessionsDb.markSessionAsVerdict('verdict-1', '/workspace/op');
+
+    const row = sessionsDb.getSessionById('verdict-1');
+    assert.equal(row?.is_verdict, 1);
+    assert.equal(row?.is_operator, 0);
+    assert.equal(row?.provider_session_id, 'verdict-1');
+  });
+});
+
+test('markSessionAsVerdict stamps an existing row without touching is_operator/isArchived', async () => {
+  await withIsolatedDatabase(() => {
+    sessionsDb.createAppSession('op-1', 'claude', '/workspace/op', true);
+    sessionsDb.updateSessionIsArchived('op-1', true);
+
+    sessionsDb.markSessionAsVerdict('op-1', '/workspace/op');
+
+    const row = sessionsDb.getSessionById('op-1');
+    assert.equal(row?.is_verdict, 1);
+    assert.equal(row?.is_operator, 1);
+    assert.equal(row?.isArchived, 1);
+  });
+});
+
+test('createSession re-index preserves is_verdict', async () => {
+  await withIsolatedDatabase(() => {
+    sessionsDb.markSessionAsVerdict('verdict-2', '/workspace/op');
+
+    // The synchronizer later discovers the transcript and re-indexes the row.
+    sessionsDb.createSession('verdict-2', 'claude', '/workspace/op', 'Synced Name');
+
+    const row = sessionsDb.getSessionById('verdict-2');
+    assert.equal(row?.is_verdict, 1);
+    assert.equal(row?.custom_name, 'Synced Name');
+  });
+});
