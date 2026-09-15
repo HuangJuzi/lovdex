@@ -61,6 +61,7 @@ import { createGitModule } from './modules/git/index.js';
 import { worktreesRoutes } from './modules/worktrees/index.js';
 import { buildOperatorRouter } from './modules/operators/operator.routes.js';
 import { cleanOperatorWorkspaceLegacySessions } from './modules/operators/operator-cleanup.service.js';
+import { listGitIgnoredDirPaths } from './modules/projects/services/git-ignored-dirs.service.js';
 import { scheduleAutoVerdict } from './modules/operators/operator-verdict.service.js';
 import { sessionsService, setSessionRenameHook } from './modules/providers/services/sessions.service.js';
 import { scheduleTaskContextCompression } from './modules/tasks/services/task-context.service.js';
@@ -975,7 +976,12 @@ app.get('/api/projects/:projectId/files', authenticateToken, async (req, res) =>
             return res.status(404).json({ error: `Project path not found: ${actualPath}` });
         }
 
-        const files = await getFileTree(actualPath, 10, 0, true);
+        // Build/、缓存类目录（node_modules、dist、.ci-cache…）通常被 git 忽略，却可能占掉
+        // 整棵树九成以上的节点。跳过后请求从秒级降到百毫秒级、body 小一个数量级。
+        const files = await getFileTree(actualPath, 10, 0, true, listGitIgnoredDirPaths(actualPath));
+        // 树随时可能因外部改动而变化，不要给启发式缓存留空间：让浏览器每次都带 ETag
+        // 回来验证，未变时 304（不重传 body）。
+        res.setHeader('Cache-Control', 'no-cache');
         res.json(files);
     } catch (error) {
         console.error('[ERROR] File tree error:', error.message);
@@ -1909,7 +1915,7 @@ function release() {
     activeFsOperations = Math.max(0, activeFsOperations - 1);
 }
 
-async function getFileTree(dirPath, maxDepth = 3, currentDepth = 0, showHidden = true) {
+async function getFileTree(dirPath, maxDepth = 3, currentDepth = 0, showHidden = true, ignoredDirPaths = null) {
     // Using fsPromises from import
     let entries;
     try {
@@ -1927,7 +1933,16 @@ async function getFileTree(dirPath, maxDepth = 3, currentDepth = 0, showHidden =
         return [];
     }
 
-    const filteredEntries = entries.filter((entry) => !(entry.isDirectory() && IGNORED_DIRS.has(entry.name)));
+    const filteredEntries = entries.filter((entry) => {
+        if (!entry.isDirectory()) {
+            return true;
+        }
+        // Hardcoded noise list, plus whatever git itself reports as ignored for
+        // this repository (only the /files tree passes the latter, so the
+        // shallow folder-browser callers keep their previous behaviour).
+        return !IGNORED_DIRS.has(entry.name)
+            && !(ignoredDirPaths && ignoredDirPaths.has(path.join(dirPath, entry.name)));
+    });
 
     // Process every entry in parallel. On high-latency filesystems (NFS/SMB)
     // serial stat() was the real bottleneck — issuing them concurrently lets
