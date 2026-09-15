@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { authenticatedFetch } from '../../../utils/api';
+import { branchStore } from '../../../stores/branchStore';
 import { DEFAULT_BRANCH, RECENT_COMMITS_LIMIT } from '../constants/constants';
 import type {
   GitApiErrorResponse,
@@ -808,6 +809,24 @@ export function useGitPanelController({
     }
     void fetchRecentCommits();
   }, [activeView, fetchRecentCommits, selectedProject]);
+
+  // Branches get switched outside this component tree — an external shell, the
+  // embedded terminal, or a chat session running `git checkout` — so nothing
+  // here observes the change and the panel would keep rendering the old branch,
+  // the old branch list and the old file list. The shared branch store polls for
+  // the whole app; pull the whole panel in as soon as it reports a move.
+  useEffect(() => {
+    if (!selectedProject) {
+      return;
+    }
+
+    return branchStore.subscribeChange(selectedProject.projectId, () => {
+      refreshAll();
+      if (activeView === 'history') {
+        void fetchRecentCommits();
+      }
+    });
+  }, [activeView, fetchRecentCommits, refreshAll, selectedProject]);
 
   return {
     gitStatus,

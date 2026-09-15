@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../../../utils/api';
+import { branchStore } from '../../../stores/branchStore';
 import type { Project } from '../../../types/app';
 import type { FileTreeNode } from '../types/types';
 
@@ -105,6 +106,18 @@ export function useFileTreeData(selectedProject: Project | null): UseFileTreeDat
       abortControllerRef.current?.abort();
     };
   }, [selectedProject?.projectId, refreshKey]);
+
+  // A branch switched from outside the app (terminal, external shell, assistant)
+  // exchanges the whole file set, so the tree on screen is not just stale — it
+  // may be describing files that are no longer there. The shared branch store
+  // already polls for the app; reload the tree whenever it reports a move.
+  const projectId = selectedProject?.projectId ?? null;
+  useEffect(() => {
+    if (!projectId) {
+      return;
+    }
+    return branchStore.subscribeChange(projectId, refreshFiles);
+  }, [projectId, refreshFiles]);
 
   return {
     files,
