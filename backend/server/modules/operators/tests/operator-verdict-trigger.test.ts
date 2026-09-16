@@ -68,6 +68,10 @@ function makeRow(overrides: Partial<TaskRow> = {}): TaskRow {
     label: 'other',
     remark: null,
     context_summary: null,
+    context_source_session_id: null,
+    context_mode: 'none',
+    context_status: null,
+    context_raw: null,
     ...overrides,
   };
 }

@@ -239,3 +239,46 @@ test('updateTask can set priority/deadline/label/remark', async () => {
     assert.equal(cleared?.remark, null);
   });
 });
+
+test('createTask persists context columns with defaults', async () => {
+  await withIsolatedDatabase(() => {
+    projectsDb.createProjectPath('/p');
+    const plain = tasksDb.createTask({ projectPath: '/p', title: 't', executorProvider: 'claude' });
+    assert.equal(plain.context_source_session_id, null);
+    assert.equal(plain.context_mode, 'none');
+    assert.equal(plain.context_status, null);
+    assert.equal(plain.context_raw, null);
+
+    const withCtx = tasksDb.createTask({
+      projectPath: '/p',
+      title: 'ctx',
+      executorProvider: 'claude',
+      contextSourceSessionId: 's-1',
+      contextMode: 'summary',
+      contextStatus: 'pending',
+    });
+    assert.equal(withCtx.context_source_session_id, 's-1');
+    assert.equal(withCtx.context_mode, 'summary');
+    assert.equal(withCtx.context_status, 'pending');
+    assert.equal(tasksDb.getTask(withCtx.task_id)?.context_source_session_id, 's-1');
+  });
+});
+
+test('writeContextResult writes status + product and getTask round-trips', async () => {
+  await withIsolatedDatabase(() => {
+    projectsDb.createProjectPath('/p');
+    const summary = tasksDb.createTask({ projectPath: '/p', title: 's', executorProvider: 'claude', contextSourceSessionId: 's-1', contextMode: 'summary', contextStatus: 'pending' });
+    tasksDb.writeContextResult(summary.task_id, { status: 'ready', summary: '压缩摘要' });
+    const reloadedSummary = tasksDb.getTask(summary.task_id)!;
+    assert.equal(reloadedSummary.context_status, 'ready');
+    assert.equal(reloadedSummary.context_summary, '压缩摘要');
+    assert.equal(reloadedSummary.context_raw, null);
+
+    const raw = tasksDb.createTask({ projectPath: '/p', title: 'r', executorProvider: 'claude', contextSourceSessionId: 's-1', contextMode: 'raw', contextStatus: 'pending' });
+    tasksDb.writeContextResult(raw.task_id, { status: 'failed' });
+    const reloadedRaw = tasksDb.getTask(raw.task_id)!;
+    assert.equal(reloadedRaw.context_status, 'failed');
+    assert.equal(reloadedRaw.context_raw, null);
+    assert.equal(reloadedRaw.context_summary, null);
+  });
+});

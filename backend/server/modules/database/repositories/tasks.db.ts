@@ -85,6 +85,9 @@ export const tasksDb = {
     label?: TaskLabel;
     remark?: string | null;
     sourceScheduleId?: string | null;
+    contextSourceSessionId?: string | null;
+    contextMode?: 'none' | 'summary' | 'raw';
+    contextStatus?: 'pending' | 'ready' | 'failed' | null;
   }): TaskRow {
     const db = getConnection();
     const taskId = randomUUID();
@@ -94,8 +97,8 @@ export const tasksDb = {
     const startedAtSet = status === 'in_progress' ? 'CURRENT_TIMESTAMP' : 'NULL';
     const completedAtSet = status === 'done' ? 'CURRENT_TIMESTAMP' : 'NULL';
     const row = db.prepare(`
-      INSERT INTO tasks (task_id, project_path, title, description, status, executor_provider, executor_model, position, session_id, started_at, completed_at, priority, deadline, is_operator, label, remark, source_schedule_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ${startedAtSet}, ${completedAtSet}, ?, ?, ?, ?, ?, ?)
+      INSERT INTO tasks (task_id, project_path, title, description, status, executor_provider, executor_model, position, session_id, started_at, completed_at, priority, deadline, is_operator, label, remark, context_source_session_id, context_mode, context_status, source_schedule_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ${startedAtSet}, ${completedAtSet}, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       RETURNING *
     `).get(
       taskId,
@@ -112,6 +115,9 @@ export const tasksDb = {
       input.isOperator ? 1 : 0,
       input.label ?? 'other',
       input.remark ?? null,
+      input.contextSourceSessionId ?? null,
+      input.contextMode ?? 'none',
+      input.contextStatus ?? null,
       input.sourceScheduleId ?? null,
     ) as TaskRow;
     return normalizeTaskRow(row);
@@ -270,5 +276,21 @@ export const tasksDb = {
   updateTaskContextSummary(taskId: string, summary: string): void {
     const db = getConnection();
     db.prepare('UPDATE tasks SET context_summary = ?, updated_at = CURRENT_TIMESTAMP WHERE task_id = ?').run(summary, taskId);
+  },
+
+  /**
+   * Persist the async context-compression outcome for a task: the status
+   * (ready/failed) and exactly one product (summary for summary mode, raw for
+   * raw mode). Overwrites both product columns each call — a task has a single
+   * mode, so the other column stays null. Broadcast responsibility lives in the
+   * service layer, not here.
+   */
+  writeContextResult(taskId: string, result: { status: 'ready' | 'failed'; summary?: string | null; raw?: string | null }): void {
+    const db = getConnection();
+    db.prepare(`
+      UPDATE tasks
+      SET context_status = ?, context_summary = ?, context_raw = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE task_id = ?
+    `).run(result.status, result.summary ?? null, result.raw ?? null, taskId);
   },
 };
