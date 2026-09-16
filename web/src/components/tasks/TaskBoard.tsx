@@ -42,6 +42,7 @@ import { LABEL_META, LABEL_ORDER, PRIORITY_META, PRIORITY_ORDER, STATUS_META, ST
 import { TaskFilterBar } from './TaskFilterBar';
 import { ScheduledTasksPanel, type ScheduledTasksPanelHandle } from './ScheduledTasksPanel';
 import { TaskTableView } from './TaskTableView';
+import { TaskInboxPanel } from './TaskInboxPanel';
 import { EMPTY_TASK_FILTER, filterTasks, normalizeTaskFilter } from './taskFilter';
 
 export function TaskBoardPage() {
@@ -699,6 +700,16 @@ export function TaskBoardPage() {
               </button>
             </div>
           )}
+          <TaskInboxPanel
+            tasks={filteredTasks}
+            now={now}
+            projectOptions={projectOptions}
+            onRetry={runTask}
+            onStart={runTask}
+            onAccept={(task) => updateStatus(task, 'done')}
+            onOpenSession={(task) => task.session_id && navigate(`/session/${task.session_id}`)}
+            onOpenTask={(task) => navigate(`/task/${task.task_id}`)}
+          />
           {effectiveView === 'table' ? (
             <TaskTableView
               tasks={filteredTasks}
