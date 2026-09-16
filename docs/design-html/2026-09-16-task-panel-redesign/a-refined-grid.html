@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Lovdex 任务面板 · 方案 1 精修数据表</title>
+<link rel="stylesheet" href="shared.css" />
+<style>
+/* ══════════════════════════════════════════════════════════
+   方案 1 · 精修数据表（Refined Data Grid）
+   现状 9 列平铺、每列同权、行自带厚重阴影。这里把字段按主次重新打包成 6 列：
+   状态压成行首 3px 色条、子状态并进状态列、创建/最近活动降为 hover 浮现，
+   点行就地展开详情抽屉（不再跳页），整条筛选栏收编成一行工具栏。
+   ══════════════════════════════════════════════════════════ */
+
+/* ── 工具栏 ─────────────────────────────────────────── */
+.toolbar { flex: none; display: flex; align-items: center; gap: 8px; padding: 9px 16px; border-bottom: 1px solid var(--border); background: var(--card); }
+.tb-pills { display: flex; align-items: center; gap: 5px; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.tb-pills::-webkit-scrollbar { display: none; }
+.tb-sep { width: 1px; height: 18px; background: var(--border); flex: none; }
+.tb-right { display: flex; align-items: center; gap: 7px; flex: none; }
+.tb-search { position: relative; }
+.tb-search .mag { position: absolute; left: 9px; top: 50%; transform: translateY(-50%); font-size: 11px; color: var(--muted-fg); pointer-events: none; }
+.tb-search .field { width: 172px; padding-left: 26px; }
+.tb-filter { position: relative; padding-right: 15px; }
+.tb-filter.on { border-color: var(--primary-line); background: var(--primary-soft); color: var(--primary-strong); }
+.tb-filter .fdot { position: absolute; top: 4px; right: 5px; width: 6px; height: 6px; border-radius: 50%; background: var(--primary); box-shadow: 0 0 0 1.5px var(--card); }
+
+.selbar { flex: none; display: flex; align-items: center; gap: 8px; margin: 8px 16px 0; padding: 5px 8px 5px 13px; border-radius: 999px; background: var(--primary-soft); border: 1px solid var(--primary-line); color: var(--primary-strong); font-size: 12px; }
+.selbar .sb-count { font-weight: 650; }
+.selbar .sb-acts { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+.selbar .btn { background: #fff; border-color: var(--primary-line); color: var(--primary-strong); }
+.selbar .btn.plain { background: transparent; border-color: transparent; color: var(--muted-fg); }
+
+/* ── 表格：6 列，sticky 表头，轻分隔 ───────────────────── */
+.grid-scroll { flex: 1; min-height: 0; overflow: auto; }
+table.grid { width: 100%; table-layout: fixed; border-collapse: separate; border-spacing: 0; min-width: 820px; }
+.grid thead th { position: sticky; top: 0; z-index: 4; height: 42px; padding: 0 14px; background: var(--card); border-bottom: 1px solid var(--border-strong); text-align: left; vertical-align: middle; white-space: nowrap; }
+.th-main { font-size: 11px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; color: #3f3a31; }
+.th-sub { margin-top: 1px; font-size: 10px; font-weight: 450; color: var(--muted-fg); letter-spacing: 0; }
+
+.grid tbody td { padding: 9px 14px; background: var(--card); border-bottom: 1px solid var(--border); vertical-align: middle; }
+.grid tbody tr.row { cursor: pointer; }
+.grid tbody tr.row:hover td { background: #fbfaf6; }
+.grid tbody td:first-child { position: relative; }
+.grid tbody td:first-child::before { content: ""; position: absolute; left: 0; top: 9px; bottom: 9px; width: 3px; border-radius: 999px; background: transparent; }
+tr.s-progress td:first-child::before { background: var(--st-progress); }
+tr.s-todo     td:first-child::before { background: var(--st-todo); }
+tr.s-review   td:first-child::before { background: var(--st-review); }
+tr.s-done     td:first-child::before { background: var(--st-done); }
+tr.s-archived td:first-child::before { background: var(--st-archived); }
+tr.row.open td { background: #faf9f4; border-bottom-color: transparent; }
+tr.row.open td:first-child::before { top: 0; bottom: 0; }
+
+.grid tbody tr.grp td { position: sticky; top: 42px; z-index: 3; height: 30px; padding: 0 14px; background: #f4f1e9; border-bottom: 1px solid var(--border); }
+.grp-inner { display: flex; align-items: center; gap: 8px; }
+.grp-name { font-size: 11.5px; font-weight: 650; color: #3f3a31; }
+.grp-alert { font-size: 11px; color: var(--c-amber); font-weight: 600; }
+.grp-alert.violet { color: var(--c-violet); }
+.grp-inner .rule { flex: 1; height: 1px; background: var(--border); }
+tr.s-archived { display: none; }
+tbody.show-archived tr.s-archived { display: table-row; }
+
+.cell-task { display: flex; align-items: flex-start; gap: 9px; min-width: 0; }
+.task-copy { min-width: 0; flex: 1; }
+.task-line { display: flex; align-items: center; gap: 7px; min-width: 0; flex-wrap: wrap; }
+.task-title { font-size: 12.5px; font-weight: 600; color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.task-id { font-size: 10.5px; color: var(--muted-fg); flex: none; }
+.task-line .tag, .task-line .ctx, .task-line .exec, .task-line .operator-badge, .task-line .schedule-badge { flex: none; }
+.task-meta { display: flex; align-items: center; gap: 7px; height: 15px; margin-top: 1px; font-size: 10.5px; color: var(--muted-fg); opacity: 0; transition: opacity .12s ease; }
+.task-meta .mdot { width: 3px; height: 3px; border-radius: 50%; background: var(--border-strong); flex: none; }
+tr.row:hover .task-meta, tr.row.open .task-meta { opacity: 1; }
+
+.col-proj { display: grid; gap: 2px; min-width: 0; }
+.col-proj .pj-name { font-size: 12px; color: #3f3a31; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.col-proj .pj-name.operator { color: #7c3aed; font-weight: 600; }
+.col-proj .remote-badge { justify-self: start; font-size: 10px; line-height: 15px; }
+.col-status { display: flex; align-items: center; gap: 6px; min-width: 0; flex-wrap: wrap; }
+.col-status .st-name { font-size: 12px; color: #3f3a31; white-space: nowrap; }
+.col-prio { display: flex; align-items: center; gap: 6px; }
+.col-prio .prio-name { font-size: 12px; color: #3f3a31; }
+.prio-P0 .prio-name, .prio-P1 .prio-name { color: var(--fg); font-weight: 600; }
+.col-due { display: grid; gap: 1px; }
+.due-date { font-size: 12px; color: #3f3a31; }
+.due-none { font-size: 12px; color: var(--muted-fg); }
+.col-act { display: flex; align-items: center; justify-content: flex-end; gap: 5px; }
+.row-toggle { width: 22px; height: 22px; flex: none; display: grid; place-items: center; border: 0; border-radius: 6px; background: transparent; color: var(--muted-fg); font-size: 10px; cursor: pointer; }
+tr.row:hover .row-toggle { background: var(--muted); color: #3f3a31; }
+
+/* ── 行内展开抽屉 ───────────────────────────────────── */
+.grid tbody tr.drawer td { padding: 0 14px 12px; background: #faf9f4; border-bottom: 1px solid var(--border-strong); }
+.drawer-inner { border: 1px solid var(--primary-line); border-left: 3px solid var(--primary); border-radius: var(--radius); background: var(--card); padding: 12px 14px; box-shadow: var(--shadow-pop); }
+.drawer-grid { display: grid; grid-template-columns: 1fr 240px; gap: 16px; }
+.drawer-main { display: grid; gap: 12px; min-width: 0; }
+.drawer-side { display: grid; gap: 10px; align-content: start; min-width: 0; }
+.dz h4 { margin: 0 0 5px; font-size: 10.5px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; color: var(--muted-fg); }
+.dz p { margin: 0; font-size: 12.5px; color: #3f3a31; line-height: 1.65; }
+.src { display: flex; align-items: center; gap: 8px; padding: 6px 9px; border-radius: 8px; background: #faf9f4; border: 1px solid var(--border); }
+.src .src-copy { min-width: 0; }
+.src .src-name { font-size: 12px; font-weight: 600; color: #3f3a31; }
+.src .src-sub { font-size: 10.5px; color: var(--muted-fg); }
+.src .ctx { margin-left: auto; flex: none; }
+.src-quote { margin: 8px 0 0; padding: 8px 10px; border-left: 2px solid var(--primary-line); background: #faf9f4; border-radius: 0 8px 8px 0; font-size: 12px; color: #3f3a31; line-height: 1.65; }
+.src-foot { display: flex; align-items: center; gap: 10px; margin-top: 9px; }
+.link { color: var(--primary-strong); font-size: 12px; text-decoration: none; }
+.link:hover { text-decoration: underline; }
+.mini { padding: 9px 10px; border-radius: 8px; background: #faf9f4; border: 1px solid var(--border); }
+.mini .card-title { margin-bottom: 6px; font-size: 10px; }
+.mini-row { display: flex; align-items: baseline; gap: 8px; font-size: 11.5px; }
+.mini-row + .mini-row { margin-top: 4px; }
+.mini-row .k { color: var(--muted-fg); flex: none; width: 54px; }
+.mini-row .v { color: #3f3a31; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.grid-foot { flex: none; display: flex; align-items: center; gap: 10px; padding: 8px 16px; border-top: 1px solid var(--border); font-size: 11.5px; color: var(--muted-fg); background: var(--card); }
+.grid-foot .gf-right { margin-left: auto; }
+
+/* ── 详情页 ────────────────────────────────────────── */
+.crumb { display: inline-flex; align-items: center; gap: 6px; color: var(--primary-strong); font-size: 12px; text-decoration: none; }
+.crumb:hover { text-decoration: underline; }
+.detail-head { flex: none; display: flex; align-items: flex-start; gap: 14px; padding: 12px 20px; border-bottom: 1px solid var(--border); background: var(--card); }
+.detail-head .dh-copy { flex: 1; min-width: 0; }
+.detail-head h1 { display: flex; align-items: center; gap: 8px; margin: 4px 0 0; font-size: 16px; font-weight: 650; letter-spacing: -.01em; }
+.detail-head .dh-sub { margin: 3px 0 0; font-size: 12px; color: var(--muted-fg); }
+.detail-head .dh-act { display: flex; align-items: center; gap: 7px; flex: none; }
+.detail-body { flex: 1; min-height: 0; overflow: auto; display: grid; grid-template-columns: 1fr 300px; gap: 16px; padding: 16px 20px 20px; align-items: start; }
+.detail-main { min-width: 0; display: grid; gap: 14px; }
+.detail-side { display: grid; gap: 14px; align-content: start; min-width: 0; }
+.pane { padding: 14px 16px; }
+.pane.pane-flush { padding: 13px 16px 14px; }
+.title-edit { margin: 0; padding: 4px 8px; border-radius: 8px; font-size: 16px; font-weight: 650; letter-spacing: -.01em; line-height: 1.4; border-bottom: 1px dashed transparent; cursor: text; }
+.title-edit:hover { background: #faf9f4; border-bottom-color: var(--border-strong); }
+.title-edit .id-inline { font-size: 12px; font-weight: 500; color: var(--muted-fg); margin-left: 8px; }
+.title-edit .edit-hint { font-size: 10.5px; font-weight: 450; color: var(--muted-fg); margin-left: 8px; }
+.prop { display: grid; grid-template-columns: 68px 1fr; gap: 10px; align-items: center; }
+.prop + .prop { margin-top: 9px; padding-top: 9px; border-top: 1px solid var(--border); }
+.prop .pk { font-size: 11.5px; color: var(--muted-fg); }
+.prop .pv { display: flex; align-items: center; gap: 7px; min-width: 0; font-size: 12px; color: #3f3a31; flex-wrap: wrap; }
+.run-card { display: grid; gap: 10px; }
+.run-last { padding: 9px 10px; border-radius: 8px; background: #fee2e2; border: 1px solid #fecaca; color: #991b1b; font-size: 11.5px; line-height: 1.6; }
+.run-card .btn-run { width: 100%; padding: 8px 12px; font-size: 12.5px; }
+.run-links { display: flex; align-items: center; justify-content: space-between; }
+
+/* ── 移动端：看板单列（表格按钮隐藏，强制看板）────────── */
+.m-board { flex: 1; min-height: 0; overflow-y: auto; padding: 10px 12px 16px; display: flex; flex-direction: column; gap: 10px; }
+.m-col { background: #f1eee5; border: 1px solid var(--border); border-radius: var(--radius-lg); }
+.m-col-head { display: flex; align-items: center; gap: 8px; padding: 8px 12px; }
+.m-col-head .c-name { font-size: 12px; font-weight: 650; color: #3f3a31; }
+.m-col-head .c-alert { font-size: 11px; color: var(--c-amber); font-weight: 650; margin-left: auto; }
+.m-col-body { display: flex; flex-direction: column; gap: 7px; padding: 0 8px 9px; }
+.m-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 9px 10px; position: relative; overflow: hidden; }
+.m-card.needs-action::before { content: ""; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: var(--c-amber); }
+.m-card.needs-action.failed::before { background: var(--c-red); }
+.m-title { font-size: 12.5px; font-weight: 600; color: var(--fg); line-height: 1.4; }
+.m-badges { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+.m-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin-top: 7px; font-size: 11px; color: var(--muted-fg); }
+.m-actions { display: flex; gap: 6px; margin-top: 9px; }
+.m-actions .btn { flex: 1; justify-content: center; }
+</style>
+</head>
+<body>
+
+<div class="page-head">
+  <h1>Lovdex 任务面板 · 方案 1 精修数据表</h1>
+  <p class="lede">
+    现状是 <b>9 列平铺</b>、每列同权、行自带<b>厚重阴影 + 悬停位移</b>，扫读没有落点，窄屏必横向滚动。
+    本稿把字段按主次重新打包成 <b>6 列</b>，状态压成行首色条、子状态并进状态列、创建/最近活动降为 hover 浮现，
+    点行<b>就地展开</b>详情抽屉，不再跳页。移动端遵循现有策略：<b>表格按钮隐藏、强制看板</b>。
+  </p>
+  <ul class="moves">
+    <li><b>6 列</b>替代 9 列</li>
+    <li><b>行内展开</b>替代跳页</li>
+    <li><b>工具栏收编</b>整条筛选栏</li>
+    <li><b>去厚重阴影</b>，留白分行</li>
+    <li><b>sticky 表头</b> + 分组吸附</li>
+    <li><b>手机隐藏表格</b>，强制看板</li>
+  </ul>
+  <p style="margin:12px 0 0"><a class="back-link" href="index.html">← 返回方案总览</a></p>
+</div>
+
+<!-- ══════════════════ 主视图（桌面）══════════════════ -->
+<div class="stage desktop-only">
+  <h2>主视图 · 桌面 <span class="h2-note">点行就地展开抽屉；表头与分组行滚动吸附</span></h2>
+  <div class="device desktop-frame">
+    <div class="app">
+      <header class="app-header">
+        <button class="home">⌂ 返回主页</button>
+        <div class="seg">
+          <button class="seg-item"><span class="ic">▦</span>看板</button>
+          <button class="seg-item active"><span class="ic">▤</span>表格</button>
+          <button class="seg-item"><span class="ic">◷</span>定时</button>
+        </div>
+        <div class="spacer"></div>
+        <button class="btn-primary">＋ 新建任务</button>
+      </header>
+
+      <div class="toolbar">
+        <div class="tb-pills">
+          <button class="pill active">全部 <span class="count-pill mono">11</span></button>
+          <button class="pill">进行中 <span class="count-pill mono">4</span></button>
+          <button class="pill">待办 <span class="count-pill mono">4</span></button>
+          <button class="pill">评审 <span class="count-pill mono">2</span></button>
+          <button class="pill">完成 <span class="count-pill mono">2</span></button>
+          <span class="tb-sep"></span>
+          <button class="pill" style="color:var(--muted-fg)"><span class="dot archived"></span>已归档 <span class="count-pill mono">1</span></button>
+        </div>
+        <div class="tb-right">
+          <button class="pill">项目 · 全部 ▾</button>
+          <button class="pill tb-filter on">日期 · 全部 <span class="fdot"></span></button>
+          <span class="tb-search"><span class="mag">⌕</span><input class="field" placeholder="搜索标题、项目…" /></span>
+          <select class="field" style="width:124px"><option>截止日期 ↑</option><option>优先级</option><option>最近活动</option></select>
+          <button class="btn btn-icon" title="刷新">⟳</button>
+        </div>
+      </div>
+
+      <div class="selbar">
+        <span class="sb-count">已选 2 项</span>
+        <span style="color:var(--muted-fg)">T-1037 / T-1038</span>
+        <span class="sb-acts"><button class="btn btn-sm">标记为完成</button><button class="btn btn-sm">设为 P1</button><button class="btn btn-sm">归档</button><button class="btn btn-sm plain">取消选择</button></span>
+      </div>
+
+      <div class="grid-scroll">
+        <table class="grid">
+          <colgroup><col style="width:36%" /><col style="width:14%" /><col style="width:17%" /><col style="width:10%" /><col style="width:11%" /><col style="width:12%" /></colgroup>
+          <thead><tr>
+            <th><div class="th-main">任务</div><div class="th-sub">标题 · 标签 · 引擎</div></th>
+            <th><div class="th-main">项目</div><div class="th-sub">名称 · 远端</div></th>
+            <th><div class="th-main">状态</div><div class="th-sub">状态 · 子状态</div></th>
+            <th><div class="th-main">优先级</div><div class="th-sub">等级</div></th>
+            <th><div class="th-main">截止</div><div class="th-sub">日期 · 剩余</div></th>
+            <th style="text-align:right"><div class="th-main">操作</div><div class="th-sub">行内动作</div></th>
+          </tr></thead>
+          <tbody>
+
+            <tr class="grp"><td colspan="6"><div class="grp-inner"><span class="dot progress"></span><span class="grp-name">进行中</span><span class="count-pill mono">4</span><span class="grp-alert">◔ 1 项等你批准 · 1 项执行失败 · 1 项等你回答</span><span class="rule"></span></div></td></tr>
+
+            <tr class="row s-progress open">
+              <td><div class="cell-task"><span class="chk"></span><div class="task-copy">
+                <div class="task-line"><span class="task-title">任务执行失败后自动重试一次</span><span class="task-id mono">T-1042</span><span class="tag label-bug">BUG</span><span class="ctx ready">摘要 · ready</span></div>
+                <div class="task-meta"><span class="mono">创建 09-15 10:04</span><span class="mdot"></span><span class="mono">最近活动 09-16 14:32</span><span class="mdot"></span><span>会话 #sess-8821</span></div>
+              </div></div></td>
+              <td><div class="col-proj"><span class="pj-name">lovdex</span></div></td>
+              <td><div class="col-status"><span class="dot progress"></span><span class="st-name">进行中</span><span class="sub approve">等你批准</span></div></td>
+              <td><div class="col-prio prio-P0"><span class="tag prio-P0">P0</span><span class="prio-name">紧急</span></div></td>
+              <td><div class="col-due"><span class="due-date mono">09-16</span><span class="due-rel warn">今天到期</span></div></td>
+              <td><div class="col-act"><button class="row-toggle">▾</button><button class="btn btn-sm btn-run">批准</button><button class="btn btn-sm btn-icon">⋯</button></div></td>
+            </tr>
+            <tr class="drawer"><td colspan="6"><div class="drawer-inner"><div class="drawer-grid">
+              <div class="drawer-main">
+                <div class="banner waiting"><span class="banner-dot"></span><span><b>等你批准</b>：将在 lovdex 上重试第 1 次失败的工具调用，批准后立即继续。</span><span class="banner-actions"><button class="btn btn-sm btn-run">▶ 批准并继续</button><button class="btn btn-sm">暂停任务</button></span></div>
+                <div class="dz"><h4>描述</h4><p>opencode 会话在工具调用失败时直接终止 run，用户必须手动重跑整条任务。期望在主进程加一层「最多 1 次」的重试策略，重试前重新注入上下文前缀。</p></div>
+                <div class="dz"><h4>上下文来源</h4><div class="src"><span class="src-copy"><span class="src-name">会话 #sess-8744 · 任务执行失败排查</span><span class="src-sub mono"> · 218 轮</span></span><span class="ctx ready">摘要 · ready</span></div><div class="src-foot"><button class="btn btn-sm">查看全文</button><a class="link" href="#">去会话查看 →</a></div></div>
+              </div>
+              <div class="drawer-side">
+                <div class="mini"><h4 class="card-title">会话</h4><div class="mini-row"><span class="k">当前</span><span class="v">#sess-8821</span></div><div class="mini-row"><span class="k">来源</span><span class="v">#sess-8744</span></div><div class="mini-row"><span class="k">设备</span><span class="v">本地 · macOS</span></div></div>
+                <div class="mini"><h4 class="card-title">时间线</h4><div class="mini-row"><span class="k">创建</span><span class="v mono">2026-09-15 10:04</span></div><div class="mini-row"><span class="k">最近活动</span><span class="v mono">2026-09-16 14:32</span></div></div>
+              </div>
+            </div></div></td></tr>
+
+            <tr class="row s-progress">
+              <td><div class="cell-task"><span class="chk"></span><div class="task-copy"><div class="task-line"><span class="task-title">远程隧道断连后自动重连</span><span class="task-id mono">T-1043</span><span class="tag label-optimization">优化</span><span class="exec qoder">◈ Qoder</span></div><div class="task-meta"><span class="mono">创建 09-14 09:21</span><span class="mdot"></span><span class="mono">最近活动 09-16 13:58</span></div></div></div></td>
+              <td><div class="col-proj"><span class="pj-name">payment-gateway</span><span class="remote-badge">☁ hk-build-01</span></div></td>
+              <td><div class="col-status"><span class="dot progress"></span><span class="st-name">进行中</span><span class="sub running">会话运行中</span></div></td>
+              <td><div class="col-prio prio-P1"><span class="tag prio-P1">P1</span><span class="prio-name">高</span></div></td>
+              <td><div class="col-due"><span class="due-date mono">09-18</span><span class="due-rel">剩余 2 天</span></div></td>
+              <td><div class="col-act"><button class="row-toggle">▸</button><button class="btn btn-sm btn-ghost btn-icon">⋯</button></div></td>
+            </tr>
+
+            <tr class="row s-progress">
+              <td><div class="cell-task"><span class="chk"></span><div class="task-copy"><div class="task-line"><span class="task-title">会话流式输出重复堆叠</span><span class="task-id mono">T-1040</span><span class="tag label-bug">BUG</span><span class="exec opencode">◈ OpenCode</span></div><div class="task-meta"><span class="mono">创建 09-12 16:40</span><span class="mdot"></span><span class="mono">最近活动 09-16 14:05</span></div></div></div></td>
+              <td><div class="col-proj"><span class="pj-name">lovdex</span></div></td>
+              <td><div class="col-status"><span class="dot progress"></span><span class="st-name">进行中</span><span class="sub failed">执行失败</span></div></td>
+              <td><div class="col-prio prio-P1"><span class="tag prio-P1">P1</span><span class="prio-name">高</span></div></td>
+              <td><div class="col-due"><span class="due-date mono">09-11</span><span class="due-rel late">已逾期 5 天</span></div></td>
+              <td><div class="col-act"><button class="row-toggle">▸</button><button class="btn btn-sm btn-run">重试</button></div></td>
+            </tr>
+
+            <tr class="row s-progress">
+              <td><div class="cell-task"><span class="chk"></span><div class="task-copy"><div class="task-line"><span class="task-title">index.ts 结构守卫余量告急</span><span class="task-id mono">T-1031</span><span class="tag label-refactor">重构</span><span class="exec codex">◈ Codex</span></div></div></div></td>
+              <td><div class="col-proj"><span class="pj-name">lovdex</span></div></td>
+              <td><div class="col-status"><span class="dot progress"></span><span class="st-name">进行中</span><span class="sub answer">等你回答</span></div></td>
+              <td><div class="col-prio prio-P2"><span class="tag prio-P2">P2</span><span class="prio-name">中</span></div></td>
+              <td><div class="col-due"><span class="due-date mono">09-19</span><span class="due-rel">剩余 3 天</span></div></td>
+              <td><div class="col-act"><button class="row-toggle">▸</button><button class="btn btn-sm btn-run">回答</button></div></td>
+            </tr>
+
+            <tr class="grp"><td colspan="6"><div class="grp-inner"><span class="dot todo"></span><span class="grp-name">待办</span><span class="count-pill mono">4</span><span class="rule"></span></div></td></tr>
+
+            <tr class="row s-todo">
+              <td><div class="cell-task"><span class="chk"></span><div class="task-copy"><div class="task-line"><span class="task-title">支付网关对账任务串行化</span><span class="task-id mono">T-1039</span><span class="tag label-feature">新特性</span><span class="exec claude">◈ Claude</span></div></div></div></td>
+              <td><div class="col-proj"><span class="pj-name">payment-gateway</span><span class="remote-badge">☁ hk-build-01</span></div></td>
+              <td><div class="col-status"><span class="dot todo"></span><span class="st-name">待办</span></div></td>
+              <td><div class="col-prio prio-P0"><span class="tag prio-P0">P0</span><span class="prio-name">紧急</span></div></td>
+              <td><div class="col-due"><span class="due-date mono">09-17</span><span class="due-rel warn">剩余 1 天</span></div></td>
+              <td><div class="col-act"><button class="row-toggle">▸</button><button class="btn btn-sm btn-run">▶ 开始执行</button></div></td>
+            </tr>
+
+            <tr class="row s-todo">
+              <td><div class="cell-task"><span class="chk"></span><div class="task-copy"><div class="task-line"><span class="task-title">文档站迁移到 VitePress</span><span class="task-id mono">T-1038</span><span class="tag label-docs">文档</span><span class="ctx ready">摘要 · ready</span></div></div></div></td>
+              <td><div class="col-proj"><span class="pj-name">docs-site</span></div></td>
+              <td><div class="col-status"><span class="dot todo"></span><span class="st-name">待办</span></div></td>
+              <td><div class="col-prio prio-P2"><span class="tag prio-P2">P2</span><span class="prio-name">中</span></div></td>
+              <td><div class="col-due"><span class="due-none">无截止</span></div></td>
+              <td><div class="col-act"><button class="row-toggle">▸</button><button class="btn btn-sm btn-ghost btn-icon">⋯</button></div></td>
+            </tr>
+
+            <tr class="grp"><td colspan="6"><div class="grp-inner"><span class="dot review"></span><span class="grp-name">评审</span><span class="count-pill mono">2</span><span class="grp-alert violet">◔ 2 项待你验收</span><span class="rule"></span></div></td></tr>
+
+            <tr class="row s-review">
+              <td><div class="cell-task"><span class="chk"></span><div class="task-copy"><div class="task-line"><span class="task-title">远程设备升级后 hostId 前缀丢失</span><span class="task-id mono">T-1041</span><span class="tag label-bug">BUG</span></div></div></div></td>
+              <td><div class="col-proj"><span class="pj-name">payment-gateway</span><span class="remote-badge">☁ hk-build-01</span></div></td>
+              <td><div class="col-status"><span class="dot review"></span><span class="st-name">评审</span><span class="sub accept">待你验收</span></div></td>
+              <td><div class="col-prio prio-P0"><span class="tag prio-P0">P0</span><span class="prio-name">紧急</span></div></td>
+              <td><div class="col-due"><span class="due-date mono">09-14</span><span class="due-rel late">已逾期 2 天</span></div></td>
+              <td><div class="col-act"><button class="row-toggle">▸</button><button class="btn btn-sm btn-green">验收</button></div></td>
+            </tr>
+
+            <tr class="row s-review">
+              <td><div class="cell-task"><span class="chk"></span><div class="task-copy"><div class="task-line"><span class="task-title">侧栏项目行远程徽标对齐</span><span class="task-id mono">T-1036</span><span class="tag label-optimization">优化</span><span class="ctx bad">摘要 · 失败</span></div></div></div></td>
+              <td><div class="col-proj"><span class="pj-name">lovdex</span></div></td>
+              <td><div class="col-status"><span class="dot review"></span><span class="st-name">评审</span><span class="sub accept">待你验收</span></div></td>
+              <td><div class="col-prio prio-P3"><span class="tag prio-P3">P3</span><span class="prio-name">低</span></div></td>
+              <td><div class="col-due"><span class="due-none">无截止</span></div></td>
+              <td><div class="col-act"><button class="row-toggle">▸</button><button class="btn btn-sm btn-green">验收</button></div></td>
+            </tr>
+
+            <tr class="grp"><td colspan="6"><div class="grp-inner"><span class="dot done"></span><span class="grp-name">完成</span><span class="count-pill mono">2</span><span class="rule"></span></div></td></tr>
+
+            <tr class="row s-done">
+              <td><div class="cell-task"><span class="chk"></span><div class="task-copy"><div class="task-line"><span class="task-title">opencode 事件路由 runId 为空</span><span class="task-id mono">T-1035</span><span class="tag label-bug">BUG</span></div></div></div></td>
+              <td><div class="col-proj"><span class="pj-name">lovdex</span></div></td>
+              <td><div class="col-status"><span class="dot done"></span><span class="st-name">完成</span><span class="sub done">已完成，待评审</span></div></td>
+              <td><div class="col-prio prio-P1"><span class="tag prio-P1">P1</span><span class="prio-name">高</span></div></td>
+              <td><div class="col-due"><span class="due-date mono">09-28</span><span class="due-rel">剩余 12 天</span></div></td>
+              <td><div class="col-act"><button class="row-toggle">▸</button><button class="btn btn-sm btn-gray">归档</button></div></td>
+            </tr>
+
+            <tr class="row s-done">
+              <td><div class="cell-task"><span class="chk"></span><div class="task-copy"><div class="task-line"><span class="task-title">skill 四层 Scope 管理</span><span class="task-id mono">T-1034</span><span class="tag label-feature">新特性</span><span class="operator-badge">🤖 Lovdex助手</span></div></div></div></td>
+              <td><div class="col-proj"><span class="pj-name operator">🤖 Lovdex助手</span></div></td>
+              <td><div class="col-status"><span class="dot done"></span><span class="st-name">完成</span></div></td>
+              <td><div class="col-prio prio-P2"><span class="tag prio-P2">P2</span><span class="prio-name">中</span></div></td>
+              <td><div class="col-due"><span class="due-none">无截止</span></div></td>
+              <td><div class="col-act"><button class="row-toggle">▸</button><button class="btn btn-sm btn-ghost btn-icon">⋯</button></div></td>
+            </tr>
+
+          </tbody>
+        </table>
+      </div>
+
+      <div class="grid-foot"><span>共 11 条 · 另有 <b class="mono">1</b> 条已归档未显示</span><span class="gf-right">按 截止日期 ↑ · 悬停行可见创建与最近活动</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════ 详情页（桌面）══════════════════ -->
+<div class="stage desktop-only">
+  <h2>详情页 · 桌面 <span class="h2-note">左宽栏正文 · 右窄栏属性与执行</span></h2>
+  <div class="device desktop-frame">
+    <div class="app">
+      <header class="app-header">
+        <button class="home">⌂ 返回主页</button>
+        <div class="seg"><button class="seg-item active"><span class="ic">▦</span>看板</button><button class="seg-item"><span class="ic">▤</span>表格</button><button class="seg-item"><span class="ic">◷</span>定时</button></div>
+        <div class="spacer"></div>
+        <button class="btn-primary">＋ 新建任务</button>
+      </header>
+      <div class="detail-head">
+        <div class="dh-copy"><a class="crumb" href="#">← 任务列表</a><h1>任务执行失败后自动重试一次 <span class="id-inline mono">T-1042</span></h1><p class="dh-sub">lovdex · BUG · 创建于 2026-09-15 10:04 · 最近活动 2026-09-16 14:32</p></div>
+        <div class="dh-act"><button class="btn btn-sm">⧉ 复制链接</button><button class="btn btn-sm">归档</button><button class="btn btn-sm btn-icon">⋯</button></div>
+      </div>
+      <div class="detail-body">
+        <div class="detail-main">
+          <div class="banner waiting"><span class="banner-dot"></span><span><b>等你批准</b>：将在 lovdex 上重试第 1 次失败的工具调用，批准后立即继续执行。</span><span class="banner-actions"><button class="btn btn-sm btn-run">▶ 批准并继续</button><button class="btn btn-sm">暂停任务</button></span></div>
+          <div class="card pane">
+            <h2 class="title-edit">任务执行失败后自动重试一次<span class="id-inline mono">T-1042</span><span class="edit-hint">✎ 点击可编辑</span></h2>
+            <div style="margin-top:10px"><h4 class="card-title">描述</h4><p style="margin:0;font-size:12.5px;color:#3f3a31;line-height:1.7">opencode 会话在工具调用失败时直接终止 run，用户必须手动重跑整条任务。期望在主进程加一层「最多 1 次」的重试策略，重试前重新注入上下文前缀；远程设备走隧道时跳过重试，避免双跑。</p></div>
+          </div>
+          <div class="card pane">
+            <h4 class="card-title">备注</h4>
+            <p style="margin:0;font-size:12.5px;color:#3f3a31;line-height:1.7">重试上限要可配（默认 1）；重试事件需写入会话时间线，便于复盘。已与 §2.9 计费信任边界确认：重试不重复计费。</p>
+            <div style="display:flex;gap:8px;margin-top:10px"><span class="tag label-bug">BUG</span><span class="tag label-refactor">重构</span><button class="btn btn-sm btn-ghost">＋ 添加标签</button></div>
+          </div>
+          <div class="card pane">
+            <h4 class="card-title">上下文来源</h4>
+            <div class="src"><span class="src-copy"><span class="src-name">会话 #sess-8744 · 任务执行失败排查</span><span class="src-sub mono"> · 09-15 09:41 · 218 轮 · 12.4 万字</span></span><span class="ctx ready">摘要 · ready</span></div>
+            <div class="src-quote">定位到 <span class="mono">tool.execute</span> 抛错后 run 状态机直接落到 <span class="mono">aborted</span>，没有中间态。结论：在主进程 run 循环内加一次重试，复用已挂载的上下文前缀。</div>
+            <div class="src-foot"><button class="btn btn-sm">查看全文</button><a class="link" href="#">去会话查看 #sess-8744 →</a></div>
+          </div>
+        </div>
+        <aside class="detail-side">
+          <div class="card pane pane-flush">
+            <h4 class="card-title">属性</h4>
+            <div class="prop"><span class="pk">项目</span><span class="pv"><span class="pj-name">lovdex</span></span></div>
+            <div class="prop"><span class="pk">状态</span><span class="pv"><span class="dot progress"></span>进行中<span class="sub approve">等你批准</span></span></div>
+            <div class="prop"><span class="pk">优先级</span><span class="pv"><span class="tag prio-P0">P0</span>紧急</span></div>
+            <div class="prop"><span class="pk">截止</span><span class="pv"><span class="mono">2026-09-16</span><span class="due-rel warn">今天到期</span></span></div>
+            <div class="prop"><span class="pk">引擎</span><span class="pv"><span class="exec claude">◈ Claude</span><span class="mono">claude-sonnet-4-6</span></span></div>
+          </div>
+          <div class="card pane pane-flush run-card">
+            <h4 class="card-title">执行</h4>
+            <button class="btn btn-run">▶ 继续执行</button>
+            <div class="run-last"><b>上次执行失败</b> · 工具超时（<span class="mono">bash</span> 120s）<br /><span class="mono" style="color:#b91c1c">2026-09-16 14:32</span> · 重试 <span class="mono">0 / 1</span></div>
+            <div class="run-links"><a class="link" href="#">打开会话 #sess-8821 →</a><button class="btn btn-sm">执行历史</button></div>
+          </div>
+          <div class="card pane pane-flush">
+            <h4 class="card-title">关联会话</h4>
+            <div class="mini-row"><span class="k">当前</span><span class="v">#sess-8821</span></div>
+            <div class="mini-row"><span class="k">来源</span><span class="v">#sess-8744</span></div>
+            <div class="mini-row"><span class="k">设备</span><span class="v">本地 · macOS</span></div>
+          </div>
+        </aside>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════ 移动端（强制看板）═══════════════ -->
+<div class="stage">
+  <h2>移动端 <span class="h2-note">&lt;640px 表格按钮隐藏、强制看板；文字标签只留图标</span></h2>
+  <div class="device phone-frame">
+    <div class="phone-notch"></div>
+    <div class="phone-body">
+      <div class="app">
+        <header class="app-header">
+          <button class="home" title="返回主页">⌂</button>
+          <div class="seg">
+            <button class="seg-item active"><span class="ic">▦</span></button>
+            <button class="seg-item"><span class="ic">◷</span></button>
+          </div>
+          <div class="spacer"></div>
+          <button class="btn-primary" title="新建任务">＋</button>
+        </header>
+
+        <div class="m-board">
+          <section class="m-col">
+            <div class="m-col-head"><span class="dot progress"></span><span class="c-name">进行中</span><span class="count-pill mono">4</span><span class="c-alert">◔ 3 项需处理</span></div>
+            <div class="m-col-body">
+              <div class="m-card needs-action">
+                <div class="m-title">任务执行失败后自动重试一次 <span class="task-id mono">T-1042</span></div>
+                <div class="m-badges"><span class="tag label-bug">BUG</span><span class="tag prio-P0">P0 紧急</span></div>
+                <div class="m-meta"><span class="sub approve">等你批准</span><span>lovdex</span><span class="mono">今天到期</span></div>
+                <div class="m-actions"><button class="btn btn-sm btn-run">批准</button><button class="btn btn-sm">暂停</button></div>
+              </div>
+              <div class="m-card needs-action failed">
+                <div class="m-title">会话流式输出重复堆叠 <span class="task-id mono">T-1040</span></div>
+                <div class="m-badges"><span class="tag label-bug">BUG</span><span class="tag prio-P1">P1 高</span></div>
+                <div class="m-meta"><span class="sub failed">执行失败</span><span>lovdex</span><span class="mono">已逾期 5 天</span></div>
+                <div class="m-actions"><button class="btn btn-sm btn-run">↻ 重试</button></div>
+              </div>
+            </div>
+          </section>
+
+          <section class="m-col">
+            <div class="m-col-head"><span class="dot todo"></span><span class="c-name">待办</span><span class="count-pill mono">4</span></div>
+            <div class="m-col-body">
+              <div class="m-card">
+                <div class="m-title">支付网关对账任务串行化 <span class="task-id mono">T-1039</span></div>
+                <div class="m-badges"><span class="tag label-feature">新特性</span><span class="tag prio-P0">P0 紧急</span></div>
+                <div class="m-meta"><span>payment-gateway</span><span class="mono">剩余 1 天</span></div>
+                <div class="m-actions"><button class="btn btn-sm btn-run">▶ 开始执行</button></div>
+              </div>
+            </div>
+          </section>
+
+          <section class="m-col">
+            <div class="m-col-head"><span class="dot review"></span><span class="c-name">评审</span><span class="count-pill mono">2</span><span class="c-alert" style="color:var(--c-violet)">◔ 待验收</span></div>
+            <div class="m-col-body">
+              <div class="m-card needs-action">
+                <div class="m-title">远程设备升级后 hostId 前缀丢失 <span class="task-id mono">T-1041</span></div>
+                <div class="m-meta"><span class="sub accept">待你验收</span><span>payment-gateway</span><span class="mono">已逾期 2 天</span></div>
+                <div class="m-actions"><button class="btn btn-sm btn-green">验收</button></div>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

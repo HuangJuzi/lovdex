@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Lovdex 任务面板 · 方案 2 行动收件箱</title>
+<link rel="stylesheet" href="shared.css" />
+<style>
+/* ══════════════════════════════════════════════════════════
+   方案 2 · 行动收件箱（Inbox & Triage）
+   最该被看见的「等你批准 / 执行失败 / 待你验收 / 已逾期」埋在 11 列里，
+   没有任何聚合。本稿把「需要你处理」提到页面最顶部，聚合条上直接给动作按钮
+   （批准 / 拒绝 / 重试 / 验收），不必先点进任务；下方才是任务流。
+   ══════════════════════════════════════════════════════════ */
+
+.inbox-wrap { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 16px 16px; }
+
+/* ── 顶部聚合区 ─────────────────────────────────────── */
+.need-you { border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--card); margin-bottom: 16px; overflow: hidden; }
+.ny-head { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+.ny-head .ny-title { font-size: 12.5px; font-weight: 650; color: #3f3a31; }
+.ny-head .ny-sub { font-size: 11px; color: var(--muted-fg); margin-left: auto; }
+.ny-item { display: flex; align-items: center; gap: 10px; padding: 9px 14px; border-bottom: 1px solid var(--border); }
+.ny-item:last-child { border-bottom: 0; }
+.ny-item .dotx { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.ny-item.waiting .dotx { background: var(--c-amber); }
+.ny-item.failed  .dotx { background: var(--c-red); }
+.ny-item.accept  .dotx { background: var(--c-violet); }
+.ny-item.late    .dotx { background: var(--c-red); }
+.ny-copy { min-width: 0; flex: 1; }
+.ny-copy .ny-title2 { font-size: 12.5px; font-weight: 600; color: var(--fg); }
+.ny-copy .ny-why { font-size: 11.5px; color: var(--muted-fg); margin-top: 1px; }
+.ny-why b { color: #3f3a31; font-weight: 600; }
+.ny-acts { display: flex; gap: 6px; flex: none; }
+
+/* ── 任务流 ─────────────────────────────────────────── */
+.stream-group { margin-bottom: 14px; }
+.stream-head { display: flex; align-items: center; gap: 8px; padding: 4px 2px 8px; }
+.stream-head .g-name { font-size: 12px; font-weight: 650; color: #3f3a31; }
+.stream-head .rule { flex: 1; height: 1px; background: var(--border); }
+.stream-row { display: flex; align-items: center; gap: 12px; padding: 8px 12px; background: var(--card); border: 1px solid var(--border); border-radius: 12px; margin-bottom: 6px; position: relative; cursor: pointer; }
+.stream-row:hover { background: #fbfaf6; }
+.stream-row::before { content: ""; position: absolute; left: 0; top: 8px; bottom: 8px; width: 3px; border-radius: 999px; background: var(--st-todo); }
+.stream-row.s-progress::before { background: var(--st-progress); }
+.stream-row.s-todo::before { background: var(--st-todo); }
+.stream-row.s-review::before { background: var(--st-review); }
+.stream-row.s-done::before { background: var(--st-done); }
+.stream-row .sr-main { min-width: 0; flex: 1; }
+.stream-row .sr-title { font-size: 12.5px; font-weight: 600; color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stream-row .sr-badges { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 3px; }
+.stream-row .sr-side { flex: none; display: flex; align-items: center; gap: 10px; font-size: 11.5px; color: var(--muted-fg); }
+.stream-row .sr-side .mono { font-size: 11px; }
+
+/* ── 详情页 ─────────────────────────────────────────── */
+.detail-body { flex: 1; min-height: 0; overflow: auto; display: grid; grid-template-columns: 1fr 300px; gap: 16px; padding: 16px 20px 20px; align-items: start; }
+.detail-main { min-width: 0; display: grid; gap: 14px; }
+.detail-side { display: grid; gap: 14px; align-content: start; min-width: 0; }
+.pane { padding: 14px 16px; }
+.pane.pane-flush { padding: 13px 16px 14px; }
+.why-banner { padding: 11px 14px; border-radius: var(--radius); background: var(--primary-soft); border: 1px solid var(--primary-line); font-size: 12.5px; color: #1e3a8a; line-height: 1.6; }
+.why-banner b { color: var(--primary-strong); font-weight: 650; }
+.prop { display: grid; grid-template-columns: 68px 1fr; gap: 10px; align-items: center; }
+.prop + .prop { margin-top: 9px; padding-top: 9px; border-top: 1px solid var(--border); }
+.prop .pk { font-size: 11.5px; color: var(--muted-fg); }
+.prop .pv { display: flex; align-items: center; gap: 7px; min-width: 0; font-size: 12px; color: #3f3a31; flex-wrap: wrap; }
+.desc { margin: 0; font-size: 12.5px; color: #3f3a31; line-height: 1.7; }
+
+/* ── 移动端 ─────────────────────────────────────────── */
+.m-inbox { flex: 1; min-height: 0; overflow-y: auto; padding: 10px 12px 16px; }
+.m-inbox .need-you { margin-bottom: 12px; }
+.m-board { display: flex; flex-direction: column; gap: 10px; }
+.m-col { background: #f1eee5; border: 1px solid var(--border); border-radius: var(--radius-lg); }
+.m-col-head { display: flex; align-items: center; gap: 8px; padding: 8px 12px; }
+.m-col-head .c-name { font-size: 12px; font-weight: 650; color: #3f3a31; }
+.m-col-body { display: flex; flex-direction: column; gap: 7px; padding: 0 8px 9px; }
+.m-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 9px 10px; }
+.m-title { font-size: 12.5px; font-weight: 600; color: var(--fg); line-height: 1.4; }
+.m-badges { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+.m-actions { display: flex; gap: 6px; margin-top: 9px; }
+.m-actions .btn { flex: 1; justify-content: center; }
+</style>
+</head>
+<body>
+
+<div class="page-head">
+  <h1>Lovdex 任务面板 · 方案 2 行动收件箱</h1>
+  <p class="lede">
+    现状里「等你批准 / 执行失败 / 待你验收 / 已逾期」全是<b>派生信号</b>，却散在子状态列与看板卡片内部，没有一处聚合。
+    本稿把「需要你处理」提到页面最顶部，聚合条上<b>直接给动作按钮</b>（批准 / 拒绝 / 重试 / 验收），不必先点进任务；
+    下方才是任务流。详情页顶部解释「它为什么出现在收件箱里」。
+  </p>
+  <ul class="moves">
+    <li><b>顶部聚合区</b>收拢行动信号</li>
+    <li><b>直给动作按钮</b>，不必点进任务</li>
+    <li><b>详情解释</b>「为什么在收件箱」</li>
+    <li><b>手机聚合区置顶</b></li>
+  </ul>
+  <p style="margin:12px 0 0"><a class="back-link" href="index.html">← 返回方案总览</a></p>
+</div>
+
+<!-- ══════════════════ 主视图（桌面）══════════════════ -->
+<div class="stage desktop-only">
+  <h2>主视图 · 桌面 <span class="h2-note">顶部「需要你处理」聚合区 + 下方任务流</span></h2>
+  <div class="device desktop-frame">
+    <div class="app">
+      <header class="app-header">
+        <button class="home">⌂ 返回主页</button>
+        <div class="seg"><button class="seg-item"><span class="ic">▦</span>看板</button><button class="seg-item active"><span class="ic">▤</span>任务</button><button class="seg-item"><span class="ic">◷</span>定时</button></div>
+        <div class="spacer"></div>
+        <button class="btn-primary">＋ 新建任务</button>
+      </header>
+
+      <div class="inbox-wrap">
+
+        <!-- 需要你处理 -->
+        <section class="need-you">
+          <div class="ny-head"><span class="ny-title">需要你处理</span><span class="ny-sub">4 项 · 等你批准 / 执行失败 / 待你验收 / 已逾期</span></div>
+
+          <div class="ny-item waiting">
+            <span class="dotx"></span>
+            <div class="ny-copy"><div class="ny-title2">任务执行失败后自动重试一次 <span class="task-id mono">T-1042</span></div><div class="ny-why"><b>等你批准</b> · 将在 lovdex 上重试第 1 次失败的工具调用</div></div>
+            <div class="ny-acts"><button class="btn btn-sm btn-run">批准</button><button class="btn btn-sm">拒绝</button></div>
+          </div>
+
+          <div class="ny-item failed">
+            <span class="dotx"></span>
+            <div class="ny-copy"><div class="ny-title2">会话流式输出重复堆叠 <span class="task-id mono">T-1040</span></div><div class="ny-why"><b>执行失败</b> · 工具超时（bash 120s），已逾期 5 天</div></div>
+            <div class="ny-acts"><button class="btn btn-sm btn-run">↻ 重试</button><button class="btn btn-sm">查看</button></div>
+          </div>
+
+          <div class="ny-item accept">
+            <span class="dotx"></span>
+            <div class="ny-copy"><div class="ny-title2">远程设备升级后 hostId 前缀丢失 <span class="task-id mono">T-1041</span></div><div class="ny-why"><b>待你验收</b> · 结果就绪，已逾期 2 天</div></div>
+            <div class="ny-acts"><button class="btn btn-sm btn-green">验收</button><button class="btn btn-sm">查看</button></div>
+          </div>
+
+          <div class="ny-item late">
+            <span class="dotx"></span>
+            <div class="ny-copy"><div class="ny-title2">index.ts 结构守卫余量告急 <span class="task-id mono">T-1031</span></div><div class="ny-why"><b>等你回答</b> · 需要你确认是否继续重构</div></div>
+            <div class="ny-acts"><button class="btn btn-sm btn-run">回答</button></div>
+          </div>
+        </section>
+
+        <!-- 任务流 -->
+        <div class="stream-group">
+          <div class="stream-head"><span class="dot progress"></span><span class="g-name">进行中</span><span class="count-pill mono">4</span><span class="rule"></span></div>
+          <div class="stream-row s-progress"><div class="sr-main"><div class="sr-title">远程隧道断连后自动重连 <span class="task-id mono">T-1043</span></div><div class="sr-badges"><span class="tag label-optimization">优化</span><span class="exec qoder">◈ Qoder</span></div></div><div class="sr-side"><span class="sub running">会话运行中</span><span class="mono">剩余 2 天</span></div></div>
+          <div class="stream-row s-progress"><div class="sr-main"><div class="sr-title">任务执行失败后自动重试一次 <span class="task-id mono">T-1042</span></div><div class="sr-badges"><span class="tag label-bug">BUG</span></div></div><div class="sr-side"><span class="sub approve">等你批准</span></div></div>
+        </div>
+
+        <div class="stream-group">
+          <div class="stream-head"><span class="dot todo"></span><span class="g-name">待办</span><span class="count-pill mono">4</span><span class="rule"></span></div>
+          <div class="stream-row s-todo"><div class="sr-main"><div class="sr-title">支付网关对账任务串行化 <span class="task-id mono">T-1039</span></div><div class="sr-badges"><span class="tag label-feature">新特性</span><span class="tag prio-P0">P0 紧急</span></div></div><div class="sr-side"><span class="remote-badge">☁ hk-build-01</span><span class="mono">剩余 1 天</span></div></div>
+          <div class="stream-row s-todo"><div class="sr-main"><div class="sr-title">文档站迁移到 VitePress <span class="task-id mono">T-1038</span></div><div class="sr-badges"><span class="tag label-docs">文档</span></div></div><div class="sr-side"><span>docs-site</span></div></div>
+        </div>
+
+        <div class="stream-group">
+          <div class="stream-head"><span class="dot review"></span><span class="g-name">评审</span><span class="count-pill mono">2</span><span class="rule"></span></div>
+          <div class="stream-row s-review"><div class="sr-main"><div class="sr-title">侧栏项目行远程徽标对齐 <span class="task-id mono">T-1036</span></div><div class="sr-badges"><span class="tag label-optimization">优化</span></div></div><div class="sr-side"><span class="sub accept">待你验收</span></div></div>
+        </div>
+
+        <div class="stream-group">
+          <div class="stream-head"><span class="dot done"></span><span class="g-name">完成</span><span class="count-pill mono">2</span><span class="rule"></span></div>
+          <div class="stream-row s-done"><div class="sr-main"><div class="sr-title">opencode 事件路由 runId 为空 <span class="task-id mono">T-1035</span></div><div class="sr-badges"><span class="tag label-bug">BUG</span></div></div><div class="sr-side"><span class="mono">剩余 12 天</span></div></div>
+          <div class="stream-row s-done"><div class="sr-main"><div class="sr-title">skill 四层 Scope 管理 <span class="task-id mono">T-1034</span></div><div class="sr-badges"><span class="operator-badge">🤖 Lovdex助手</span></div></div><div class="sr-side"><span>lovdex</span></div></div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════ 详情页（桌面）══════════════════ -->
+<div class="stage desktop-only">
+  <h2>详情页 · 桌面 <span class="h2-note">顶部解释「它为什么出现在收件箱」</span></h2>
+  <div class="device desktop-frame">
+    <div class="app">
+      <header class="app-header"><button class="home">⌂ 返回主页</button><div class="seg"><button class="seg-item active"><span class="ic">▦</span>看板</button><button class="seg-item"><span class="ic">▤</span>任务</button><button class="seg-item"><span class="ic">◷</span>定时</button></div><div class="spacer"></div><button class="btn-primary">＋ 新建任务</button></header>
+      <div class="detail-body">
+        <div class="detail-main">
+          <div class="why-banner"><b>它为什么在这里：</b>该任务正在等你批准 —— 本次将在 lovdex 上重试第 1 次失败的工具调用。批准后立即继续，或选择拒绝让它回到待办。</div>
+          <div class="card pane">
+            <h2 class="title-edit" style="margin:0;font-size:16px;font-weight:650">任务执行失败后自动重试一次<span class="id-inline mono">T-1042</span></h2>
+            <div style="margin-top:10px"><h4 class="card-title">描述</h4><p class="desc">opencode 会话在工具调用失败时直接终止 run，用户必须手动重跑整条任务。期望在主进程加一层「最多 1 次」的重试策略。</p></div>
+          </div>
+        </div>
+        <aside class="detail-side">
+          <div class="card pane pane-flush">
+            <h4 class="card-title">属性</h4>
+            <div class="prop"><span class="pk">状态</span><span class="pv"><span class="dot progress"></span>进行中<span class="sub approve">等你批准</span></span></div>
+            <div class="prop"><span class="pk">优先级</span><span class="pv"><span class="tag prio-P0">P0</span>紧急</span></div>
+            <div class="prop"><span class="pk">截止</span><span class="pv"><span class="mono">2026-09-16</span><span class="due-rel warn">今天到期</span></span></div>
+            <div class="prop"><span class="pk">引擎</span><span class="pv"><span class="exec claude">◈ Claude</span></span></div>
+          </div>
+          <div class="card pane pane-flush run-card">
+            <h4 class="card-title">执行</h4>
+            <button class="btn btn-run">▶ 批准并继续</button>
+            <div class="run-last"><b>上次执行失败</b> · 工具超时（<span class="mono">bash</span> 120s）<br /><span class="mono" style="color:#b91c1c">2026-09-16 14:32</span> · 重试 <span class="mono">0 / 1</span></div>
+          </div>
+        </aside>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════ 移动端 ═══════════════════ -->
+<div class="stage">
+  <h2>移动端 <span class="h2-note">聚合区置顶 · 下方看板单列 · 文字标签只留图标</span></h2>
+  <div class="device phone-frame">
+    <div class="phone-notch"></div>
+    <div class="phone-body">
+      <div class="app">
+        <header class="app-header">
+          <button class="home" title="返回主页">⌂</button>
+          <div class="seg"><button class="seg-item active"><span class="ic">▦</span></button><button class="seg-item"><span class="ic">◷</span></button></div>
+          <div class="spacer"></div>
+          <button class="btn-primary" title="新建任务">＋</button>
+        </header>
+
+        <div class="m-inbox">
+          <section class="need-you">
+            <div class="ny-head"><span class="ny-title">需要你处理</span><span class="ny-sub">4 项</span></div>
+            <div class="ny-item waiting"><span class="dotx"></span><div class="ny-copy"><div class="ny-title2">任务执行失败后自动重试一次 <span class="task-id mono">T-1042</span></div><div class="ny-why">等你批准 · 重试失败的工具调用</div></div><div class="ny-acts"><button class="btn btn-sm btn-run">批准</button></div></div>
+            <div class="ny-item failed"><span class="dotx"></span><div class="ny-copy"><div class="ny-title2">会话流式输出重复堆叠 <span class="task-id mono">T-1040</span></div><div class="ny-why">执行失败 · 工具超时</div></div><div class="ny-acts"><button class="btn btn-sm btn-run">重试</button></div></div>
+            <div class="ny-item accept"><span class="dotx"></span><div class="ny-copy"><div class="ny-title2">远程设备升级后 hostId 前缀丢失 <span class="task-id mono">T-1041</span></div><div class="ny-why">待你验收</div></div><div class="ny-acts"><button class="btn btn-sm btn-green">验收</button></div></div>
+          </section>
+
+          <div class="m-board">
+            <section class="m-col">
+              <div class="m-col-head"><span class="dot progress"></span><span class="c-name">进行中</span><span class="count-pill mono">4</span></div>
+              <div class="m-col-body">
+                <div class="m-card"><div class="m-title">远程隧道断连后自动重连 <span class="task-id mono">T-1043</span></div><div class="m-badges"><span class="tag label-optimization">优化</span><span class="exec qoder">◈ Qoder</span></div><div class="m-actions"><button class="btn btn-sm">打开会话</button></div></div>
+              </div>
+            </section>
+            <section class="m-col">
+              <div class="m-col-head"><span class="dot todo"></span><span class="c-name">待办</span><span class="count-pill mono">4</span></div>
+              <div class="m-col-body">
+                <div class="m-card"><div class="m-title">支付网关对账任务串行化 <span class="task-id mono">T-1039</span></div><div class="m-badges"><span class="tag label-feature">新特性</span><span class="tag prio-P0">P0 紧急</span></div><div class="m-actions"><button class="btn btn-sm btn-run">▶ 开始执行</button></div></div>
+              </div>
+            </section>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Lovdex 任务面板重设计 · 3 个信息架构方案</title>
+<link rel="stylesheet" href="shared.css" />
+<style>
+  .wrap { max-width: 1240px; margin: 0 auto; }
+
+  .hero { margin-bottom: 26px; }
+  .hero h1 { margin: 0 0 10px; font-size: 26px; font-weight: 680; letter-spacing: -0.02em; }
+  .hero .lede { margin: 0 0 16px; max-width: 880px; font-size: 14px; color: var(--muted-fg); }
+  .hero .lede strong { color: var(--fg); font-weight: 600; }
+
+  .callout {
+    display: flex; gap: 12px; align-items: flex-start;
+    padding: 14px 16px; border-radius: var(--radius-lg);
+    background: var(--primary-soft); border: 1px solid var(--primary-line); max-width: 880px;
+  }
+  .callout .mark { flex: none; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; margin-top: 1px; background: var(--primary); color: #fff; font-size: 12px; font-weight: 700; }
+  .callout p { margin: 0; font-size: 13px; color: #3f3a31; }
+  .callout p + p { margin-top: 6px; }
+  .callout b { color: var(--primary-strong); }
+
+  .diagnosis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin: 0 0 30px; }
+  .diag { padding: 14px 16px; border-radius: var(--radius-lg); background: var(--card); border: 1px solid var(--border); }
+  .diag .k { font-size: 11px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; color: var(--muted-fg); margin-bottom: 6px; }
+  .diag .v { font-size: 13px; color: #3f3a31; }
+  .diag .v b { color: var(--fg); font-weight: 600; }
+
+  .section-title { margin: 0 0 6px; font-size: 15px; font-weight: 650; }
+  .section-sub { margin: 0 0 16px; font-size: 12.5px; color: var(--muted-fg); }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 18px; margin-bottom: 40px; }
+
+  .scheme {
+    display: flex; flex-direction: column;
+    background: var(--card); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden;
+    transition: box-shadow .15s ease, transform .15s ease;
+  }
+  .scheme:hover { box-shadow: 0 10px 30px rgb(35 33 25 / 12%); transform: translateY(-2px); }
+  .scheme-head { display: flex; align-items: center; gap: 10px; padding: 14px 16px 10px; }
+  .scheme-key { flex: none; width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center; font-size: 13px; font-weight: 700; background: var(--muted); color: #3f3a31; }
+  .scheme-key.pick { background: var(--primary); color: #fff; }
+  .scheme-name { font-size: 14.5px; font-weight: 650; }
+  .scheme-en { font-size: 11px; color: var(--muted-fg); font-weight: 400; margin-left: 4px; }
+  .pick-badge { margin-left: auto; padding: 2px 8px; border-radius: 999px; font-size: 10.5px; font-weight: 600; background: var(--primary-soft); color: var(--primary-strong); border: 1px solid var(--primary-line); }
+
+  .thumb { height: 200px; margin: 0 16px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: #f4f1e9; padding: 12px; overflow: hidden; display: flex; flex-direction: column; gap: 8px; }
+  .wire-bar { height: 11px; border-radius: 4px; background: var(--muted); flex: none; }
+  .wire-bar.accent { background: var(--primary-soft); border: 1px solid var(--primary-line); }
+  .wire-row { display: flex; gap: 7px; flex: 1; min-height: 0; }
+  .wire-col { flex: 1; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+  .wire-card { flex: 1; border-radius: 6px; background: var(--card); border: 1px solid var(--border); }
+  .wire-list-row { height: 20px; border-radius: 5px; background: var(--card); border: 1px solid var(--border); display: flex; align-items: center; gap: 6px; padding: 0 6px; flex: none; }
+  .wire-list-row.on { border-color: var(--primary-line); background: var(--primary-soft); }
+  .wire-bar-l { width: 3px; height: 11px; border-radius: 2px; background: var(--st-todo); flex: none; }
+  .wire-bar-l.p { background: var(--st-progress); }
+  .wire-bar-l.r { background: var(--st-review); }
+  .wire-bar-l.d { background: var(--st-done); }
+  .wire-bar-l.red { background: var(--c-red); }
+  .wire-bar-l.amber { background: var(--c-amber); }
+  .wire-line { height: 5px; border-radius: 3px; background: var(--muted); flex: 1; }
+  .wire-line.sh { flex: none; width: 34%; }
+  .wire-pill { width: 20px; height: 7px; border-radius: 999px; background: var(--muted); flex: none; }
+  .wire-drawer { border: 1px dashed var(--primary-line); background: var(--primary-soft); border-radius: 6px; padding: 7px; display: flex; flex-direction: column; gap: 5px; flex: none; }
+  .wire-2col { display: grid; grid-template-columns: 3fr 4fr; gap: 8px; flex: 1; min-height: 0; }
+  .wire-alert { border-radius: 7px; padding: 7px 8px; display: flex; align-items: center; gap: 7px; flex: none; }
+  .wire-alert.waiting { background: #fef3c7; border: 1px solid #fde68a; }
+  .wire-alert.failed { background: #fee2e2; border: 1px solid #fecaca; }
+  .wire-alert .dotx { width: 6px; height: 6px; border-radius: 50%; flex: none; }
+  .wire-alert.waiting .dotx { background: var(--c-amber); }
+  .wire-alert.failed .dotx { background: var(--c-red); }
+  .wire-alert .lbl { height: 6px; border-radius: 3px; flex: 1; background: #f59e0b66; }
+  .wire-alert.failed .lbl { background: #ef444466; }
+  .wire-cta { width: 24px; height: 9px; border-radius: 4px; flex: none; background: #fff; border: 1px solid rgb(0 0 0 / 12%); }
+
+  .scheme-body { padding: 0 16px 14px; display: flex; flex-direction: column; gap: 10px; flex: 1; }
+  .kv { display: grid; grid-template-columns: 62px 1fr; gap: 8px; font-size: 12.5px; }
+  .kv dt { color: var(--muted-fg); }
+  .kv dd { margin: 0; color: #3f3a31; }
+  .kv dd.warn { color: #b45309; }
+
+  .scheme-foot { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-top: 1px solid var(--border); background: #faf9f4; }
+  .scheme-foot .open { font-size: 12.5px; font-weight: 600; color: var(--primary-strong); text-decoration: none; }
+  .scheme-foot .open:hover { text-decoration: underline; }
+  .scheme-foot .size { margin-left: auto; font-size: 11px; color: var(--muted-fg); }
+
+  .basis { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; padding: 18px; border-radius: var(--radius-lg); background: var(--card); border: 1px solid var(--border); margin-bottom: 40px; }
+  .basis-col h4 { margin: 0 0 8px; font-size: 12px; font-weight: 650; }
+  .basis-col ul { margin: 0; padding-left: 16px; font-size: 12.5px; color: #3f3a31; }
+  .basis-col li { margin-bottom: 3px; }
+  .basis-col code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px; background: var(--muted); padding: 1px 5px; border-radius: 4px; color: #3f3a31; }
+
+  footer.page-foot { padding: 18px 0 8px; border-top: 1px solid var(--border); font-size: 12px; color: var(--muted-fg); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="hero">
+    <h1>Lovdex 任务面板重设计 · 3 个信息架构方案</h1>
+    <p class="lede">
+      这 3 份稿子回答同一个问题：<strong>任务面板该怎么组织，才让人一眼看出「现在什么在跑、什么卡住了、我该动什么」</strong>。
+      每份稿子都是<b>全量</b>的完整方案 —— 含主视图、详情页、以及各自遵循「移动端隐藏策略」的手机端；
+      用同一份拟真数据、同一套 Lovdex 现有配色令牌，所以差异只来自<strong>信息架构</strong>本身。
+    </p>
+    <div class="callout">
+      <div class="mark">→</div>
+      <div>
+        <p><b>方案 1 与 2 治的是真问题。</b>方案 1 治「9 列平铺、每列同权、行比信息重」；方案 2 治「等你批准 / 执行失败 / 待你验收 / 已逾期」这些行动信号没有聚合。方案 3 是换口味：降低编辑成本。</p>
+        <p>三稿共享一套修法：<b>去厚重阴影、留白分行、行动信号前置、行内展开替代跳页</b>。配色与字体保持 Lovdex 现状不动。</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="diagnosis">
+    <div class="diag">
+      <div class="k">现状 · 结构</div>
+      <div class="v">表格 <b>9 列平铺</b>、每列同权，窄屏必横向滚动；创建时间、最近活动这类低价值列与标题同权。</div>
+    </div>
+    <div class="diag">
+      <div class="k">现状 · 信号</div>
+      <div class="v">「等你批准 / 执行失败 / 待你验收 / 已逾期」全是<b>派生信号</b>，却散在子状态列与看板卡片内部，没有一处聚合。</div>
+    </div>
+    <div class="diag">
+      <div class="k">现状 · 重量</div>
+      <div class="v">每行独立卡片<b>厚重阴影 + 悬停位移</b>，行本身比行里的信息还重；双层筛选栏常年占掉一整行。</div>
+    </div>
+  </div>
+
+  <h2 class="section-title">3 个方案</h2>
+  <p class="section-sub">缩略图是结构示意；点开才是完整稿（每份含主视图 + 详情页 + 手机端三屏）。</p>
+
+  <div class="grid">
+
+    <!-- 方案1 -->
+    <article class="scheme">
+      <div class="scheme-head"><div class="scheme-key pick">1</div><div><span class="scheme-name">精修数据表</span><span class="scheme-en">Refined Grid</span></div><span class="pick-badge">推荐</span></div>
+      <div class="thumb">
+        <div class="wire-bar accent" style="width:56%"></div>
+        <div class="wire-list-row"><span class="wire-bar-l p"></span><span class="wire-line sh"></span><span class="wire-pill"></span></div>
+        <div class="wire-drawer"><span class="wire-line" style="flex:none;width:70%"></span><span class="wire-line" style="flex:none;width:86%"></span></div>
+        <div class="wire-list-row"><span class="wire-bar-l r"></span><span class="wire-line sh"></span><span class="wire-pill"></span></div>
+        <div class="wire-list-row"><span class="wire-bar-l"></span><span class="wire-line sh"></span><span class="wire-pill"></span></div>
+      </div>
+      <div class="scheme-body">
+        <dl class="kv">
+          <dt>组织方式</dt><dd>仍是表格，但 9 列收敛到 6 列：标题+标签+引擎合成一个单元，子状态并进状态列，创建/最近活动降为悬停浮现。</dd>
+          <dt>关键动作</dt><dd>点行<strong>就地展开</strong>详情抽屉，不再跳页；筛选压进一行工具栏；分组行亮出行动信号。</dd>
+          <dt>优化于</dt><dd>大数据量扫读；状态分组；批量操作。</dd>
+          <dt>代价</dt><dd class="warn">本质仍是表格，观感上限有限；悬停才显的信息在触控下不可达（移动端已降级为看板）。</dd>
+        </dl>
+      </div>
+      <div class="scheme-foot"><a class="open" href="a-refined-grid.html">打开完整稿 →</a><span class="size">迁移成本最低</span></div>
+    </article>
+
+    <!-- 方案2 -->
+    <article class="scheme">
+      <div class="scheme-head"><div class="scheme-key pick">2</div><div><span class="scheme-name">行动收件箱</span><span class="scheme-en">Inbox &amp; Triage</span></div><span class="pick-badge">推荐</span></div>
+      <div class="thumb">
+        <div class="wire-alert waiting"><span class="dotx"></span><span class="lbl"></span><span class="wire-cta"></span></div>
+        <div class="wire-alert failed"><span class="dotx"></span><span class="lbl"></span><span class="wire-cta"></span></div>
+        <div class="wire-list-row" style="border-color:#fecaca"><span class="wire-bar-l red"></span><span class="wire-line sh"></span></div>
+        <div class="wire-list-row"><span class="wire-bar-l amber"></span><span class="wire-line sh"></span></div>
+        <div class="wire-bar" style="height:8px;width:100%"></div>
+        <div class="wire-list-row"><span class="wire-bar-l p"></span><span class="wire-line sh"></span></div>
+      </div>
+      <div class="scheme-body">
+        <dl class="kv">
+          <dt>组织方式</dt><dd>顶部「需要你处理」聚合区（等你批准 / 执行失败 / 待你验收 / 已逾期），下方才是任务流。</dd>
+          <dt>关键动作</dt><dd>聚合条上<strong>直接给动作按钮</strong>（批准 / 重试 / 验收），不必先点进任务；详情卡顶部解释「它为什么出现在收件箱」。</dd>
+          <dt>优化于</dt><dd>响应速度；「有没有事等着我」这个最高频的问题。</dd>
+          <dt>代价</dt><dd class="warn">弱化台账属性，不适合「翻三个月前的记录」；聚合区为空时页面显得空。</dd>
+        </dl>
+      </div>
+      <div class="scheme-foot"><a class="open" href="b-inbox.html">打开完整稿 →</a><span class="size">信息重心最先到位</span></div>
+    </article>
+
+    <!-- 方案3 -->
+    <article class="scheme">
+      <div class="scheme-head"><div class="scheme-key">3</div><div><span class="scheme-name">双栏主从</span><span class="scheme-en">Master–Detail</span></div></div>
+      <div class="thumb">
+        <div class="wire-bar" style="width:34%"></div>
+        <div class="wire-2col">
+          <div class="wire-col">
+            <div class="wire-list-row on"><span class="wire-bar-l p"></span><span class="wire-line"></span></div>
+            <div class="wire-list-row"><span class="wire-bar-l p"></span><span class="wire-line"></span></div>
+            <div class="wire-list-row"><span class="wire-bar-l"></span><span class="wire-line"></span></div>
+            <div class="wire-list-row"><span class="wire-bar-l r"></span><span class="wire-line"></span></div>
+          </div>
+          <div class="wire-col">
+            <div class="wire-alert waiting"><span class="dotx"></span><span class="lbl"></span></div>
+            <div class="wire-card"></div>
+          </div>
+        </div>
+      </div>
+      <div class="scheme-body">
+        <dl class="kv">
+          <dt>组织方式</dt><dd>左侧行式列表（非表格），右侧常驻详情面板；详情不再是独立页面。</dd>
+          <dt>关键动作</dt><dd>属性在右栏<strong>永远可直接编辑</strong>，不用点「编辑」再保存；窄窗时右栏降级为覆盖式抽屉。</dd>
+          <dt>优化于</dt><dd>高频改状态/优先级/项目；免去来回跳页。</dd>
+          <dt>代价</dt><dd class="warn">右栏常驻挤压列表宽度；不适合需要横向比较多列字段的场景。</dd>
+        </dl>
+      </div>
+      <div class="scheme-foot"><a class="open" href="c-master-detail.html">打开完整稿 →</a><span class="size">编辑成本最低</span></div>
+    </article>
+
+  </div>
+
+  <h2 class="section-title">3 份稿子共享什么</h2>
+  <p class="section-sub">只有信息架构不同，其余全部锁死，避免「因为配色好看而选错架构」。</p>
+  <div class="basis">
+    <div class="basis-col">
+      <h4>设计令牌（Lovdex 现状）</h4>
+      <ul>
+        <li>主色 <code>#3b82f6</code>，暖米底 <code>#f6f4ed</code>，字体 Encode Sans</li>
+        <li>状态 / 子状态 / 优先级 / Label / 执行引擎五张配色表取自 <code>taskStatus.ts</code></li>
+        <li>去厚重阴影，留白分行，圆角 <code>12/16px</code></li>
+      </ul>
+    </div>
+    <div class="basis-col">
+      <h4>应用外壳</h4>
+      <ul>
+        <li>顶栏：返回主页 + 分段切换（看板/表格/定时）+ 新建任务</li>
+        <li>移动端隐藏策略：<b>强制看板</b>、表格按钮与文字标签隐藏只留图标</li>
+        <li>桌面与手机 frame 三稿完全一致</li>
+      </ul>
+    </div>
+    <div class="basis-col">
+      <h4>拟真数据</h4>
+      <ul>
+        <li>12 条任务，覆盖 5 状态 / 10 种子状态 / 4 优先级 / 7 Label / 4 执行引擎</li>
+        <li>本地与远程项目、助手任务、定时任务、上下文来源</li>
+        <li>逾期 · 今天 · 未来 · 无截止四种截止态</li>
+      </ul>
+    </div>
+    <div class="basis-col">
+      <h4>未动的部分</h4>
+      <ul>
+        <li>功能不删：字段、筛选、批量选择、行内执行、上下文入口全部有位置</li>
+        <li>纯静态 HTML/CSS，无 JS、无外链、无字体依赖</li>
+        <li>都是设计稿，未改动 <code>web/src</code> 任何代码</li>
+      </ul>
+    </div>
+  </div>
+
+  <footer class="page-foot">
+    预览稿 · 2026-09-16 · 仅用于方案评审，尚未落到 <code>web/src/components/tasks</code>。
+  </footer>
+
+</div>
+</body>
+</html>
