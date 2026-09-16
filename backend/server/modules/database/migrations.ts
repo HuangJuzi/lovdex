@@ -671,6 +671,17 @@ const migrateTasksTable = (db: Database): void => {
       db.exec('PRAGMA foreign_keys = ON');
     }
   }
+
+  // Context-source compression modes (spec 2026-09-16): persist the source
+  // session id + mode + async status + raw product alongside context_summary.
+  // Added in place via ALTER at the very end so every legacy rebuild gate above
+  // (which recreates `tasks` from TASKS_TABLE_SCHEMA_SQL) can't drop these
+  // columns; a fresh DB already has them via TASKS_TABLE_SCHEMA_SQL.
+  const contextTaskColumns = (db.prepare('PRAGMA table_info(tasks)').all() as { name: string }[]).map((column) => column.name);
+  addColumnToTableIfNotExists(db, 'tasks', contextTaskColumns, 'context_source_session_id', 'TEXT');
+  addColumnToTableIfNotExists(db, 'tasks', contextTaskColumns, 'context_mode', "TEXT NOT NULL DEFAULT 'none' CHECK (context_mode IN ('none','summary','raw'))");
+  addColumnToTableIfNotExists(db, 'tasks', contextTaskColumns, 'context_status', "TEXT CHECK (context_status IS NULL OR context_status IN ('pending','ready','failed'))");
+  addColumnToTableIfNotExists(db, 'tasks', contextTaskColumns, 'context_raw', 'TEXT');
 };
 
 /**

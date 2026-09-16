@@ -188,6 +188,12 @@ CREATE TABLE IF NOT EXISTS tasks (
                       ${LABEL_CHECK},
     remark            TEXT,
     context_summary   TEXT,
+    context_source_session_id TEXT,
+    context_mode      TEXT NOT NULL DEFAULT 'none'
+                      CHECK (context_mode IN ('none','summary','raw')),
+    context_status    TEXT
+                      CHECK (context_status IS NULL OR context_status IN ('pending','ready','failed')),
+    context_raw       TEXT,
     source_schedule_id TEXT
 );
 `;
