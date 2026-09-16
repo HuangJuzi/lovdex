@@ -18,16 +18,19 @@
  * import-free so unit tests never pull the SDK.
  */
 
+export type TaskContextResult = { status: 'ready' | 'failed'; summary?: string; raw?: string };
+
 export type TaskContextCompressionDeps = {
   fetchHistory: (sessionId: string, opts?: { limit?: number; offset?: number }) => Promise<{ messages?: unknown[] }>;
   runOneShot: (args: { prompt: string; systemPrompt: string; model?: string }) => Promise<string | null>;
-  writeBack: (taskId: string, summary: string) => void;
+  writeResult: (taskId: string, result: TaskContextResult) => void;
 };
 
 export type TaskContextCompressionArgs = {
   sourceSessionId: string;
   taskId: string;
   title: string;
+  mode: 'summary' | 'raw';
   deps: TaskContextCompressionDeps;
   onError?: (error: unknown) => void;
 };
@@ -37,6 +40,9 @@ const MAX_MESSAGES = 200;
 
 /** Upper bound on the transcript text handed to the compression model. */
 const MAX_TRANSCRIPT_CHARS = 60_000;
+
+/** Upper bound on the raw transcript stored verbatim for raw mode (~200k chars). */
+const MAX_RAW_CHARS = 200_000;
 
 /** Upper bound on one background compression run (headless CLI may stall). */
 const RUN_TIMEOUT_MS = 120_000;
@@ -117,36 +123,49 @@ function buildPrompt(title: string, transcript: string): string {
 }
 
 export async function runTaskContextCompression(args: TaskContextCompressionArgs): Promise<void> {
-  const { sourceSessionId, taskId, title, deps, onError } = args;
+  const { sourceSessionId, taskId, title, mode, deps, onError } = args;
+  const fail = (e?: unknown) => {
+    if (e !== undefined) reportError(onError, e);
+    try {
+      deps.writeResult(taskId, { status: 'failed' });
+    } catch {
+      // writeResult 自身抛错时吞掉，避免级联
+    }
+  };
+  let transcript = '';
   try {
-    let transcript = '';
-    try {
-      const first = await deps.fetchHistory(sourceSessionId, { limit: MAX_MESSAGES, offset: 0 });
-      const messages = Array.isArray(first?.messages) ? first.messages : [];
-      transcript = compactTranscriptToText(messages);
-    } catch (e) {
-      reportError(onError, e);
-      return; // 读不到 transcript => 不压缩，保持 NULL
-    }
-    // Aggregate cap: worst case 200 msgs × 1200 chars 会超上下文，截断到常量上限。
-    transcript = transcript.slice(0, MAX_TRANSCRIPT_CHARS);
-    let summary: string | null = null;
-    try {
-      summary = await withTimeout(
-        deps.runOneShot({
-          prompt: buildPrompt(title, transcript),
-          systemPrompt: CONTEXT_SYSTEM_PROMPT,
-        }),
-        RUN_TIMEOUT_MS,
-      );
-    } catch (e) {
-      reportError(onError, e); // 超时/失败 => 保持 NULL，不写回
-    }
-    if (summary) {
-      deps.writeBack(taskId, summary);
-    }
+    const first = await deps.fetchHistory(sourceSessionId, { limit: MAX_MESSAGES, offset: 0 });
+    const messages = Array.isArray(first?.messages) ? first.messages : [];
+    transcript = compactTranscriptToText(messages);
+  } catch (e) {
+    fail(e); // 读不到 transcript => 置 failed，不写产物
+    return;
+  }
+
+  // raw：不调 LLM，直接把精简转录截断后存 context_raw。
+  if (mode === 'raw') {
+    deps.writeResult(taskId, { status: 'ready', raw: transcript.slice(0, MAX_RAW_CHARS) });
+    return;
+  }
+
+  // summary：截断到 token 预算内，走 LLM 压缩。
+  transcript = transcript.slice(0, MAX_TRANSCRIPT_CHARS);
+  let summary: string | null = null;
+  try {
+    summary = await withTimeout(
+      deps.runOneShot({
+        prompt: buildPrompt(title, transcript),
+        systemPrompt: CONTEXT_SYSTEM_PROMPT,
+      }),
+      RUN_TIMEOUT_MS,
+    );
   } catch (e) {
     reportError(onError, e);
+  }
+  if (summary) {
+    deps.writeResult(taskId, { status: 'ready', summary });
+  } else {
+    fail(); // 超时/空结果 => failed
   }
 }
 
