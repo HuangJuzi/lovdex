@@ -276,7 +276,7 @@ export function CreateTaskDialog({
                 label="引擎"
                 options={engineOptions}
                 value={isAssistant ? '' : engine}
-                disabled={isAssistant}
+                disabled={isAssistant || newEngineAvailability.status === 'unavailable'}
                 isMobile={isMobile}
                 onChange={(v) => setEngine(v as TaskEngine)}
               />
@@ -363,14 +363,15 @@ function MoreChip({
             <Input className="h-9 w-full" placeholder="可选，留空自动提炼" value={name} onChange={(e) => setName(e.target.value)} />
           </Field>
           <Field label="上下文来源">
-            <ChipSelect
-              ariaLabel="上下文来源"
-              label="上下文来源"
-              options={sourceOptions}
+            <select
+              className="h-9 w-full rounded-md border border-border bg-muted px-2 text-sm text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
               value={sourceSessionId}
-              isMobile={isMobile}
-              onChange={setSourceSessionId}
-            />
+              onChange={(e) => setSourceSessionId(e.target.value)}
+            >
+              {sourceOptions.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
           </Field>
           {sourceSessionId && (
             <Field label="压缩方式">
