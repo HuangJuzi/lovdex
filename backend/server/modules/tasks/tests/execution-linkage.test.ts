@@ -20,7 +20,7 @@ function makeDb(initial: Row[]) {
     linkSession: () => {},
     deleteTask: () => {},
     moveTask: () => {},
-    updateTaskContextSummary: () => {},
+    writeContextResult: () => {},
     writeSummary: (id: string, input: { summary: string; verdict: AiVerdict; reason?: string | null }) => {
       const t = rows.find(x => x.task_id === id);
       if (!t) return null;

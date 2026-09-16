@@ -51,8 +51,15 @@ export type TaskDbLike = Pick<
   | 'deleteTask'
   | 'moveTask'
   | 'writeSummary'
-  | 'updateTaskContextSummary'
+  | 'writeContextResult'
 >;
+
+const CONTEXT_MODES = ['none', 'summary', 'raw'] as const;
+type ContextMode = (typeof CONTEXT_MODES)[number];
+
+function isContextMode(value: unknown): value is ContextMode {
+  return typeof value === 'string' && (CONTEXT_MODES as readonly string[]).includes(value);
+}
 
 type CreateTaskInput = {
   projectPath: string;
@@ -74,6 +81,8 @@ type CreateTaskInput = {
    * 作为参考历史，不会挂到任务上，允许已被其它任务关联。
    */
   sourceSessionId?: string | null;
+  /** 上下文处理方式；缺省时按「有来源→summary，无来源→none」推导。 */
+  contextMode?: 'none' | 'summary' | 'raw';
 };
 
 /**
@@ -124,7 +133,7 @@ export function createTasksService(
      * unaffected. Fire-and-forget inside the hook — createTask itself is
      * synchronous and never awaits it.
      */
-    onContextSourceProvided?: (taskId: string, sourceSessionId: string) => void;
+    onContextSourceProvided?: (taskId: string, sourceSessionId: string, mode: 'summary' | 'raw') => void;
   },
 ) {
   const resolveDb = db;
@@ -299,12 +308,19 @@ export function createTasksService(
           throw new AppError('session is already linked to a task', { code: 'SESSION_ALREADY_LINKED', statusCode: 409 });
         }
       }
-      // sourceSessionId: 来源会话仅作参考历史。校验存在、归属项目一致两点，并刻意
-      // 不检查 SESSION_ALREADY_LINKED——来源可能就是前序任务的会话。
-      if (input.sourceSessionId != null) {
-        const srcSession = resolveSession(input.sourceSessionId);
+      // 上下文来源与处理方式：mode==='none' 忽略来源、5 个 context 列全 NULL；
+      // mode!=='none' 要求来源存在且归属本项目。缺省 mode 时按「有来源→summary」推导，
+      // 保持既有 sourceSessionId 调用方（ConvertToTaskDialog / 定时任务）行为不变。
+      const rawContextMode = input.contextMode ?? (input.sourceSessionId != null ? 'summary' : 'none');
+      if (!isContextMode(rawContextMode)) {
+        throw new AppError(`invalid contextMode: ${String(input.contextMode)}`, { code: 'INVALID_CONTEXT_MODE', statusCode: 400 });
+      }
+      const contextMode: ContextMode = rawContextMode;
+      const contextSourceSessionId = contextMode === 'none' ? null : (input.sourceSessionId ?? null);
+      if (contextSourceSessionId != null) {
+        const srcSession = resolveSession(contextSourceSessionId);
         if (!srcSession) {
-          throw new AppError(`session not found: ${input.sourceSessionId}`, { code: 'SESSION_NOT_FOUND', statusCode: 404 });
+          throw new AppError(`session not found: ${contextSourceSessionId}`, { code: 'SESSION_NOT_FOUND', statusCode: 404 });
         }
         if (normalizeProjectPath(srcSession.project_path ?? '') !== normalizeProjectPath(input.projectPath)) {
           throw new AppError('session does not belong to this project', { code: 'SESSION_PROJECT_MISMATCH', statusCode: 409 });
@@ -324,18 +340,21 @@ export function createTasksService(
         label: input.label ?? 'other',
         remark: input.remark ?? null,
         sourceScheduleId: input.sourceScheduleId ?? null,
+        contextSourceSessionId,
+        contextMode,
+        contextStatus: contextMode === 'none' ? null : 'pending',
       });
       emit({ kind: 'task_upserted', task: row, actor: 'user' });
-      if (input.sourceSessionId != null) {
-        opts.onContextSourceProvided?.(row.task_id, input.sourceSessionId);
+      if (contextSourceSessionId != null && contextMode !== 'none') {
+        opts.onContextSourceProvided?.(row.task_id, contextSourceSessionId, contextMode);
       }
       return decorate(row);
     },
 
-    setTaskContextSummary(taskId: string, summary: string): TaskRow | null {
+    setTaskContextResult(taskId: string, result: { status: 'ready' | 'failed'; summary?: string | null; raw?: string | null }): TaskRow | null {
       const row = resolveDb.getTask(taskId);
       if (!row) return null;
-      resolveDb.updateTaskContextSummary(taskId, summary);
+      resolveDb.writeContextResult(taskId, result);
       const updated = resolveDb.getTask(taskId) ?? row;
       emit({ kind: 'task_upserted', task: updated, actor: 'engine' });
       return decorate(updated);

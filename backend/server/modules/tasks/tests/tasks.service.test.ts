@@ -24,6 +24,10 @@ type StoredTask = {
   created_at: string;
   updated_at: string;
   context_summary: string | null;
+  context_source_session_id: string | null;
+  context_mode: 'none' | 'summary' | 'raw';
+  context_status: 'pending' | 'ready' | 'failed' | null;
+  context_raw: string | null;
 };
 
 function makeDbStub() {
@@ -43,6 +47,10 @@ function makeDbStub() {
     created_at: '2026-01-01T00:00:00.000Z',
     updated_at: '2026-01-01T00:00:00.000Z',
     context_summary: null,
+    context_source_session_id: null,
+    context_mode: 'none',
+    context_status: null,
+    context_raw: null,
   });
 
   const calls: { linkSession: { taskId: string; sessionId: string }[] } = { linkSession: [] };
@@ -56,6 +64,9 @@ function makeDbStub() {
       executorModel?: string | null;
       status?: string;
       sessionId?: string | null;
+      contextSourceSessionId?: string | null;
+      contextMode?: 'none' | 'summary' | 'raw';
+      contextStatus?: 'pending' | 'ready' | 'failed' | null;
     }) => {
       const row = {
         task_id: 't1',
@@ -63,6 +74,10 @@ function makeDbStub() {
         status: input.status ?? 'todo',
         session_id: input.sessionId ?? null,
         context_summary: null,
+        context_source_session_id: input.contextSourceSessionId ?? null,
+        context_mode: input.contextMode ?? 'none',
+        context_status: input.contextStatus ?? null,
+        context_raw: null,
       };
       tasks.set('t1', row as unknown as StoredTask);
       return row;
@@ -105,9 +120,12 @@ function makeDbStub() {
       tasks.delete(id);
     },
     moveTask: () => {},
-    updateTaskContextSummary: (id: string, summary: string) => {
-      const current = tasks.get(id);
-      if (current) tasks.set(id, { ...current, context_summary: summary } as StoredTask);
+    writeContextResult: (id: string, result: { status: 'ready' | 'failed'; summary?: string | null; raw?: string | null }) => {
+      const t = tasks.get(id);
+      if (!t) return;
+      t.context_status = result.status;
+      t.context_summary = result.summary ?? null;
+      t.context_raw = result.raw ?? null;
     },
   };
 
@@ -221,6 +239,10 @@ test('getTaskBySessionId returns the decorated task for a linked session', () =>
     position: 0, session_id: 's1', started_at: null, completed_at: null,
     created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z',
     context_summary: null,
+    context_source_session_id: null,
+    context_mode: 'none',
+    context_status: null,
+    context_raw: null,
   };
   const db = {
     createTask: () => row,
@@ -889,21 +911,73 @@ test('createTask without sourceSessionId never fires onContextSourceProvided', (
   assert.deepEqual(hooks, []);
 });
 
-test('setTaskContextSummary persists, broadcasts engine task_upserted and returns decorated row', () => {
+test('setTaskContextResult persists, broadcasts engine task_upserted and returns decorated row', () => {
   const events: unknown[] = [];
   const { db } = makeDbStub();
   const svc = createTasksService(db, { broadcast: (e) => events.push(e) });
-  const updated = svc.setTaskContextSummary('t1', '## 背景\n先前决策 A');
-  assert.equal((updated as { context_summary: string | null }).context_summary, '## 背景\n先前决策 A');
+  const updated = svc.setTaskContextResult('t1', { status: 'ready', summary: '## 背景\n先前决策 A' });
+  assert.equal((updated as { context_summary: string | null; context_status: string | null }).context_summary, '## 背景\n先前决策 A');
+  assert.equal((updated as { context_status: string | null }).context_status, 'ready');
   assert.equal((db.getTask('t1') as { context_summary: string | null }).context_summary, '## 背景\n先前决策 A');
   assert.equal(events.length, 1);
   assert.equal((events[0] as { actor: string }).actor, 'engine');
-  assert.equal((events[0] as { task: { context_summary: string | null } }).task.context_summary, '## 背景\n先前决策 A');
 });
 
-test('setTaskContextSummary for a missing task returns null and does not broadcast', () => {
+test('setTaskContextResult for a missing task returns null and does not broadcast', () => {
   const events: unknown[] = [];
   const svc = createTasksService(makeDbStub().db, { broadcast: (e) => events.push(e) });
-  assert.equal(svc.setTaskContextSummary('nope', 's'), null);
+  assert.equal(svc.setTaskContextResult('nope', { status: 'failed' }), null);
   assert.equal(events.length, 0);
+});
+
+test('createTask persists context_mode/status and fires onContextSourceProvided with mode', () => {
+  const hooks: Array<[string, string, string]> = [];
+  const svc = createTasksService(makeDbStub().db, {
+    broadcast: () => {},
+    deps: { projectsDb: makeProjectStub('/p'), sessionsDb: makeSessionsStub([{ id: 's-1', project_path: '/p' }]) },
+    onContextSourceProvided: (taskId, sourceSessionId, mode) => hooks.push([taskId, sourceSessionId, mode]),
+  });
+  const row = svc.createTask({ title: 't', projectPath: '/p', executorProvider: 'claude', sourceSessionId: 's-1', contextMode: 'raw' });
+  assert.equal((row as { context_mode: string }).context_mode, 'raw');
+  assert.equal((row as { context_status: string | null }).context_status, 'pending');
+  assert.equal((row as { context_source_session_id: string | null }).context_source_session_id, 's-1');
+  assert.deepEqual(hooks, [['t1', 's-1', 'raw']]);
+});
+
+test('createTask defaults contextMode to summary when only sourceSessionId given', () => {
+  const hooks: Array<[string, string, string]> = [];
+  const svc = createTasksService(makeDbStub().db, {
+    broadcast: () => {},
+    deps: { projectsDb: makeProjectStub('/p'), sessionsDb: makeSessionsStub([{ id: 's-1', project_path: '/p' }]) },
+    onContextSourceProvided: (taskId, sourceSessionId, mode) => hooks.push([taskId, sourceSessionId, mode]),
+  });
+  const row = svc.createTask({ title: 't', projectPath: '/p', executorProvider: 'claude', sourceSessionId: 's-1' });
+  assert.equal((row as { context_mode: string }).context_mode, 'summary');
+  assert.equal((row as { context_status: string | null }).context_status, 'pending');
+  assert.deepEqual(hooks, [['t1', 's-1', 'summary']]);
+});
+
+test('createTask rejects invalid contextMode', () => {
+  const svc = createTasksService(makeDbStub().db, {
+    broadcast: () => {},
+    deps: { projectsDb: makeProjectStub('/p') },
+  });
+  assert.throws(
+    () => svc.createTask({ title: 't', projectPath: '/p', executorProvider: 'claude', contextMode: 'bogus' as never }),
+    /invalid contextMode/,
+  );
+});
+
+test('createTask with contextMode=none ignores sourceSessionId', () => {
+  const hooks: Array<[string, string, string]> = [];
+  const svc = createTasksService(makeDbStub().db, {
+    broadcast: () => {},
+    deps: { projectsDb: makeProjectStub('/p'), sessionsDb: makeSessionsStub([{ id: 's-1', project_path: '/p' }]) },
+    onContextSourceProvided: (taskId, sourceSessionId, mode) => hooks.push([taskId, sourceSessionId, mode]),
+  });
+  const row = svc.createTask({ title: 't', projectPath: '/p', executorProvider: 'claude', sourceSessionId: 's-1', contextMode: 'none' });
+  assert.equal((row as { context_mode: string }).context_mode, 'none');
+  assert.equal((row as { context_status: string | null }).context_status, null);
+  assert.equal((row as { context_source_session_id: string | null }).context_source_session_id, null);
+  assert.deepEqual(hooks, []);
 });
