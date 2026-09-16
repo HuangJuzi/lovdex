@@ -146,7 +146,13 @@ export function CreateTaskDialog({
     setError('');
   }
 
+  // 每次打开都重置为干净表单（与原 TaskBoard 的 openCreateForm→resetCreateForm 一致）。
+  useEffect(() => {
+    if (open) reset();
+  }, [open]);
+
   async function submit() {
+    setError('');
     const p = prompt.trim();
     if (!p) return;
     if (!isAssistant && newEngineAvailability.status === 'unavailable') {
@@ -224,6 +230,12 @@ export function CreateTaskDialog({
               placeholder="发给 agent 执行的内容"
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  void submit();
+                }
+              }}
             />
             <div className="flex flex-wrap items-center gap-1.5 border-t border-border/60 px-3 py-2.5">
               <ChipSelect
@@ -305,7 +317,7 @@ export function CreateTaskDialog({
           {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
 
           <div className="mt-3 flex items-center justify-end gap-2">
-            <span className="mr-auto text-xs text-muted-foreground">{isMobile ? 'Enter 创建 · 换行用换行键' : ''}</span>
+            <span className="mr-auto text-xs text-muted-foreground">{isMobile ? 'Enter 创建 · Shift+Enter 换行' : ''}</span>
             <Button size="sm" variant="ghost" onClick={reset}><RotateCcw className="mr-1 h-3.5 w-3.5" />重置</Button>
             <Button size="sm" onClick={onClose} variant="ghost">取消</Button>
           </div>
