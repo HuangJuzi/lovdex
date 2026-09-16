@@ -100,3 +100,27 @@ test('omits the action button when the matching handler is not provided', () => 
   assert.match(html, /需要你处理/);
   assert.doesNotMatch(html, /↻ 重试/);
 });
+
+test('renders operator project as Lovdex助手', () => {
+  const html = renderToStaticMarkup(
+    React.createElement(TaskInboxPanel, {
+      tasks: [mkTask({ task_id: 'op1', title: '助手任务', status: 'in_progress', sub_status: 'waiting_approval', session_id: 's1', is_operator: 1 })],
+      now: NOW,
+      onOpenSession: () => {},
+    }),
+  );
+  assert.match(html, /🤖 Lovdex助手/);
+});
+
+test('renders remote project with its host badge', () => {
+  const html = renderToStaticMarkup(
+    React.createElement(TaskInboxPanel, {
+      tasks: [mkTask({ task_id: 'r1', title: '远程任务', status: 'in_progress', sub_status: 'failed', project_path: '/r/pay' })],
+      now: NOW,
+      projectOptions: [{ value: '/r/pay', label: 'payment-gateway', remoteHostId: 'h1', remoteHostName: 'hk-build-01' }],
+      onRetry: () => {},
+    }),
+  );
+  assert.match(html, /payment-gateway/);
+  assert.match(html, /🌐 hk-build-01/);
+});
