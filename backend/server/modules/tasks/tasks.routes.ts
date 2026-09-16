@@ -48,6 +48,7 @@ export function buildTasksRouter(tasksService: TasksService, deps: { createSessi
         remark: typeof body.remark === 'string' ? body.remark : null,
         sourceScheduleId: typeof body.sourceScheduleId === 'string' ? body.sourceScheduleId : null,
         sourceSessionId: typeof body.sourceSessionId === 'string' ? body.sourceSessionId : null,
+        contextMode: body.contextMode as 'none' | 'summary' | 'raw' | undefined,
       });
       res.status(201).json(task);
     }),

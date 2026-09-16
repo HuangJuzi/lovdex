@@ -1,20 +1,24 @@
 /**
- * Task-context compression: turn a source session's transcript into a compact
- * fixed-template context summary, persisted on the task as `context_summary`.
+ * Task-context compression: turn a source session's transcript into the task's
+ * starting context, persisted via writeResult as either a compact summary
+ * (`context_summary`, summary 模式) or the raw transcript (`context_raw`, raw 模式).
  *
  * Flow (spec 2026-08-31-task-context-source-design):
- *   POST /api/tasks { sourceSessionId } → createTask 校验 + onContextSourceProvided
+ *   POST /api/tasks { sourceSessionId, contextMode } → createTask 校验 +
+ *   onContextSourceProvided(taskId, sourceSessionId, mode)
  *   → scheduleTaskContextCompression (fire-and-forget, in-flight dedupe)
- *   → fetchHistory(sourceSession) → compactTranscriptToText → runOneShot (headless
- *   Claude) → writeBack(task_id, summary).
+ *   → fetchHistory(sourceSession) → compactTranscriptToText
+ *   → summary 模式走 runOneShot (headless Claude)，raw 模式直接存原文
+ *   → writeResult(task_id, { status: 'ready' | 'failed', summary? | raw? })
+ *     → tasksService.setTaskContextResult 写回并置 context_status=ready/failed.
  *
  * All failures are swallowed + reported via onError — compression must never
  * block the created task or crash the caller. The task is created normally with
- * context_summary NULL; the summary arrives later asynchronously.
+ * the context columns NULL; the result arrives later asynchronously.
  *
- * `runOneShot`, `writeBack` and `fetchHistory` are injected deps provided by the
- * caller (index.js wiring, Task 6): runOneShot = the headless claude-sdk helper,
- * writeBack = a tasks-service hook. Keeping them injected keeps this module
+ * `runOneShot`, `writeResult` and `fetchHistory` are injected deps provided by
+ * the caller (index.js wiring): runOneShot = the headless claude-sdk helper,
+ * writeResult = a tasks-service hook. Keeping them injected keeps this module
  * import-free so unit tests never pull the SDK.
  */
 
