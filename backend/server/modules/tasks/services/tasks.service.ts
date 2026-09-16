@@ -317,6 +317,9 @@ export function createTasksService(
       }
       const contextMode: ContextMode = rawContextMode;
       const contextSourceSessionId = contextMode === 'none' ? null : (input.sourceSessionId ?? null);
+      if (contextMode !== 'none' && contextSourceSessionId == null) {
+        throw new AppError(`sourceSessionId is required when contextMode is ${contextMode}`, { code: 'SESSION_NOT_FOUND', statusCode: 404 });
+      }
       if (contextSourceSessionId != null) {
         const srcSession = resolveSession(contextSourceSessionId);
         if (!srcSession) {

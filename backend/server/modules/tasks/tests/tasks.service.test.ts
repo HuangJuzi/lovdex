@@ -981,3 +981,14 @@ test('createTask with contextMode=none ignores sourceSessionId', () => {
   assert.equal((row as { context_source_session_id: string | null }).context_source_session_id, null);
   assert.deepEqual(hooks, []);
 });
+
+test('createTask with contextMode=summary but no sourceSessionId rejects', () => {
+  const svc = createTasksService(makeDbStub().db, {
+    broadcast: () => {},
+    deps: { projectsDb: makeProjectStub('/p') },
+  });
+  assert.throws(
+    () => svc.createTask({ title: 't', projectPath: '/p', executorProvider: 'claude', contextMode: 'summary' }),
+    /sourceSessionId is required/,
+  );
+});
