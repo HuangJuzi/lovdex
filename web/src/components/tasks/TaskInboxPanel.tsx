@@ -1,4 +1,4 @@
-import { useMemo, type CSSProperties } from 'react';
+import { useMemo, useState, type CSSProperties } from 'react';
 
 import type { Task } from '../../types/app';
 
@@ -42,6 +42,7 @@ export function TaskInboxPanel({
   tasks, now, projectOptions = [], onRetry, onStart, onAccept, onOpenSession, onOpenTask,
 }: TaskInboxPanelProps) {
   const items = useMemo(() => attentionItems(tasks, now), [tasks, now]);
+  const [collapsed, setCollapsed] = useState(false);
   if (items.length === 0) return null;
 
   const handlers: Record<AttentionAction, ((task: Task) => void) | undefined> = {
@@ -54,10 +55,17 @@ export function TaskInboxPanel({
 
   return (
     <div data-testid="task-inbox" className="flex flex-shrink-0 flex-col border-b border-border/60 bg-card">
-      <div className="flex items-center gap-2 px-3 py-2 sm:px-4">
+      <button
+        type="button"
+        aria-expanded={!collapsed}
+        onClick={() => setCollapsed((c) => !c)}
+        className="flex w-full items-center gap-2 px-3 py-2 text-left sm:px-4"
+      >
         <span className="text-sm font-semibold text-foreground">需要你处理</span>
         <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">{items.length}</span>
-      </div>
+        <span className="ml-auto text-xs text-muted-foreground">{collapsed ? '▸' : '▾'}</span>
+      </button>
+      {!collapsed && (
       <div className="flex max-h-64 flex-col divide-y divide-border/60 overflow-y-auto">
         {items.map((item) => {
           const handler = handlers[item.action];
@@ -97,6 +105,7 @@ export function TaskInboxPanel({
           );
         })}
       </div>
+      )}
     </div>
   );
 }

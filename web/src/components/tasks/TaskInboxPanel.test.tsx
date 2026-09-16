@@ -124,3 +124,14 @@ test('renders remote project with its host badge', () => {
   assert.match(html, /payment-gateway/);
   assert.match(html, /🌐 hk-build-01/);
 });
+
+test('renders collapsible header in expanded state', () => {
+  const html = renderToStaticMarkup(
+    React.createElement(TaskInboxPanel, {
+      tasks: [mkTask({ task_id: 'c1', status: 'in_progress', sub_status: 'failed' })],
+      now: NOW,
+      onRetry: () => {},
+    }),
+  );
+  assert.match(html, /aria-expanded="true"/);
+});
