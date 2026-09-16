@@ -57,7 +57,7 @@ export function TaskInboxPanel({
         <span className="text-sm font-semibold text-foreground">需要你处理</span>
         <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">{items.length}</span>
       </div>
-      <div className="flex flex-col divide-y divide-border/60">
+      <div className="flex max-h-64 flex-col divide-y divide-border/60 overflow-y-auto">
         {items.map((item) => {
           const handler = handlers[item.action];
           return (
