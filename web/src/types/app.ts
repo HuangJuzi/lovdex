@@ -125,6 +125,14 @@ export interface Task {
   remark: string | null;
   /** 新建任务时从来源会话压缩出的上下文摘要（可选，后台异步生成）。 */
   context_summary: string | null;
+  /** 上下文来源会话 id（新建任务时选的参考历史）。 */
+  context_source_session_id: string | null;
+  /** 上下文处理方式：none / summary / raw。 */
+  context_mode: 'none' | 'summary' | 'raw';
+  /** 异步产物状态：pending / ready / failed；none 模式下为 null。 */
+  context_status: 'pending' | 'ready' | 'failed' | null;
+  /** raw 模式就绪后的原始转录文本。 */
+  context_raw: string | null;
   /** 定时任务来源：关联 scheduled_tasks.schedule_id（由定时任务创建的任务才有值）。 */
   source_schedule_id: string | null;
   created_at: string;

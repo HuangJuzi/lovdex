@@ -21,6 +21,10 @@ function mkTask(task_id: string, status: Task['status']): Task {
     label: 'other',
     remark: null,
     context_summary: null,
+    context_source_session_id: null,
+    context_mode: 'none',
+    context_status: null,
+    context_raw: null,
     source_schedule_id: null,
     created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z',
   };
