@@ -7,42 +7,23 @@ import { useTasks } from '../../hooks/useTasks';
 import useLocalStorage from '../../hooks/useLocalStorage';
 import { useDeviceSettings } from '../../hooks/useDeviceSettings';
 import { cn } from '../../lib/utils';
-import { Button, Dialog, DialogContent, DialogTitle, Input } from '../../shared/view/ui';
+import { Button } from '../../shared/view/ui';
 import type {
   Project,
-  ProviderModelOption,
   Task,
-  TaskEngine,
-  TaskLabel,
-  TaskPriority,
 } from '../../types/app';
-import { api, authenticatedFetch } from '../../utils/api';
-import { resolveSessionTitle } from '../../utils/sessionTitle';
-
-// Matches the `/api/providers/:provider/models` response consumed by
-// useChatProviderState: `{ success, data: { models: { OPTIONS, DEFAULT } } }`.
-type ProviderModelsApiResponse = {
-  success?: boolean;
-  data?: {
-    models?: {
-      OPTIONS?: ProviderModelOption[];
-      DEFAULT?: string;
-    };
-  };
-};
+import { api } from '../../utils/api';
 
 import { TaskCard } from './TaskCard';
 import { HomeButton } from './TaskBackNav';
 import { buildTaskChatSend, TASK_RETRY_MESSAGE } from './taskExecution';
-import { deriveTaskName } from './taskName';
-import { ASSISTANT_OPTION_VALUE, projectPathOf, taskFormProjects, taskProjectLabel, toProjectOption } from './projectOptions';
-import { useTaskEngineAvailability } from './useTaskEngineAvailability';
-import { TaskEngineSelect } from './TaskEngineSelect';
-import { LABEL_META, LABEL_ORDER, PRIORITY_META, PRIORITY_ORDER, STATUS_META, STATUS_ORDER, groupByStatus } from './taskStatus';
+import { projectPathOf, taskFormProjects, toProjectOption } from './projectOptions';
+import { STATUS_META, STATUS_ORDER, groupByStatus } from './taskStatus';
 import { TaskFilterBar } from './TaskFilterBar';
 import { ScheduledTasksPanel, type ScheduledTasksPanelHandle } from './ScheduledTasksPanel';
 import { TaskTableView } from './TaskTableView';
 import { TaskInboxPanel } from './TaskInboxPanel';
+import { CreateTaskDialog } from './CreateTaskDialog';
 import { EMPTY_TASK_FILTER, filterTasks, normalizeTaskFilter } from './taskFilter';
 
 export function TaskBoardPage() {
@@ -132,25 +113,7 @@ export function TaskBoardPage() {
 
   // Create-task form state.
   const [creating, setCreating] = useState(false);
-  // The prompt is the actual content executed by the agent; the name is only a
-  // board label. A blank name is distilled from the prompt at submit time.
-  const [newPrompt, setNewPrompt] = useState('');
-  const [newName, setNewName] = useState('');
-  const [newProjectPath, setNewProjectPath] = useState('');
-  const [newEngine, setNewEngine] = useState<TaskEngine>('claude');
-  const [newPriority, setNewPriority] = useState<TaskPriority>('P2');
-  const [newDeadline, setNewDeadline] = useState('');
-  const [newLabel, setNewLabel] = useState<TaskLabel>('other');
-  const [newRemark, setNewRemark] = useState('');
-  // 新建任务可选「上下文来源」会话：选中后后台把该会话压缩进任务 context_summary，
-  // 首次执行时注入。空串 = 不选（白纸开始，与旧行为一致）。
-  const [newSourceSessionId, setNewSourceSessionId] = useState('');
   const [projects, setProjects] = useState<Project[]>([]);
-  const [models, setModels] = useState<ProviderModelOption[]>([]);
-  const [newModel, setNewModel] = useState('');
-  // Monotonic token so a slow response for a previous engine can't overwrite a
-  // newer engine's model list when the user switches quickly.
-  const modelsRequestRef = useRef(0);
 
   // `displayName` can collide across projects while the path stays unique (it is
   // what a task stores as `project_path`). Disambiguate only the names that
@@ -176,37 +139,6 @@ export function TaskBoardPage() {
     [projects, duplicateProjectNames],
   );
 
-  // Engine candidates follow the target machine: the remote host's installed
-  // providers for a remote project, the local machine's for a local one.
-  const newProjectRecord = useMemo(
-    () => taskFormProjects(projects).find((p) => projectPathOf(p) === newProjectPath) ?? null,
-    [projects, newProjectPath],
-  );
-  const sourceSessionOptions = useMemo(() => {
-    if (!newProjectRecord) return [];
-    return [...(newProjectRecord.sessions ?? [])]
-      .sort((a, b) => {
-        const at = new Date(a.updated_at || a.lastActivity || 0).getTime();
-        const bt = new Date(b.updated_at || b.lastActivity || 0).getTime();
-        return bt - at;
-      })
-      .filter((s) => s.id);
-  }, [newProjectRecord]);
-  const newEngineAvailability = useTaskEngineAvailability(
-    newProjectRecord ? { value: projectPathOf(newProjectRecord), remoteHostId: newProjectRecord.remoteHostId ?? null } : null,
-    newProjectPath === ASSISTANT_OPTION_VALUE,
-  );
-
-  // Keep the picked engine valid once the availability settles: jump to the
-  // first installed engine when the current pick is not installed there.
-  useEffect(() => {
-    if (newEngineAvailability.status !== 'ready') return;
-    if (newEngineAvailability.options.length === 0) return;
-    if (!newEngineAvailability.options.includes(newEngine)) {
-      setNewEngine(newEngineAvailability.options[0]);
-    }
-  }, [newEngineAvailability, newEngine]);
-
   // Load the project list once for the create form. The `/api/projects`
   // response JSON is an array of projects; the display name lives in
   // `displayName` and the path in `fullPath` (with `path` as a fallback).
@@ -224,8 +156,6 @@ export function TaskBoardPage() {
       .then((list) => {
         if (cancelled) return;
         setProjects(list);
-        const formProjects = taskFormProjects(list);
-        setNewProjectPath(formProjects.length > 0 ? projectPathOf(formProjects[0]) : ASSISTANT_OPTION_VALUE);
       })
       .catch((err) => console.error('load projects for task create failed', err));
     return () => {
@@ -233,59 +163,11 @@ export function TaskBoardPage() {
     };
   }, []);
 
-  // Load models for the selected engine whenever the form is open or the engine
-  // changes. A Claude model isn't valid for Codex, so the list reloads per
-  // provider. Falls back to an empty list (=> default model) on any failure.
-  useEffect(() => {
-    if (!creating) return;
-    const requestId = modelsRequestRef.current + 1;
-    modelsRequestRef.current = requestId;
-    const engine = newEngine;
-    authenticatedFetch(`/api/providers/${engine}/models`)
-      .then(async (res) => {
-        if (!res.ok) {
-          console.error('load models for task create failed', res.status);
-          return [] as ProviderModelOption[];
-        }
-        const body = (await res.json()) as ProviderModelsApiResponse;
-        const options = body.success ? body.data?.models?.OPTIONS : undefined;
-        return Array.isArray(options) ? options : [];
-      })
-      .then((list) => {
-        // Ignore stale responses from a superseded engine selection.
-        if (modelsRequestRef.current !== requestId) return;
-        setModels(list);
-        setNewModel(list.length > 0 ? list[0].value : '');
-      })
-      .catch((err) => {
-        if (modelsRequestRef.current !== requestId) return;
-        console.error('load models for task create failed', err);
-        setModels([]);
-        setNewModel('');
-      });
-  }, [creating, newEngine]);
-
   // 创建的任务被当前筛选排除时留存提示；筛选调到能显示它（或手动关闭）后消失。
   const [hiddenCreated, setHiddenCreated] = useState<Task | null>(null);
 
-  function resetCreateForm() {
-    setNewPrompt('');
-    setNewName('');
-    setNewPriority('P2');
-    setNewDeadline('');
-    setNewLabel('other');
-    setNewRemark('');
-    setNewSourceSessionId('');
-  }
-
   function openCreateForm() {
-    resetCreateForm();
     setCreating(true);
-  }
-
-  function closeCreateForm() {
-    resetCreateForm();
-    setCreating(false);
   }
 
   // 全局「新建任务」按钮：定时视图下唤起定时任务表单，其余视图唤起普通任务表单。
@@ -293,53 +175,6 @@ export function TaskBoardPage() {
   function handleHeaderNew() {
     if (effectiveView === 'scheduled') scheduledPanelRef.current?.openNew();
     else openCreateForm();
-  }
-
-  async function createTask() {
-    const projectPath = newProjectPath;
-    const prompt = newPrompt.trim();
-    const isAssistant = projectPath === ASSISTANT_OPTION_VALUE || !projectPath;
-    if (!prompt) return;
-    if (!isAssistant && newEngineAvailability.status === 'unavailable') {
-      window.alert(newEngineAvailability.hint);
-      return;
-    }
-    // Name is optional: fall back to a locally distilled label from the prompt.
-    const title = newName.trim() || deriveTaskName(prompt);
-    try {
-      const res = await api.tasks.create({
-        projectPath: isAssistant ? '' : projectPath,
-        title,
-        description: prompt,
-        executorProvider: isAssistant ? 'claude' : newEngine,
-        executorModel: isAssistant ? null : (newModel || null),
-        status: 'todo',
-        priority: newPriority,
-        deadline: newDeadline || null,
-        isOperator: isAssistant,
-        label: newLabel,
-        remark: newRemark.trim() || null,
-        sourceSessionId: newSourceSessionId || undefined,
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => null);
-        console.error('createTask failed', err?.error?.message ?? res.status);
-        return;
-      }
-      const created = (await res.json()) as Task;
-      setCreating(false);
-      setNewPrompt('');
-      setNewName('');
-      setNewPriority('P2');
-      setNewDeadline('');
-      setNewLabel('other');
-      setNewRemark('');
-      void refresh();
-      // 新任务没被当前筛选（项目/日期范围）落下时，明确提示用户，否则会以为没建上。
-      if (filterTasks([created], filter, now).length === 0) setHiddenCreated(created);
-    } catch (err) {
-      console.error('createTask failed', err);
-    }
   }
 
   async function startExecution(task: Task) {
@@ -485,160 +320,15 @@ export function TaskBoardPage() {
           </Button>
         </div>
       </header>
-      <Dialog open={creating} onOpenChange={(open) => { if (!open) closeCreateForm(); }}>
-        <DialogContent className="max-h-[85vh] w-full max-w-lg overflow-y-auto">
-          <DialogTitle>新建任务</DialogTitle>
-          <div className="border-b border-border px-5 py-3">
-            <h2 className="text-sm font-semibold text-foreground">新建任务</h2>
-          </div>
-          <div className="p-5">
-            <div className="flex flex-col gap-3">
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-medium text-muted-foreground">任务提示词</label>
-                <textarea
-                  className="min-h-[64px] w-full resize-y rounded-xl border-2 border-border bg-card px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:border-primary/60"
-                  placeholder="发给 agent 执行的内容"
-                  value={newPrompt}
-                  onChange={(e) => setNewPrompt(e.target.value)}
-                  rows={2}
-                  autoFocus
-                />
-              </div>
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-medium text-muted-foreground">名称</label>
-                <Input
-                  className="h-9 w-full"
-                  placeholder="可选，留空自动提炼"
-                  value={newName}
-                  onChange={(e) => setNewName(e.target.value)}
-                />
-              </div>
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-medium text-muted-foreground">项目</label>
-                <select
-                  className="h-10 w-full rounded-xl border-2 border-border bg-card px-3 py-1.5 text-sm text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
-                  value={newProjectPath}
-                  onChange={(e) => {
-                    setNewProjectPath(e.target.value);
-                    setNewSourceSessionId('');
-                  }}
-                >
-                  <option value={ASSISTANT_OPTION_VALUE}>🤖 Lovdex助手</option>
-                  {taskFormProjects(projects).map((project) => {
-                    const path = projectPathOf(project);
-                    return (
-                      <option
-                        key={project.projectId}
-                        value={path}
-                        title={project.remoteHostName ? `${project.remoteHostName}:${path}` : path}
-                      >
-                        {taskProjectLabel(project, duplicateProjectNames)}
-                      </option>
-                    );
-                  })}
-                </select>
-              </div>
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-medium text-muted-foreground">上下文来源（可选）</label>
-                <select
-                  className="h-10 w-full rounded-xl border-2 border-border bg-card px-3 py-1.5 text-sm text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
-                  value={newSourceSessionId}
-                  onChange={(e) => setNewSourceSessionId(e.target.value)}
-                >
-                  <option value="">（无）白纸开始</option>
-                  {sourceSessionOptions.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {resolveSessionTitle(s) || s.id.slice(0, 8)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-medium text-muted-foreground">执行引擎</label>
-                <TaskEngineSelect
-                  availability={newEngineAvailability}
-                  value={newEngineAvailability.status === 'unavailable' ? '' : newEngine}
-                  onChange={(engine) => setNewEngine(engine)}
-                />
-              </div>
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-medium text-muted-foreground">模型</label>
-                <select
-                  className="h-9 w-full rounded-md border border-border bg-muted px-2 py-1.5 text-sm text-foreground"
-                  value={newModel}
-                  onChange={(e) => setNewModel(e.target.value)}
-                  disabled={models.length === 0}
-                >
-                  {models.length === 0 ? (
-                    <option value="">默认模型 (default)</option>
-                  ) : (
-                    models.map((model) => (
-                      <option key={model.value} value={model.value}>
-                        {model.label || model.value}
-                      </option>
-                    ))
-                  )}
-                </select>
-              </div>
-              {newProjectPath === ASSISTANT_OPTION_VALUE && (
-                <p className="col-span-full text-xs text-muted-foreground">
-                  🤖 Lovdex助手任务固定使用 Claude + 默认模型，以上引擎/模型设置将被忽略。
-                </p>
-              )}
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-medium text-muted-foreground">优先级</label>
-                <select
-                  className="h-9 w-full rounded-md border border-border bg-muted px-2 py-1.5 text-sm text-foreground"
-                  value={newPriority}
-                  onChange={(e) => setNewPriority(e.target.value as TaskPriority)}
-                >
-                  {PRIORITY_ORDER.map((p) => (
-                    <option key={p} value={p}>{PRIORITY_META[p].label}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-medium text-muted-foreground">截止日期</label>
-                <Input
-                  type="date"
-                  className="h-9 w-full"
-                  value={newDeadline}
-                  onChange={(e) => setNewDeadline(e.target.value)}
-                />
-              </div>
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-medium text-muted-foreground">Label</label>
-                <select
-                  className="h-9 w-full rounded-md border border-border bg-muted px-2 py-1.5 text-sm text-foreground"
-                  value={newLabel}
-                  onChange={(e) => setNewLabel(e.target.value as TaskLabel)}
-                >
-                  {LABEL_ORDER.map((l) => (
-                    <option key={l} value={l}>{LABEL_META[l].label}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="flex flex-col gap-1">
-                <label className="text-xs font-medium text-muted-foreground">备注</label>
-                <Input
-                  className="h-9 w-full"
-                  placeholder="需求来源等，可选"
-                  value={newRemark}
-                  onChange={(e) => setNewRemark(e.target.value)}
-                />
-              </div>
-              <div className="mt-2 flex items-center justify-end gap-2">
-                <Button size="sm" variant="ghost" onClick={closeCreateForm}>
-                  取消
-                </Button>
-                <Button size="sm" disabled={!newPrompt.trim()} onClick={() => void createTask()}>
-                  创建
-                </Button>
-              </div>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <CreateTaskDialog
+        open={creating}
+        onClose={() => setCreating(false)}
+        onCreated={(created) => {
+          setCreating(false);
+          void refresh();
+          if (filterTasks([created], filter, now).length === 0) setHiddenCreated(created);
+        }}
+      />
       {loading ? (
         <div className="px-3 text-sm text-muted-foreground sm:px-6">加载中…</div>
       ) : loadError ? (
