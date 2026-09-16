@@ -71,7 +71,7 @@ export function TaskInboxPanel({
                 {item.label}
               </span>
               <span className="flex min-w-0 flex-1 items-center gap-1.5 text-sm text-card-foreground">
-                <span className="min-w-0 flex-1 truncate">{item.task.title}</span>
+                <span className="min-w-0 truncate">{item.task.title}</span>
                 <span className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-foreground">
                   <span className="max-w-40 truncate">{info.label}</span>
                   {info.remoteHost && (
