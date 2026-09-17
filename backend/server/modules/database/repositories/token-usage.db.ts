@@ -3,19 +3,34 @@ import type { TokenUsageEvent } from '@/shared/types.js';
 
 export type TokenUsageCursor = { byteOffset: number; lastTsMs: number };
 
-/** 一个 (时间桶, 模型) 的聚合结果。 */
-export type BucketAggregateRow = { bucket_ts: number; model: string; tokens: number };
+/** 一个 (时间桶, 模型) 的聚合结果。四类 token 分开返回，由前端按口径本地换算。 */
+export type BucketAggregateRow = {
+  bucket_ts: number;
+  model: string;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_creation_tokens: number;
+};
 
 /** 一个模型的区间聚合结果。 */
 export type ModelAggregateRow = {
   model: string;
-  tokens: number;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_creation_tokens: number;
   sessions: number;
   last_used_at: number;
 };
 
-/** 一个模型在 1 分钟粒度上的峰值。 */
-export type ModelPeakRow = { model: string; peak: number };
+/** 一个模型在 1 分钟粒度上的峰值，按三种口径各给一个。 */
+export type ModelPeakRow = {
+  model: string;
+  peak_all: number;
+  peak_new: number;
+  peak_output: number;
+};
 
 type AggregateFilter = {
   from: number;
@@ -105,6 +120,9 @@ export const tokenUsageDb = {
   /**
    * 按 (时间桶, 模型) 聚合。分桶用整数除法，与 SQLite 时区无关。
    *
+   * 四类 token 分开 SUM，不在这里合并成总量：实测 cache_read 占 74.2%、output 仅 0.3%，
+   * 合并后「干了多少活」会被彻底淹没。口径换算交给前端，切换无需重新查询。
+   *
    * bucketMs 必须显式 `CAST` 成 INTEGER：better-sqlite3 会把 JS number 绑定为
    * REAL，REAL 除法算出 28333333.333…，再乘回去正好等于原 ts_ms——分桶会静默失效
    * （每个事件各成一桶）。CAST 之后 SQLite 才走整数除法。
@@ -115,7 +133,10 @@ export const tokenUsageDb = {
       .prepare(`
         SELECT (ts_ms / CAST(? AS INTEGER)) * CAST(? AS INTEGER) AS bucket_ts,
                model,
-               SUM(input_tokens + output_tokens + cache_read_tokens + cache_creation_tokens) AS tokens
+               SUM(input_tokens)          AS input_tokens,
+               SUM(output_tokens)         AS output_tokens,
+               SUM(cache_read_tokens)     AS cache_read_tokens,
+               SUM(cache_creation_tokens) AS cache_creation_tokens
         FROM token_usage_events
         WHERE ${where}
         GROUP BY bucket_ts, model
@@ -124,33 +145,44 @@ export const tokenUsageDb = {
       .all(filter.bucketMs, filter.bucketMs, ...values) as BucketAggregateRow[];
   },
 
-  /** 按模型聚合区间总量、去重会话数与最近使用时间。 */
+  /** 按模型聚合区间内的四类 token、去重会话数与最近使用时间。 */
   aggregateByModel(filter: AggregateFilter): ModelAggregateRow[] {
     const { where, values } = buildFilter(filter);
     return getConnection()
       .prepare(`
         SELECT model,
-               SUM(input_tokens + output_tokens + cache_read_tokens + cache_creation_tokens) AS tokens,
+               SUM(input_tokens)          AS input_tokens,
+               SUM(output_tokens)         AS output_tokens,
+               SUM(cache_read_tokens)     AS cache_read_tokens,
+               SUM(cache_creation_tokens) AS cache_creation_tokens,
                COUNT(DISTINCT session_id) AS sessions,
-               MAX(ts_ms) AS last_used_at
+               MAX(ts_ms)                 AS last_used_at
         FROM token_usage_events
         WHERE ${where}
         GROUP BY model
-        ORDER BY tokens DESC
+        ORDER BY (SUM(input_tokens + output_tokens + cache_read_tokens + cache_creation_tokens)) DESC
       `)
       .all(...values) as ModelAggregateRow[];
   },
 
-  /** 每个模型在 1 分钟粒度上的峰值。必须独立于响应里的 bucketMs 计算。 */
+  /**
+   * 每个模型在 1 分钟粒度上的三档峰值。必须独立于响应里的 bucketMs 计算
+   * （桶越粗峰值越低，图上「峰值」会随缩放跳变）。
+   */
   aggregateMinutePeaks(filter: AggregateFilter): ModelPeakRow[] {
     const { where, values } = buildFilter(filter);
     return getConnection()
       .prepare(`
-        SELECT model, MAX(bucket_tokens) AS peak
+        SELECT model,
+               MAX(bucket_all)    AS peak_all,
+               MAX(bucket_new)    AS peak_new,
+               MAX(bucket_output) AS peak_output
         FROM (
           SELECT model,
                  (ts_ms / 60000) * 60000 AS bucket_ts,
-                 SUM(input_tokens + output_tokens + cache_read_tokens + cache_creation_tokens) AS bucket_tokens
+                 SUM(input_tokens + output_tokens + cache_read_tokens + cache_creation_tokens) AS bucket_all,
+                 SUM(input_tokens + output_tokens) AS bucket_new,
+                 SUM(output_tokens) AS bucket_output
           FROM token_usage_events
           WHERE ${where}
           GROUP BY bucket_ts, model

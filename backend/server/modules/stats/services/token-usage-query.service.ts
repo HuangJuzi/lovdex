@@ -29,20 +29,30 @@ export const MAX_RANGE_MS = 366 * 24 * 60 * MINUTE_MS;
  */
 export const MAX_BUCKETS = 20_000;
 
+/**
+ * 桶内的四类 token 分量。口径（全部 / 仅新增 / 仅输出）由前端本地换算，
+ * 后端只保证分量齐全——实测 cache_read 占 74.2%、output 仅 0.3%，
+ * 任何单一口径的数字都会把这件事藏起来。
+ */
+export type TokenComponents = {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheCreation: number;
+};
+
 export type TimeseriesBucket = {
   ts: number;
-  total: number;
-  /** 归一化成「每分钟 token 数」，因此不同桶大小下 y 轴量级可比。 */
-  tpm: number;
-  byModel: Record<string, number>;
+  byModel: Record<string, TokenComponents>;
 };
 
 export type SummaryModelEntry = {
   model: string;
-  tokens: number;
-  share: number;
-  tpmAvg: number;
-  tpmPeak: number;
+  tokens: TokenComponents;
+  /** 1 分钟粒度峰值，三档口径各一个（前端按当前口径选）。 */
+  peakAll: number;
+  peakNew: number;
+  peakOutput: number;
   sessions: number;
   lastUsedAt: number;
 };
@@ -54,9 +64,9 @@ export type TimeseriesResult = {
   buckets: TimeseriesBucket[];
 };
 
+/** 不含 totalTokens / share / tpmAvg：它们都随口径变化，由前端按分量算。 */
 export type SummaryResult = {
   range: { from: number; to: number };
-  totalTokens: number;
   byModel: SummaryModelEntry[];
 };
 
@@ -108,6 +118,8 @@ export function resolveRange(
  * 把聚合行摊成连续的时间桶。
  *
  * 空桶必须补 0：否则折线图会跨空洞直连，视觉上等于伪造了中间时段的用量。
+ * 补零是补**四类分量**的零值，且每个已知模型在每个桶里都要有 key，
+ * 否则堆叠图会错位。
  */
 export function buildTimeseries(
   rows: BucketAggregateRow[],
@@ -130,61 +142,79 @@ export function buildTimeseries(
     return [];
   }
 
-  const totalsByBucket = new Map<number, Map<string, number>>();
+  const componentsByBucket = new Map<number, Map<string, TokenComponents>>();
   const modelTotals = new Map<string, number>();
 
   for (const row of rows) {
-    let bucket = totalsByBucket.get(row.bucket_ts);
+    let bucket = componentsByBucket.get(row.bucket_ts);
     if (!bucket) {
-      bucket = new Map<string, number>();
-      totalsByBucket.set(row.bucket_ts, bucket);
+      bucket = new Map<string, TokenComponents>();
+      componentsByBucket.set(row.bucket_ts, bucket);
     }
-    bucket.set(row.model, (bucket.get(row.model) ?? 0) + row.tokens);
-    modelTotals.set(row.model, (modelTotals.get(row.model) ?? 0) + row.tokens);
+    const current = bucket.get(row.model) ?? { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 };
+    current.input += row.input_tokens;
+    current.output += row.output_tokens;
+    current.cacheRead += row.cache_read_tokens;
+    current.cacheCreation += row.cache_creation_tokens;
+    bucket.set(row.model, current);
+
+    // 排序只看「全部 token」这一个口径，与前端选哪个口径无关，切换时顺序不跳
+    modelTotals.set(row.model, (modelTotals.get(row.model) ?? 0) + allTokens(row));
   }
 
   // 模型按用量降序，图表堆叠顺序稳定且把大头放底部
   const models = [...modelTotals.entries()].sort((a, b) => b[1] - a[1]).map(([model]) => model);
-  const minutesPerBucket = bucketMs / MINUTE_MS;
   const buckets: TimeseriesBucket[] = [];
 
   for (let ts = firstTs; ts < to; ts += bucketMs) {
-    const bucket = totalsByBucket.get(ts);
-    const byModel: Record<string, number> = {};
-    let total = 0;
+    const bucket = componentsByBucket.get(ts);
+    const byModel: Record<string, TokenComponents> = {};
     for (const model of models) {
-      const tokens = bucket?.get(model) ?? 0;
-      byModel[model] = tokens;
-      total += tokens;
+      byModel[model] = bucket?.get(model) ?? { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 };
     }
-    buckets.push({ ts, total, tpm: total / minutesPerBucket, byModel });
+    buckets.push({ ts, byModel });
   }
 
   return buckets;
 }
 
-/** 组装区间汇总；`tpmPeak` 来自独立的 1 分钟粒度查询。 */
+/** 四类分量之和，即「全部 token」口径。 */
+function allTokens(row: {
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_creation_tokens: number;
+}): number {
+  return row.input_tokens + row.output_tokens + row.cache_read_tokens + row.cache_creation_tokens;
+}
+
+/** 组装区间汇总；三档峰值来自独立的 1 分钟粒度查询。 */
 export function buildSummary(
   rows: ModelAggregateRow[],
   peaks: ModelPeakRow[],
   range: { from: number; to: number },
 ): SummaryResult {
-  const peakByModel = new Map(peaks.map((p) => [p.model, p.peak]));
-  const totalTokens = rows.reduce((sum, row) => sum + row.tokens, 0);
-  const rangeMinutes = Math.max(1, (range.to - range.from) / MINUTE_MS);
+  const peakByModel = new Map(peaks.map((p) => [p.model, p]));
 
   return {
     range,
-    totalTokens,
-    byModel: rows.map((row) => ({
-      model: row.model,
-      tokens: row.tokens,
-      share: totalTokens > 0 ? row.tokens / totalTokens : 0,
-      tpmAvg: row.tokens / rangeMinutes,
-      tpmPeak: peakByModel.get(row.model) ?? 0,
-      sessions: row.sessions,
-      lastUsedAt: row.last_used_at,
-    })),
+    byModel: rows.map((row) => {
+      const peak = peakByModel.get(row.model);
+      return {
+        model: row.model,
+        tokens: {
+          input: row.input_tokens,
+          output: row.output_tokens,
+          cacheRead: row.cache_read_tokens,
+          cacheCreation: row.cache_creation_tokens,
+        },
+        peakAll: peak?.peak_all ?? 0,
+        peakNew: peak?.peak_new ?? 0,
+        peakOutput: peak?.peak_output ?? 0,
+        sessions: row.sessions,
+        lastUsedAt: row.last_used_at,
+      };
+    }),
   };
 }
 
@@ -217,9 +247,16 @@ export function createTokenUsageQueryService(deps: {
   }
 
   function listModels(filter: { from: number; to: number; projectPath?: string }) {
-    return tokenUsageDb
-      .listModels(filter)
-      .map((row) => ({ model: row.model, tokens: row.tokens, lastUsedAt: row.last_used_at }));
+    return tokenUsageDb.listModels(filter).map((row) => ({
+      model: row.model,
+      tokens: {
+        input: row.input_tokens,
+        output: row.output_tokens,
+        cacheRead: row.cache_read_tokens,
+        cacheCreation: row.cache_creation_tokens,
+      },
+      lastUsedAt: row.last_used_at,
+    }));
   }
 
   return { getTimeseries, getSummary, listModels, getIngestStatus: deps.getIngestStatus, triggerRefresh: deps.triggerRefresh };

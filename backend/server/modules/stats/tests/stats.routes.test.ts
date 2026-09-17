@@ -10,18 +10,18 @@ import { MAX_RANGE_MS } from '../services/token-usage-query.service.js';
 
 type Captured = { filter?: Record<string, unknown>; bucketMs?: number };
 
-function buildTestApp(captured: Captured) {
+function buildTestApp(captured: Captured, timeseriesBody?: unknown) {
   const app = express();
   app.use(express.json());
   const query = {
     getTimeseries: (filter: Record<string, unknown>, bucketMs?: number) => {
       captured.filter = filter;
       captured.bucketMs = bucketMs;
-      return { range: filter, bucketMs: bucketMs ?? 0, models: [], buckets: [], ingest: {} };
+      return timeseriesBody ?? { range: filter, bucketMs: bucketMs ?? 0, models: [], buckets: [], ingest: {} };
     },
     getSummary: (filter: Record<string, unknown>) => {
       captured.filter = filter;
-      return { range: filter, totalTokens: 0, byModel: [] };
+      return { range: filter, byModel: [] };
     },
     listModels: () => [],
     getIngestStatus: () => ({ scanning: false, filesTotal: 0, filesDone: 0, eventsIndexed: 0, startedAt: null, lastScanAt: null }),
@@ -37,8 +37,8 @@ function buildTestApp(captured: Captured) {
   return app;
 }
 
-function listen(t: TestContext, captured: Captured) {
-  const server = buildTestApp(captured).listen(0);
+function listen(t: TestContext, captured: Captured, timeseriesBody?: unknown) {
+  const server = buildTestApp(captured, timeseriesBody).listen(0);
   t.after(() => server.close());
   const { port } = server.address() as { port: number };
   return { port };
@@ -101,6 +101,23 @@ test('model 可重复传参，收敛成数组', async (t) => {
   const { port } = listen(t, captured);
   await fetch(`http://127.0.0.1:${port}/api/stats/token-usage/summary?model=m-a&model=m-b`);
   assert.deepEqual(captured.filter?.models, ['m-a', 'm-b']);
+});
+
+test('timeseries 响应里四类分量各自成列，不被折叠成单一总量', async (t) => {
+  // 口径切换在前端本地做，所以 HTTP 边界上必须拿得到四个分量；
+  // 这条测试钉的是线上契约（cache_read 主导时尤其不能只剩一个数）。
+  const { port } = listen(t, {}, {
+    range: { from: 0, to: 60_000 },
+    bucketMs: 60_000,
+    models: ['m-a'],
+    buckets: [{ ts: 0, byModel: { 'm-a': { input: 10, output: 1, cacheRead: 1000, cacheCreation: 0 } } }],
+    ingest: {},
+  });
+  const res = await fetch(`http://127.0.0.1:${port}/api/stats/token-usage/timeseries`);
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as { buckets: { byModel: Record<string, unknown> }[] };
+  assert.deepEqual(body.buckets[0].byModel['m-a'], { input: 10, output: 1, cacheRead: 1000, cacheCreation: 0 });
+  assert.ok(!('total' in body.buckets[0]));
 });
 
 test('ingest-status 返回采集状态并触发一次刷新检查', async (t) => {
