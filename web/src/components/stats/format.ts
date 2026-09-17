@@ -226,3 +226,51 @@ export function buildChartRows(
   });
   return { rows, keys: ordered };
 }
+
+/**
+ * `mergeSummaryByVendor` 的输入形状。
+ *
+ * 与 `buildChartRows` 的 `DimensionInput` 同理，刻意不 import
+ * `useTokenStats.ts` 的 `SummaryModelEntry`：那会让纯工具反向依赖 React hook。
+ * 两者结构完全一致，调用方直接传 `SummaryResponse['byModel']` 即可。
+ */
+export type SummaryRow = {
+  model: string;
+  tokens: TokenComponents;
+  peakAll: number;
+  peakNew: number;
+  peakOutput: number;
+  sessions: number;
+  lastUsedAt: number;
+};
+
+/**
+ * 把 summary 的 byModel 行按厂商归并，用于 `dimension === 'vendor'` 的排行表。
+ *
+ * 归并规则：`tokens` / `sessions` **相加**（可累加的计数）；
+ * `peak*` 与 `lastUsedAt` 取 **max**（瞬时量，相加没有意义——把两个模型
+ * 各自 1 分钟的峰值加起来会造出一个从未发生过的峰值）。
+ *
+ * 保持首次出现的顺序，排序交给调用方按当前口径做。
+ */
+export function mergeSummaryByVendor(rows: SummaryRow[]): SummaryRow[] {
+  const merged = new Map<string, SummaryRow>();
+  for (const row of rows) {
+    const key = vendorOf(row.model);
+    const existing = merged.get(key);
+    if (!existing) {
+      merged.set(key, { ...row, model: key });
+      continue;
+    }
+    merged.set(key, {
+      model: key,
+      tokens: addComponents(existing.tokens, row.tokens),
+      peakAll: Math.max(existing.peakAll, row.peakAll),
+      peakNew: Math.max(existing.peakNew, row.peakNew),
+      peakOutput: Math.max(existing.peakOutput, row.peakOutput),
+      sessions: existing.sessions + row.sessions,
+      lastUsedAt: Math.max(existing.lastUsedAt, row.lastUsedAt),
+    });
+  }
+  return [...merged.values()];
+}

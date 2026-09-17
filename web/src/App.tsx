@@ -8,6 +8,7 @@ import { WebSocketProvider } from './contexts/WebSocketContext';
 import AppContent from './components/app/AppContent';
 import AuthGate from './components/auth/AuthGate';
 import { TaskBoardPage, TaskDetailPage } from './components/tasks';
+import { StatsPage } from './components/stats';
 import { AssistantPanel } from './components/operators/AssistantPanel';
 import SettingsPage from './components/settings/SettingsPage';
 import { TerminalDrawerProvider } from './hooks/useTerminalDrawer';
@@ -129,6 +130,7 @@ export default function App() {
                   <Route path="/" element={<AppContent />} />
                   <Route path="/session/:sessionId" element={<AppContent />} />
                   <Route path="/tasks" element={<TaskBoardPage />} />
+                  <Route path="/stats" element={<StatsPage />} />
                   <Route path="/task/:taskId" element={<TaskDetailPage />} />
                   <Route path="/assistant" element={<AssistantPanel />} />
                   <Route path="/settings" element={<SettingsPage />} />

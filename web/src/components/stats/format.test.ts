@@ -13,8 +13,10 @@ import {
   formatTpm,
   formatBucketLabel,
   TIME_RANGES,
+  mergeSummaryByVendor,
   vendorOf,
   type DimensionInput,
+  type SummaryRow,
   type TokenComponents,
 } from './format';
 
@@ -267,4 +269,113 @@ test('buildChartRows 无桶时返回空', () => {
   const { rows, keys } = buildChartRows([], 'all', 'model');
   assert.deepEqual(rows, []);
   assert.deepEqual(keys, []);
+});
+
+// ---------------------------------------------------------------------------
+// 附录 A.6：mergeSummaryByVendor
+// ---------------------------------------------------------------------------
+
+/** 构造一行 summary 记录，省得每处都写全字段。 */
+function summaryRow(
+  model: string,
+  tokens: TokenComponents,
+  peaks: [number, number, number],
+  sessions: number,
+  lastUsedAt: number,
+): SummaryRow {
+  return {
+    model,
+    tokens,
+    peakAll: peaks[0],
+    peakNew: peaks[1],
+    peakOutput: peaks[2],
+    sessions,
+    lastUsedAt,
+  };
+}
+
+test('mergeSummaryByVendor 把同族模型归并成一行', () => {
+  const merged = mergeSummaryByVendor([
+    summaryRow('claude-sonnet-4-5', components(10, 1, 100, 5), [500, 50, 10], 3, 1000),
+    summaryRow('claude-opus-4-1', components(20, 2, 200, 6), [900, 80, 20], 4, 2000),
+    summaryRow('deepseek-chat', components(30, 3, 300, 7), [700, 70, 30], 5, 1500),
+  ]);
+
+  assert.deepEqual(
+    merged.map((row) => row.model).sort(),
+    ['Claude', 'DeepSeek'],
+  );
+
+  const claude = merged.find((row) => row.model === 'Claude');
+  const deepseek = merged.find((row) => row.model === 'DeepSeek');
+  assert.ok(claude && deepseek);
+
+  // tokens / sessions 相加
+  assert.deepEqual(claude.tokens, components(30, 3, 300, 11));
+  assert.equal(claude.sessions, 7);
+  assert.deepEqual(deepseek.tokens, components(30, 3, 300, 7));
+  assert.equal(deepseek.sessions, 5);
+
+  // peak* 取 max（不是相加：峰值是瞬时量，相加没有意义）
+  assert.equal(claude.peakAll, 900);
+  assert.equal(claude.peakNew, 80);
+  assert.equal(claude.peakOutput, 20);
+  assert.equal(deepseek.peakAll, 700);
+});
+
+test('mergeSummaryByVendor 的 lastUsedAt 取 max', () => {
+  const merged = mergeSummaryByVendor([
+    summaryRow('claude-sonnet-4-5', components(1, 0, 0, 0), [1, 1, 1], 1, 1000),
+    summaryRow('claude-opus-4-1', components(1, 0, 0, 0), [1, 1, 1], 1, 9000),
+    summaryRow('claude-haiku', components(1, 0, 0, 0), [1, 1, 1], 1, 5000),
+  ]);
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].lastUsedAt, 9000);
+});
+
+test('mergeSummaryByVendor 认不出的模型各自保留原 id', () => {
+  const merged = mergeSummaryByVendor([
+    summaryRow('llama-3-70b', components(1, 0, 0, 0), [1, 1, 1], 1, 100),
+    summaryRow('mistral-large', components(2, 0, 0, 0), [2, 2, 2], 1, 200),
+  ]);
+  assert.deepEqual(
+    merged.map((row) => row.model).sort(),
+    ['llama-3-70b', 'mistral-large'],
+  );
+});
+
+test('mergeSummaryByVendor 归并是无损的：各口径总量守恒', () => {
+  const rows = [
+    summaryRow('claude-sonnet-4-5', components(10, 1, 100, 5), [500, 50, 10], 3, 1000),
+    summaryRow('claude-opus-4-1', components(20, 2, 200, 6), [900, 80, 20], 4, 2000),
+    summaryRow('deepseek-chat', components(30, 3, 300, 7), [700, 70, 30], 5, 1500),
+    summaryRow('llama-3-70b', components(40, 4, 400, 8), [800, 90, 40], 6, 500),
+  ];
+  const merged = mergeSummaryByVendor(rows);
+
+  for (const metric of ['all', 'new', 'output'] as const) {
+    const before = rows.reduce((sum, row) => sum + metricValue(row.tokens, metric), 0);
+    const after = merged.reduce((sum, row) => sum + metricValue(row.tokens, metric), 0);
+    assert.equal(after, before, `${metric} 口径归并前后总量应相等`);
+  }
+  assert.equal(
+    merged.reduce((sum, row) => sum + row.sessions, 0),
+    rows.reduce((sum, row) => sum + row.sessions, 0),
+  );
+  // 模型数只减不增
+  assert.ok(merged.length <= rows.length);
+});
+
+test('mergeSummaryByVendor 空输入返回空数组', () => {
+  assert.deepEqual(mergeSummaryByVendor([]), []);
+});
+
+test('mergeSummaryByVendor 单行也换成厂商键', () => {
+  const rows = [summaryRow('deepseek-chat', components(1, 2, 3, 4), [9, 8, 7], 2, 42)];
+  assert.deepEqual(mergeSummaryByVendor(rows), [{ ...rows[0], model: 'DeepSeek' }]);
+});
+
+test('mergeSummaryByVendor 认不出的单行原样返回', () => {
+  const rows = [summaryRow('llama-3-70b', components(1, 2, 3, 4), [9, 8, 7], 2, 42)];
+  assert.deepEqual(mergeSummaryByVendor(rows), rows);
 });
