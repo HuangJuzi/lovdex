@@ -659,6 +659,11 @@ func TestHaikuFallsBackToSonnetWhenUnconfigured(t *testing.T) {
 		routeTargets = oldRoutes
 	})
 
+	// Hermetic: loadConfig() falls back to /etc/llm-proxy/config.toml when
+	// LLM_PROXY_CONFIG is unset, which breaks the suite on machines without a
+	// deployed config. Point it at the repo's own example (has sonnet, no haiku).
+	t.Setenv("LLM_PROXY_CONFIG", "config.example.toml")
+
 	if err := loadConfig(); err != nil {
 		t.Fatalf("loadConfig: %v", err)
 	}
