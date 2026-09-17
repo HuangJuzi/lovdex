@@ -89,6 +89,7 @@ import { runBootstrap } from './modules/remote-agents/bootstrap.service.js';
 import { createSshRunner, createScpPush, createSshpassPubkeyInjector } from './modules/remote-agents/ssh-runner.js';
 import { buildLitePackage } from './modules/remote-agents/lite-package.js';
 import { createRemoteTunnels } from './modules/remote-agents/remote-tunnels.js';
+import { createLlmProxyManager } from './modules/llm-proxy/manager.js';
 import { createCompleteMessage } from './shared/utils.js';
 
 const __dirname = getModuleDir(import.meta.url);
@@ -123,6 +124,9 @@ const cfg = cfgStore.get();
 // qoder CLIs inherit process.env). Called after the config snapshot so the
 // values come straight from app.config.json.
 syncProviderEnv(cfg);
+
+const llmProxyManager = createLlmProxyManager();
+llmProxyManager.reconcile();
 
 console.log('SERVER_PORT from config:', cfg.server.port);
 
@@ -2138,6 +2142,11 @@ async function startServer() {
                 await removeLocalServerMarker();
             } catch (err) {
                 console.error('[Local Server] Error removing server marker during shutdown:', err?.message || err);
+            }
+            try {
+                llmProxyManager.stop();
+            } catch (err) {
+                console.error('[llm-proxy] stop during shutdown failed:', err?.message || err);
             }
             process.exit(0);
         };
