@@ -288,9 +288,9 @@ DB 访问放 `modules/database/repositories/token-usage.db.ts`，并在
 
 **路由与入口**：
 - `web/src/App.tsx:128-137` 加 `<Route path="/stats" element={<StatsPage />} />`。
-- 导航入口加进 `web/src/components/tasks/ViewSwitcher.tsx:20-46` 的 `items` 数组
-  （现有 Chat ↔ Tasks 顶栏切换器，加第三项「统计」），并同步在
-  `web/src/components/sidebar/view/subcomponents/SidebarHeader.tsx` 附近加一个入口。
+- 导航入口加在 `web/src/components/sidebar/view/subcomponents/SidebarHeader.tsx` 里
+  两个 `navigate('/tasks')` 按钮（约 `:88` 桌面版、约 `:187` 移动版）旁边，各加一个统计按钮。
+  **不要动 `web/src/components/tasks/ViewSwitcher.tsx`**——全仓除自身文件外零引用，是死代码。
 
 **文件**：
 ```
@@ -306,8 +306,10 @@ web/src/components/stats/
 
 - `web/src/utils/api.js` 加 `stats` 命名空间（照 `tasks:` 段 `:306-326` 的写法）。
 - 类型加进 `web/src/types/app.ts`。
-- 页面文案**直接硬编码中文**，与 `TaskTableView.tsx:21-37` 的既有惯例一致，不新增 i18n 命名空间
-  （仓库虽有 i18n 目录，但 tasks 系列页面均未接入；此处跟随现状，避免两套并存）。
+- 页面**正文**文案硬编码中文，与 `TaskTableView.tsx:21-37` 的既有惯例一致。
+  导航按钮的 `title` **必须**走 i18n（`SidebarHeader.tsx` 用的是 `t('tooltips.*')`），
+  所以在 `web/src/i18n/locales/en/sidebar.json` 的 `tooltips` 段加 `stats` 键
+  （仓库当前**只有 `en` 一个 locale**，无需补其他语言）。
 - 空态：无数据时显示「暂无用量数据」+ 回填进度，而不是空白图表。这是**必须**的——
   首次打开时回填很可能还在跑，展示进度比展示空图更有用。
 
