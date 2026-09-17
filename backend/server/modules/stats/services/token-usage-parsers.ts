@@ -85,3 +85,108 @@ export function parseClaudeLine(raw: unknown): TokenUsageEvent | null {
     dedupeKey: `claude:${messageId}`,
   };
 }
+
+/** Codex 累计用量的三元组；`cached` 是 `input` 的子集。 */
+type CodexCumulative = { input: number; output: number; cached: number };
+
+const CODEX_ZERO: CodexCumulative = { input: 0, output: 0, cached: 0 };
+
+/**
+ * 解析整个 Codex session 文件（`.jsonl` 文本），返回按行序排列的区间增量事件。
+ *
+ * Codex 的 `payload.info.total_token_usage` 是**会话累计值**而非单次用量，因此必须差分。
+ * 本函数刻意做成「输入整个文件文本」的纯函数：codex 文件总量只有 1MB 量级，每次全量重扫
+ * 的成本可忽略，换来的是差分基准永远从文件头重新累积——不会出现 cursor 落在文件中途
+ * 导致丢失上次累计值的问题。同一文件重复解析结果恒等，配合 `dedupe_key` 天然幂等。
+ *
+ * `dedupe_key` 用 `codex:<sessionId>:<行号>`（行号从 1 开始）；sessionId 缺失时用文件路径兜底。
+ */
+export function parseCodexFile(text: string, filePath: string): TokenUsageEvent[] {
+  const events: TokenUsageEvent[] = [];
+  let sessionId: string | null = null;
+  let projectPath: string | null = null;
+  let model = 'unknown';
+  let previous: CodexCumulative | null = null;
+
+  const lines = text.split('\n');
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (!line.trim()) {
+      continue;
+    }
+    let entry: Record<string, unknown>;
+    try {
+      entry = JSON.parse(line) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    const payload = entry.payload;
+    if (!payload || typeof payload !== 'object') {
+      continue;
+    }
+    const payloadRecord = payload as Record<string, unknown>;
+
+    if (entry.type === 'session_meta') {
+      sessionId = readString(payloadRecord, 'session_id') ?? sessionId;
+      projectPath = readString(payloadRecord, 'cwd') ?? projectPath;
+      continue;
+    }
+
+    // turn_context 是 model 的常规来源；后续事件也接受 payload.model。
+    // 刻意不回落到 model_provider —— 那是 provider 名不是模型名，回落会污染模型维度。
+    const payloadModel = readString(payloadRecord, 'model');
+    if (payloadModel) {
+      model = payloadModel;
+    }
+
+    if (payloadRecord.type !== 'token_count') {
+      continue;
+    }
+    const info = payloadRecord.info;
+    if (!info || typeof info !== 'object') {
+      continue;
+    }
+    const total = (info as Record<string, unknown>).total_token_usage;
+    if (!total || typeof total !== 'object') {
+      continue;
+    }
+    const totalRecord = total as Record<string, unknown>;
+    const current: CodexCumulative = {
+      input: readUsageNumber(totalRecord.input_tokens),
+      output: readUsageNumber(totalRecord.output_tokens),
+      cached: readUsageNumber(totalRecord.cached_input_tokens),
+    };
+    const base = previous ?? CODEX_ZERO;
+    const delta = {
+      input: Math.max(0, current.input - base.input),
+      output: Math.max(0, current.output - base.output),
+      cached: Math.max(0, current.cached - base.cached),
+    };
+    // 基准必须无条件推进（包括下面要 continue 的情况），否则后续增量会算错。
+    previous = current;
+
+    const tsMs = parseIsoToMs(entry.timestamp);
+    if (tsMs === null) {
+      continue;
+    }
+    if (delta.input === 0 && delta.output === 0 && delta.cached === 0) {
+      continue;
+    }
+
+    events.push({
+      source: 'codex',
+      sessionId,
+      projectPath,
+      model,
+      tsMs,
+      // codex 的 input_tokens 含 cached_input_tokens，扣除后才是「不含缓存的新增输入」。
+      inputTokens: Math.max(0, delta.input - delta.cached),
+      outputTokens: delta.output,
+      cacheReadTokens: delta.cached,
+      cacheCreationTokens: 0,
+      dedupeKey: `codex:${sessionId ?? filePath}:${index + 1}`,
+    });
+  }
+
+  return events;
+}
