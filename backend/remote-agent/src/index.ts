@@ -10,7 +10,8 @@ if (typeof (globalThis as { crypto?: unknown }).crypto !== 'object') {
   (globalThis as { crypto?: unknown }).crypto = webcrypto;
 }
 
-import { makePing } from '../../server/shared/agent-runtime/protocol.js';
+import { makePing, LLM_FORWARDER_PORT } from '../../server/shared/agent-runtime/protocol.js';
+import { createLlmForwarder } from './llm-forwarder.js';
 import { loadConfigFile, type RemoteAgentConfig } from './config.js';
 import { handleRpc, interruptAllFor, setPushEmitter } from './rpc-dispatch.js';
 
@@ -159,6 +160,8 @@ export function createLiteService(cfg: RemoteAgentConfig): LiteService {
   let reconnectTimer: NodeJS.Timeout | undefined;
   let stopped = false;
 
+  const forwarder = createLlmForwarder();
+
   const clearTimers = () => {
     if (heartbeat) {
       clearInterval(heartbeat);
@@ -190,6 +193,12 @@ export function createLiteService(cfg: RemoteAgentConfig): LiteService {
         live.send(JSON.stringify({ type: 'push', topic, payload }));
       }
     });
+    // Re-point the llm forwarder's outbound send at the live socket too.
+    forwarder.setSend((frame) => {
+      if (live.readyState === WebSocket.OPEN) {
+        live.send(JSON.stringify(frame));
+      }
+    });
     clearHeartbeat();
     heartbeat = setInterval(() => {
       if (socket && socket.readyState === WebSocket.OPEN) {
@@ -205,6 +214,10 @@ export function createLiteService(cfg: RemoteAgentConfig): LiteService {
     try {
       frame = JSON.parse(raw.toString());
     } catch {
+      return;
+    }
+    if (frame && (frame as Record<string, unknown>).type === 'llm_res') {
+      forwarder.handleLlmRes(frame as never);
       return;
     }
     void handleIncomingFrame(socket as unknown as WsLike, frame, cfg).catch((err) =>
@@ -235,6 +248,10 @@ export function createLiteService(cfg: RemoteAgentConfig): LiteService {
     if (interrupted > 0) {
       console.warn(`[remote-agent] interrupted ${interrupted} active run(s) on connection close`);
     }
+    const aborted = forwarder.abortPending();
+    if (aborted > 0) {
+      console.warn(`[remote-agent] aborted ${aborted} forwarded LLM request(s) on connection close`);
+    }
     console.error('[remote-agent] ws closed; reconnecting in', RECONNECT_MS, 'ms');
     reconnectTimer = setTimeout(() => {
       if (stopped) return;
@@ -257,11 +274,15 @@ export function createLiteService(cfg: RemoteAgentConfig): LiteService {
 
   const start = () => {
     if (stopped) return;
+    void forwarder.start(LLM_FORWARDER_PORT).catch((err) =>
+      console.error('[remote-agent] llm forwarder start failed:', err),
+    );
     connect();
   };
 
   const stop = () => {
     stopped = true;
+    forwarder.stop();
     clearTimers();
     // Deliberately keep all listeners attached. In ws, closing a CONNECTING
     // socket routes through abortHandshake → emitErrorAndClose, which emits
