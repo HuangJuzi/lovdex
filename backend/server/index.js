@@ -60,6 +60,7 @@ import { buildTasksRouter, createTasksService } from './modules/tasks/index.js';
 import { createGitModule } from './modules/git/index.js';
 import { worktreesRoutes } from './modules/worktrees/index.js';
 import { buildOperatorRouter } from './modules/operators/operator.routes.js';
+import { buildStatsRouter, createTokenUsageIngestService, createTokenUsageQueryService } from './modules/stats/index.js';
 import { cleanOperatorWorkspaceLegacySessions } from './modules/operators/operator-cleanup.service.js';
 import { listGitIgnoredDirPaths } from './modules/projects/services/git-ignored-dirs.service.js';
 import { scheduleAutoVerdict } from './modules/operators/operator-verdict.service.js';
@@ -609,6 +610,14 @@ app.use('/api/tasks', authenticateToken, buildTasksRouter(tasksService, {
     createSession: createAppSession,
 }));
 app.use('/api/scheduled-tasks', authenticateToken, buildSchedulerRouter(schedulerService));
+
+// Token 用量统计 API（protected）— 见 docs/superpowers/specs/2026-09-17-token-usage-stats-design.md
+const tokenUsageIngest = createTokenUsageIngestService();
+const tokenUsageQuery = createTokenUsageQueryService({
+    getIngestStatus: tokenUsageIngest.getStatus,
+    triggerRefresh: tokenUsageIngest.maybeTriggerRefresh,
+});
+app.use('/api/stats', authenticateToken, buildStatsRouter({ query: tokenUsageQuery }));
 
 // Git (Source Control) API Routes (protected)
 app.use('/api/git', authenticateToken, createGitModule());
@@ -2112,6 +2121,9 @@ async function startServer() {
             await writeLocalServerMarker().catch((error) => {
                 console.warn('[WARN] Could not write local server marker:', error.message);
             });
+
+            // 启动 token 用量采集：延迟首扫（回填历史 transcript）+ 之后每分钟增量。
+            tokenUsageIngest.start();
 
             console.log('');
             console.log(c.dim('═'.repeat(63)));
