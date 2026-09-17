@@ -66,6 +66,13 @@ async function withIsolatedDatabase(runTest: () => void | Promise<void>): Promis
 `(ts_ms / ?) * ?` 会做浮点除法并原样还原，**静默地不分桶**（每条事件各自成组，不报错）。
 字面量 `60000` 不受影响（SQLite 视其为整数），但任何参数化的桶大小都必须 CAST。
 
+**任何「按步长推进的循环」都要先挡非法步长。** `buildTimeseries` 的
+`for (let ts = Math.floor(from / bucketMs) * bucketMs; ts < to; ts += bucketMs)`
+在 `bucketMs` 为**负有限值**时会朝远离 `to` 的方向无限推进 —— 死循环 + 数组无限增长，
+实测直接把进程撑到 OOM。注意 `bucketMs === 0` 反而安全（`Math.floor(from/0)*0` 是 `NaN`，
+`NaN < to` 为假，循环不执行），所以守卫必须写 `<= 0` 而不是 `=== 0`。
+`bucketMs` 来自 query string，这是最可能被外部触发的一条路径 —— 路由层必须挡住负数。
+
 **验收基线**：`npm run typecheck` 与 `npm run lint` 在改动前**就不是干净的**（后端约 11 个 tsc 错误 / 44 个 lint 错误，均与本功能无关）。验收标准是**零新增**，不是零错误。
 
 **提交信息**：禁止添加 `Co-Authored-By: Claude` 署名行。
@@ -1790,7 +1797,7 @@ test('buildSummary 算 share / tpmAvg / tpmPeak / sessions', () => {
       { model: 'm-a', tokens: 600, sessions: 2, last_used_at: from + MIN },
       { model: 'm-b', tokens: 400, sessions: 1, last_used_at: from },
     ],
-    [{ model: 'm-a', peak: 300 }, { model: 'm-b', peak: 400 }],
+    [{ model: 'm-a', peak: 300 }],
     { from, to },
   );
   assert.equal(summary.totalTokens, 1000);
@@ -1800,9 +1807,9 @@ test('buildSummary 算 share / tpmAvg / tpmPeak / sessions', () => {
   assert.equal(a.tpmAvg, 60);               // 600 / 10 min
   assert.equal(a.tpmPeak, 300);             // 来自 1 分钟粒度查询，不是 10 分钟桶
   assert.equal(a.sessions, 2);
-  // 没有峰值记录的模型回落 0 而不是 undefined
+  // m-b 刻意不在 peaks 里 —— 覆盖 `peakByModel.get(...) ?? 0` 回落分支
   const b = summary.byModel.find((m) => m.model === 'm-b');
-  assert.equal(b?.tpmPeak, 400);
+  assert.equal(b?.tpmPeak, 0);
 });
 
 test('空区间返回空 buckets 与零总量，不抛错', () => {
