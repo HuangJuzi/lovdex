@@ -40,6 +40,7 @@ export type AgentFrameIn =
   | { type: 'hello'; hostId: string; agentVersion: string; nodeVersion: string; os: string; roots: string[]; capabilities: string[]; providers?: RemoteProviderProbe[] | null }
   | { type: 'rpc_res'; id: string; ok: boolean; data?: unknown; error?: string }
   | { type: 'push'; topic: string; payload: unknown }
+  | { type: 'llm_req'; id: string; method: string; path: string; headers: Record<string, string>; bodyBase64: string }
   | { type: 'pong'; at: number };
 
 /**
@@ -53,6 +54,7 @@ export type AgentFrameIn =
 export type AgentFrameOut =
   | { type: 'rpc_req'; id: string; method: string; params: unknown }
   | { type: 'rpc_cancel'; id: string }
+  | { type: 'llm_res'; id: string; status: number; headers: Record<string, string>; chunkBase64: string; done: boolean }
   | { type: 'ping'; at: number };
 
 /**
@@ -113,6 +115,12 @@ export function decodeAgentFrameIn(raw: unknown): AgentFrameIn | null {
       if (typeof f.topic !== 'string' || !('payload' in f)) return null;
       return { type: 'push', topic: f.topic, payload: f.payload };
     }
+    case 'llm_req': {
+      const { id, method, path, headers, bodyBase64 } = f;
+      if (typeof id !== 'string' || typeof method !== 'string' || typeof path !== 'string' || typeof bodyBase64 !== 'string') return null;
+      if (typeof headers !== 'object' || headers === null || Array.isArray(headers)) return null;
+      return { type: 'llm_req', id, method, path, headers: headers as Record<string, string>, bodyBase64 };
+    }
     case 'pong': {
       if (typeof f.at !== 'number') return null;
       return { type: 'pong', at: f.at };
@@ -149,6 +157,12 @@ export function decodeAgentFrameOut(frame: unknown): AgentFrameOut | null {
     case 'rpc_cancel': {
       if (typeof f.id !== 'string') return null;
       return { type: 'rpc_cancel', id: f.id };
+    }
+    case 'llm_res': {
+      const { id, status, headers, chunkBase64, done } = f;
+      if (typeof id !== 'string' || typeof status !== 'number' || typeof chunkBase64 !== 'string' || typeof done !== 'boolean') return null;
+      if (typeof headers !== 'object' || headers === null || Array.isArray(headers)) return null;
+      return { type: 'llm_res', id, status, headers: headers as Record<string, string>, chunkBase64, done };
     }
     case 'ping': {
       if (typeof f.at !== 'number') return null;
