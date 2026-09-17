@@ -6,6 +6,8 @@ import type { WebSocket } from 'ws';
 import type { RemoteAgentsRegistry } from './remote-agents.registry.js';
 import { isAgentFrameIn } from '@/shared/agent-runtime/protocol.js';
 import type { AgentFrameIn } from '@/shared/agent-runtime/protocol.js';
+import { relayLlmRequest } from './llm-relay.js';
+import { appConfig, resolveLlmProxy } from '@/modules/config/config.js';
 
 /** The lite agents dial back to. Exported so the chat ws dispatcher leaves it alone. */
 export const REMOTE_AGENT_WS_PATH = '/api/remote-agents/ws';
@@ -37,6 +39,8 @@ export type RemoteAgentServerDeps = {
   registry: RemoteAgentsRegistry;
   onHostOnline?: (hostId: string) => void;
   onHostOffline?: (hostId: string) => void;
+  /** llm-proxy loopback port the llm_req relay forwards to (default: config). */
+  llmProxyPort?: number;
 };
 
 /** Minimal socket surface the connection handler needs (real `ws` WebSocket satisfies it). */
@@ -103,6 +107,11 @@ export function createRemoteAgentConnectionHandler(deps: RemoteAgentServerDeps) 
       }
       // rpc_res / push / pong before hello carry no trusted host identity; drop.
       if (!hostId) return;
+      if (f.type === 'llm_req') {
+        const port = deps.llmProxyPort ?? resolveLlmProxy(appConfig().get()).port;
+        relayLlmRequest(f, ws, { proxyPort: port });
+        return;
+      }
       if (f.type === 'rpc_res') {
         deps.registry.resolveRpc(f.id, { ok: f.ok, data: f.data, error: f.error });
         return;
