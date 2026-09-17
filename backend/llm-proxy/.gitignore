@@ -1,0 +1,13 @@
+# Build artifacts
+llm-proxy
+llm-proxy.new
+*.exe
+
+# Local config (contains secrets — never commit)
+config.toml
+
+# Editor/OS
+.DS_Store
+.idea/
+.vscode/
+*.swp

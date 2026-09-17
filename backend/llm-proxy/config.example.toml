@@ -1,0 +1,37 @@
+# Example configuration for llm-proxy.
+# Copy to /etc/llm-proxy/config.toml (or point LLM_PROXY_CONFIG at it) and fill in
+# your real upstream key. Never commit a config that contains a real key.
+
+[proxy]
+port = 8088
+# VLM model used to describe image-carrying requests before they are routed to the
+# text model (the description is inserted in place of the image).
+vlm_model = "MiniMax-M3"
+# Max output tokens for each image-description call.
+vlm_max_tokens = 8000
+
+[upstream]
+anthropic_url = "https://www.sophnet.com/api/open-apis/anthropic"
+openai_url = "https://www.sophnet.com/api/open-apis/openai"
+
+[keys]
+# Alternative: export SOPHNET_API_KEY=... and leave this empty.
+sophnet = ""
+
+[routing]
+# 内置别名同样支持表值:`{ model = "...", upstream = "openai" }` 表示命中该
+# 别名的请求翻译为 OpenAI 协议转发给 openai_url(适用于 Anthropic 网关不支持
+# 的模型,如 glm-5.3-flash)。upstream 缺省为 anthropic(协议不变,仅换模型)。
+sonnet = "DeepSeek-V4-Flash-0731"
+opus = "DeepSeek-V4-Flash-0731"
+# haiku defaults to sonnet when omitted
+# haiku = "DeepSeek-V4-Flash-0731"
+
+# 任意别名可配置为表值并指定网关：
+#   flash = { model = "glm-5.3-flash", upstream = "openai" }
+# - model：转发给上游的模型名
+# - upstream：缺省 ""/anthropic 走 Anthropic 网关（默认）；"openai" 将请求翻译为
+#   OpenAI 协议转发到 upstream.openai_url，再把回复翻译回 Anthropic 格式。
+#   适合只在 OpenAI 网关注册、Anthropic 网关不支持的模型（如 glm-5.3-flash）。
+# plain-string 形式（如上面的 sonnet）等价于 upstream 缺省。
+# flash = { model = "glm-5.3-flash", upstream = "openai" }
