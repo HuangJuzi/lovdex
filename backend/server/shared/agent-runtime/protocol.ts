@@ -1,5 +1,10 @@
 import { z } from 'zod';
 
+/** Loopback port the lite's LLM HTTP forwarder listens on; main builds remote
+ * `configEnv.ANTHROPIC_BASE_URL` against it. The lite forwarder listens on the
+ * same constant — keep them in sync. */
+export const LLM_FORWARDER_PORT = 18088;
+
 /**
  * Frame sent by the lite (remote) agent to the main process (lite → 主).
  *

@@ -17,6 +17,8 @@ import os from 'node:os';
 
 import type { LLMProvider } from '@/shared/types.js';
 import type { AppConfig } from './config.js';
+import { resolveLlmProxy } from './config.js';
+import { LLM_FORWARDER_PORT } from '@/shared/agent-runtime/protocol.js';
 
 /** Every env var owned by `providers.claude` config. The supervisor filters
  * exactly this set out of the shell env it injects so config stays the sole
@@ -50,7 +52,14 @@ export function syncProviderEnv(cfg: AppConfig): void {
 
   // claude — authoritative: process.env matches config exactly.
   const c = providers.claude;
-  setOrDelete('ANTHROPIC_BASE_URL', c.baseUrl);
+  // llm-proxy enabled → the CLI targets the local proxy (which forwards to
+  // anthropicUrl upstream); disabled → the CLI targets baseUrl directly.
+  const llmProxy = resolveLlmProxy(cfg);
+  if (llmProxy.enabled) {
+    process.env.ANTHROPIC_BASE_URL = `http://127.0.0.1:${llmProxy.port}`;
+  } else {
+    setOrDelete('ANTHROPIC_BASE_URL', c.baseUrl);
+  }
   // "API Key" (config apiKey) is the single UI credential: write the same value
   // to both the API-key and auth-token slots so the CLI/proxy works whichever
   // one it reads. Empty clears both (config is the only source). Note: this
@@ -114,7 +123,8 @@ export function buildProviderConfigEnv(cfg: AppConfig, provider: LLMProvider): R
   switch (provider) {
     case 'claude': {
       const c = providers.claude;
-      put('ANTHROPIC_BASE_URL', c.baseUrl);
+      const llmProxy = resolveLlmProxy(cfg);
+      put('ANTHROPIC_BASE_URL', llmProxy.enabled ? `http://127.0.0.1:${LLM_FORWARDER_PORT}` : c.baseUrl);
       put('ANTHROPIC_API_KEY', c.apiKey);
       // Auth token precedence matches syncProviderEnv: an explicitly-set
       // authToken wins over the shared apiKey slot that the UI writes to

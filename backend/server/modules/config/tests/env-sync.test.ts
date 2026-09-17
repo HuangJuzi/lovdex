@@ -4,8 +4,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { createAppConfig } from '../config.js';
+import { createAppConfig, DEFAULT_APP_CONFIG } from '../config.js';
+import type { AppConfig } from '../config.js';
 import { syncProviderEnv, OWNED_ANTHROPIC_ENV, buildProviderConfigEnv } from '../env-sync.js';
+import { LLM_FORWARDER_PORT } from '@/shared/agent-runtime/protocol.js';
 
 const TOUCHED_KEYS = [
   'ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CLI_PATH',
@@ -261,4 +263,34 @@ test('buildProviderConfigEnv hides unset fields and maps codex/opencode/qoder', 
   } finally {
     process.env.HOME = savedHome;
   }
+});
+
+function cfg(enabled: boolean): AppConfig {
+  const c = structuredClone(DEFAULT_APP_CONFIG);
+  c.llmProxy.enabled = enabled;
+  c.llmProxy.port = 8088;
+  c.providers.claude.baseUrl = 'https://upstream.example/anthropic';
+  c.providers.claude.apiKey = 'sk-test';
+  return c as AppConfig;
+}
+
+test('syncProviderEnv points ANTHROPIC_BASE_URL at proxy when enabled', () => {
+  delete process.env.ANTHROPIC_BASE_URL;
+  syncProviderEnv(cfg(true));
+  assert.equal(process.env.ANTHROPIC_BASE_URL, 'http://127.0.0.1:8088');
+});
+
+test('syncProviderEnv keeps providers.claude.baseUrl when disabled', () => {
+  syncProviderEnv(cfg(false));
+  assert.equal(process.env.ANTHROPIC_BASE_URL, 'https://upstream.example/anthropic');
+});
+
+test('buildProviderConfigEnv (claude) points remote at lite forwarder when enabled', () => {
+  const env = buildProviderConfigEnv(cfg(true), 'claude');
+  assert.equal(env.ANTHROPIC_BASE_URL, `http://127.0.0.1:${LLM_FORWARDER_PORT}`);
+});
+
+test('buildProviderConfigEnv (claude) keeps upstream URL when disabled', () => {
+  const env = buildProviderConfigEnv(cfg(false), 'claude');
+  assert.equal(env.ANTHROPIC_BASE_URL, 'https://upstream.example/anthropic');
 });
