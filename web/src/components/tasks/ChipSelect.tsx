@@ -56,7 +56,7 @@ export function ChipSelect({
         <ChevronDown className={cn('h-3.5 w-3.5 text-muted-foreground transition-transform', open && 'rotate-180')} />
       </button>
       <AnchorPopover open={open} onOpenChange={setOpen} anchorRef={anchorRef} isMobile={isMobile} ariaLabel={ariaLabel ?? label}>
-        <div className="flex flex-col">
+        <div className="flex max-h-[320px] flex-col overflow-y-auto">
           {options.map((o) => (
             <button
               key={o.value}

@@ -215,7 +215,7 @@ export function CreateTaskDialog({
 
   return (
     <Dialog open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
-      <DialogContent className="max-h-[85vh] w-full max-w-7xl overflow-y-auto">
+      <DialogContent className="max-h-[85vh] w-full sm:max-w-[66.7vw] overflow-y-auto">
         <DialogTitle>新建任务</DialogTitle>
         <div className="border-b border-border px-5 py-3">
           <h2 className="text-sm font-semibold text-foreground">新建任务</h2>
