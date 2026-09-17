@@ -2,6 +2,7 @@ import { Fragment, useMemo, type ReactNode } from 'react';
 
 import type { Task, TaskStatus } from '../../types/app';
 import { Pill, PillBar } from '../../shared/view/ui';
+import { cn } from '../../lib/utils';
 import useLocalStorage from '../../hooks/useLocalStorage';
 
 import type { TaskProjectOption } from './TaskCard';
@@ -39,6 +40,14 @@ type TaskTableViewProps = {
   tasks: Task[];
   projectOptions: TaskProjectOption[];
   showArchived?: boolean;
+  /**
+   * 状态 pill 行的取值。**由上层的 TaskBoard 持有**：`useLocalStorage` 没有跨实例同步，
+   * 同 key 开两个实例会各持一份 state，header 的折叠按钮就判断不出筛选是否生效。
+   */
+  statusFilter: TaskStatus[];
+  onStatusFilterChange: (next: TaskStatus[]) => void;
+  /** 折叠筛选区时传 false：整行不渲染，筛选本身照常生效。 */
+  showStatusFilter?: boolean;
   onStart?: (task: Task) => void;
   onStatusChange?: (task: Task, status: TaskStatus) => void;
   onOpenSession?: (task: Task) => void;
@@ -87,6 +96,9 @@ export function TaskTableView({
   tasks,
   projectOptions,
   showArchived = false,
+  statusFilter,
+  onStatusFilterChange,
+  showStatusFilter = true,
   onStart,
   onStatusChange,
   onOpenSession,
@@ -99,7 +111,6 @@ export function TaskTableView({
   const hasSelection = Boolean(onToggleSelect);
   const [sortKey, setSortKey] = useLocalStorage<TaskSortKey>('taskTableSortKey', 'created');
   const [sortDir, setSortDir] = useLocalStorage<TaskSortDir>('taskTableSortDir', 'desc');
-  const [statusFilter, setStatusFilter] = useLocalStorage<TaskStatus[]>('taskTableStatusFilter', [...STATUS_ORDER]);
   const groups = useMemo(() => groupByStatus(tasks), [tasks]);
   // 与看板列语义对齐：archived 默认被共享筛选（showArchived=false）排除，pills
   // 里再显示一个恒为 0 的「已归档」是误导；打开「显示归档」后该状态才出现。
@@ -133,31 +144,33 @@ export function TaskTableView({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col rounded-2xl border border-border/70 bg-card text-card-foreground shadow-[0_3px_0_rgba(30,27,50,0.07),0_12px_26px_rgba(35,33,41,0.07)]">
-      {/* 状态筛选行：固定，不随表格横向滚动 */}
-      <div
-        data-testid="status-filter"
-        className="flex flex-shrink-0 items-center gap-2 border-b border-border/60 px-3 py-2.5 sm:px-4"
-      >
-        <PillBar>
-          <Pill
-            isActive={statusesToRender.every((s) => statusFilter.includes(s))}
-            onClick={() => setStatusFilter([...statusesToRender])}
-          >
-            全部
-          </Pill>
-          {statusesToRender.map((status) => (
+      {/* 状态筛选行：固定，不随表格横向滚动。折叠筛选区时整行不渲染（筛选本身仍生效）。 */}
+      {showStatusFilter && (
+        <div
+          data-testid="status-filter"
+          className="flex flex-shrink-0 items-center gap-2 border-b border-border/60 px-3 py-2.5 sm:px-4"
+        >
+          <PillBar>
             <Pill
-              key={status}
-              isActive={statusFilter.includes(status)}
-              onClick={() => setStatusFilter((sel) => toggleStatus(sel, status))}
+              isActive={statusesToRender.every((s) => statusFilter.includes(s))}
+              onClick={() => onStatusFilterChange([...statusesToRender])}
             >
-              <span className="h-2 w-2 rounded-full" style={{ background: STATUS_META[status].color }} />
-              {STATUS_META[status].label}
-              <span className="text-xs text-muted-foreground">{groups[status].length}</span>
+              全部
             </Pill>
-          ))}
-        </PillBar>
-      </div>
+            {statusesToRender.map((status) => (
+              <Pill
+                key={status}
+                isActive={statusFilter.includes(status)}
+                onClick={() => onStatusFilterChange(toggleStatus(statusFilter, status))}
+              >
+                <span className="h-2 w-2 rounded-full" style={{ background: STATUS_META[status].color }} />
+                {STATUS_META[status].label}
+                <span className="text-xs text-muted-foreground">{groups[status].length}</span>
+              </Pill>
+            ))}
+          </PillBar>
+        </div>
+      )}
 
       {/*
         宽度预算（改列之前先读这段，改完重新量测）：
@@ -177,7 +190,8 @@ export function TaskTableView({
         除非重新量测。
       */}
       {/* 表格滚动区 */}
-      <div className="min-h-0 flex-1 overflow-x-auto px-2 pb-4 sm:px-4">
+      {/* 展开时表头与卡片上沿的间距由状态行的 py-2.5 提供；行没了要补上。 */}
+      <div className={cn('min-h-0 flex-1 overflow-x-auto px-2 pb-4 sm:px-4', !showStatusFilter && 'pt-3')}>
         <table
           className="w-full min-w-[900px] border-separate text-sm"
           style={{ borderSpacing: '0 7px' }}

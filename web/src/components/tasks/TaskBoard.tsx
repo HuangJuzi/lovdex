@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Clock, LayoutGrid, Plus, Table, X } from 'lucide-react';
+import { Clock, LayoutGrid, Plus, SlidersHorizontal, Table, X } from 'lucide-react';
 
 import { useWebSocket } from '../../contexts/WebSocketContext';
 import { useTasks } from '../../hooks/useTasks';
@@ -11,6 +11,7 @@ import { Button } from '../../shared/view/ui';
 import type {
   Project,
   Task,
+  TaskStatus,
 } from '../../types/app';
 import { api } from '../../utils/api';
 
@@ -24,7 +25,7 @@ import { ScheduledTasksPanel, type ScheduledTasksPanelHandle } from './Scheduled
 import { TaskTableView } from './TaskTableView';
 import { TaskInboxPanel } from './TaskInboxPanel';
 import { CreateTaskDialog } from './CreateTaskDialog';
-import { EMPTY_TASK_FILTER, filterTasks, normalizeTaskFilter } from './taskFilter';
+import { EMPTY_TASK_FILTER, filterTasks, isTaskFilterActive, normalizeTaskFilter } from './taskFilter';
 
 export function TaskBoardPage() {
   const navigate = useNavigate();
@@ -33,6 +34,16 @@ export function TaskBoardPage() {
   const [storedFilter, setFilter] = useLocalStorage<unknown>('taskFilter', EMPTY_TASK_FILTER);
   const filter = useMemo(() => normalizeTaskFilter(storedFilter), [storedFilter]);
   const [viewMode, setViewMode] = useLocalStorage<'board' | 'table' | 'scheduled'>('taskViewMode', 'board');
+  // 筛选区折叠：两条筛选行（TaskFilterBar + 表格内的状态 pill 行）常驻时纵向占用过大，
+  // 默认收起。由 header 的「筛选」按钮统一控制。
+  const [filtersOpen, setFiltersOpen] = useLocalStorage<boolean>('taskFiltersOpen', false);
+  // 状态 pill 的取值从 TaskTableView 上提到这里：`useLocalStorage` 是纯 useState、
+  // 没有跨实例同步，同 key 开两个实例会各持一份 state，header 按钮就判断不出筛选是否生效。
+  // key 不变，老用户已存的取值继续有效。
+  const [statusFilter, setStatusFilter] = useLocalStorage<TaskStatus[]>(
+    'taskTableStatusFilter',
+    [...STATUS_ORDER],
+  );
   // 侧边栏「定时任务」入口带 ?view=scheduled 进来时，启动选中定时视图；仅在挂载时读一次。
   const [searchParams] = useSearchParams();
   useEffect(() => {
@@ -43,6 +54,15 @@ export function TaskBoardPage() {
   // 断点 640 与 Tailwind `sm:` 对齐。
   const { isMobile } = useDeviceSettings({ mobileBreakpoint: 640 });
   const effectiveView = isMobile && viewMode !== 'scheduled' ? 'board' : viewMode;
+  // 看板视图不消费状态 pill（列固定渲染全部状态），此时一个非全选的状态 pill
+  // 并没有筛掉任何东西，不该点亮圆点 —— 传「全部状态」进去把它排除掉。
+  const effectiveStatusFilter = effectiveView === 'table' ? statusFilter : [...STATUS_ORDER];
+  const hasActiveFilter = isTaskFilterActive(filter, effectiveStatusFilter);
+  // 状态 pill 与看板列共用同一份「当前可渲染的状态」：showArchived 关闭时 archived 不渲染。
+  const renderableStatuses = useMemo(
+    () => STATUS_ORDER.filter((s) => s !== 'archived' || filter.showArchived),
+    [filter.showArchived],
+  );
   // `now` 每分钟刷新一次：避免页面跨午夜且无任务事件时，「今天/本周/本月/今年」的
   // 日期区间边界停留在上次重算值。任务/筛选变化仍会立即重算。
   const [now, setNow] = useState(() => new Date());
@@ -253,10 +273,19 @@ export function TaskBoardPage() {
     }
   }
 
+  // 某个任务当前是否被筛选藏住了。创建后的提示条与它的显隐条件共用这一份判断。
+  // 状态 pill 也要算进来：筛选区默认折叠后 pill 不可见，只靠 header 的小圆点
+  // 说不清「刚建的任务去哪了」。用 `effectiveStatusFilter` 而非原始 `statusFilter`：
+  // 看板视图不消费状态 pill（列固定渲染全部状态），任务其实看得见，不该报「没显示」。
+  // 另外还要看 `renderableStatuses` —— 默认 statusFilter 含 archived，
+  // showArchived 关闭时 archived 并不渲染。
+  const isHiddenByFilters = (task: Task) =>
+    filterTasks([task], filter, now).length === 0 ||
+    !renderableStatuses.includes(task.status) ||
+    !effectiveStatusFilter.includes(task.status);
+
   // 新建任务仍被筛选排除时展示提示条；筛选调到能显示它之后自动消失。
-  const filterStillHidesNewTask = hiddenCreated
-    ? filterTasks([hiddenCreated], filter, now).length === 0
-    : false;
+  const filterStillHidesNewTask = hiddenCreated ? isHiddenByFilters(hiddenCreated) : false;
 
   return (
     <div className="flex h-dvh flex-col bg-background">
@@ -312,6 +341,40 @@ export function TaskBoardPage() {
             <span className="hidden sm:inline">定时</span>
           </button>
         </div>
+        {/* 筛选区折叠开关。放切换器分组外面 —— 放进那个带边框的组里会被当成第四个视图。
+            定时视图没有筛选，不渲染。 */}
+        {effectiveView !== 'scheduled' && (
+          <div className="flex rounded-xl border border-border/70 bg-muted/50 p-0.5">
+            <button
+              type="button"
+              aria-expanded={filtersOpen}
+              title={
+                filtersOpen
+                  ? '收起筛选'
+                  : hasActiveFilter
+                    ? '展开筛选（当前有筛选条件生效，列表可能只显示部分任务）'
+                    : '展开筛选'
+              }
+              onClick={() => setFiltersOpen((o) => !o)}
+              className={cn(
+                'relative flex items-center justify-center gap-2 rounded-lg px-2.5 py-2 text-sm font-normal transition-all',
+                filtersOpen
+                  ? 'bg-card text-card-foreground shadow-[0_2px_0_rgba(30,27,50,0.10),0_4px_10px_rgba(35,33,41,0.06)]'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              <SlidersHorizontal className="h-3.5 w-3.5 flex-shrink-0" />
+              {/* 移动端（<640px）只留图标，与相邻按钮一致 */}
+              <span className="hidden sm:inline">筛选</span>
+              {hasActiveFilter && !filtersOpen && (
+                <span
+                  aria-hidden="true"
+                  className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-primary"
+                />
+              )}
+            </button>
+          </div>
+        )}
         <div className="ml-auto flex items-center gap-2">
           <Button size="toolbar" variant="chunkyPrimary" onClick={handleHeaderNew} disabled={creating} title="新建任务" aria-label="新建任务">
             <Plus />
@@ -326,7 +389,8 @@ export function TaskBoardPage() {
         onCreated={(created) => {
           setCreating(false);
           void refresh();
-          if (filterTasks([created], filter, now).length === 0) setHiddenCreated(created);
+          // 与提示条共用同一套判据：状态 pill 藏住了也要记下来，否则提示条永远不会出现。
+          if (isHiddenByFilters(created)) setHiddenCreated(created);
         }}
       />
       {loading ? (
@@ -347,7 +411,7 @@ export function TaskBoardPage() {
             <ScheduledTasksPanel ref={scheduledPanelRef} projectOptions={projectOptions} />
           ) : (
           <>
-          <TaskFilterBar projectOptions={projectOptions} filter={filter} onChange={setFilter} />
+          <TaskFilterBar projectOptions={projectOptions} filter={filter} onChange={setFilter} open={filtersOpen} />
           {filterStillHidesNewTask && hiddenCreated && (
             <div className="flex flex-shrink-0 items-center gap-3 border-b border-border/60 bg-amber-500/10 px-3 py-2 sm:px-4">
               <span className="min-w-0 flex-1 truncate text-sm text-foreground">
@@ -355,7 +419,10 @@ export function TaskBoardPage() {
               </span>
               <button
                 type="button"
-                onClick={() => setFilter(EMPTY_TASK_FILTER)}
+                onClick={() => {
+                  setFilter(EMPTY_TASK_FILTER);
+                  setStatusFilter([...STATUS_ORDER]);
+                }}
                 className="shrink-0 rounded-lg bg-primary/10 px-2.5 py-1 text-sm font-semibold text-primary hover:bg-primary/20"
               >
                 清除筛选
@@ -405,6 +472,9 @@ export function TaskBoardPage() {
               tasks={filteredTasks}
               projectOptions={projectOptions}
               showArchived={filter.showArchived}
+              statusFilter={statusFilter}
+              onStatusFilterChange={setStatusFilter}
+              showStatusFilter={filtersOpen}
               onStart={runTask}
               onStatusChange={(task, status) => updateStatus(task, status)}
               onOpenSession={(task) => task.session_id && navigate(`/session/${task.session_id}`)}
@@ -416,7 +486,7 @@ export function TaskBoardPage() {
             />
           ) : (
             <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-2 pb-3 sm:flex-row sm:gap-3 sm:overflow-x-auto sm:overflow-y-hidden sm:px-4 sm:pb-4">
-              {STATUS_ORDER.filter((status) => status !== 'archived' || filter.showArchived).map((status) => (
+              {renderableStatuses.map((status) => (
                 <div
                   key={status}
                   className="flex w-full flex-col rounded-2xl border border-border/70 bg-muted/30 shadow-[0_3px_0_rgba(30,27,50,0.07),0_12px_26px_rgba(35,33,41,0.07)] sm:min-w-64 sm:flex-1"

@@ -1,6 +1,7 @@
-import type { Task } from '../../types/app';
+import type { Task, TaskStatus } from '../../types/app';
 
 import { ASSISTANT_OPTION_VALUE } from './projectOptions';
+import { STATUS_ORDER } from './taskStatus';
 
 export type TaskDateField = 'created' | 'deadline' | 'activity';
 export type TaskFilterPreset = 'all' | 'today' | 'week' | 'month' | 'year';
@@ -143,4 +144,18 @@ export function filterTasks(tasks: Task[], filter: TaskFilter, now: Date): Task[
     }
     return true;
   });
+}
+
+/**
+ * 是否处于「有东西被筛掉了」的状态：任务级筛选（项目 / 日期）或状态 pill 否掉了某个状态。
+ *
+ * `showArchived` 不计入 —— 打开它只会多出行、不会藏行；关闭时 archived 本就不渲染，
+ * 那是默认值而非用户施加的筛选。`dateField` 同理：单改日期字段不筛掉任何东西。
+ * 这两条与 `TaskFilterBar` 里「清除筛选」按钮的显示条件保持同一套语义。
+ */
+export function isTaskFilterActive(filter: TaskFilter, statusFilter: TaskStatus[]): boolean {
+  if (filter.projectPaths.length > 0) return true;
+  if (filter.preset !== 'all' || filter.customFrom !== '' || filter.customTo !== '') return true;
+  const renderable = STATUS_ORDER.filter((s) => s !== 'archived' || filter.showArchived);
+  return !renderable.every((s) => statusFilter.includes(s));
 }

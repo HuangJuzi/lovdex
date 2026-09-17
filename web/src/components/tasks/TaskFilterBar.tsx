@@ -1,11 +1,6 @@
-import { useState } from 'react';
-import { ChevronDown, SlidersHorizontal } from 'lucide-react';
-
-import { cn } from '../../lib/utils';
 import { Pill, PillBar } from '../../shared/view/ui';
 
 import type { TaskProjectOption } from './TaskCard';
-import { ASSISTANT_OPTION_VALUE } from './projectOptions';
 import { ProjectMultiSelect } from './ProjectMultiSelect';
 import {
   EMPTY_TASK_FILTER,
@@ -32,38 +27,18 @@ type TaskFilterBarProps = {
   projectOptions: TaskProjectOption[];
   filter: TaskFilter;
   onChange: (filter: TaskFilter) => void;
+  /** 展开 / 收起由 TaskBoard 的 header「筛选」按钮统一控制；收起时整个组件不渲染。 */
+  open: boolean;
 };
-
-/** 项目维度的摘要文案：全部 / 单个标签 / N 个项目。 */
-function projectFilterLabel(filter: TaskFilter, projectOptions: TaskProjectOption[]): string {
-  const paths = filter.projectPaths;
-  if (paths.length === 0) return '全部';
-  if (paths.length === 1) {
-    const v = paths[0];
-    return v === ASSISTANT_OPTION_VALUE
-      ? '🤖 Lovdex助手'
-      : projectOptions.find((o) => o.value === v)?.label ?? v;
-  }
-  return `${paths.length} 个`;
-}
-
-/** 移动端触发行上的一句话摘要，例如「项目：全部 · 日期：今天」。 */
-function filterSummary(filter: TaskFilter, projectOptions: TaskProjectOption[]): string {
-  const projectLabel = projectFilterLabel(filter, projectOptions);
-  const dateRange =
-    filter.customFrom || filter.customTo
-      ? `${filter.customFrom || '…'} ~ ${filter.customTo || '…'}`
-      : PRESET_OPTIONS.find((p) => p.value === filter.preset)?.label ?? '全部';
-  return `项目：${projectLabel} · 日期：${dateRange}`;
-}
 
 /**
  * Task 页筛选栏：项目多选 + 日期字段切换 + 快捷项 + 自定义范围。
- * 移动端（<sm）默认折叠为「筛选」触发行，点开展开全部控件；
- * 桌面端（≥sm）始终展开，分组 justify-between 铺满一行。
+ * 受控组件：`open` 由 TaskBoard 的 header 按钮驱动，收起时返回 null。
+ * 移动端（<sm）控件竖排，桌面端（≥sm）一排居中；本组件不含折叠入口，两端都由
+ * TaskBoard 的 header 按钮控制（原先那条仅供 <sm 使用的触发行已删除）。
  */
-export function TaskFilterBar({ projectOptions, filter, onChange }: TaskFilterBarProps) {
-  const [open, setOpen] = useState(false);
+export function TaskFilterBar({ projectOptions, filter, onChange, open }: TaskFilterBarProps) {
+  if (!open) return null;
 
   const hasFilter =
     filter.projectPaths.length > 0 ||
@@ -78,34 +53,10 @@ export function TaskFilterBar({ projectOptions, filter, onChange }: TaskFilterBa
   const presetActive = (preset: TaskFilterPreset) =>
     filter.preset === preset && filter.customFrom === '' && filter.customTo === '';
 
-  const summary = filterSummary(filter, projectOptions);
-
   return (
     <div className="border-b border-border/60 sm:border-0">
-      {/* 移动端触发行 */}
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center gap-2 px-3 py-2 text-xs text-muted-foreground sm:hidden"
-      >
-        <SlidersHorizontal className="h-3.5 w-3.5 text-primary" />
-        筛选
-        <span className="truncate text-muted-foreground/80">{summary}</span>
-        {hasFilter && <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-primary" />}
-        <ChevronDown
-          className={cn('ml-auto h-3.5 w-3.5 transition-transform', open && 'rotate-180')}
-        />
-      </button>
-
-      {/* 控件区：移动端折叠展开；桌面端固定一排（放不下时横向滚动），能放下则 mx-auto 居中留白 */}
       <div className="sm:overflow-x-auto">
-        <div
-          className={cn(
-            'gap-x-3 gap-y-2 sm:mx-auto sm:flex sm:w-max sm:flex-row sm:flex-nowrap sm:items-center sm:gap-x-6 sm:px-4 sm:py-2',
-            open ? 'flex flex-col px-3 pb-2 pt-1' : 'hidden sm:flex',
-          )}
-        >
+        <div className="flex flex-col gap-x-3 gap-y-2 px-3 pb-2 pt-1 sm:mx-auto sm:flex sm:w-max sm:flex-row sm:flex-nowrap sm:items-center sm:gap-x-6 sm:px-4 sm:py-2">
           {/* 左簇：项目多选 */}
           <div className="flex flex-wrap items-center gap-2">
             <ProjectMultiSelect

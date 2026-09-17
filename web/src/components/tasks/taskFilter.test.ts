@@ -4,9 +4,11 @@ import assert from 'node:assert/strict';
 import type { Task } from '../../types/app';
 
 import { ASSISTANT_OPTION_VALUE } from './projectOptions';
+import { STATUS_ORDER } from './taskStatus';
 import {
   EMPTY_TASK_FILTER,
   filterTasks,
+  isTaskFilterActive,
   normalizeTaskFilter,
   resolveDateRange,
   toggleProjectFilter,
@@ -226,4 +228,47 @@ test('filterTasks: showArchived=true includes archived tasks', () => {
 test('normalizeTaskFilter: missing showArchived defaults to false', () => {
   assert.equal(normalizeTaskFilter({}).showArchived, false);
   assert.equal(normalizeTaskFilter({ showArchived: true }).showArchived, true);
+});
+
+// ── isTaskFilterActive：折叠后要不要亮「有东西被筛掉」的圆点 ──────────────
+
+test('isTaskFilterActive: all defaults is inactive', () => {
+  assert.equal(isTaskFilterActive(filterOf({}), [...STATUS_ORDER]), false);
+});
+
+test('isTaskFilterActive: a project selection is active', () => {
+  assert.equal(isTaskFilterActive(filterOf({ projectPaths: ['/p1'] }), [...STATUS_ORDER]), true);
+});
+
+test('isTaskFilterActive: a date preset is active', () => {
+  assert.equal(isTaskFilterActive(filterOf({ preset: 'today' }), [...STATUS_ORDER]), true);
+});
+
+test('isTaskFilterActive: a custom range on one side only is active', () => {
+  assert.equal(isTaskFilterActive(filterOf({ customFrom: '2026-08-01' }), [...STATUS_ORDER]), true);
+  assert.equal(isTaskFilterActive(filterOf({ customTo: '2026-08-01' }), [...STATUS_ORDER]), true);
+});
+
+test('isTaskFilterActive: showArchived alone is NOT active (it adds rows, never hides)', () => {
+  assert.equal(isTaskFilterActive(filterOf({ showArchived: true }), [...STATUS_ORDER]), false);
+});
+
+test('isTaskFilterActive: dateField alone is NOT active', () => {
+  assert.equal(isTaskFilterActive(filterOf({ dateField: 'deadline' }), [...STATUS_ORDER]), false);
+});
+
+test('isTaskFilterActive: dropping one status pill is active', () => {
+  const partial = STATUS_ORDER.filter((s) => s !== 'in_progress');
+  assert.equal(isTaskFilterActive(filterOf({}), partial), true);
+});
+
+test('isTaskFilterActive: archived pill is ignored while showArchived is off', () => {
+  // 默认（showArchived=false）不渲染 archived 列，所以「没勾 archived」不算筛掉东西。
+  const withoutArchived = STATUS_ORDER.filter((s) => s !== 'archived');
+  assert.equal(isTaskFilterActive(filterOf({}), withoutArchived), false);
+});
+
+test('isTaskFilterActive: archived pill counts once showArchived is on', () => {
+  const withoutArchived = STATUS_ORDER.filter((s) => s !== 'archived');
+  assert.equal(isTaskFilterActive(filterOf({ showArchived: true }), withoutArchived), true);
 });
