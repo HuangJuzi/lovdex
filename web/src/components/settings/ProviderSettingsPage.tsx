@@ -37,9 +37,11 @@ type ProvidersConfig = {
   qoder?: { personalAccessToken?: string };
 };
 type ServerConfig = { port?: number; host?: string; corsOrigin?: string };
+type LlmProxyConfig = { enabled?: boolean };
 type AppConfig = {
   providers?: ProvidersConfig;
   server?: ServerConfig;
+  llmProxy?: LlmProxyConfig;
   [k: string]: unknown;
 };
 
@@ -231,6 +233,14 @@ export function ProviderSettingsForm() {
     });
   }
 
+  function setLlmProxyEnabled(value: boolean) {
+    setSavedMsg(null);
+    setDraft((prev) => {
+      if (!prev) return prev;
+      return { ...prev, llmProxy: { ...(prev.llmProxy ?? {}), enabled: value } };
+    });
+  }
+
   async function save() {
     if (!draft) return;
     setSaving(true);
@@ -274,6 +284,7 @@ export function ProviderSettingsForm() {
   const opencode = draft?.providers?.opencode ?? {};
   const qoder = draft?.providers?.qoder ?? {};
   const server = draft?.server ?? {};
+  const llmProxy = draft?.llmProxy ?? {};
 
   return (
     <div className="flex flex-col gap-6">
@@ -357,6 +368,22 @@ export function ProviderSettingsForm() {
           value={qoder.personalAccessToken ?? ''}
           onChange={(v) => patchProvider('qoder', 'personalAccessToken', v)}
         />
+      </Section>
+
+      <Section title="LLM Proxy（报错修复 + 远程转发）">
+        <label className="flex cursor-pointer items-center gap-2 text-sm text-foreground">
+          <input
+            type="checkbox"
+            className="h-4 w-4 accent-foreground"
+            checked={llmProxy.enabled === true}
+            onChange={(e) => setLlmProxyEnabled(e.target.checked)}
+          />
+          启用本地代理
+        </label>
+        <p className="text-xs text-muted-foreground">
+          开启后，claude 请求经本机 Go 代理转发到上游，自动修复 SSE / thinking 等偶发报错；
+          远程 lite 会话也走本机转发，远程设备无需联网。开关保存后对新会话生效，代理进程随开关自动启停。
+        </p>
       </Section>
 
       <Section title="运行参数">
