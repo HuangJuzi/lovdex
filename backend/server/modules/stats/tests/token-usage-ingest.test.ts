@@ -126,6 +126,33 @@ test('同一 message.id 出现在主 transcript 与 subagents 子目录时只入
   });
 });
 
+test('单个 transcript 不可读时跳过它，其余文件仍被扫描且 runScan 不 reject', async () => {
+  await withIsolatedDatabase(async () => {
+    const root = makeTempRoot();
+    const readable = path.join(root, 'a-readable.jsonl');
+    const unreadable = path.join(root, 'b-unreadable.jsonl');
+    fs.writeFileSync(readable, `${claudeLine('ok-1', '2026-08-18T11:00:00.000Z', 3, 3)}\n`);
+    fs.writeFileSync(unreadable, `${claudeLine('bad-1', '2026-08-18T11:00:00.000Z', 4, 4)}\n`);
+    // chmod 000 让 fsp.open 抛 EACCES（uid 1000，非 root）。
+    fs.chmodSync(unreadable, 0o000);
+    try {
+      const ingest = createTokenUsageIngestService({ claudeRoot: root, codexRoot: null, opencodeDbPath: null });
+      // 三个调用点都是 `void runScan()`（setTimeout / setInterval / maybeTriggerRefresh），
+      // 而 server/index.js 没有 unhandledRejection 处理器 —— runScan reject 会直接杀掉进程。
+      await ingest.runScan();
+      const status = ingest.getStatus();
+      // 坏文件也必须计入「已处理」：否则说明扫描在它那里提前中断（filesDone 必然 < 2）。
+      assert.equal(status.filesDone, 2, '坏文件应被跳过而不是中断整轮扫描');
+      assert.equal(tokenUsageDb.countEvents(), 1, '可读文件的用量仍应入库');
+      assert.equal(status.scanning, false);
+      assert.ok(status.lastScanAt);
+    } finally {
+      // 恢复权限，否则临时目录无法清理。
+      fs.chmodSync(unreadable, 0o644);
+    }
+  });
+});
+
 test('扫描根不存在时不抛错，getStatus 反映已完成', async () => {
   await withIsolatedDatabase(async () => {
     const ingest = createTokenUsageIngestService({

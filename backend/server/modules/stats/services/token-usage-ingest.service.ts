@@ -13,6 +13,11 @@ import { parseClaudeLine, parseCodexFile, parseOpencodeRow } from './token-usage
 /** 每处理完一个文件让出事件循环，避免长时间阻塞 express。 */
 const yieldToEventLoop = () => new Promise<void>((resolve) => setImmediate(resolve));
 
+/** 把 unknown 异常压成一行日志文本。 */
+function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 /** 每批插入的行数；配合事务降低 SQLite 提交次数。 */
 const INSERT_BATCH_SIZE = 500;
 
@@ -89,6 +94,8 @@ async function readCompleteLines(
   try {
     const length = stats.size - startOffset;
     const buffer = Buffer.alloc(length);
+    // 短读（文件在 stat 与 read 之间被截断）是良性的：多出来的零字节不含换行，
+    // 会被 lastNewline 切掉，offset 也不会越过最后一个完整行。
     await handle.read(buffer, 0, length, startOffset);
     const text = buffer.toString('utf8');
     const lastNewline = text.lastIndexOf('\n');
@@ -122,6 +129,8 @@ export function createTokenUsageIngestService(overrides: Partial<TokenUsageInges
     lastScanAt: null,
   };
   let interval: NodeJS.Timeout | null = null;
+  /** 首次延迟扫描的句柄；stop() 必须能取消它，否则 stop 后还会再扫一轮。 */
+  let initialScanTimer: NodeJS.Timeout | null = null;
 
   /** Claude：按 byte offset 增量读新增的完整行。 */
   async function scanClaude(): Promise<number> {
@@ -133,26 +142,34 @@ export function createTokenUsageIngestService(overrides: Partial<TokenUsageInges
     let inserted = 0;
 
     for (const file of files) {
-      const cursor = tokenUsageDb.getCursor('claude', file);
-      const { lines, nextOffset } = await readCompleteLines(file, cursor.byteOffset);
-      const events: TokenUsageEvent[] = [];
-      for (const line of lines) {
-        if (!line.trim()) {
-          continue;
-        }
-        try {
-          const event = parseClaudeLine(JSON.parse(line));
-          if (event) {
-            events.push(event);
+      // 单个文件坏掉（EACCES / 列目录后被删的 ENOENT / 插入失败）不能让整轮扫描中断，
+      // 与 scanOpencode 的「失败即跳过」策略一致。cursor 只在插入成功之后推进，
+      // 因此失败的文件下一轮会从同一个 offset 重试，不会丢数据。
+      try {
+        const cursor = tokenUsageDb.getCursor('claude', file);
+        const { lines, nextOffset } = await readCompleteLines(file, cursor.byteOffset);
+        const events: TokenUsageEvent[] = [];
+        for (const line of lines) {
+          if (!line.trim()) {
+            continue;
           }
-        } catch {
-          // 损坏行跳过，不影响同一文件后续行
+          try {
+            const event = parseClaudeLine(JSON.parse(line));
+            if (event) {
+              events.push(event);
+            }
+          } catch {
+            // 损坏行跳过，不影响同一文件后续行
+          }
         }
+        inserted += insertInBatches(events);
+        tokenUsageDb.setCursor('claude', file, { byteOffset: nextOffset });
+      } catch (error) {
+        console.error('[token-usage-ingest] claude 文件扫描失败', file, describeError(error));
+      } finally {
+        status.filesDone += 1;
+        await yieldToEventLoop();
       }
-      inserted += insertInBatches(events);
-      tokenUsageDb.setCursor('claude', file, { byteOffset: nextOffset });
-      status.filesDone += 1;
-      await yieldToEventLoop();
     }
     return inserted;
   }
@@ -167,16 +184,16 @@ export function createTokenUsageIngestService(overrides: Partial<TokenUsageInges
     let inserted = 0;
 
     for (const file of files) {
-      let text: string;
+      // 与 scanClaude 同理：坏文件跳过，不中断整轮扫描。
       try {
-        text = await fsp.readFile(file, 'utf8');
-      } catch {
+        const text = await fsp.readFile(file, 'utf8');
+        inserted += insertInBatches(parseCodexFile(text, file));
+      } catch (error) {
+        console.error('[token-usage-ingest] codex 文件扫描失败', file, describeError(error));
+      } finally {
         status.filesDone += 1;
-        continue;
+        await yieldToEventLoop();
       }
-      inserted += insertInBatches(parseCodexFile(text, file));
-      status.filesDone += 1;
-      await yieldToEventLoop();
     }
     return inserted;
   }
@@ -200,6 +217,8 @@ export function createTokenUsageIngestService(overrides: Partial<TokenUsageInges
       return 0;
     }
 
+    // 该来源计入进度：否则 filesDone 会一直低于 filesTotal，进度条到不了 100%。
+    status.filesTotal += 1;
     let inserted = 0;
     try {
       db.pragma('busy_timeout = 2000');
@@ -234,11 +253,18 @@ export function createTokenUsageIngestService(overrides: Partial<TokenUsageInges
       // provider 正在写入或表结构变化：本轮跳过，不影响其他来源
     } finally {
       db.close();
+      status.filesDone += 1;
     }
     return inserted;
   }
 
-  /** 跑一轮完整扫描；重入时直接返回，不排队。 */
+  /**
+   * 跑一轮完整扫描；重入时直接返回，不排队。
+   *
+   * **本函数永不 reject。** 三个调用点都是 `void runScan()`，而 server/index.js 没有
+   * `unhandledRejection` 处理器 —— Node 默认 `--unhandled-rejections=throw`，
+   * 一旦 reject 会直接终止后端进程（这个进程还服务着用户的其他项目）。
+   */
   async function runScan(): Promise<void> {
     if (status.scanning) {
       return;
@@ -252,6 +278,10 @@ export function createTokenUsageIngestService(overrides: Partial<TokenUsageInges
       status.eventsIndexed += await scanClaude();
       status.eventsIndexed += await scanCodex();
       status.eventsIndexed += await scanOpencode();
+    } catch (error) {
+      // 兜底：各 scan 内部已逐文件/逐来源吞掉异常，这里只防御意料之外的失败
+      // （例如 getCursor 抛错）。已累计的进度保留，下一轮自动重试。
+      console.error('[token-usage-ingest] 扫描失败', describeError(error));
     } finally {
       status.scanning = false;
       status.lastScanAt = new Date().toISOString();
@@ -263,13 +293,18 @@ export function createTokenUsageIngestService(overrides: Partial<TokenUsageInges
     if (interval) {
       return;
     }
-    setTimeout(() => void runScan(), INITIAL_SCAN_DELAY_MS);
+    initialScanTimer = setTimeout(() => void runScan(), INITIAL_SCAN_DELAY_MS);
     interval = setInterval(() => void runScan(), SCAN_INTERVAL_MS);
-    // 不要因为这个定时器而阻止进程退出
+    // 不要因为这些定时器而阻止进程退出
+    initialScanTimer.unref?.();
     interval.unref?.();
   }
 
   function stop(): void {
+    if (initialScanTimer) {
+      clearTimeout(initialScanTimer);
+      initialScanTimer = null;
+    }
     if (interval) {
       clearInterval(interval);
       interval = null;
