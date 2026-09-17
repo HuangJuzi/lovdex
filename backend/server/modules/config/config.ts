@@ -57,6 +57,15 @@ export const DEFAULT_APP_CONFIG = {
     workspace: '',
     maxConcurrent: 2,
   },
+  llmProxy: {
+    enabled: false,
+    port: 8088,
+    anthropicUrl: '',
+    openaiUrl: 'https://www.sophnet.com/api/open-apis/openai',
+    vlmModel: 'MiniMax-M3',
+    vlmMaxTokens: 8000,
+    routing: {} as Record<string, string | { model: string; upstream?: string }>,
+  },
   runtime: { fsConcurrency: 64 },
 };
 
@@ -220,6 +229,33 @@ export function createAppConfig(options?: {
       return current;
     },
     filePath,
+  };
+}
+
+export type LlmProxyResolved = {
+  enabled: boolean;
+  port: number;
+  anthropicUrl: string;
+  openaiUrl: string;
+  vlmModel: string;
+  vlmMaxTokens: number;
+  routing: Record<string, string | { model: string; upstream?: string }>;
+  apiKey: string;
+};
+
+/** Resolve the effective llm-proxy settings, deriving upstream URLs and the key
+ * from providers.claude when the dedicated fields are empty. */
+export function resolveLlmProxy(cfg: AppConfig): LlmProxyResolved {
+  const p = cfg.llmProxy;
+  return {
+    enabled: p.enabled,
+    port: p.port || 8088,
+    anthropicUrl: p.anthropicUrl || cfg.providers.claude.baseUrl,
+    openaiUrl: p.openaiUrl || 'https://www.sophnet.com/api/open-apis/openai',
+    vlmModel: p.vlmModel,
+    vlmMaxTokens: p.vlmMaxTokens || 8000,
+    routing: p.routing ?? {},
+    apiKey: cfg.providers.claude.apiKey,
   };
 }
 
