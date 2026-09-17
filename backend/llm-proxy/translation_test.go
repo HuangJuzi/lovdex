@@ -145,9 +145,12 @@ flash = 42
 	}
 }
 
-// routeTarget resolves: exact fixed keys via the legacy fields, custom aliases
-// via the config table (exact match wins), and composed sonnet/opus/haiku names
-// via substring matching like before.
+// routeTarget resolves: exact fixed keys via the legacy fields and custom
+// aliases via the config table (exact match wins). There is NO substring
+// fallback — composed names like "claude-sonnet-4" or concrete resolved names
+// like "claude-opus-4-8" pass through unchanged (Lovdex resolves models
+// client-side, so the proxy must not re-route a name that happens to contain
+// "sonnet"/"opus"/"haiku").
 func TestRouteTargetResolution(t *testing.T) {
 	setRoute(t, "sonnet", "DeepSeek-V4-Flash-0731", "")
 	setRoute(t, "opus", "GLM-5.3", "")
@@ -164,8 +167,11 @@ func TestRouteTargetResolution(t *testing.T) {
 	if tr := routeTarget("main"); tr.Model != "GLM-5.3" {
 		t.Fatalf("string table entry must decode, got %+v", tr)
 	}
-	if tr := routeTarget("claude-sonnet-4"); tr.Model != "DeepSeek-V4-Flash-0731" {
-		t.Fatalf("composed name must match by substring, got %+v", tr)
+	if tr := routeTarget("claude-sonnet-4"); tr.Model != "" || tr.Upstream != "" {
+		t.Fatalf("composed name must passthrough (no substring fallback), got %+v", tr)
+	}
+	if tr := routeTarget("claude-opus-4-8"); tr.Model != "" || tr.Upstream != "" {
+		t.Fatalf("concrete resolved name must passthrough untouched, got %+v", tr)
 	}
 	if tr := routeTarget("unknown-model"); tr.Model != "" || tr.Upstream != "" {
 		t.Fatalf("unknown model must passthrough untouched, got %+v", tr)

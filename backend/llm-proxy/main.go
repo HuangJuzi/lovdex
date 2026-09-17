@@ -408,21 +408,16 @@ func retryThinkingWith(req map[string]interface{}, w http.ResponseWriter, r *htt
 	return resp, nil
 }
 
-// routeTarget resolves the routing target for a client model name. Exact names
-// (builtin aliases and custom config aliases alike) resolve through
-// routeTargets; composed names (claude-sonnet-4, opus-2, ...) fall back to
-// substring matching against the builtin targets.
+// routeTarget resolves the routing target for a client model name by EXACT
+// alias match only. There is deliberately no substring fallback: Lovdex
+// resolves models client-side (ANTHROPIC_DEFAULT_*_MODEL), so the proxy sees
+// concrete resolved names like "claude-opus-4-8". Substring matching
+// ("claude-sonnet-4" → sonnet) silently re-routed any name containing
+// "sonnet"/"opus"/"haiku" — e.g. "claude-opus-4-8" became the opus target.
+// Unknown names pass through unchanged.
 func routeTarget(model string) RouteEntry {
 	if e, ok := routeTargets[model]; ok {
 		return e
-	}
-	switch {
-	case strings.Contains(model, "opus"):
-		return routeTargets["opus"]
-	case strings.Contains(model, "haiku"):
-		return routeTargets["haiku"]
-	case strings.Contains(model, "sonnet"):
-		return routeTargets["sonnet"]
 	}
 	return RouteEntry{}
 }

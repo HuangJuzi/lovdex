@@ -25,6 +25,8 @@ Lovdex 后端在启动时（`server/modules/llm-proxy/manager.ts`）从 `app.con
 
 上游 URL、模型路由、VLM 参数都从 `config.example.toml` 的同名结构派生（详见 `generateToml`）。
 
+**模型路由语义**：只做**精确别名匹配**（`sonnet`/`opus`/`haiku`/自定义别名 → 上游模型）；不在 `[routing]` 里的名字**原样透传**，不做子串匹配——Lovdex 由 claude CLI 侧 `ANTHROPIC_DEFAULT_*_MODEL` 解析出具体模型名（如 `claude-opus-4-8`），代理若按子串把它重路由到 `opus` 目标会跑错模型（已修）。
+
 ## 报错修复能力（本目录职责所在）
 
 - SSE 缺 `message_stop` 补帧
