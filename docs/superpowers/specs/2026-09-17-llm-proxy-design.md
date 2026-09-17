@@ -78,11 +78,11 @@ llmProxy: {
 }
 ```
 
-**baseUrl 语义变化**（`enabled=true` 时）：
+**baseUrl 语义**（`enabled=true` 时，`providers.claude.baseUrl` 的值保持 sophnet 不变，作为"真正上游"；CLI 目标地址由 `llmProxy.port` 推导）：
 
-- `providers.claude.baseUrl` 的语义是"claude CLI 的目标地址"，改为 `http://127.0.0.1:8088`（= 本地代理）。`syncProviderEnv` 照旧把 `ANTHROPIC_BASE_URL` 写成 `c.baseUrl`，因此本机 claude 自动指向代理。
-- `llmProxy.anthropicUrl` = 代理真正的上游（sophnet）。
-- **升级迁移**：首次启用时若 `llmProxy.anthropicUrl` 为空，用旧的 `providers.claude.baseUrl`（sophnet）填充它，再把 `providers.claude.baseUrl` 改写为 `http://127.0.0.1:8088`。
+- `syncProviderEnv`：`enabled` 时把 `ANTHROPIC_BASE_URL` 写成 `http://127.0.0.1:<llmProxy.port>`（指向本地代理），否则照旧写 `c.baseUrl`。
+- `buildProviderConfigEnv`（远程 claude）：`enabled` 时把 `ANTHROPIC_BASE_URL` 写成 `http://127.0.0.1:<lite 转发器端口>`，否则照旧写 `c.baseUrl`。
+- llm-proxy 进程的上游 `upstream.anthropic_url` = `llmProxy.anthropicUrl`，为空时回落到 `providers.claude.baseUrl`（因此无需迁移旧值）。
 
 - 上游密钥**复用 `providers.claude.apiKey`**（即现有 sophnet key）。backend 在拉起 Go 进程时生成 TOML 并注入 `SOPHNET_API_KEY` 环境变量，不新增密钥。
 - `SENSITIVE_KEYS` / `SENSITIVE_CONTAINER_KEYS`（`config.ts`）补上 llmProxy 相关字段，保证匿名 `GET /api/config` 继续打码。
