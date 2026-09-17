@@ -259,6 +259,33 @@ CREATE TABLE IF NOT EXISTS operator_exec_audit (
 CREATE INDEX IF NOT EXISTS idx_operator_exec_audit_created ON operator_exec_audit(created_at);
 `;
 
+export const TOKEN_USAGE_EVENTS_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS token_usage_events (
+    id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+    source                TEXT    NOT NULL,
+    session_id            TEXT,
+    project_path          TEXT,
+    model                 TEXT    NOT NULL,
+    ts_ms                 INTEGER NOT NULL,
+    input_tokens          INTEGER NOT NULL DEFAULT 0,
+    output_tokens         INTEGER NOT NULL DEFAULT 0,
+    cache_read_tokens     INTEGER NOT NULL DEFAULT 0,
+    cache_creation_tokens INTEGER NOT NULL DEFAULT 0,
+    dedupe_key            TEXT    NOT NULL UNIQUE
+);
+`;
+
+export const TOKEN_INGEST_CURSOR_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS token_ingest_cursor (
+    source      TEXT    NOT NULL,
+    file_path   TEXT    NOT NULL,
+    byte_offset INTEGER NOT NULL DEFAULT 0,
+    last_ts_ms  INTEGER NOT NULL DEFAULT 0,
+    updated_at  TEXT,
+    PRIMARY KEY (source, file_path)
+);
+`;
+
 export const INIT_SCHEMA_SQL = `
 -- Initialize authentication database
 PRAGMA foreign_keys = ON;
@@ -313,4 +340,11 @@ ${LAST_SCANNED_AT_SQL}
 ${APP_CONFIG_TABLE_SCHEMA_SQL}
 
 ${OPERATOR_EXEC_AUDIT_TABLE_SCHEMA_SQL}
+
+${TOKEN_USAGE_EVENTS_TABLE_SCHEMA_SQL}
+CREATE INDEX IF NOT EXISTS idx_tue_ts ON token_usage_events(ts_ms);
+CREATE INDEX IF NOT EXISTS idx_tue_project_ts ON token_usage_events(project_path, ts_ms);
+CREATE INDEX IF NOT EXISTS idx_tue_model_ts ON token_usage_events(model, ts_ms);
+
+${TOKEN_INGEST_CURSOR_TABLE_SCHEMA_SQL}
 `;

@@ -11,6 +11,7 @@ export { scanStateDb } from '@/modules/database/repositories/scan-state.db.js';
 export { scheduledTasksDb } from '@/modules/database/repositories/scheduled-tasks.db.js';
 export { sessionsDb } from '@/modules/database/repositories/sessions.db.js';
 export { tasksDb } from '@/modules/database/repositories/tasks.db.js';
+export { tokenUsageDb } from '@/modules/database/repositories/token-usage.db.js';
 export { userDb } from '@/modules/database/repositories/users.js';
 
 /**

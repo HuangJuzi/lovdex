@@ -1058,3 +1058,45 @@ export type RemoteHostRow = {
   created_at: string;
   updated_at: string;
 };
+
+// ---------------------------
+//----------------- TOKEN USAGE STATS TYPES ------------
+/** 采集来源；Qoder 只有 credits 没有 token，不参与统计。 */
+export type TokenUsageSource = 'claude' | 'codex' | 'opencode';
+
+/**
+ * 一条归一化后的用量事件（一行 = 一条 assistant 消息 / 一个累计值差分区间）。
+ *
+ * 四列 token 的统一语义：`inputTokens` 是**不含缓存**的新增输入，
+ * 总 token = inputTokens + outputTokens + cacheReadTokens + cacheCreationTokens。
+ */
+export type TokenUsageEvent = {
+  source: TokenUsageSource;
+  sessionId: string | null;
+  /** 解析自 transcript 里的 cwd；解析不到为 null。 */
+  projectPath: string | null;
+  model: string;
+  /** epoch 毫秒。整数存储，分桶时用整数除法，避免 SQLite 时区问题。 */
+  tsMs: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  /** 幂等键，见 token-usage-parsers.ts 的 dedupeKey 规则。 */
+  dedupeKey: string;
+};
+
+/** `token_usage_events` 的数据库行形状。 */
+export type TokenUsageRow = {
+  id: number;
+  source: TokenUsageSource;
+  session_id: string | null;
+  project_path: string | null;
+  model: string;
+  ts_ms: number;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_creation_tokens: number;
+  dedupe_key: string;
+};
