@@ -3333,3 +3333,303 @@ git commit -m "fix(stats): 端到端验证中发现的问题"
 5. **Qoder 不参与统计**：它只上报 credits，没有 token 维度。这是设计决定，不是遗漏。
 
 6. **成本估算不在范围内**：仓库内不存在任何 model→价格映射表，且 transcript 里的 model 是第三方模型 id，价格无从推导。
+
+---
+
+# 附录 A：前端契约修订（**权威版本**，覆盖 Task 8-12 中嵌入的旧代码）
+
+> **背景**：Task 7.5（commit `6d587a4`）把 API 从「单个 token 总数」改成「四类分量」。
+> 真实数据实测 cache_read 占 74.2%、output 仅 0.3%，单个总数会让 TPM 曲线画成
+> 「上下文被重读多少」而不是「干了多少活」，且把这个事实藏起来。
+> 决策记录见 spec §7。
+>
+> **Task 8-12 里嵌的代码片段写于这次修订之前，契约已过时**——`byModel[model]` 不再是数字、
+> `summary.totalTokens` / `share` / `tpmAvg` / `tpmPeak` 都已移除。以本附录为准。
+
+## A.1 权威线上契约
+
+```
+GET /api/stats/token-usage/timeseries?projectPath=&from=&to=&bucketMs=&model=&model=
+{
+  "range": { "from": <ms>, "to": <ms> },
+  "bucketMs": <number>,
+  "models": ["<model>", ...],                       // 按 all-token 总量降序
+  "buckets": [
+    { "ts": <ms>,
+      "byModel": { "<model>": { "input": n, "output": n, "cacheRead": n, "cacheCreation": n } } }
+  ],
+  "ingest": { "scanning": bool, "filesTotal": n, "filesDone": n, "eventsIndexed": n, "startedAt": iso|null, "lastScanAt": iso|null }
+}
+
+GET /api/stats/token-usage/summary?projectPath=&from=&to=&model=&model=
+{
+  "range": { "from": <ms>, "to": <ms> },
+  "byModel": [
+    { "model": "<model>",
+      "tokens": { "input": n, "output": n, "cacheRead": n, "cacheCreation": n },
+      "peakAll": n, "peakNew": n, "peakOutput": n,     // 1 分钟粒度峰值，三口径各一个
+      "sessions": n, "lastUsedAt": <ms> }
+  ]
+}
+
+GET /api/stats/token-usage/models?projectPath=&from=&to=
+[ { "model": "<model>", "tokens": {…}, "lastUsedAt": <ms> } ]
+
+GET /api/stats/token-usage/ingest-status
+{ "scanning": bool, "filesTotal": n, "filesDone": n, "eventsIndexed": n, "startedAt": iso|null, "lastScanAt": iso|null }
+```
+
+**空桶也要出现**，且 `byModel` 里每个模型都补零为 `{input:0,output:0,cacheRead:0,cacheCreation:0}`。
+**`total` / `tpm` 字段不存在**——由前端按选定口径本地计算。
+
+## A.2 口径与维度（两个正交的用户选择）
+
+**口径 `TokenMetric`**（决定「什么算一个 token」）：
+
+| 值 | 标签 | 计算 | 用途 |
+|---|---|---|---|
+| `all` | 全部 | input + output + cacheRead + cacheCreation | provider 计费/限流惯例口径。**默认** |
+| `new` | 仅新增 | input + output | 排除缓存重读，反映新内容处理量 |
+| `output` | 仅输出 | output | 真实生成量 |
+
+**维度 `TokenDimension`**：`'model'`（原始 id，默认）| `'vendor'`（厂商归并）。
+
+两者都是**纯前端状态**，切换时**不重新请求**——因为 API 已经返回了四类分量，
+任何口径/维度都能从同一份响应本地算出。
+
+## A.3 `web/src/components/stats/format.ts` 追加
+
+在 Task 9 已有内容（`TIME_RANGES` / `pickBucketMs` / `formatTokenCount` / `formatTpm` /
+`formatBucketLabel` / `formatFullTime` / `colorForModel`）之上追加：
+
+```ts
+/** 四类 token 分量，与后端 TokenComponents 对齐。 */
+export type TokenComponents = {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheCreation: number;
+};
+
+export const EMPTY_COMPONENTS: TokenComponents = { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 };
+
+/** TPM 口径。默认 `all`——与 provider 计费/限流口径一致。 */
+export type TokenMetric = 'all' | 'new' | 'output';
+
+export const METRICS: { value: TokenMetric; label: string; hint: string }[] = [
+  { value: 'all', label: '全部', hint: 'input + output + 缓存读取 + 缓存写入（provider 计费口径）' },
+  { value: 'new', label: '仅新增', hint: 'input + output，排除缓存重读' },
+  { value: 'output', label: '仅输出', hint: '只算模型实际生成的内容' },
+];
+
+/** 按口径把四类分量折算成一个标量。 */
+export function metricValue(components: TokenComponents, metric: TokenMetric): number {
+  switch (metric) {
+    case 'all':
+      return components.input + components.output + components.cacheRead + components.cacheCreation;
+    case 'new':
+      return components.input + components.output;
+    case 'output':
+      return components.output;
+  }
+}
+
+export function addComponents(a: TokenComponents, b: TokenComponents): TokenComponents {
+  return {
+    input: a.input + b.input,
+    output: a.output + b.output,
+    cacheRead: a.cacheRead + b.cacheRead,
+    cacheCreation: a.cacheCreation + b.cacheCreation,
+  };
+}
+
+/** 四类分量在总量里的占比，用于构成条。返回顺序固定为 input/output/cacheRead/cacheCreation。 */
+export function componentShares(components: TokenComponents): { key: keyof TokenComponents; label: string; share: number; color: string }[] {
+  const total = metricValue(components, 'all');
+  const rows: { key: keyof TokenComponents; label: string; color: string }[] = [
+    { key: 'input', label: '输入', color: '#0ea5e9' },
+    { key: 'output', label: '输出', color: '#10b981' },
+    { key: 'cacheRead', label: '缓存读取', color: '#f59e0b' },
+    { key: 'cacheCreation', label: '缓存写入', color: '#8b5cf6' },
+  ];
+  return rows.map((row) => ({ ...row, share: total > 0 ? components[row.key] / total : 0 }));
+}
+
+/** 维度切换。`vendor` 把同族模型归并；认不出的**原样返回**，避免把不同厂商混成一个桶。 */
+export type TokenDimension = 'model' | 'vendor';
+
+export const DIMENSIONS: { value: TokenDimension; label: string }[] = [
+  { value: 'model', label: '按模型' },
+  { value: 'vendor', label: '按厂商' },
+];
+
+const VENDOR_RULES: { pattern: RegExp; vendor: string }[] = [
+  { pattern: /deepseek/i, vendor: 'DeepSeek' },
+  { pattern: /glm|zhipu|chatglm/i, vendor: 'GLM' },
+  { pattern: /kimi|moonshot/i, vendor: 'Kimi' },
+  { pattern: /claude|opus|sonnet|haiku|anthropic/i, vendor: 'Claude' },
+  { pattern: /gpt|openai|^o[13]-/i, vendor: 'GPT' },
+  { pattern: /minimax|abab/i, vendor: 'MiniMax' },
+  { pattern: /gemini|palm/i, vendor: 'Gemini' },
+  { pattern: /qwen|tongyi/i, vendor: 'Qwen' },
+];
+
+export function vendorOf(model: string): string {
+  for (const rule of VENDOR_RULES) {
+    if (rule.pattern.test(model)) {
+      return rule.vendor;
+    }
+  }
+  // 认不出的保留原始 id：归并成一个 "其他" 会把无关模型混在一起，反而更难排查
+  return model;
+}
+
+/** 把一行 byModel 记录按维度归并成「维度键 → 四类分量」。 */
+export function groupByDimension(
+  byModel: Record<string, TokenComponents>,
+  dimension: TokenDimension,
+): Record<string, TokenComponents> {
+  if (dimension === 'model') {
+    return byModel;
+  }
+  const grouped: Record<string, TokenComponents> = {};
+  for (const [model, components] of Object.entries(byModel)) {
+    const key = vendorOf(model);
+    grouped[key] = addComponents(grouped[key] ?? EMPTY_COMPONENTS, components);
+  }
+  return grouped;
+}
+```
+
+`format.test.ts` 追加覆盖：`metricValue` 三口径、`vendorOf` 各厂商 + **认不出时原样返回**、
+`groupByDimension` 在 `vendor` 下把同族模型合并且分量相加、`componentShares` 占比求和为 1。
+
+## A.4 `web/src/components/stats/useTokenStats.ts` 类型改为
+
+```ts
+export type TokenComponents = { input: number; output: number; cacheRead: number; cacheCreation: number };
+
+export type TimeseriesBucket = { ts: number; byModel: Record<string, TokenComponents> };
+
+export type TimeseriesResponse = {
+  range: { from: number; to: number };
+  bucketMs: number;
+  models: string[];
+  buckets: TimeseriesBucket[];
+  ingest: IngestStatus;
+};
+
+export type SummaryModelEntry = {
+  model: string;
+  tokens: TokenComponents;
+  peakAll: number;
+  peakNew: number;
+  peakOutput: number;
+  sessions: number;
+  lastUsedAt: number;
+};
+
+export type SummaryResponse = { range: { from: number; to: number }; byModel: SummaryModelEntry[] };
+```
+
+`IngestStatus` 不变。hook 的其余部分（30s 轮询、可见性暂停、`refresh`）不变。
+
+**另加一个纯函数**（放在 `format.ts`，便于测试），把响应摊成图表行：
+
+```ts
+/** 把 buckets 摊成 recharts 需要的扁平行：{ ts, [维度键]: 该口径的 TPM }。 */
+export function buildChartRows(
+  buckets: TimeseriesBucket[],
+  metric: TokenMetric,
+  dimension: TokenDimension,
+): { rows: Record<string, number>[]; keys: string[] } {
+  const keys = new Set<string>();
+  const perBucket = buckets.map((bucket) => groupByDimension(bucket.byModel, dimension));
+  for (const grouped of perBucket) {
+    for (const key of Object.keys(grouped)) keys.add(key);
+  }
+  // 维度键按 all-token 总量降序，保证堆叠顺序稳定、大头在底部
+  const totals = new Map<string, number>();
+  for (const grouped of perBucket) {
+    for (const [key, components] of Object.entries(grouped)) {
+      totals.set(key, (totals.get(key) ?? 0) + metricValue(components, 'all'));
+    }
+  }
+  const ordered = [...keys].sort((a, b) => (totals.get(b) ?? 0) - (totals.get(a) ?? 0));
+  const rows = perBucket.map((grouped, index) => {
+    const row: Record<string, number> = { ts: buckets[index].ts };
+    for (const key of ordered) {
+      row[key] = metricValue(grouped[key] ?? EMPTY_COMPONENTS, metric);
+    }
+    return row;
+  });
+  return { rows, keys: ordered };
+}
+```
+
+> **TPM 归一化在前端**：`tpm = metricValue(...) / (bucketMs / 60000)`。
+> 后端返回的是桶内原始计数，不是 TPM。这一点与旧契约不同，别照旧代码写。
+
+## A.5 `TpmChartCard` 改动
+
+- props 增加 `metric: TokenMetric`、`dimension: TokenDimension`（由 `StatsPage` 持有状态）。
+- 用 `buildChartRows(buckets, metric, dimension)` 得到 `{ rows, keys }`；`Area` 按 `keys` 渲染，
+  颜色用 `colorForModel(key, keys)`。
+- 面积图渲染的是 **TPM**（`buildChartRows` 已按口径取标量，卡片里再除以 `bucketMs/60000`）。
+- 卡片底部加**构成条**：用 `componentShares` 对区间内四类分量求和后画一条横向堆叠条 +
+  图例（占比百分比）。**这条必须有**——它是「cache_read 占 74% 这件事必须可见」的落点。
+- 空态、回填进度提示、图例保持 Task 11 的写法。
+
+## A.6 `ModelRankCard` 改动
+
+列改为：模型 | 总量（按当前口径） | 占比 | 平均 TPM | 峰值 TPM | 会话数 | 最近使用。
+
+- 总量 = `metricValue(row.tokens, metric)`；占比 = 该值 / 所有行该值之和。
+- 平均 TPM = 总量 / 区间分钟数；峰值 TPM 按口径从 `peakAll` / `peakNew` / `peakOutput` 里选。
+- 行按当前口径总量降序（不是固定的 all-token 顺序）。
+- 维度为 `vendor` 时，先把 `summary.byModel` 按 `vendorOf` 归并（`tokens` 相加、
+  `sessions` 相加、`peak*` 取 max、`lastUsedAt` 取 max）再渲染。这个归并写成
+  `format.ts` 里的纯函数 `mergeSummaryByVendor(rows)` 并加测试。
+
+## A.7 `StatsPage` 改动
+
+在 header 里、模型筛选 chips 之前，加两组 segmented control：
+
+```tsx
+{/* 口径 */}
+<div className="flex rounded-xl border border-border/70 bg-muted/50 p-0.5">
+  {METRICS.map((m) => (
+    <button key={m.value} type="button" title={m.hint} aria-pressed={metric === m.value}
+      onClick={() => setMetric(m.value)}
+      className={metric === m.value
+        ? 'rounded-lg bg-card px-2 py-1 text-xs font-normal text-card-foreground shadow-sm'
+        : 'rounded-lg px-2 py-1 text-xs font-normal text-muted-foreground hover:text-foreground'}>
+      {m.label}
+    </button>
+  ))}
+</div>
+{/* 维度 */}
+<div className="flex rounded-xl border border-border/70 bg-muted/50 p-0.5">
+  {DIMENSIONS.map((d) => (
+    <button key={d.value} type="button" aria-pressed={dimension === d.value}
+      onClick={() => setDimension(d.value)}
+      className={/* 同上 */}>
+      {d.label}
+    </button>
+  ))}
+</div>
+```
+
+状态：`const [metric, setMetric] = useState<TokenMetric>('all')`、
+`const [dimension, setDimension] = useState<TokenDimension>('model')`。
+**两者都不进 `useTokenStats` 的依赖**——切换不触发重新请求。
+
+模型筛选 chips 在 `dimension === 'vendor'` 时**隐藏**（筛选参数按原始 model id 传，与厂商维度语义冲突）。
+
+## A.8 Task 13 验收标准相应调整
+
+- 原「`totalTokens > 0`；`share` 求和约等于 1」**失效**（字段已删）。改为：
+  - `buckets[].byModel[m]` 含四个分量且**不含** `total` / `tpm`；
+  - 对同一份响应切换三个口径，`全部 ≥ 仅新增 ≥ 仅输出` 恒成立；
+  - 构成条的四个占比求和约等于 1；
+  - `dimension` 切到 `vendor` 时，模型数减少且总量不变（归并是无损的）。
