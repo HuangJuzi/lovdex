@@ -105,12 +105,18 @@ export function ScheduledTasksView({ tasks, projectOptions, onEdit, onDelete, on
           <tbody>
             {tasks.map((task) => (
               <tr key={task.schedule_id} className="bg-card shadow-sm">
-                <td className="rounded-l-lg px-4 py-3 font-semibold text-card-foreground">{task.title}</td>
+                <td className="rounded-l-lg px-4 py-3 font-semibold text-card-foreground [overflow-wrap:anywhere]">{task.title}</td>
                 <td className="px-4 py-3 text-xs text-muted-foreground">
                   <CalendarClock className="mr-1 inline h-3 w-3" />
                   {scheduleLabel(task)}
                 </td>
-                <td className="px-4 py-3 text-xs text-muted-foreground">{projectLabel(task, projectOptions)}</td>
+                {/* projectLabel 在项目不在 projectOptions 时会回退成完整路径（不可断
+                    长 token），截断 + title 兜底，避免将来把本表推出横向滚动。 */}
+                <td className="px-4 py-3 text-xs text-muted-foreground">
+                  <span className="block max-w-40 truncate" title={projectLabel(task, projectOptions)}>
+                    {projectLabel(task, projectOptions)}
+                  </span>
+                </td>
                 <td className="px-4 py-3 text-xs">{task.auto_run === 1 ? '✅ 自动执行' : '🔔 仅提醒'}</td>
                 <td className="px-4 py-3 font-mono text-[11px] text-muted-foreground">{formatAbsoluteTime(task.next_run_at)}</td>
                 <td className="px-4 py-3 text-xs text-muted-foreground">
