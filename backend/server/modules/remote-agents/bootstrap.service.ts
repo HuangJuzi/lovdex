@@ -153,7 +153,7 @@ export async function runBootstrap(
     return { status: 'error', message: `mkdir failed: ${mk.stderr.trim() || 'unknown'}`, hostId };
   }
 
-  // 3. dependency prep: push + run prepare-remote.sh (installs node>=20 and the
+  // 3. dependency prep: push + run prepare-remote.sh (installs node>=18 and the
   //    claude CLI when missing). Skipped when no FilePush is wired — then the
   //    node/claude probes below must already succeed on the target.
   if (push) {
@@ -168,22 +168,22 @@ export async function runBootstrap(
     }
   }
 
-  // 4. re-probe node (post-prep). Presence is the bar; version >=20 is a
+  // 4. re-probe node (post-prep). Presence is the bar; version >=18 is a
   //    best-effort guard when the version parses (prepare-remote.sh is the
   //    strict gate).
   const node = await run(['node', '-v']);
   if (!node.ok) {
     return {
       status: 'error',
-      message: `node not found on remote — install node >=20 first${push ? ` (prepare couldn't provision it: ${node.stderr.trim() || 'node unavailable'})` : `: ${node.stderr.trim() || 'node unavailable'}`}`,
+      message: `node not found on remote — install node >=18 first${push ? ` (prepare couldn't provision it: ${node.stderr.trim() || 'node unavailable'})` : `: ${node.stderr.trim() || 'node unavailable'}`}`,
       hostId,
     };
   }
   const nodeMajor = /^v?(\d+)/.exec(node.stdout.trim())?.[1];
-  if (nodeMajor && Number(nodeMajor) < 20) {
+  if (nodeMajor && Number(nodeMajor) < 18) {
     return {
       status: 'error',
-      message: `node ${node.stdout.trim()} is too old — need node >=20`,
+      message: `node ${node.stdout.trim()} is too old — need node >=18`,
       hostId,
     };
   }

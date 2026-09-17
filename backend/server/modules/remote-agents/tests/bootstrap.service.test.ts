@@ -156,9 +156,9 @@ test('prepare failure surfaces a dependency-prepare error', async () => {
   assert.match(result.message ?? '', /dependency prepare failed/);
 });
 
-test('node present but <20 returns a too-old version error', async () => {
+test('node present but <18 returns a too-old version error', async () => {
   const { runner } = fakeRunner({
-    stdout: (argv) => (argv.join(' ').includes('node -v') ? 'v18.19.0' : ''),
+    stdout: (argv) => (argv.join(' ').includes('node -v') ? 'v16.20.0' : ''),
   });
   const { push } = fakePush();
 
