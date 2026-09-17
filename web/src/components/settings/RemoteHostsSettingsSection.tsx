@@ -219,7 +219,15 @@ export function RemoteHostsSettingsSection() {
         setActionError(await readErrorMessage(res, `部署 ${host.name} 失败`));
         return;
       }
-      (await res.json()) as DeployResponse;
+      // The deploy endpoint returns HTTP 200 even when bootstrap fails (the
+      // real verdict travels in the body's `status`). Surface that error — e.g.
+      // "node >=20 required, no passwordless sudo" — instead of pretending the
+      // deploy succeeded and leaving the row stuck on "lite 尚未连回".
+      const result = (await res.json()) as DeployResponse;
+      if (result.data?.status === 'error') {
+        setActionError(result.data.message ?? `部署 ${host.name} 失败`);
+        return;
+      }
 
       // The blocking deploy returned (row status already flipped off
       // 'deploying'). Keep watching so the definitive success signal — the lite
