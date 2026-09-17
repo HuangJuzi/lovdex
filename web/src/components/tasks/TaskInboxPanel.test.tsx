@@ -105,6 +105,54 @@ test('omits the action button when the matching handler is not provided', () => 
   assert.doesNotMatch(html, /↻ 重试/);
 });
 
+test('failed item with a session offers 重试 and 打开会话 side by side', () => {
+  const html = renderToStaticMarkup(
+    React.createElement(TaskInboxPanel, {
+      tasks: [mkTask({ task_id: 'f2', title: '失败但有会话', status: 'in_progress', sub_status: 'failed', session_id: 's1' })],
+      now: NOW,
+      onRetry: () => {},
+      onOpenSession: () => {},
+    }),
+  );
+  assert.match(html, /↻ 重试/);
+  assert.equal((html.match(/打开会话/g) || []).length, 1);
+});
+
+test('does not duplicate 打开会话 when it is already the primary action', () => {
+  const html = renderToStaticMarkup(
+    React.createElement(TaskInboxPanel, {
+      tasks: [mkTask({ task_id: 'w2', status: 'in_progress', sub_status: 'waiting_approval', session_id: 's1' })],
+      now: NOW,
+      onOpenSession: () => {},
+    }),
+  );
+  assert.equal((html.match(/打开会话/g) || []).length, 1);
+});
+
+test('omits 打开会话 for a cleaned session', () => {
+  const html = renderToStaticMarkup(
+    React.createElement(TaskInboxPanel, {
+      tasks: [mkTask({ task_id: 'f3', status: 'in_progress', sub_status: 'failed', session_id: 's1', session_deleted: true })],
+      now: NOW,
+      onRetry: () => {},
+      onOpenSession: () => {},
+    }),
+  );
+  assert.match(html, /↻ 重试/);
+  assert.doesNotMatch(html, /打开会话/);
+});
+
+test('omits 打开会话 when the handler is not provided', () => {
+  const html = renderToStaticMarkup(
+    React.createElement(TaskInboxPanel, {
+      tasks: [mkTask({ task_id: 'f4', status: 'in_progress', sub_status: 'failed', session_id: 's1' })],
+      now: NOW,
+      onRetry: () => {},
+    }),
+  );
+  assert.doesNotMatch(html, /打开会话/);
+});
+
 test('renders operator project as Lovdex助手', () => {
   const html = renderToStaticMarkup(
     React.createElement(TaskInboxPanel, {

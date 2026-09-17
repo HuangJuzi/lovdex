@@ -94,6 +94,17 @@ export function attentionItems(tasks: Task[], now: Date): AttentionItem[];
 
 「拒绝 / 暂停」等次要动作**不做**（YAGNI：审批本身在会话内完成，聚合条只负责「带你去处理」）。
 
+### 3.1 主操作旁边并排的「打开会话」（2026-09-17 追加）
+
+主操作用于「处理」，但处理前往往要先看现场（失败原因、审批上下文）。所以**每条**在主操作右侧固定补一个次级「打开会话」按钮：
+
+- 显示条件：`hasOpenableSession(task)`（有 `session_id` 且未被清理），**与任务状态无关**——`todo` / `done` 也能点进去看历史。
+- 主操作本身就是 `openSession` 时不再重复渲染（否则一行两个「打开会话」）。
+- 会话已被清理时不显示，主操作仍是原有的 `openTask`（查看）。
+- 于是「失败」行自然变成 **`↻ 重试` + `打开会话`** 两个按钮；没有会话时维持单按钮。
+
+`hasOpenableSession` 放在 `taskActions.ts`，`canOpenSession`（看板卡片 / 表格行用的严格版）改为在它之上加状态判据，两处判据不会漂移。
+
 ## 4. UI 形态
 
 顶部段，位于 `TaskBoard` 的筛选栏之后、看板/表格视图之前（对 `filteredTasks` 生效，与下方视图一致）。

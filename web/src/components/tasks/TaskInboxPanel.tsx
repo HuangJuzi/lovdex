@@ -3,6 +3,7 @@ import { useMemo, useState, type CSSProperties } from 'react';
 import type { Task } from '../../types/app';
 
 import type { TaskProjectOption } from './TaskCard';
+import { hasOpenableSession } from './taskActions';
 import { attentionItems, type AttentionAction, type AttentionTone } from './taskInbox';
 
 type TaskInboxPanelProps = {
@@ -70,6 +71,7 @@ export function TaskInboxPanel({
         {items.map((item) => {
           const handler = handlers[item.action];
           const info = projectInfo(item.task, projectOptions);
+          const showOpenSession = item.action !== 'openSession' && hasOpenableSession(item.task);
           return (
             <div key={item.task.task_id} className="flex items-center gap-2.5 px-3 py-2 sm:px-4">
               <span
@@ -92,14 +94,30 @@ export function TaskInboxPanel({
               <span className="hidden shrink-0 text-[11px] text-muted-foreground sm:inline">
                 {item.task.task_id}
               </span>
-              {handler && (
-                <button
-                  type="button"
-                  onClick={() => handler(item.task)}
-                  className={`shrink-0 whitespace-nowrap rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-colors ${ACTION_META[item.action].className}`}
-                >
-                  {ACTION_META[item.action].label}
-                </button>
+              {/* 主操作 + 「打开会话」并列：只要有会话就能点进会话页看现场（失败任务
+                  因此同时出现「重试」和「打开会话」）。主操作本身就是「打开会话」时
+                  不再重复渲染第二个。 */}
+              {(handler || showOpenSession) && (
+                <span className="flex shrink-0 items-center gap-1.5">
+                  {handler && (
+                    <button
+                      type="button"
+                      onClick={() => handler(item.task)}
+                      className={`whitespace-nowrap rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-colors ${ACTION_META[item.action].className}`}
+                    >
+                      {ACTION_META[item.action].label}
+                    </button>
+                  )}
+                  {showOpenSession && onOpenSession && (
+                    <button
+                      type="button"
+                      onClick={() => onOpenSession(item.task)}
+                      className={`whitespace-nowrap rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-colors ${ACTION_META.openSession.className}`}
+                    >
+                      {ACTION_META.openSession.label}
+                    </button>
+                  )}
+                </span>
               )}
             </div>
           );
