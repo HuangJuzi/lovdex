@@ -15,6 +15,7 @@ import { sessionsDb } from '@/modules/database/index.js';
 import { appConfig as getAppConfig } from '@/modules/config/config.js';
 import { buildProviderConfigEnv } from '@/modules/config/env-sync.js';
 import { lookupRemoteHost } from '@/modules/remote-agents/remote-projects.index.js';
+import { hostSupportsLlmForward } from '@/modules/remote-agents/runtime.js';
 import { chatRunRegistry, getTaskLinkage } from '@/modules/websocket/services/chat-run-registry.service.js';
 import { connectedClients, WS_OPEN_STATE } from '@/modules/websocket/services/websocket-state.service.js';
 import { getGlobalImageAssetsDir, normalizeImageDescriptors } from '@/shared/image-attachments.js';
@@ -276,8 +277,11 @@ async function handleChatSend(
   // local sessions must not pay that per-send cost); local runtimes ignore the
   // field anyway. Mirrors remote-spawn's projectPath ?? cwd resolution so the
   // decision matches whether the spawn actually routes remotely.
-  if (lookupRemoteHost(runtimeOptions.projectPath ?? runtimeOptions.cwd)) {
-    runtimeOptions.configEnv = buildProviderConfigEnv(getAppConfig().get(), provider);
+  const remoteHostId = lookupRemoteHost(runtimeOptions.projectPath ?? runtimeOptions.cwd);
+  if (remoteHostId) {
+    runtimeOptions.configEnv = buildProviderConfigEnv(getAppConfig().get(), provider, {
+      llmForward: hostSupportsLlmForward(remoteHostId),
+    });
   }
 
   try {

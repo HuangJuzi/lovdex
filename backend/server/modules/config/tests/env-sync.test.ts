@@ -285,9 +285,14 @@ test('syncProviderEnv keeps providers.claude.baseUrl when disabled', () => {
   assert.equal(process.env.ANTHROPIC_BASE_URL, 'https://upstream.example/anthropic');
 });
 
-test('buildProviderConfigEnv (claude) points remote at lite forwarder when enabled', () => {
-  const env = buildProviderConfigEnv(cfg(true), 'claude');
+test('buildProviderConfigEnv (claude) points remote at lite forwarder when enabled + llmForward', () => {
+  const env = buildProviderConfigEnv(cfg(true), 'claude', { llmForward: true });
   assert.equal(env.ANTHROPIC_BASE_URL, `http://127.0.0.1:${LLM_FORWARDER_PORT}`);
+});
+
+test('buildProviderConfigEnv (claude) falls back to baseUrl when lite lacks llmForward', () => {
+  const env = buildProviderConfigEnv(cfg(true), 'claude');
+  assert.equal(env.ANTHROPIC_BASE_URL, 'https://upstream.example/anthropic');
 });
 
 test('buildProviderConfigEnv (claude) keeps upstream URL when disabled', () => {

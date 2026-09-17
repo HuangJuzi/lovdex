@@ -14,6 +14,7 @@ import { sessionsDb } from '@/modules/database/index.js';
 import { appConfig as getAppConfig } from '@/modules/config/config.js';
 import { buildProviderConfigEnv } from '@/modules/config/env-sync.js';
 import { lookupRemoteHost } from '@/modules/remote-agents/remote-projects.index.js';
+import { hostSupportsLlmForward } from '@/modules/remote-agents/runtime.js';
 import { chatRunRegistry } from './chat-run-registry.service.js';
 import type { LLMProvider, RealtimeClientConnection } from '@/shared/types.js';
 
@@ -132,8 +133,11 @@ export function startHeadlessTaskRun(
   // same way the interactive chat path does — mirror chat-websocket.service.ts.
   // Only paid when the session resolves to a remote host (the codex branch reads
   // ~/.codex/auth.json, so local runs must not pay that per-send cost).
-  if (lookupRemoteHost((runtimeOptions.projectPath ?? runtimeOptions.cwd) as string | undefined)) {
-    runtimeOptions.configEnv = buildProviderConfigEnv(getAppConfig().get(), provider);
+  const remoteHostId = lookupRemoteHost((runtimeOptions.projectPath ?? runtimeOptions.cwd) as string | undefined);
+  if (remoteHostId) {
+    runtimeOptions.configEnv = buildProviderConfigEnv(getAppConfig().get(), provider, {
+      llmForward: hostSupportsLlmForward(remoteHostId),
+    });
   }
 
   // Fire-and-forget: the operator tool call must return immediately so the

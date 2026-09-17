@@ -113,7 +113,11 @@ function setOrDelete(key: string, value: string | undefined): void {
  * included; empty/unset fields are hidden so the lite's own environment is
  * left alone.
  */
-export function buildProviderConfigEnv(cfg: AppConfig, provider: LLMProvider): Record<string, string> {
+export function buildProviderConfigEnv(
+  cfg: AppConfig,
+  provider: LLMProvider,
+  opts?: { llmForward?: boolean },
+): Record<string, string> {
   const out: Record<string, string> = {};
   const put = (key: string, value: string | undefined): void => {
     const v = typeof value === 'string' ? value.trim() : '';
@@ -124,7 +128,11 @@ export function buildProviderConfigEnv(cfg: AppConfig, provider: LLMProvider): R
     case 'claude': {
       const c = providers.claude;
       const llmProxy = resolveLlmProxy(cfg);
-      put('ANTHROPIC_BASE_URL', llmProxy.enabled ? `http://127.0.0.1:${LLM_FORWARDER_PORT}` : c.baseUrl);
+      // Route a remote claude session through the lite forwarder ONLY when both
+      // the proxy is enabled AND the lite advertised llm/forward support.
+      // Otherwise fall back to the direct baseUrl so an older lite keeps working.
+      const useForwarder = llmProxy.enabled && opts?.llmForward === true;
+      put('ANTHROPIC_BASE_URL', useForwarder ? `http://127.0.0.1:${LLM_FORWARDER_PORT}` : c.baseUrl);
       put('ANTHROPIC_API_KEY', c.apiKey);
       // Auth token precedence matches syncProviderEnv: an explicitly-set
       // authToken wins over the shared apiKey slot that the UI writes to

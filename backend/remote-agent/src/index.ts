@@ -10,7 +10,7 @@ if (typeof (globalThis as { crypto?: unknown }).crypto !== 'object') {
   (globalThis as { crypto?: unknown }).crypto = webcrypto;
 }
 
-import { makePing, LLM_FORWARDER_PORT } from '../../server/shared/agent-runtime/protocol.js';
+import { makePing, LLM_FORWARDER_PORT, LLM_FORWARD_CAPABILITY } from '../../server/shared/agent-runtime/protocol.js';
 import { createLlmForwarder } from './llm-forwarder.js';
 import { loadConfigFile, type RemoteAgentConfig } from './config.js';
 import { handleRpc, interruptAllFor, setPushEmitter } from './rpc-dispatch.js';
@@ -112,6 +112,7 @@ function buildHelloFrame(cfg: RemoteAgentConfig): string {
     os: process.platform,
     roots: cfg.roots,
     capabilities: [
+      LLM_FORWARD_CAPABILITY,
       'session/claude',
       'session/messages',
       'fs/stat',

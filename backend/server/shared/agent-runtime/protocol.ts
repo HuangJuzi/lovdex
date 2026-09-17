@@ -5,6 +5,12 @@ import { z } from 'zod';
  * same constant — keep them in sync. */
 export const LLM_FORWARDER_PORT = 18088;
 
+/** Capability the lite advertises in its `hello` frame when it runs the LLM
+ * HTTP forwarder. Main routes a remote claude session's `ANTHROPIC_BASE_URL`
+ * through the forwarder ONLY when this capability is present, so an older lite
+ * (no forwarder) keeps the direct upstream URL instead of a dead 18088. */
+export const LLM_FORWARD_CAPABILITY = 'llm/forward';
+
 /**
  * Frame sent by the lite (remote) agent to the main process (lite → 主).
  *
