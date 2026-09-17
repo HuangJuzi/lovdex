@@ -24,6 +24,48 @@ npx tsx --tsconfig server/tsconfig.json --test server/modules/stats/tests/<name>
 env -u TSX_TSCONFIG_PATH npx tsx --test src/components/stats/<name>.test.ts
 ```
 
+**⚠️ 任何碰数据库的测试都必须显式隔离，否则会写进生产库。**
+
+`connection.ts:37` 的条件是 `NODE_TEST_CONTEXT && DATABASE_PATH` —— **两个都要**。
+`node --test` 只设置前者，`DATABASE_PATH` 是空的，于是 `resolveDatabasePath()` 会回落到
+`app.config.json` 的 `database.path`，也就是正在运行的**生产库** `~/.lovdex/data/new-auth.db`。
+「跑 `--test` 就自动隔离」是错的。
+
+每个碰 DB 的测试文件都要复制仓库既有的 `withIsolatedDatabase` 辅助函数
+（原版见 `backend/server/modules/database/repositories/tests/operator-audit.db.test.ts:11-33`；
+仓库没有共享导出版本，复制是既有惯例）：
+
+```ts
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+
+import { closeConnection, initializeDatabase } from '@/modules/database/index.js';
+
+/** 在一次性临时库上跑测试体。不设 DATABASE_PATH 会打到生产库。 */
+async function withIsolatedDatabase(runTest: () => void | Promise<void>): Promise<void> {
+  const previousDatabasePath = process.env.DATABASE_PATH;
+  const tempDirectory = await mkdtemp(path.join(tmpdir(), 'lovdex-test-'));
+  closeConnection();
+  process.env.DATABASE_PATH = path.join(tempDirectory, 'auth.db');
+  await initializeDatabase();
+  try {
+    await runTest();
+  } finally {
+    closeConnection();
+    if (previousDatabasePath === undefined) delete process.env.DATABASE_PATH;
+    else process.env.DATABASE_PATH = previousDatabasePath;
+    await rm(tempDirectory, { recursive: true, force: true });
+  }
+}
+```
+
+用法：`test('...', async () => { await withIsolatedDatabase(async () => { ...断言... }); });`
+
+**SQLite 分桶必须用 `CAST(? AS INTEGER)`。** better-sqlite3 把 JS number 绑成 REAL，
+`(ts_ms / ?) * ?` 会做浮点除法并原样还原，**静默地不分桶**（每条事件各自成组，不报错）。
+字面量 `60000` 不受影响（SQLite 视其为整数），但任何参数化的桶大小都必须 CAST。
+
 **验收基线**：`npm run typecheck` 与 `npm run lint` 在改动前**就不是干净的**（后端约 11 个 tsc 错误 / 44 个 lint 错误，均与本功能无关）。验收标准是**零新增**，不是零错误。
 
 **提交信息**：禁止添加 `Co-Authored-By: Claude` 署名行。
@@ -1213,7 +1255,10 @@ git commit -m "feat(stats): OpenCode message 行解析器"
 
 - [ ] **Step 1: 写失败的测试**
 
-创建 `backend/server/modules/stats/tests/token-usage-ingest.test.ts`。测试用临时目录造真实文件：
+创建 `backend/server/modules/stats/tests/token-usage-ingest.test.ts`。测试用临时目录造真实文件。
+
+**必须用 `withIsolatedDatabase` 包裹每个测试体**（见「关键约定」）——这些测试会调 `initializeDatabase()`
+并写入 `tokenUsageDb`，不隔离就会污染生产库。注意测试体因此变成 async。
 
 ```ts
 import assert from 'node:assert/strict';
@@ -1662,15 +1707,16 @@ git commit -m "feat(stats): token 用量采集引擎（增量 offset / 半行处
 
 - [ ] **Step 1: 写失败的测试**
 
-创建 `backend/server/modules/stats/tests/token-usage-query.test.ts`：
+创建 `backend/server/modules/stats/tests/token-usage-query.test.ts`。
+
+**本文件的测试全是纯函数**（`pickBucketMs` / `isAllowedBucketMs` / `resolveRange` /
+`buildTimeseries` / `buildSummary`），**不碰数据库**，所以**不要** import `initializeDatabase`
+或 `tokenUsageDb`——那会是未使用的 import，直接触发 lint 错误。
 
 ```ts
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { initializeDatabase } from '@/modules/database/index.js';
-import { tokenUsageDb } from '@/modules/database/repositories/token-usage.db.js';
-import type { TokenUsageEvent } from '@/shared/types.js';
 import {
   buildTimeseries,
   buildSummary,
@@ -1680,14 +1726,6 @@ import {
 } from '../services/token-usage-query.service.js';
 
 const MIN = 60_000;
-
-function event(overrides: Partial<TokenUsageEvent>): TokenUsageEvent {
-  return {
-    source: 'claude', sessionId: 's1', projectPath: '/p', model: 'm-a',
-    tsMs: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0,
-    dedupeKey: `k-${Math.random()}`, ...overrides,
-  };
-}
 
 test('pickBucketMs 按范围自适应，边界取较小桶', () => {
   assert.equal(pickBucketMs(60 * MIN), MIN);            // 1h → 1 分钟桶
