@@ -372,3 +372,51 @@ web/src/components/stats/
 - **数据保留策略 / 清理任务**：`token_usage_events` 会持续增长，暂不做 TTL 与归档。
 - **远程主机（remote-projects）的用量**：只采集本机 transcript。
 - **历史回填的可中断/可恢复 UI 控制**：回填自动跑，页面只读进度，不提供暂停/重扫按钮。
+
+## 7. 上线后修订：TPM 口径与模型分组（2026-09-17 第二轮）
+
+后端落地后在真实数据上冒烟（1392 个文件 / 55,813 事件 / 29 秒），发现两个必须先定的产品语义问题。
+以下修订**覆盖**前文对应部分。
+
+### 7.1 实测数据构成（全量 130,653 条 assistant 记录，168 亿 token）
+
+| 类别 | 占比 |
+|---|---|
+| cache_read | **74.2%** |
+| input | 24.9% |
+| cache_creation | 0.6% |
+| **output** | **0.3%** |
+
+即「全部 token 求和」这条曲线画的其实是**上下文被重读了多少**，而非「干了多少活」——
+output 被完全淹没。另发现大量成对记录（同样的 `input=967,227`，一次 `output=668`、一次 `output=1`），
+来自第三方模型走 claude provider 时的 thinking-only 重试循环，同一份大 context 被重复计入。
+
+（已用独立 Python 脚本直接解析原始 transcript 交叉验证：采集管道的解析是正确的，
+上述构成是数据本身的真实形态，不是解析 bug。）
+
+### 7.2 决策：TPM 口径
+
+**默认统计全部 token（input + output + cache_read + cache_creation），但：**
+
+- 页面上提供口径切换：**全部 / 仅新增（input + output，排除缓存）/ 仅输出**。
+- **图下始终显示四类构成比例**——cache_read 占 74% 这件事必须可见，不能藏起来。
+- 因此 API 不能只返回一个 `tokens` 总数，必须返回**四个分量**，让前端本地换算口径，
+  切换时无需重新请求。
+
+### 7.3 决策：模型分组
+
+实测同一族模型因**用户配置别名**被拆成多行：
+
+| 出现的 id | 来源 |
+|---|---|
+| `DeepSeek-Flash` | `app.config.json` → `providers.claude.defaultModel` |
+| `DeepSeek-V4-Pro-0813` | 同上 → `opusModel` |
+| `DeepSeek-V4-Pro` | `backend/llm-proxy/main.go:144` `ensureRoute("sonnet", ...)` |
+| `DeepSeek-V4-Flash-0731` | 同上 → `disableThinkingModels` |
+
+这些是**真实存在的不同配置项**，是否同一上游模型无法从代码推断，因此：
+
+- **原始 model id 完整保留，不做有损归一化**（数据层不丢信息）。
+- 页面提供**「按模型 / 按厂商」双维度切换**；厂商维度用启发式前缀规则归并
+  （DeepSeek / GLM / Kimi / Claude / GPT / MiniMax …），在**前端**实现为纯函数——
+  后端不变，切换即时生效，规则可随时调整而无需重新采集。
