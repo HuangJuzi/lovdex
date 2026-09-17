@@ -190,3 +190,64 @@ export function parseCodexFile(text: string, filePath: string): TokenUsageEvent[
 
   return events;
 }
+
+/** `opencode.db` 的 `message` 表行（只取用得到的列）。 */
+export type OpencodeMessageRow = {
+  id: string;
+  session_id: string;
+  data: string;
+};
+
+/**
+ * 解析 `opencode.db` 的一行 message。
+ *
+ * `data` 是 JSON 文本，assistant 行的 `tokens` 形状为
+ * `{ total, input, output, reasoning, cache: { write, read } }`，其中
+ * `input` 不含缓存（真实样本满足 `input + output + cache.read = total`），
+ * `reasoning` 是 `output` 的子集因而不单独计数。
+ *
+ * `dedupeKey` 用 `message.id`（该表主键，稳定唯一）。
+ */
+export function parseOpencodeRow(
+  row: OpencodeMessageRow,
+  fallbackProjectPath: string | null,
+): TokenUsageEvent | null {
+  let data: Record<string, unknown>;
+  try {
+    data = JSON.parse(row.data) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+  if (!data || data.role !== 'assistant') {
+    return null;
+  }
+  const tokens = data.tokens;
+  if (!tokens || typeof tokens !== 'object') {
+    return null;
+  }
+  const time = data.time;
+  const tsMs = time && typeof time === 'object' && typeof (time as Record<string, unknown>).created === 'number'
+    ? ((time as Record<string, unknown>).created as number)
+    : null;
+  if (tsMs === null) {
+    return null;
+  }
+
+  const tokensRecord = tokens as Record<string, unknown>;
+  const cache = tokensRecord.cache && typeof tokensRecord.cache === 'object'
+    ? (tokensRecord.cache as Record<string, unknown>)
+    : {};
+
+  return {
+    source: 'opencode',
+    sessionId: row.session_id,
+    projectPath: readString(data.path, 'cwd') ?? fallbackProjectPath,
+    model: readString(data, 'modelID') ?? 'unknown',
+    tsMs,
+    inputTokens: readUsageNumber(tokensRecord.input),
+    outputTokens: readUsageNumber(tokensRecord.output),
+    cacheReadTokens: readUsageNumber(cache.read),
+    cacheCreationTokens: readUsageNumber(cache.write),
+    dedupeKey: `opencode:${row.id}`,
+  };
+}
