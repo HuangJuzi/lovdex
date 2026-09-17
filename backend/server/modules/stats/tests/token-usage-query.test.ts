@@ -74,7 +74,7 @@ test('buildSummary 算 share / tpmAvg / tpmPeak / sessions', () => {
       { model: 'm-a', tokens: 600, sessions: 2, last_used_at: from + MIN },
       { model: 'm-b', tokens: 400, sessions: 1, last_used_at: from },
     ],
-    [{ model: 'm-a', peak: 300 }, { model: 'm-b', peak: 400 }],
+    [{ model: 'm-a', peak: 300 }],
     { from, to },
   );
   assert.equal(summary.totalTokens, 1000);
@@ -86,7 +86,7 @@ test('buildSummary 算 share / tpmAvg / tpmPeak / sessions', () => {
   assert.equal(a.sessions, 2);
   // 没有峰值记录的模型回落 0 而不是 undefined
   const b = summary.byModel.find((m) => m.model === 'm-b');
-  assert.equal(b?.tpmPeak, 400);
+  assert.equal(b?.tpmPeak, 0);
 });
 
 test('空区间返回空 buckets 与零总量，不抛错', () => {
@@ -94,4 +94,21 @@ test('空区间返回空 buckets 与零总量，不抛错', () => {
   const summary = buildSummary([], [], { from, to: from + MIN });
   assert.equal(summary.totalTokens, 0);
   assert.deepEqual(summary.byModel, []);
+});
+
+test('buildTimeseries 对非法 bucketMs 返回空数组而不是死循环', () => {
+  // 负桶：`ts += bucketMs` 会朝 to 的反方向走，永远到不了终点 → 无限循环 + 无限分配。
+  // 0 / NaN / ±Infinity 的起点对齐结果是 NaN，循环本就不会进入，但同样应视为非法输入。
+  const from = 1_700_000_000_000;
+  for (const bucketMs of [0, -MIN, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+    assert.deepEqual(
+      buildTimeseries([{ bucket_ts: from, model: 'm-a', tokens: 600 }], {
+        from,
+        to: from + MIN,
+        bucketMs,
+      }),
+      [],
+      `bucketMs=${bucketMs} 应返回空数组`,
+    );
+  }
 });

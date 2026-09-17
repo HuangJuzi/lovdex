@@ -100,6 +100,14 @@ export function buildTimeseries(
   options: { from: number; to: number; bucketMs: number },
 ): TimeseriesBucket[] {
   const { from, to, bucketMs } = options;
+
+  // 非法桶大小必须早退：负桶会让 `ts += bucketMs` 朝 to 的反方向走，
+  // 循环永不终止且无限分配（实测直接把进程撑到 OOM）。返回空数组而非抛错，
+  // 与这个纯函数的宽容风格一致。
+  if (!Number.isFinite(bucketMs) || bucketMs <= 0) {
+    return [];
+  }
+
   const totalsByBucket = new Map<number, Map<string, number>>();
   const modelTotals = new Map<string, number>();
 
