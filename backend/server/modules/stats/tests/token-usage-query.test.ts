@@ -7,6 +7,8 @@ import {
   pickBucketMs,
   isAllowedBucketMs,
   resolveRange,
+  MAX_RANGE_MS,
+  MAX_BUCKETS,
 } from '../services/token-usage-query.service.js';
 
 const MIN = 60_000;
@@ -38,6 +40,39 @@ test('resolveRange 缺省为最近 24 小时，且容忍 from >= to', () => {
   assert.deepEqual(resolveRange(1000, undefined, now), { from: 1000, to: now });
   // from >= to 属矛盾输入 → 回退默认窗口，避免返回空数组让前端误以为没数据
   assert.deepEqual(resolveRange(5000, 5000, now), { from: now - 24 * 60 * MIN, to: now });
+});
+
+test('resolveRange 把超大跨度夹到 MAX_RANGE_MS，正常跨度不受影响', () => {
+  const now = 1_700_000_000_000;
+
+  // 上界是必需的：from=0&to=1e18 会让补零循环迭代 ~1.16e10 次并撑爆堆。
+  const huge = resolveRange(0, 1_000_000_000_000_000_000, now);
+  assert.equal(huge.to, 1_000_000_000_000_000_000);
+  assert.equal(huge.to - huge.from, MAX_RANGE_MS, 'from 必须被夹到 to - MAX_RANGE_MS');
+
+  // 恰好等于上界时不夹取
+  const exact = resolveRange(now - MAX_RANGE_MS, now, now);
+  assert.deepEqual(exact, { from: now - MAX_RANGE_MS, to: now });
+
+  // 正常跨度（前端最大预设 30 天）原样透传
+  const thirtyDays = 30 * 24 * 60 * MIN;
+  assert.deepEqual(resolveRange(now - thirtyDays, now, now), { from: now - thirtyDays, to: now });
+});
+
+test('buildTimeseries 对超出 MAX_BUCKETS 的跨度返回空数组而不是挂死', () => {
+  // 纵深防御：service 路径已被 resolveRange 夹住，但本函数是模块导出，
+  // 直接调用时也不能让无界补零循环把进程 OOM 掉。
+  assert.deepEqual(
+    buildTimeseries([], { from: 0, to: 1_000_000_000_000_000_000, bucketMs: 24 * 60 * MIN }),
+    [],
+  );
+  // 小桶 + 大跨度同样要挡住
+  assert.deepEqual(
+    buildTimeseries([], { from: 0, to: (MAX_BUCKETS + 1) * MIN, bucketMs: MIN }),
+    [],
+  );
+  // 恰好等于上限仍应正常返回
+  assert.equal(buildTimeseries([], { from: 0, to: MAX_BUCKETS * MIN, bucketMs: MIN }).length, MAX_BUCKETS);
 });
 
 test('buildTimeseries 补零到连续桶，tpm 按桶分钟数换算', () => {

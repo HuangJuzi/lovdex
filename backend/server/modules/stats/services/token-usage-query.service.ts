@@ -16,6 +16,19 @@ const BUCKET_STEPS: { maxRangeMs: number; bucketMs: number }[] = [
 ];
 const FALLBACK_BUCKET_MS = 24 * 60 * MINUTE_MS;
 
+/**
+ * 查询跨度的上界（366 天）。`from`/`to` 来自 query string，若不设上界，
+ * `?from=0&to=1e18` 会让补零循环迭代约 1.16e10 次并撑爆堆。
+ * 前端最大预设是 30 天，正常使用碰不到；超界夹取而非报错。
+ */
+export const MAX_RANGE_MS = 366 * 24 * 60 * MINUTE_MS;
+
+/**
+ * 单次时间序列的桶数上界。纵深防御：service 路径已被 `resolveRange` 夹住，
+ * 但 `buildTimeseries` 是模块导出，直接调用时同样不该能挂死进程。
+ */
+export const MAX_BUCKETS = 20_000;
+
 export type TimeseriesBucket = {
   ts: number;
   total: number;
@@ -82,7 +95,8 @@ export function resolveRange(
   const hasValidFrom = typeof from === 'number' && Number.isFinite(from) && from >= 0;
 
   if (hasValidFrom && hasValidTo && from < to) {
-    return { from, to };
+    // 夹取上界：超大跨度会让补零循环的迭代次数与内存占用无界增长。
+    return { from: Math.max(from, to - MAX_RANGE_MS), to };
   }
   if (hasValidFrom && !hasValidTo) {
     return { from, to: now };
@@ -108,6 +122,14 @@ export function buildTimeseries(
     return [];
   }
 
+  // 桶数上界：与上面的非法桶守卫同风格，返回空数组而非抛错。
+  // 用与循环完全相同的对齐起点估算，保证守卫和实际迭代次数一致。
+  const firstTs = Math.floor(from / bucketMs) * bucketMs;
+  const projectedBuckets = Math.ceil((to - firstTs) / bucketMs);
+  if (!Number.isFinite(projectedBuckets) || projectedBuckets > MAX_BUCKETS) {
+    return [];
+  }
+
   const totalsByBucket = new Map<number, Map<string, number>>();
   const modelTotals = new Map<string, number>();
 
@@ -126,7 +148,7 @@ export function buildTimeseries(
   const minutesPerBucket = bucketMs / MINUTE_MS;
   const buckets: TimeseriesBucket[] = [];
 
-  for (let ts = Math.floor(from / bucketMs) * bucketMs; ts < to; ts += bucketMs) {
+  for (let ts = firstTs; ts < to; ts += bucketMs) {
     const bucket = totalsByBucket.get(ts);
     const byModel: Record<string, number> = {};
     let total = 0;

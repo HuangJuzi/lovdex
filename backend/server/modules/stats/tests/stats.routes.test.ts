@@ -6,6 +6,7 @@ import express from 'express';
 import { AppError } from '@/shared/utils.js';
 import { buildStatsRouter } from '../stats.routes.js';
 import type { TokenUsageQueryService } from '../services/token-usage-query.service.js';
+import { MAX_RANGE_MS } from '../services/token-usage-query.service.js';
 
 type Captured = { filter?: Record<string, unknown>; bucketMs?: number };
 
@@ -73,6 +74,18 @@ test('负 bucketMs 返回 400，且绝不落到 service（会撑爆 buildTimeser
   assert.equal(body.error.code, 'INVALID_QUERY_PARAMETER');
   assert.equal(captured.bucketMs, undefined);
   assert.equal(captured.filter, undefined);
+});
+
+test('超大 to 被夹到 MAX_RANGE_MS，请求正常返回而不是挂起进程', async (t) => {
+  const captured: Captured = {};
+  const { port } = listen(t, captured);
+  const res = await fetch(
+    `http://127.0.0.1:${port}/api/stats/token-usage/timeseries?from=0&to=1000000000000000000`,
+  );
+  assert.equal(res.status, 200);
+  const filter = captured.filter as { from: number; to: number };
+  assert.equal(filter.to, 1_000_000_000_000_000_000);
+  assert.equal(filter.to - filter.from, MAX_RANGE_MS);
 });
 
 test('非数字 from/to 返回 400 INVALID_QUERY_PARAMETER', async (t) => {
