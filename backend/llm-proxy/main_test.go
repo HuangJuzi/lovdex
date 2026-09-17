@@ -5,6 +5,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -651,6 +653,8 @@ func TestHaikuExplicitRouting(t *testing.T) {
 }
 
 // When the config declares no haiku, loadConfig must fall back to the sonnet target.
+// The test writes its own config file (the host's /etc/llm-proxy/config.toml may
+// declare a haiku route, which would make the assertion meaningless).
 func TestHaikuFallsBackToSonnetWhenUnconfigured(t *testing.T) {
 	oldCfg := cfg
 	oldRoutes := routeTargets
@@ -659,10 +663,14 @@ func TestHaikuFallsBackToSonnetWhenUnconfigured(t *testing.T) {
 		routeTargets = oldRoutes
 	})
 
-	// Hermetic: loadConfig() falls back to /etc/llm-proxy/config.toml when
-	// LLM_PROXY_CONFIG is unset, which breaks the suite on machines without a
-	// deployed config. Point it at the repo's own example (has sonnet, no haiku).
-	t.Setenv("LLM_PROXY_CONFIG", "config.example.toml")
+	path := filepath.Join(t.TempDir(), "config.toml")
+	content := `[routing]
+sonnet = "DeepSeek-V4-Flash-0731"
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	t.Setenv("LLM_PROXY_CONFIG", path)
 
 	if err := loadConfig(); err != nil {
 		t.Fatalf("loadConfig: %v", err)
@@ -832,93 +840,158 @@ func TestThinkingPassesThroughFirstAttempt(t *testing.T) {
 	}
 }
 
-// A thinking pass-back 400 must trigger the level-1 fallback: retry once with
-// thinking blocks stripped (param kept), and the successful reply returned.
-func TestThinking400RetriesStrippedBlocks(t *testing.T) {
-	body := `{"model":"sonnet","thinking":{"type":"adaptive","budget_tokens":1024},"messages":[{"role":"user","content":[{"type":"text","text":"hi"}]},{"role":"assistant","content":[{"type":"thinking","thinking":"chain","signature":""},{"type":"text","text":"done"}]}]}`
-	calls := 0
-	var mu sync.Mutex
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		b, _ := io.ReadAll(r.Body)
-		var m map[string]interface{}
-		json.Unmarshal(b, &m)
-		mu.Lock()
-		calls++
-		seen := calls
-		mu.Unlock()
-		if seen == 1 {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(400)
-			io.WriteString(w, `{"error":{"message":"The request is invalid: The `+"`content[].thinking`"+` in the thinking mode must be passed back to the API.","reqid":"test-1","type":"invalid_request_error"},"type":"error"}`)
-			return
-		}
-		// Level-1 retry: thinking blocks gone, but the param still present.
-		if _, has := m["thinking"]; !has {
-			w.WriteHeader(500)
-			io.WriteString(w, "retry dropped the thinking param too early")
-			return
-		}
-		msgs := m["messages"].([]interface{})
-		asm := msgs[1].(map[string]interface{})
-		content := asm["content"].([]interface{})
-		if len(content) != 1 {
-			w.WriteHeader(500)
-			io.WriteString(w, "retry still carries thinking blocks")
-			return
-		}
-		w.Header().Set("Content-Type", "text/event-stream")
-		io.WriteString(w, "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n")
-	}))
-	t.Cleanup(upstream.Close)
-	oldURL := cfg.Upstream.AnthropicURL
-	cfg.Upstream.AnthropicURL = upstream.URL
-	t.Cleanup(func() { cfg.Upstream.AnthropicURL = oldURL })
-
-	resp := callHandleMessages(t, body)
-	if !strings.Contains(resp, "message_stop") {
-		t.Fatalf("expected successful retry reply, got: %s", resp)
+// The upstream runs thinking mode at the model level (independent of the client's
+// `thinking` param) and rejects the request when ANY assistant message carries
+// tool_use without a thinking block — verified against the live gateway, where a
+// patched final turn still 400s if an earlier tool_use turn was left bare.
+// Claude Code gets no thinking block for many tool turns, so it has none to pass
+// back; the proxy supplies the empty placeholder the upstream accepts rather than
+// forward a guaranteed 400.
+func TestEnsureThinkingPassBack(t *testing.T) {
+	cases := []struct {
+		name string
+		req  string
+		want bool
+	}{
+		{
+			"last assistant tool_use without thinking is patched",
+			`{"model":"sonnet","messages":[{"role":"user","content":"time?"},{"role":"assistant","content":[{"type":"tool_use","id":"call_1","name":"get_time","input":{}}]},{"role":"user","content":[{"type":"tool_result","tool_use_id":"call_1","content":"12:00"}]}]}`,
+			true,
+		},
+		{
+			"tool_use as the final message is patched",
+			`{"model":"sonnet","messages":[{"role":"user","content":"time?"},{"role":"assistant","content":[{"type":"tool_use","id":"call_1","name":"get_time","input":{}}]}]}`,
+			true,
+		},
+		{
+			"mid-history tool_use without thinking is patched too",
+			`{"model":"sonnet","messages":[{"role":"assistant","content":[{"type":"tool_use","id":"call_1","name":"get_time","input":{}}]},{"role":"user","content":"go on"},{"role":"assistant","content":[{"type":"text","text":"done"}]}]}`,
+			true,
+		},
+		{
+			"every bare tool_use turn is patched, not just the last",
+			`{"model":"sonnet","messages":[{"role":"assistant","content":[{"type":"tool_use","id":"call_1","name":"get_time","input":{}}]},{"role":"user","content":"ok"},{"role":"assistant","content":[{"type":"thinking","thinking":"","signature":""},{"type":"tool_use","id":"call_2","name":"get_date","input":{}}]},{"role":"user","content":"done"}]}`,
+			true,
+		},
+		{
+			"existing thinking block is left untouched",
+			`{"model":"sonnet","messages":[{"role":"user","content":"time?"},{"role":"assistant","content":[{"type":"thinking","thinking":"think","signature":"sig"},{"type":"tool_use","id":"call_1","name":"get_time","input":{}}]}]}`,
+			false,
+		},
+		{
+			"text-only last assistant is left untouched",
+			`{"model":"sonnet","messages":[{"role":"assistant","content":[{"type":"text","text":"done"}]}]}`,
+			false,
+		},
+		{
+			"string content is left untouched",
+			`{"model":"sonnet","messages":[{"role":"assistant","content":"done"}]}`,
+			false,
+		},
+		{
+			"no assistant message is left untouched",
+			`{"model":"sonnet","messages":[{"role":"user","content":"hi"}]}`,
+			false,
+		},
 	}
-	var got int
-	mu.Lock()
-	got = calls
-	mu.Unlock()
-	if got != 2 {
-		t.Fatalf("expected 2 upstream calls, got %d", got)
+	for _, c := range cases {
+		var req map[string]interface{}
+		if err := json.Unmarshal([]byte(c.req), &req); err != nil {
+			t.Fatalf("%s: bad json: %v", c.name, err)
+		}
+		// Indices of assistant messages that were bare (tool_use, no thinking)
+		// before the call: exactly these must come back with the placeholder.
+		var bare []int
+		for i, raw := range req["messages"].([]interface{}) {
+			msg, ok := raw.(map[string]interface{})
+			if !ok || msg["role"] != "assistant" {
+				continue
+			}
+			content, ok := msg["content"].([]interface{})
+			if ok && hasContentBlockOfType(content, "tool_use") && !hasContentBlockOfType(content, "thinking") {
+				bare = append(bare, i)
+			}
+		}
+
+		if got := ensureThinkingPassBack(req); got != c.want {
+			t.Errorf("%s: ensureThinkingPassBack = %v, want %v", c.name, got, c.want)
+			continue
+		}
+
+		// Whatever the verdict, the invariant that leaves the upstream satisfied is
+		// the same: no assistant message may carry tool_use without a thinking block.
+		msgs := req["messages"].([]interface{})
+		for i, raw := range msgs {
+			msg, ok := raw.(map[string]interface{})
+			if !ok || msg["role"] != "assistant" {
+				continue
+			}
+			content, ok := msg["content"].([]interface{})
+			if !ok || !hasContentBlockOfType(content, "tool_use") {
+				continue
+			}
+			if !hasContentBlockOfType(content, "thinking") {
+				t.Errorf("%s: message %d still carries tool_use without a thinking block", c.name, i)
+			}
+		}
+		for _, i := range bare {
+			content := msgs[i].(map[string]interface{})["content"].([]interface{})
+			first := content[0].(map[string]interface{})
+			if first["type"] != "thinking" || first["thinking"] != "" || first["signature"] != "" {
+				t.Errorf("%s: message %d injected block = %v, want empty thinking block", c.name, i, first)
+			}
+		}
 	}
 }
 
-// When level 1 (strip blocks) also 400s with the same error and a `thinking` param
-// is present, level 2 removes the param and retries; the successful reply wins.
-func TestThinking400RetriesParamRemovedAfterStrip(t *testing.T) {
-	body := `{"model":"sonnet","thinking":{"type":"adaptive","budget_tokens":1024},"messages":[{"role":"user","content":[{"type":"text","text":"hi"}]},{"role":"assistant","content":[{"type":"thinking","thinking":"chain","signature":""},{"type":"text","text":"done"}]}]}`
+// A tool_use turn replayed without a thinking block must reach the upstream
+// already patched, so the pass-back 400 never happens in the first place.
+func TestThinkingPassBackPatchedBeforeForward(t *testing.T) {
+	body := `{"model":"sonnet","max_tokens":10,"thinking":{"type":"enabled","budget_tokens":1024},"tools":[{"name":"get_time","description":"Get time","input_schema":{"type":"object","properties":{"city":{"type":"string"}}}}],"messages":[{"role":"user","content":"date in Beijing?"},{"role":"assistant","content":[{"type":"tool_use","id":"call_0","name":"get_date","input":{"city":"Beijing"}}]},{"role":"user","content":[{"type":"tool_result","tool_use_id":"call_0","content":"2026-09-15"}]},{"role":"user","content":"time in Beijing?"},{"role":"assistant","content":[{"type":"tool_use","id":"call_1","name":"get_time","input":{"city":"Beijing"}}]},{"role":"user","content":[{"type":"tool_result","tool_use_id":"call_1","content":"12:00"}]}]}`
+
 	calls := 0
 	var mu sync.Mutex
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
 		var m map[string]interface{}
-		json.Unmarshal(b, &m)
+		if json.Unmarshal(b, &m) != nil {
+			w.WriteHeader(500)
+			return
+		}
 		mu.Lock()
 		calls++
-		seen := calls
 		mu.Unlock()
-		if seen <= 2 {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(400)
-			io.WriteString(w, `{"error":{"message":"The request is invalid: The `+"`content[].thinking`"+` in the thinking mode must be passed back to the API.","reqid":"test-1","type":"invalid_request_error"},"type":"error"}`)
-			return
-		}
-		// Level-2 retry: no thinking param and no thinking blocks.
-		if _, has := m["thinking"]; has {
-			w.WriteHeader(500)
-			io.WriteString(w, "retry still carries thinking param")
-			return
-		}
+		// Mirror the real upstream contract: the client's `thinking` param is
+		// irrelevant, and EVERY assistant message carrying tool_use must also
+		// carry a thinking block — not just the last one.
 		msgs := m["messages"].([]interface{})
-		asm := msgs[1].(map[string]interface{})
-		content := asm["content"].([]interface{})
-		if len(content) != 1 {
+		assistants := 0
+		for _, raw := range msgs {
+			msg, ok := raw.(map[string]interface{})
+			if !ok || msg["role"] != "assistant" {
+				continue
+			}
+			assistants++
+			content, _ := msg["content"].([]interface{})
+			var hasThinking, hasToolUse bool
+			for _, rawBlock := range content {
+				switch rawBlock.(map[string]interface{})["type"] {
+				case "thinking":
+					hasThinking = true
+				case "tool_use":
+					hasToolUse = true
+				}
+			}
+			if hasToolUse && !hasThinking {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(400)
+				io.WriteString(w, `{"error":{"message":"The `+"`content[].thinking`"+` in the thinking mode must be passed back to the API.","type":"invalid_request_error"}}`)
+				return
+			}
+		}
+		if assistants == 0 {
 			w.WriteHeader(500)
-			io.WriteString(w, "retry still carries thinking blocks")
+			io.WriteString(w, "no assistant message reached the upstream")
 			return
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -931,14 +1004,12 @@ func TestThinking400RetriesParamRemovedAfterStrip(t *testing.T) {
 
 	resp := callHandleMessages(t, body)
 	if !strings.Contains(resp, "message_stop") {
-		t.Fatalf("expected successful level-2 retry reply, got: %s", resp)
+		t.Fatalf("expected the patched request to succeed, got: %s", resp)
 	}
-	var got int
 	mu.Lock()
-	got = calls
-	mu.Unlock()
-	if got != 3 {
-		t.Fatalf("expected 3 upstream calls, got %d", got)
+	defer mu.Unlock()
+	if calls != 1 {
+		t.Fatalf("expected a single upstream call (no retry needed), got %d", calls)
 	}
 }
 
@@ -957,10 +1028,9 @@ func TestNoThinkingBlocksBodyUnchanged(t *testing.T) {
 	}
 }
 
-// A thinking-pass-back 400 with nothing left to strip (request already carried no
-// thinking blocks) must pass through to the client unchanged — never an infinite
-// retry loop.
-func TestThinking400WithNothingToStripPassesThrough(t *testing.T) {
+// A pass-back 400 the patch cannot cure (nothing to patch, upstream still
+// rejecting) must reach the client unchanged, with no retry loop.
+func TestThinking400WithoutCurePassesThrough(t *testing.T) {
 	body := `{"model":"sonnet","messages":[{"role":"user","content":[{"type":"text","text":"hi"}]}]}`
 	calls := 0
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -976,10 +1046,10 @@ func TestThinking400WithNothingToStripPassesThrough(t *testing.T) {
 
 	resp := callHandleMessages(t, body)
 	if !strings.Contains(resp, "must be passed back") {
-		t.Fatalf("400 must pass through when nothing to strip, got: %s", resp)
+		t.Fatalf("400 must pass through when there is nothing to patch, got: %s", resp)
 	}
 	if calls != 1 {
-		t.Fatalf("must not retry when nothing to strip, upstream called %d times", calls)
+		t.Fatalf("must not retry when there is nothing to patch, upstream called %d times", calls)
 	}
 }
 

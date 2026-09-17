@@ -3,13 +3,16 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -36,6 +39,22 @@ type ProxyConfig struct {
 type UpstreamConfig struct {
 	AnthropicURL string `toml:"anthropic_url"`
 	OpenAIURL    string `toml:"openai_url"`
+	// DefaultUpstream picks the gateway for routing entries that do not name one
+	// explicitly: "" or "claude"/"anthropic" → the Anthropic (claude-format)
+	// gateway, "openai" → the OpenAI gateway.
+	DefaultUpstream string `toml:"default_upstream"`
+	// HeaderTimeoutSeconds bounds how long the proxy waits per attempt for the
+	// upstream to send response headers before treating the request as timed
+	// out. Default 120.
+	HeaderTimeoutSeconds int `toml:"header_timeout_seconds"`
+	// BodyIdleSeconds bounds how long the proxy waits without receiving a single
+	// byte from an upstream response body before declaring the stream stalled and
+	// terminating it with an error. Default 90.
+	BodyIdleSeconds int `toml:"body_idle_seconds"`
+	// MaxRetries is the number of extra attempts the proxy makes after a transient
+	// upstream network error or retryable status (429/5xx) before giving up and
+	// reporting the failure to the client. Default 2.
+	MaxRetries int `toml:"max_retries"`
 }
 
 type KeysConfig struct {
@@ -47,9 +66,13 @@ type KeysConfig struct {
 // or "openai" (request translated to OpenAI protocol and forwarded to
 // cfg.Upstream.OpenAIURL). Only models exposed on the OpenAI-only gateway (e.g.
 // glm-5.3-flash, which the Anthropic gateway rejects) need upstream="openai".
+// SupportsImage declares that the upstream model natively handles image input,
+// so image-carrying requests bound for this route skip the builtin VLM describe
+// pass and go to the model straight.
 type RouteEntry struct {
-	Model    string
-	Upstream string
+	Model         string
+	Upstream      string
+	SupportsImage bool
 }
 
 // routeTargets is the single source of truth for [routing]: every key — the
@@ -105,6 +128,15 @@ func loadConfig() error {
 	if cfg.Upstream.OpenAIURL == "" {
 		cfg.Upstream.OpenAIURL = "https://www.sophnet.com/api/open-apis/openai"
 	}
+	if cfg.Upstream.HeaderTimeoutSeconds == 0 {
+		cfg.Upstream.HeaderTimeoutSeconds = 120
+	}
+	if cfg.Upstream.BodyIdleSeconds == 0 {
+		cfg.Upstream.BodyIdleSeconds = 90
+	}
+	if cfg.Upstream.MaxRetries == 0 {
+		cfg.Upstream.MaxRetries = 2
+	}
 
 	if err := buildRouteTargets(cfg.Routing); err != nil {
 		log.Printf("config: parse routing table: %v\n", err)
@@ -114,8 +146,26 @@ func loadConfig() error {
 	if _, ok := routeTargets["haiku"]; !ok {
 		routeTargets["haiku"] = routeTargets["sonnet"]
 	}
+	applyDefaultUpstream()
 
 	return nil
+}
+
+// applyDefaultUpstream fills the configured default gateway into every routing
+// entry that did not declare an upstream explicitly. ""/"claude"/"anthropic"
+// keep the default anthropic (claude-format) gateway; "openai" routes all
+// upstream-less entries (including the builtin fallback targets) through the
+// OpenAI gateway. Explicit per-entry upstream values are left untouched.
+func applyDefaultUpstream() {
+	switch strings.ToLower(cfg.Upstream.DefaultUpstream) {
+	case "openai":
+		for alias, e := range routeTargets {
+			if e.Upstream == "" {
+				e.Upstream = "openai"
+				routeTargets[alias] = e
+			}
+		}
+	}
 }
 
 // buildRouteTargets decodes the [routing] table into routeTargets. Each key may
@@ -152,11 +202,12 @@ func decodeRouteEntry(p toml.Primitive) (RouteEntry, error) {
 		return RouteEntry{Model: s}, nil
 	}
 	var t struct {
-		Model    string `toml:"model"`
-		Upstream string `toml:"upstream"`
+		Model         string `toml:"model"`
+		Upstream      string `toml:"upstream"`
+		SupportsImage bool   `toml:"supports_image"`
 	}
 	if err := toml.PrimitiveDecode(p, &t); err == nil && t.Model != "" {
-		return RouteEntry{Model: t.Model, Upstream: t.Upstream}, nil
+		return RouteEntry{Model: t.Model, Upstream: t.Upstream, SupportsImage: t.SupportsImage}, nil
 	}
 	return RouteEntry{}, fmt.Errorf("must be a model string or { model = \"...\", upstream = \"...\" }")
 }
@@ -174,14 +225,198 @@ func (fw *flushWriter) Write(p []byte) (int, error) {
 	return n, err
 }
 
+// headerTimeout returns the per-attempt response-header timeout, honoring the
+// config value when present.
+func headerTimeout() time.Duration {
+	if cfg.Upstream.HeaderTimeoutSeconds > 0 {
+		return time.Duration(cfg.Upstream.HeaderTimeoutSeconds) * time.Second
+	}
+	return 120 * time.Second
+}
+
+// bodyIdle returns the maximum silence allowed while reading an upstream
+// response body before the stream is declared stalled.
+func bodyIdle() time.Duration {
+	if cfg.Upstream.BodyIdleSeconds > 0 {
+		return time.Duration(cfg.Upstream.BodyIdleSeconds) * time.Second
+	}
+	return 90 * time.Second
+}
+
+// maxRetries returns how many extra attempts the proxy makes on transient
+// upstream failures before giving up.
+func maxRetries() int {
+	if cfg.Upstream.MaxRetries > 0 {
+		return cfg.Upstream.MaxRetries
+	}
+	return 2
+}
+
 func httpClient() *http.Client {
 	return &http.Client{
 		Transport: &http.Transport{
 			DisableCompression:    true,
-			ResponseHeaderTimeout: 180 * time.Second,
+			ResponseHeaderTimeout: headerTimeout(),
 		},
 		Timeout: 0,
 	}
+}
+
+// retryBackoffs is the sleep between retry attempts.
+var retryBackoffs = []time.Duration{500 * time.Millisecond, 1 * time.Second, 2 * time.Second}
+
+func retryBackoff(attempt int) time.Duration {
+	if attempt < len(retryBackoffs) {
+		return retryBackoffs[attempt]
+	}
+	return retryBackoffs[len(retryBackoffs)-1]
+}
+
+// isRetryableError reports whether a failed upstream request is worth a fresh
+// attempt: transient network failures (timeouts, resets, EOF) for which a
+// retry is likely to succeed. Whether the client itself gave up is judged in
+// postUpstream via ctx.Err(), not here — the upstream's own response-header
+// timeout can surface as a deadline error that is exactly what should be
+// retried.
+func isRetryableError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return true
+	}
+	for _, frag := range []string{
+		"timeout awaiting response headers",
+		"connection reset by peer",
+		"unexpected EOF",
+		"EOF",
+		"connection refused",
+		"broken pipe",
+		"TLS handshake timeout",
+		"server closed idle connection",
+	} {
+		if strings.Contains(err.Error(), frag) {
+			return true
+		}
+	}
+	return false
+}
+
+// isRetryableStatus reports whether an upstream HTTP status warrants a retry.
+// The sophnet gateway itself answers transient failures with 503
+// ("Connection error, please retry"), so 5xx (and 429) are retried.
+func isRetryableStatus(code int) bool {
+	switch code {
+	case 429, 500, 502, 503, 504:
+		return true
+	}
+	return false
+}
+
+// doPostAttempt issues a single POST, honoring the client context so a
+// disconnected client aborts the upstream call.
+func doPostAttempt(ctx context.Context, url string, body []byte, headers map[string]string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	return httpClient().Do(req)
+}
+
+// postUpstream issues an HTTP POST, retrying transient network errors and
+// retryable statuses up to maxRetries() times. The last response (even a
+// retryable status) is returned once retries are exhausted; the caller owns
+// closing its body.
+func postUpstream(ctx context.Context, url string, body []byte, headers map[string]string) (*http.Response, error) {
+	max := maxRetries()
+	for attempt := 0; ; attempt++ {
+		resp, err := doPostAttempt(ctx, url, body, headers)
+		if err == nil && !(attempt < max && isRetryableStatus(resp.StatusCode)) {
+			return resp, nil
+		}
+		if err != nil {
+			// A client that gave up (canceled or past its own deadline) is not
+			// worth retrying for: the re-sent result would have no receiver.
+			if attempt >= max || ctx.Err() != nil || !isRetryableError(err) {
+				return nil, err
+			}
+			log.Printf("[RETRY] attempt=%d err=%v\n", attempt+1, err)
+		} else {
+			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+			resp.Body.Close()
+			log.Printf("[RETRY] attempt=%d status=%d\n", attempt+1, resp.StatusCode)
+		}
+		time.Sleep(retryBackoff(attempt))
+	}
+}
+
+// errBodyIdle is returned by idleReader when no data arrived within the idle
+// window.
+var errBodyIdle = errors.New("upstream body idle timeout")
+
+// idleReader bounds the silence while reading an upstream response body. Read
+// returns errBodyIdle if no data arrives within idle. The underlying blocked
+// read is unwound when the caller closes the response body (transport abort),
+// so the per-read goroutine is short-lived.
+type idleReader struct {
+	r    io.Reader
+	idle time.Duration
+}
+
+func (t *idleReader) Read(p []byte) (int, error) {
+	type result struct {
+		n   int
+		err error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		n, err := t.r.Read(p)
+		ch <- result{n, err}
+	}()
+	timer := time.NewTimer(t.idle)
+	defer timer.Stop()
+	select {
+	case r := <-ch:
+		return r.n, r.err
+	case <-timer.C:
+		return 0, errBodyIdle
+	}
+}
+
+// newIdleReader wraps r with an idle timeout. A zero or negative idle returns r
+// unchanged (no timeout).
+func newIdleReader(r io.Reader, idle time.Duration) io.Reader {
+	if idle <= 0 {
+		return r
+	}
+	return &idleReader{r: r, idle: idle}
+}
+
+// anthropicErrorEnvelope renders an error body in the Anthropic error shape so
+// clients parse it cleanly instead of receiving an opaque text body.
+func anthropicErrorEnvelope(errType, message string) []byte {
+	payload, err := json.Marshal(map[string]interface{}{
+		"type": "error",
+		"error": map[string]interface{}{
+			"type":    errType,
+			"message": message,
+		},
+	})
+	if err != nil {
+		return []byte(`{"type":"error","error":{"type":"api_error","message":"upstream error"}}`)
+	}
+	return payload
+}
+
+// sseErrorFrame returns a terminal Anthropic error SSE event block. Claude Code
+// treats an `error` event as the end of the stream, so a stalled stream that is
+// cut off this way surfaces as an error instead of hanging.
+func sseErrorFrame(errType, message string) string {
+	return "event: error\ndata: " + string(anthropicErrorEnvelope(errType, message)) + "\n\n"
 }
 
 func main() {
@@ -223,14 +458,23 @@ func handleMessages(w http.ResponseWriter, r *http.Request) {
 	// A route marked upstream="openai" (e.g. models only reachable through the
 	// OpenAI gateway) leaves this Anthropic pipeline entirely: the request is
 	// translated to OpenAI format, forwarded to cfg.Upstream.OpenAIURL, and the
-	// reply is translated back into Anthropic framing for the client.
+	// reply is translated back into Anthropic framing for the client. The image
+	// describe pass runs BEFORE the openai branch so image-carrying requests are
+	// reduced to text first — a raw image translated to image_url is rejected by
+	// text-only openai models ("model ... do not support image params").
 	target := routeTarget(model)
-	if target.Upstream == "openai" {
-		handleOpenAIRequest(w, r, req, target.Model)
-		return
-	}
 	newModel := target.Model
-	if containsImage(req) && cfg.Proxy.VLMModel != "" {
+	// vlmFallback is set when the describe pass failed: the original (still
+	// image-carrying) request must be routed to the VLM model via the anthropic
+	// gateway. An openai-route request in this state must NOT be translated to
+	// the openai text model, or the raw image fails again with
+	// "model ... do not support image params".
+	vlmFallback := false
+	// A route with SupportsImage=true (the upstream model natively handles image
+	// input) skips the builtin VLM describe pass: the image-carrying request is
+	// forwarded to the model as-is (image blocks intact; openai routes translate
+	// them to image_url parts).
+	if containsImage(req) && cfg.Proxy.VLMModel != "" && !target.SupportsImage {
 		if describeImages(req) {
 			body, _ = json.Marshal(req)
 		} else {
@@ -238,33 +482,39 @@ func handleMessages(w http.ResponseWriter, r *http.Request) {
 			// original request and route the whole thing to the VLM so no image is lost.
 			json.Unmarshal(body, &req)
 			newModel = cfg.Proxy.VLMModel
+			vlmFallback = true
 		}
 	}
 	if newModel != "" {
 		req["model"] = newModel
 		body, _ = json.Marshal(req)
 	}
+	if target.Upstream == "openai" && !vlmFallback {
+		handleOpenAIRequest(w, r, req, target.Model)
+		return
+	}
 
 	// Thinking is passed through transparently: the client's `thinking` param and
-	// thinking blocks in history stay verbatim on the first attempt, preserving the
-	// upstream's chain-of-thought context as the DeepSeek docs advise. Only when the
-	// upstream rejects the request with 400 "content[].thinking must be passed back"
-	// do we fall back stepwise (strip thinking blocks, then disable thinking), see
-	// the retry chain below.
+	// thinking blocks in history stay verbatim, preserving the upstream's
+	// chain-of-thought context. The one exception is the pass-back contract below.
+	if ensureThinkingPassBack(req) {
+		body, _ = json.Marshal(req)
+	}
 
 	log.Printf("[%s] %s -> %s len=%d\n", time.Now().Format("15:04:05"), model, newModel, len(body))
 
 	resp, err := doUpstreamRequest(body, r)
 	if err != nil {
 		log.Printf("[RESP] error: %v\n", err)
-		http.Error(w, "upstream error", 502)
+		respondUpstreamError(w, err)
 		return
 	}
 
 	// Fallback: if the text upstream rejects an image-carrying request that static
 	// detection missed (400 "Model do not support image input"), retry once with the
-	// VLM model. A non-image 400 passes through unchanged.
-	if resp.StatusCode == 400 && cfg.Proxy.VLMModel != "" && newModel != cfg.Proxy.VLMModel {
+	// VLM model. A route marked supports_image=true skips this too — the model is
+	// declared image-capable, so a rejection is a config error worth surfacing.
+	if resp.StatusCode == 400 && cfg.Proxy.VLMModel != "" && newModel != cfg.Proxy.VLMModel && !target.SupportsImage {
 		respBody, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
 		if strings.Contains(string(respBody), "do not support image") {
@@ -274,7 +524,7 @@ func handleMessages(w http.ResponseWriter, r *http.Request) {
 			resp, err = doUpstreamRequest(body, r)
 			if err != nil {
 				log.Printf("[RESP] retry error: %v\n", err)
-				http.Error(w, "upstream error", 502)
+				respondUpstreamError(w, err)
 				return
 			}
 		} else {
@@ -282,30 +532,10 @@ func handleMessages(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Stepwise fallback for the thinking pass-back 400. The first attempt forwards
-	// verbatim (thinking blocks + param untouched, preserving CoT context). On 400
-	// "must be passed back", retry once with thinking blocks stripped (param kept);
-	// if that still 400s and a `thinking` param is present, retry once more with it
-	// removed. Each step only fires if it would change the request, so a request
-	// with nothing left to strip/disable passes through untouched and never loops.
-	if resp.StatusCode == 400 {
-		respBody, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		if isThinkingPassBackErr(respBody) {
-			returned, err := retryThinkingWith(req, w, r)
-			if err != nil {
-				http.Error(w, "upstream error", 502)
-				return
-			}
-			if returned != nil {
-				resp = returned
-			} else {
-				resp.Body = io.NopCloser(bytes.NewReader(respBody))
-			}
-		} else {
-			resp.Body = io.NopCloser(bytes.NewReader(respBody))
-		}
-	}
+	// A thinking pass-back 400 that the pre-flight patch could not prevent is passed
+	// through to the client unchanged. Retrying cannot help: the upstream's thinking
+	// mode is a property of the model, not of the client's `thinking` param, so
+	// stripping blocks or dropping the param leaves the rejection in place.
 	defer resp.Body.Close()
 
 	log.Printf("[RESP] status=%d\n", resp.StatusCode)
@@ -335,6 +565,11 @@ func handleMessages(w http.ResponseWriter, r *http.Request) {
 	// Non-streaming JSON replies must pass through untouched, or the appended SSE
 	// footer corrupts the body into invalid JSON ("API Error: Failed to parse JSON").
 	isSSE := strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream")
+	// Body reads are bounded: an upstream that accepts a request and then goes
+	// silent would otherwise leave the client waiting forever. On a stall the
+	// stream is terminated with an SSE error event (or the connection cut for
+	// non-stream), never left hanging.
+	respBody := newIdleReader(resp.Body, bodyIdle())
 	if isSSE {
 		// Streaming response: normalize malformed thinking blocks while proxying.
 		// If the upstream emits a `content_block_start` for a thinking block without a
@@ -343,7 +578,13 @@ func handleMessages(w http.ResponseWriter, r *http.Request) {
 		// `.thinking.length`. Rewriting the field to an empty string keeps the block
 		// valid without altering its content.
 		var buf bytes.Buffer
-		totalBytes, _ := io.Copy(io.MultiWriter(fw, &buf), newThinkingNormalizingReader(resp.Body))
+		leak := newLeakRewriter(req)
+		totalBytes, err := io.Copy(io.MultiWriter(fw, &buf), newResponseRewriter(respBody, leak))
+		if err != nil {
+			log.Printf("[STREAM_END] error: %v\n", err)
+			fmt.Fprintf(fw, "%s", sseErrorFrame("api_error", truncate(err.Error(), 300)))
+			return
+		}
 		if !strings.Contains(buf.String(), "message_stop") {
 			log.Printf("[STREAM_END] + safety_stop bytes=%d\n", totalBytes)
 			fmt.Fprintf(fw, "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n")
@@ -351,61 +592,91 @@ func handleMessages(w http.ResponseWriter, r *http.Request) {
 			log.Printf("[STREAM_END] ok bytes=%d\n", totalBytes)
 		}
 	} else {
-		_, _ = io.Copy(fw, resp.Body)
+		if _, err := io.Copy(fw, respBody); err != nil {
+			// Headers already committed; aborting the connection is the only option,
+			// which still unblocks the client instead of leaving it hanging.
+			log.Printf("[STREAM_END] error: %v\n", err)
+			return
+		}
 		log.Printf("[STREAM_END] ok bytes=non-stream\n")
 	}
 }
 
-// isThinkingPassBackErr reports whether a 400 response body is the upstream's
-// "content[].thinking must be passed back" rejection.
-func isThinkingPassBackErr(body []byte) bool {
-	return strings.Contains(string(body), "must be passed back")
+// respondUpstreamError writes a 502 derived from an upstream failure in the
+// Anthropic error shape, so clients surface a parseable error instead of an
+// opaque text body.
+func respondUpstreamError(w http.ResponseWriter, err error) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(502)
+	w.Write(anthropicErrorEnvelope("api_error", truncate(err.Error(), 300)))
 }
 
-// retryThinkingWith runs the stepwise fallback for a thinking pass-back 400. The
-// first retry strips thinking blocks from the history (the `thinking` param kept);
-// if the upstream rejects that too with the same error and a `thinking` param is
-// present, a second retry also removes the param. Each step only fires when it
-// would change the request, so a request with nothing left to strip/disable
-// returns the original 400 untouched and cannot loop. Returns the final response.
-func retryThinkingWith(req map[string]interface{}, w http.ResponseWriter, r *http.Request) (*http.Response, error) {
-	try := func(name string) (*http.Response, error) {
-		log.Printf("[RETRY] thinking 400 -> %s\n", name)
-		body, _ := json.Marshal(req)
-		return doUpstreamRequest(body, r)
+// ensureThinkingPassBack makes the request satisfy the upstream's pass-back
+// contract on the Anthropic gateway. The upstream runs thinking mode at the model
+// level — the client's `thinking` param does not switch it off — and rejects a
+// history whose assistant tool_use turns carry no thinking block:
+//
+//	The `content[].thinking` in the thinking mode must be passed back to the API.
+//
+// Claude Code holds no thinking block for a turn the upstream answered without
+// one, so it has none to replay. The upstream emits such turns itself — calling it
+// directly, a tool-forcing request whose reply is a tool_use block came back
+// without a thinking block 2 times in 6 — so a correct client cannot satisfy the
+// contract by passing back what it received. Injecting the empty placeholder the
+// upstream accepts replaces the rejection with a normal reply.
+//
+// Measured against the live gateway, replayed verbatim, a history whose assistant
+// turns all lack a thinking block is rejected 25-30% of the time, while one
+// carrying a thinking block on ANY turn passes every time — which turn holds it
+// does not matter. Every bare tool_use turn is patched rather than only the last
+// one because that satisfies the contract under either reading of the upstream's
+// check (anywhere in the history, or per turn) at no observed cost. Reports
+// whether the request was modified.
+func ensureThinkingPassBack(req map[string]interface{}) bool {
+	msgs, ok := req["messages"].([]interface{})
+	if !ok {
+		return false
 	}
+	changed := false
+	for _, raw := range msgs {
+		msg, ok := raw.(map[string]interface{})
+		if !ok || msg["role"] != "assistant" {
+			continue
+		}
+		content, ok := msg["content"].([]interface{})
+		if !ok || hasContentBlockOfType(content, "thinking") || !hasContentBlockOfType(content, "tool_use") {
+			continue
+		}
+		msg["content"] = append([]interface{}{map[string]interface{}{
+			"type":      "thinking",
+			"thinking":  "",
+			"signature": "",
+		}}, content...)
+		changed = true
+	}
+	return changed
+}
 
-	// Level 1: strip thinking blocks, keep the `thinking` param.
-	if !stripThinkingBlocks(req) {
-		// Nothing to strip, nothing further we can change; the 400 passes through.
-		log.Printf("[RETRY] thinking 400 -> nothing to strip, passing through\n")
-		return nil, nil
+// lastAssistantIndex returns the index of the last assistant message in an
+// Anthropic (or OpenAI) message list, or -1 when there is none.
+func lastAssistantIndex(msgs []interface{}) int {
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if m, ok := msgs[i].(map[string]interface{}); ok && m["role"] == "assistant" {
+			return i
+		}
 	}
-	resp, err := try("strip thinking blocks")
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode != 400 {
-		return resp, nil
-	}
-	respBody, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
-	if !isThinkingPassBackErr(respBody) {
-		resp.Body = io.NopCloser(bytes.NewReader(respBody))
-		return resp, nil
-	}
+	return -1
+}
 
-	// Level 2: also remove the `thinking` param.
-	if _, has := req["thinking"]; !has {
-		resp.Body = io.NopCloser(bytes.NewReader(respBody))
-		return resp, nil
+// hasContentBlockOfType reports whether an Anthropic content block array holds a
+// block of the given type.
+func hasContentBlockOfType(content []interface{}, want string) bool {
+	for _, raw := range content {
+		if b, ok := raw.(map[string]interface{}); ok && b["type"] == want {
+			return true
+		}
 	}
-	delete(req, "thinking")
-	resp, err = try("disable thinking param")
-	if err != nil {
-		return nil, err
-	}
-	return resp, nil
+	return false
 }
 
 // routeTarget resolves the routing target for a client model name by EXACT
@@ -431,62 +702,6 @@ func routeModelName(alias string) string {
 	return ""
 }
 
-// stripThinkingBlocks removes every `type:thinking` content block from the
-// request's message history, recursing into nested content (tool_result etc.).
-// It reports whether anything was removed. The `thinking` parameter of the request
-// is left untouched so the upstream still produces thinking in its reply.
-func stripThinkingBlocks(req map[string]interface{}) bool {
-	messages, ok := req["messages"].([]interface{})
-	if !ok {
-		return false
-	}
-	changed := false
-	for _, m := range messages {
-		msg, ok := m.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		nc, ch := stripThinkingFromContent(msg["content"])
-		if ch {
-			msg["content"] = nc
-			changed = true
-		}
-	}
-	return changed
-}
-
-// stripThinkingFromContent returns the content value with every thinking block
-// removed (recursing into nested content arrays) and whether anything changed.
-// A fresh slice is built and returned rather than mutating in place — a
-// re-sliced `c[:0]` would only shorten the copy's header, leaving the caller's
-// slice at its original length with a clobbered first element.
-func stripThinkingFromContent(v interface{}) (interface{}, bool) {
-	switch c := v.(type) {
-	case []interface{}:
-		changed := false
-		kept := make([]interface{}, 0, len(c))
-		for _, item := range c {
-			b, isMap := item.(map[string]interface{})
-			if isMap && b["type"] == "thinking" {
-				changed = true
-				continue
-			}
-			if isMap {
-				nc, ch := stripThinkingFromContent(b["content"])
-				if ch {
-					b["content"] = nc
-					changed = true
-				}
-			}
-			kept = append(kept, item)
-		}
-		return kept, changed
-	case map[string]interface{}:
-		return stripThinkingFromContent(c["content"])
-	}
-	return v, false
-}
-
 // newThinkingNormalizingReader wraps an SSE stream and rewrites malformed thinking
 // blocks. If a `content_block_start` event carries a thinking block whose `thinking`
 // field is missing or not a string, the field is set to an empty string before the
@@ -495,6 +710,10 @@ func stripThinkingFromContent(v interface{}) (interface{}, bool) {
 // Code persists such a block verbatim and later crashes reading `.thinking.length`.
 // Normalizing at the proxy keeps the block structurally valid without altering text.
 func newThinkingNormalizingReader(r io.Reader) io.Reader {
+	return newResponseRewriter(r, nil)
+}
+
+func newResponseRewriter(r io.Reader, lr *leakRewriter) io.Reader {
 	pr, pw := io.Pipe()
 	go func() {
 		sc := bufio.NewScanner(r)
@@ -505,7 +724,7 @@ func newThinkingNormalizingReader(r io.Reader) io.Reader {
 			line := sc.Text()
 			if line == "" {
 				// End of a SSE event block: emit the (possibly normalized) event.
-				emitEvent(pw, event, data.String())
+				emitEvent(pw, event, data.String(), lr)
 				event = ""
 				data.Reset()
 				continue
@@ -529,7 +748,7 @@ func newThinkingNormalizingReader(r io.Reader) io.Reader {
 			}
 		}
 		if event != "" || data.Len() > 0 {
-			emitEvent(pw, event, data.String())
+			emitEvent(pw, event, data.String(), lr)
 		}
 		pw.CloseWithError(sc.Err())
 	}()
@@ -542,7 +761,7 @@ func newThinkingNormalizingReader(r io.Reader) io.Reader {
 // `index`, ...) with only the nested content_block changed — replacing the whole
 // payload with just the content_block would leave the event unparseable to Claude
 // Code, which then renders the thinking_delta content as body text.
-func emitEvent(pw *io.PipeWriter, event, data string) {
+func emitEvent(pw *io.PipeWriter, event, data string, lr *leakRewriter) {
 	out := data
 	if event == "content_block_start" && data != "" {
 		var ev struct {
@@ -561,6 +780,10 @@ func emitEvent(pw *io.PipeWriter, event, data string) {
 				}
 			}
 		}
+	}
+	if lr != nil {
+		lr.process(pw, event, out)
+		return
 	}
 	fmt.Fprintf(pw, "event: %s\ndata: %s\n\n", event, out)
 }
@@ -600,21 +823,19 @@ func normalizeThinkingBlock(raw json.RawMessage) ([]byte, bool) {
 }
 
 // doUpstreamRequest forwards the (already model-routed) body to the Anthropic
-// upstream and returns the response. Reused for the initial attempt and the VLM
-// image-fallback retry.
+// upstream and returns the response, retrying transient failures. Reused for
+// the initial attempt and the VLM image-fallback retry.
 func doUpstreamRequest(body []byte, r *http.Request) (*http.Response, error) {
-	proxyReq, err := http.NewRequest("POST", cfg.Upstream.AnthropicURL+"/v1/messages", bytes.NewReader(body))
-	if err != nil {
-		return nil, err
+	headers := map[string]string{
+		"Content-Type":      "application/json",
+		"x-api-key":         apiKey(),
+		"anthropic-version": "2023-06-01",
+		"Accept":            "application/json",
 	}
-	proxyReq.Header.Set("Content-Type", "application/json")
-	proxyReq.Header.Set("x-api-key", apiKey())
-	proxyReq.Header.Set("anthropic-version", "2023-06-01")
-	proxyReq.Header.Set("Accept", "application/json")
 	if beta := r.Header.Get("anthropic-beta"); beta != "" {
-		proxyReq.Header.Set("anthropic-beta", beta)
+		headers["anthropic-beta"] = beta
 	}
-	return httpClient().Do(proxyReq)
+	return postUpstream(r.Context(), cfg.Upstream.AnthropicURL+"/v1/messages", body, headers)
 }
 
 // containsImage reports whether any message in the request carries an image block
@@ -1201,6 +1422,7 @@ func anthropicToOpenAIRequest(req map[string]interface{}, openAIModel string) ma
 			messages = append(messages, convertAnthropicMessage(m)...)
 		}
 	}
+	ensureReasoningPassBack(messages)
 	out["messages"] = messages
 
 	for _, k := range []string{"max_tokens", "temperature", "top_p", "stream", "user", "metadata"} {
@@ -1220,6 +1442,33 @@ func anthropicToOpenAIRequest(req map[string]interface{}, openAIModel string) ma
 		}
 	}
 	return out
+}
+
+// ensureReasoningPassBack mirrors ensureThinkingPassBack on the OpenAI gateway,
+// where the field is named reasoning_content:
+//
+//	The `reasoning_content` in the thinking mode must be passed back to the API.
+//
+// The upstream inspects only the last assistant message and rejects it when it
+// carries tool_calls without reasoning_content. The Anthropic history being
+// translated holds no OpenAI reasoning to replay (thinking blocks are not portable
+// to this gateway, and the gateway's own streamed reasoning is not translated back
+// into a thinking block), so the empty placeholder the upstream accepts is
+// supplied here. Reports whether the request was modified.
+func ensureReasoningPassBack(messages []interface{}) bool {
+	idx := lastAssistantIndex(messages)
+	if idx < 0 {
+		return false
+	}
+	msg := messages[idx].(map[string]interface{})
+	if _, has := msg["tool_calls"]; !has {
+		return false
+	}
+	if _, has := msg["reasoning_content"]; has {
+		return false
+	}
+	msg["reasoning_content"] = ""
+	return true
 }
 
 // anthropicTextFromBlocks concatenates the text of an Anthropic content block
@@ -1693,7 +1942,9 @@ type anthroTool struct {
 // translateOpenAIStream consumes an OpenAI streaming SSE response and writes the
 // equivalent Anthropic event stream (message_start / content_block_* /
 // message_delta / message_stop) so Claude Code can consume it unchanged.
-func translateOpenAIStream(stream io.Reader, w io.Writer, model string) {
+// A non-nil return value means the upstream stream was cut abnormally (read
+// error / idle timeout); an Anthropic `error` event has already been emitted.
+func translateOpenAIStream(stream io.Reader, w io.Writer, model string) error {
 	c := &anthroSSE{w: w, model: model, tools: map[int]*anthroTool{}}
 	c.start()
 
@@ -1713,9 +1964,22 @@ func translateOpenAIStream(stream io.Reader, w io.Writer, model string) {
 		}
 		c.handleChunk([]byte(d))
 	}
+	if sc.Err() != nil {
+		// The upstream connection died or went silent mid-stream. Emit a terminal
+		// error event so the client fails fast instead of waiting forever for the
+		// missing message_stop.
+		if !c.finished {
+			c.emit("error", map[string]interface{}{
+				"type":  "error",
+				"error": map[string]interface{}{"type": "api_error", "message": truncate(sc.Err().Error(), 300)},
+			})
+		}
+		return sc.Err()
+	}
 	if !c.finished {
 		c.finish("")
 	}
+	return nil
 }
 
 func (c *anthroSSE) start() {
@@ -1938,21 +2202,18 @@ func handleOpenAIRequest(w http.ResponseWriter, r *http.Request, req map[string]
 	model, _ := req["model"].(string)
 	log.Printf("[%s] %s -> %s (openai) len=%d stream=%v\n", time.Now().Format("15:04:05"), model, openAIModel, len(body), stream)
 
-	proxyReq, err := http.NewRequest("POST", openAICompletionsURL(), bytes.NewReader(body))
-	if err != nil {
-		http.Error(w, "upstream error", 502)
-		return
+	headers := map[string]string{
+		"Content-Type":  "application/json",
+		"Authorization": "Bearer " + apiKey(),
+		"Accept":        "application/json",
 	}
-	proxyReq.Header.Set("Content-Type", "application/json")
-	proxyReq.Header.Set("Authorization", "Bearer "+apiKey())
-	proxyReq.Header.Set("Accept", "application/json")
 	if stream {
-		proxyReq.Header.Set("Accept", "text/event-stream")
+		headers["Accept"] = "text/event-stream"
 	}
-	resp, err := httpClient().Do(proxyReq)
+	resp, err := postUpstream(r.Context(), openAICompletionsURL(), body, headers)
 	if err != nil {
 		log.Printf("[RESP] openai error: %v\n", err)
-		http.Error(w, "upstream error", 502)
+		respondUpstreamError(w, err)
 		return
 	}
 	defer resp.Body.Close()
@@ -1973,14 +2234,21 @@ func handleOpenAIRequest(w http.ResponseWriter, r *http.Request, req map[string]
 		w.WriteHeader(200)
 		flusher, _ := w.(http.Flusher)
 		fw := &flushWriter{w: w, f: flusher}
-		translateOpenAIStream(resp.Body, fw, openAIModel)
-		log.Printf("[STREAM_END] openai stream ok\n")
+		// The upstream body is bounded by bodyIdle: a stream that stops emitting
+		// (stalled model, dead connection) is cut with an Anthropic error event
+		// instead of leaving the client hanging.
+		if err := translateOpenAIStream(newIdleReader(resp.Body, bodyIdle()), fw, openAIModel); err != nil {
+			log.Printf("[STREAM_END] openai stream error: %v\n", err)
+		} else {
+			log.Printf("[STREAM_END] openai stream ok\n")
+		}
 		return
 	}
 
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(newIdleReader(resp.Body, bodyIdle()))
 	if err != nil {
-		http.Error(w, "upstream error", 502)
+		log.Printf("[RESP] openai read error: %v\n", err)
+		respondUpstreamError(w, err)
 		return
 	}
 	if len(bytes.TrimSpace(respBody)) == 0 {
@@ -1995,7 +2263,7 @@ func handleOpenAIRequest(w http.ResponseWriter, r *http.Request, req map[string]
 	translated, terr := openAIResponseToAnthropic(respBody)
 	if terr != nil {
 		log.Printf("[RESP] openai translate error: %v\n", terr)
-		http.Error(w, "upstream error", 502)
+		respondUpstreamError(w, terr)
 		return
 	}
 	log.Printf("[RESP] openai status=%d\n", resp.StatusCode)
@@ -2012,7 +2280,8 @@ func handleOpenAIRequest(w http.ResponseWriter, r *http.Request, req map[string]
 	// the SSE events Claude Code expects.
 	sse, sseErr := anthropicMessageToSSE(translated, openAIModel)
 	if sseErr != nil {
-		http.Error(w, "upstream error", 502)
+		log.Printf("[RESP] openai sse translate error: %v\n", sseErr)
+		respondUpstreamError(w, sseErr)
 		return
 	}
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -2101,13 +2370,15 @@ func handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	proxyReq, _ := http.NewRequest("POST", cfg.Upstream.OpenAIURL+"/v1/chat/completions", bytes.NewReader(body))
-	proxyReq.Header.Set("Content-Type", "application/json")
-	proxyReq.Header.Set("Authorization", "Bearer "+apiKey())
-
-	resp, err := httpClient().Do(proxyReq)
+	resp, err := postUpstream(r.Context(), cfg.Upstream.OpenAIURL+"/v1/chat/completions", body, map[string]string{
+		"Content-Type":  "application/json",
+		"Authorization": "Bearer " + apiKey(),
+	})
 	if err != nil {
-		http.Error(w, "upstream error", 502)
+		log.Printf("[RESP] chat error: %v\n", err)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(502)
+		w.Write([]byte(`{"error":{"message":"upstream error","type":"api_error"}}`))
 		return
 	}
 	defer resp.Body.Close()
@@ -2118,5 +2389,8 @@ func handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	w.WriteHeader(resp.StatusCode)
-	io.Copy(w, resp.Body)
+	if _, err := io.Copy(w, newIdleReader(resp.Body, bodyIdle())); err != nil {
+		// Headers already committed; cut the connection so the client unblocks.
+		log.Printf("[RESP] chat body error: %v\n", err)
+	}
 }
