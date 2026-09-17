@@ -359,7 +359,7 @@ app.use('/api/auth', authRoutes);
 // Config HTTP API. GET is anonymous (the login page must read public settings
 // like server.isPlatform before a token exists); PUT requires a valid JWT.
 app.use('/api/config', buildConfigReadRouter({ cfg: cfgStore }));
-app.use('/api/config', authenticateToken, buildConfigWriteRouter({ cfg: cfgStore }));
+app.use('/api/config', authenticateToken, buildConfigWriteRouter({ cfg: cfgStore, onWrite: () => llmProxyManager.reconcile() }));
 
 // Projects API Routes
 app.use('/api/projects', authenticateToken, projectModuleRoutes);

@@ -27,7 +27,7 @@ export function buildConfigReadRouter(deps: { cfg: AppConfigApi }): Router {
  * subsequently-spawned SDK child processes (they snapshot env at spawn —
  * save takes effect for new sessions without a restart), return masked.
  */
-export function buildConfigWriteRouter(deps: { cfg: AppConfigApi }): Router {
+export function buildConfigWriteRouter(deps: { cfg: AppConfigApi; onWrite?: () => void }): Router {
   const router = Router();
   router.put('/', (req, res) => {
     const body = req.body;
@@ -36,6 +36,7 @@ export function buildConfigWriteRouter(deps: { cfg: AppConfigApi }): Router {
     }
     try {
       syncProviderEnv(deps.cfg.update(stripMaskedPlaceholders(body)));
+      deps.onWrite?.();
       res.json(deps.cfg.getMasked());
     } catch (err) {
       // update() failures are persist/IO faults (EACCES, disk full, corrupt

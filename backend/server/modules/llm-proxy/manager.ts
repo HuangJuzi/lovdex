@@ -61,7 +61,9 @@ export function createLlmProxyManager(opts?: { binaryPath?: string; respawnDelay
     const p = resolveLlmProxy(appConfig().get());
     const proc = spawn(binaryPath, [], {
       env: { ...process.env, LLM_PROXY_CONFIG: tomlPath(), SOPHNET_API_KEY: p.apiKey },
-      stdio: 'ignore',
+      // inherit so the Go proxy's routing/error logs surface in the backend's
+      // own log stream (supervisor captures stdout/stderr).
+      stdio: 'inherit',
     });
     child = proc;
     console.log(`[llm-proxy] started pid=${proc.pid} port=${p.port}`);
