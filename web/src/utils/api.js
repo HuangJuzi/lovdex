@@ -302,6 +302,40 @@ export const api = {
       }),
   },
 
+  // Token usage stats — the /stats page. `model` is repeatable to filter
+  // several models at once; `from`/`to` are epoch ms and 0 is a legal value,
+  // so they are tested with `!== undefined` rather than truthiness.
+  stats: {
+    tokenUsageTimeseries: (params = {}) => {
+      const qs = new URLSearchParams();
+      if (params.projectPath) qs.set('projectPath', params.projectPath);
+      if (params.from !== undefined) qs.set('from', String(params.from));
+      if (params.to !== undefined) qs.set('to', String(params.to));
+      if (params.bucketMs !== undefined) qs.set('bucketMs', String(params.bucketMs));
+      for (const model of params.models ?? []) qs.append('model', model);
+      const s = qs.toString();
+      return authenticatedFetch(`/api/stats/token-usage/timeseries${s ? `?${s}` : ''}`);
+    },
+    tokenUsageSummary: (params = {}) => {
+      const qs = new URLSearchParams();
+      if (params.projectPath) qs.set('projectPath', params.projectPath);
+      if (params.from !== undefined) qs.set('from', String(params.from));
+      if (params.to !== undefined) qs.set('to', String(params.to));
+      for (const model of params.models ?? []) qs.append('model', model);
+      const s = qs.toString();
+      return authenticatedFetch(`/api/stats/token-usage/summary${s ? `?${s}` : ''}`);
+    },
+    tokenUsageModels: (params = {}) => {
+      const qs = new URLSearchParams();
+      if (params.projectPath) qs.set('projectPath', params.projectPath);
+      if (params.from !== undefined) qs.set('from', String(params.from));
+      if (params.to !== undefined) qs.set('to', String(params.to));
+      const s = qs.toString();
+      return authenticatedFetch(`/api/stats/token-usage/models${s ? `?${s}` : ''}`);
+    },
+    tokenUsageIngestStatus: () => authenticatedFetch('/api/stats/token-usage/ingest-status'),
+  },
+
   // Task endpoints — the task board (columns: todo/in_progress/in_review/done).
   tasks: {
     list: (params = {}) => {
