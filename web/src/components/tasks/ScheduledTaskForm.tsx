@@ -5,12 +5,6 @@ import type { ScheduledTask, ScheduledTaskScheduleType, TaskEngine, TaskLabel, T
 import { useDeviceSettings } from '../../hooks/useDeviceSettings';
 import { cn } from '../../lib/utils';
 import { Button, Dialog, DialogContent, DialogTitle, Input } from '../../shared/view/ui';
-import { AnchorPopover } from './AnchorPopover';
-import { ChipSelect, type ChipSelectOption } from './ChipSelect';
-import { ASSISTANT_OPTION_VALUE } from './projectOptions';
-import { LABEL_META, LABEL_ORDER, PRIORITY_META, PRIORITY_ORDER } from './taskStatus';
-import type { TaskProjectOption } from './TaskCard';
-import { ENGINE_NAMES, useTaskEngineAvailability } from './useTaskEngineAvailability';
 import {
   INTERVAL_MAX_SECONDS,
   INTERVAL_MIN_SECONDS,
@@ -19,6 +13,13 @@ import {
   intervalSecondsOf,
   type IntervalUnit,
 } from '../../utils/interval';
+
+import { AnchorPopover } from './AnchorPopover';
+import { ChipSelect, type ChipSelectOption } from './ChipSelect';
+import { ASSISTANT_OPTION_VALUE } from './projectOptions';
+import { LABEL_META, LABEL_ORDER, PRIORITY_META, PRIORITY_ORDER } from './taskStatus';
+import type { TaskProjectOption } from './TaskCard';
+import { ENGINE_NAMES, useTaskEngineAvailability } from './useTaskEngineAvailability';
 
 export type ScheduledTaskDraft = {
   title: string;
@@ -67,6 +68,14 @@ export function canSubmitScheduledTask(description: string, submitting: boolean)
 }
 
 /**
+ * draft 的间隔换算成秒。取整是因为 `<input type="number">` 的 step 拦不住手输的小数，
+ * 而小数秒会一路流进后端、把列表标签退化成「每 3960.0000000000005 秒」。
+ */
+function draftIntervalSeconds(d: ScheduledTaskDraft): number {
+  return Math.round(intervalSecondsOf(Number(d.intervalAmount), d.intervalUnit));
+}
+
+/**
  * draft → POST/PATCH /api/scheduled-tasks 的请求体。
  *
  * `title` 原样透传，**不做任何本地兜底**：空串是「让后端用 LLM 从描述取名」的信号，
@@ -84,7 +93,7 @@ export function toApiBody(d: ScheduledTaskDraft) {
     autoRun: d.autoRun ? 1 : 0,
     scheduleType: d.scheduleType,
     cronExpr: d.scheduleType === 'cron' ? d.cronExpr : null,
-    intervalSeconds: d.scheduleType === 'interval' ? intervalSecondsOf(Number(d.intervalAmount), d.intervalUnit) : null,
+    intervalSeconds: d.scheduleType === 'interval' ? draftIntervalSeconds(d) : null,
     runAt: d.scheduleType === 'once' ? (d.runAt ? new Date(d.runAt).toISOString() : null) : null,
   };
 }
@@ -117,9 +126,12 @@ function toLocalDateTimeInput(iso: string): string {
 function toDraft(initial?: ScheduledTask | null): ScheduledTaskDraft {
   if (!initial) return EMPTY_DRAFT;
   const runAt = initial.run_at ? toLocalDateTimeInput(initial.run_at) : '';
-  // 非法值（null / NaN / < 1）兜底到 1 小时；能整除的最大单位由 decomposeInterval 决定。
+  // 非法值（null / NaN / < 1）兜底到 EMPTY_DRAFT 的默认间隔；能整除的最大单位由 decomposeInterval 决定。
   const rawSeconds = Number(initial.interval_seconds);
-  const safeSeconds = Number.isFinite(rawSeconds) && rawSeconds >= 1 ? rawSeconds : 3600;
+  const safeSeconds =
+    Number.isFinite(rawSeconds) && rawSeconds >= 1
+      ? rawSeconds
+      : intervalSecondsOf(Number(EMPTY_DRAFT.intervalAmount), EMPTY_DRAFT.intervalUnit);
   const { amount: intervalAmount, unit: intervalUnit } = decomposeInterval(safeSeconds);
   return {
     title: initial.title,
@@ -235,7 +247,7 @@ export function ScheduledTaskForm({
       return;
     }
     if (draft.scheduleType === 'interval') {
-      const seconds = intervalSecondsOf(Number(draft.intervalAmount), draft.intervalUnit);
+      const seconds = draftIntervalSeconds(draft);
       if (!(seconds >= INTERVAL_MIN_SECONDS && seconds <= INTERVAL_MAX_SECONDS)) {
         setLocalError('间隔需在 1 分钟到 365 天之间');
         return;

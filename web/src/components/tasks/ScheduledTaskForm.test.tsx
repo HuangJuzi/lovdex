@@ -132,6 +132,31 @@ test('toApiBody: the interval seconds are amount × unit', () => {
   assert.equal(ninetyMin.intervalSeconds, 5400);
 });
 
+test('toApiBody: a fractional amount is rounded to whole seconds', () => {
+  // step={1} 拦不住手输的小数；不取整的话 1.1 小时会变成 3960.0000000000005，
+  // 落在合法范围内通过校验，却让列表标签退化成「每 3960.0000000000005 秒」。
+  const body = toApiBody({ ...EMPTY_DRAFT, scheduleType: 'interval', intervalAmount: '1.1', intervalUnit: 'hour' });
+  assert.equal(body.intervalSeconds, 3960);
+});
+
+test('toDraft falls back to one hour for a degenerate stored interval', () => {
+  // null / NaN / < 1 都必须兜底，不能漏进 decomposeInterval
+  // （NaN 漏进去会让数字框渲染成 NaN，且全单位取模都不整除）
+  const html = renderWithOptions([], mkScheduledTask({ interval_seconds: null }));
+  assert.ok(/<input[^>]*aria-label="间隔数量"[^>]*value="1"/.test(html), 'amount must fall back to 1');
+  assert.ok(html.includes('小时'), 'unit must fall back to hours');
+
+  const nan = renderWithOptions([], mkScheduledTask({ interval_seconds: Number.NaN }));
+  assert.ok(/<input[^>]*aria-label="间隔数量"[^>]*value="1"/.test(nan), 'NaN must fall back too');
+});
+
+test('toDraft keeps a sub-minute stored interval as seconds', () => {
+  // 只能通过 API 直调产生；如实回填成「90 秒」，由提交时的范围校验拦下
+  const html = renderWithOptions([], mkScheduledTask({ interval_seconds: 90 }));
+  assert.ok(/<input[^>]*aria-label="间隔数量"[^>]*value="90"/.test(html));
+  assert.ok(html.includes('秒'));
+});
+
 test('an interval schedule renders a number box plus a unit chip', () => {
   // 5400 秒 → 分解成 (90, 分钟)，回填的应是分解后的值而不是别的预设
   const html = renderWithOptions([], mkScheduledTask({ interval_seconds: 5400 }));
