@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import JSZip from 'jszip';
 import { api } from '../../../utils/api';
+import { copyTextToClipboard } from '../../../utils/clipboard';
 import type { FileTreeNode } from '../types/types';
 import type { Project } from '../../../types/app';
 
@@ -238,14 +239,19 @@ export function useFileTreeOperations({
     }
   }, [selectedProject, newItemParent, newItemType, newItemName, validateFilename, showToast, t, onRefresh, handleCancelCreate]);
 
-  // Copy path to clipboard
-  const handleCopyPath = useCallback((item: FileTreeNode) => {
-    navigator.clipboard.writeText(item.path).catch(() => {
-      // Clipboard API may fail in some contexts (e.g., non-HTTPS)
-      showToast(t('fileTree.toast.copyFailed', 'Failed to copy path'), 'error');
-      return;
-    });
-    showToast(t('fileTree.toast.pathCopied', 'Path copied to clipboard'), 'success');
+  // Copy path to clipboard. The Clipboard API only exists in a secure context,
+  // and the app is routinely reached over http://<lan-ip>, where
+  // navigator.clipboard is undefined — calling it directly throws and copies
+  // nothing. copyTextToClipboard falls back to execCommand there, and its
+  // boolean is the only reliable signal of whether anything was copied.
+  const handleCopyPath = useCallback(async (item: FileTreeNode) => {
+    const copied = await copyTextToClipboard(item.path);
+    showToast(
+      copied
+        ? t('fileTree.toast.pathCopied', 'Path copied to clipboard')
+        : t('fileTree.toast.copyFailed', 'Failed to copy path'),
+      copied ? 'success' : 'error',
+    );
   }, [showToast, t]);
 
   const triggerBrowserDownload = useCallback((blob: Blob, fileName: string) => {

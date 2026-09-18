@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
-import test from 'node:test';
+import test, { type TestContext } from 'node:test';
 
 import type { WebSocket } from 'ws';
 
-import { handleTerminalConnection, type PtyLike } from '@/modules/terminal/terminal-websocket.service.js';
+import { handleTerminalConnection, resolveTerminalCwd, type PtyLike } from '@/modules/terminal/terminal-websocket.service.js';
 import type { AuthenticatedWebSocketRequest } from '@/shared/types.js';
 
 const fakeRequest = {} as AuthenticatedWebSocketRequest;
@@ -126,6 +128,97 @@ test('falls back to the workspace root when no cwd is requested', () => {
     cwd: root,
   });
   assert.equal((captured as { options: { cwd: string } }).options.cwd, root);
+});
+
+// ---------------------------------------------------------------------------
+// Registered projects are NOT confined to the workspace root: the projects
+// table routinely holds paths like /mnt/b/workdir/... or /tmp/... while the
+// workspace root is ~. A terminal asked to start in one of those must land
+// there instead of silently dropping the user in the root (home).
+// ---------------------------------------------------------------------------
+
+/**
+ * A hermetic directory layout:
+ *   <tmp>/workspace          the workspace root (stands in for ~)
+ *   <tmp>/workspace/inside   a directory inside the workspace root
+ *   <tmp>/projects/repo      a registered project, OUTSIDE the workspace root
+ *   <tmp>/projects/repo/sub  a directory inside that project
+ *   <tmp>/projects           the parent of a project — not itself a project
+ */
+function makeProjectLayout(t: TestContext) {
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'lovdex-terminal-cwd-')));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  const workspaceRoot = path.join(root, 'workspace');
+  const insideWorkspace = path.join(workspaceRoot, 'inside');
+  const projectRoot = path.join(root, 'projects', 'repo');
+  const projectSubdir = path.join(projectRoot, 'sub');
+
+  fs.mkdirSync(insideWorkspace, { recursive: true });
+  fs.mkdirSync(projectSubdir, { recursive: true });
+
+  return {
+    workspaceRoot,
+    insideWorkspace,
+    projectRoot,
+    projectSubdir,
+    projectsParent: path.join(root, 'projects'),
+  };
+}
+
+function cwdUrl(cwd: string): string {
+  return `/ws/terminal?cwd=${encodeURIComponent(cwd)}`;
+}
+
+test('resolveTerminalCwd honors a registered project outside the workspace root', (t) => {
+  const { workspaceRoot, projectRoot } = makeProjectLayout(t);
+  assert.equal(resolveTerminalCwd(cwdUrl(projectRoot), workspaceRoot, [projectRoot]), projectRoot);
+});
+
+test('resolveTerminalCwd honors a directory inside a registered project', (t) => {
+  const { workspaceRoot, projectRoot, projectSubdir } = makeProjectLayout(t);
+  assert.equal(resolveTerminalCwd(cwdUrl(projectSubdir), workspaceRoot, [projectRoot]), projectSubdir);
+});
+
+test('resolveTerminalCwd still honors a directory inside the workspace root', (t) => {
+  const { workspaceRoot, insideWorkspace } = makeProjectLayout(t);
+  assert.equal(resolveTerminalCwd(cwdUrl(insideWorkspace), workspaceRoot, []), insideWorkspace);
+});
+
+test('resolveTerminalCwd falls back for a path that is neither in the root nor a project', (t) => {
+  const { workspaceRoot, projectRoot, projectsParent } = makeProjectLayout(t);
+  // The parent OF a registered project is not itself part of the project.
+  assert.equal(resolveTerminalCwd(cwdUrl(projectsParent), workspaceRoot, [projectRoot]), workspaceRoot);
+});
+
+test('resolveTerminalCwd falls back for a registered project when no projects are known', (t) => {
+  const { workspaceRoot, projectRoot } = makeProjectLayout(t);
+  assert.equal(resolveTerminalCwd(cwdUrl(projectRoot), workspaceRoot), workspaceRoot);
+});
+
+test('resolveTerminalCwd is not fooled by traversal out of a registered project', (t) => {
+  const { workspaceRoot, projectRoot } = makeProjectLayout(t);
+  const escape = path.join(projectRoot, '..', '..', '..', 'etc');
+  assert.equal(resolveTerminalCwd(cwdUrl(escape), workspaceRoot, [projectRoot]), workspaceRoot);
+});
+
+test('resolveTerminalCwd still rejects paths outside both boundaries', (t) => {
+  const { workspaceRoot, projectRoot } = makeProjectLayout(t);
+  assert.equal(resolveTerminalCwd('/ws/terminal?cwd=%2Fetc', workspaceRoot, [projectRoot]), workspaceRoot);
+});
+
+test('spawns in a registered project directory outside the workspace root', (t) => {
+  const { workspaceRoot, projectRoot } = makeProjectLayout(t);
+  const pty = makeFakePty();
+  let captured: unknown = null;
+  const ws = makeFakeWs();
+  handleTerminalConnection(asSocket(ws), { url: cwdUrl(projectRoot) } as AuthenticatedWebSocketRequest, {
+    spawnPty: (shell, args, options) => { captured = { shell, args, options }; return pty; },
+    shell: '/bin/bash',
+    cwd: workspaceRoot,
+    projectRoots: () => [projectRoot],
+  });
+  assert.equal((captured as { options: { cwd: string } }).options.cwd, projectRoot);
 });
 
 test('forwards input messages to the pty', () => {

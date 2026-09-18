@@ -258,6 +258,15 @@ const wss = createWebSocketServer(server, {
         spawnPty: (shell, args, options) => pty.spawn(shell, args, options),
         shell: process.env.SHELL || '/bin/bash',
         cwd: WORKSPACES_ROOT,
+        // A requested ?cwd= is honored inside the workspace root or inside a
+        // registered project. Projects live anywhere on disk (/mnt/..., /tmp/...)
+        // while the root is usually ~, so root-containment alone would drop
+        // those terminals in home instead of the project. Archived projects are
+        // included so a deep link into one still lands correctly.
+        projectRoots: () => [
+            ...projectsDb.getProjectPaths(),
+            ...projectsDb.getArchivedProjectPaths(),
+        ].map((project) => project.project_path),
         // Remote terminal: -i identity + ssh target from the remote_hosts row.
         // Both are in scope here (identityFile at module top; remoteHostsDb above).
         identityFile,

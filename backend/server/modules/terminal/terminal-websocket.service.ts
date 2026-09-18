@@ -24,6 +24,12 @@ export type TerminalDependencies = {
   spawnPty: PtySpawner;
   shell: string;
   cwd: string;
+  /**
+   * Absolute paths of the projects the user has registered, consulted per
+   * connection (projects are added and removed at runtime). A requested cwd is
+   * honored when it is one of these or inside one — see `resolveTerminalCwd`.
+   */
+  projectRoots?: () => readonly string[];
   /** Resolve the ssh target (remote_hosts row) for a hostId; null when unknown. */
   resolveRemoteHost?: (hostId: string) => RemoteTerminalHost | null;
   /** Main→host Lovdex ed25519 key for `ssh -t`; null/undefined → no -i. */
@@ -114,16 +120,36 @@ export function buildSshTerminalArgv(input: {
   return argv;
 }
 
+/** Lexical containment: true when `target` is `root` itself or below it.
+ *  `target` is expected to be already `path.resolve`d, so any `..` has been
+ *  collapsed and cannot be used to escape the boundary. */
+function isWithinRoot(target: string, root: string): boolean {
+  const resolvedRoot = path.resolve(root);
+  const withSeparator = resolvedRoot.endsWith(path.sep) ? resolvedRoot : `${resolvedRoot}${path.sep}`;
+  return target === resolvedRoot || target.startsWith(withSeparator);
+}
+
 /**
  * Resolves the starting directory for a terminal session.
  *
- * The client may request a project directory via `?cwd=` on the upgrade URL;
- * it is honored only when it is an existing directory inside `workspaceRoot`
- * (lexical containment, matching the workspace model used elsewhere). Anything
- * else — missing, malformed, outside the root, or not a directory — falls back
- * to the root so a bad request can never land the shell in an unexpected place.
+ * The client may request a project directory via `?cwd=` on the upgrade URL.
+ * It is honored when it is an existing directory inside `workspaceRoot` or
+ * inside one of `projectRoots` — the absolute paths of the projects the user
+ * has registered.
+ *
+ * Registered projects are deliberately part of the boundary: they are NOT
+ * confined to the workspace root (the projects table routinely holds paths such
+ * as /mnt/... or /tmp/... while the root is ~), and checking containment
+ * against the root alone would drop those terminals in the root — i.e. the
+ * user's home — instead of the project they clicked. Anything else — missing,
+ * malformed, outside both boundaries, or not a directory — falls back to the
+ * root so a bad request can never land the shell in an unexpected place.
  */
-export function resolveTerminalCwd(rawUrl: string | undefined, workspaceRoot: string): string {
+export function resolveTerminalCwd(
+  rawUrl: string | undefined,
+  workspaceRoot: string,
+  projectRoots: readonly string[] = [],
+): string {
   let requested: string | null = null;
   try {
     requested = new URL(rawUrl ?? '/', 'http://localhost').searchParams.get('cwd');
@@ -134,10 +160,8 @@ export function resolveTerminalCwd(rawUrl: string | undefined, workspaceRoot: st
 
   try {
     const absolute = path.resolve(requested);
-    const root = path.resolve(workspaceRoot);
-    const normalizedRoot = root.endsWith(path.sep) ? root : `${root}${path.sep}`;
-    const withinRoot = absolute === root || absolute.startsWith(normalizedRoot);
-    if (!withinRoot) return workspaceRoot;
+    const allowed = [workspaceRoot, ...projectRoots].some((root) => isWithinRoot(absolute, root));
+    if (!allowed) return workspaceRoot;
     if (!fs.existsSync(absolute) || !fs.statSync(absolute).isDirectory()) return workspaceRoot;
     return absolute;
   } catch {
@@ -190,7 +214,7 @@ export function handleTerminalConnection(
   } else {
     try {
       pty = dependencies.spawnPty(dependencies.shell, [], {
-        cwd: resolveTerminalCwd(request.url, dependencies.cwd),
+        cwd: resolveTerminalCwd(request.url, dependencies.cwd, dependencies.projectRoots?.() ?? []),
         cols: INITIAL_COLS,
         rows: INITIAL_ROWS,
         env: { ...(process.env as Record<string, string>), TERM: 'xterm-256color' },
