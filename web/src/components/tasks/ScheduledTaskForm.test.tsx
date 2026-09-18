@@ -85,6 +85,8 @@ test('toApiBody: a blank name is passed through as an empty string', () => {
   // 关键回归点：前端一旦在这里本地兜底填了名字，后端的 LLM 取名分支就永远不会进入。
   const body = toApiBody({ ...EMPTY_DRAFT, description: '每天汇总提交记录', title: '' });
   assert.equal(body.title, '');
+  // description 空串要转 null，与 title 的「原样透传」刻意相反 —— 别顺手统一。
+  assert.equal(toApiBody({ ...EMPTY_DRAFT, description: '' }).description, null);
 });
 
 test('toApiBody: the assistant project is sent as a null projectPath', () => {
