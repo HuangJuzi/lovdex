@@ -15,10 +15,12 @@ import {
   colorForModel,
   componentShares,
   EMPTY_COMPONENTS,
+  formatAxisTickParts,
   formatBucketLabel,
   formatFullTime,
   formatTpm,
   metricValue,
+  pickAxisTickStride,
   type TokenComponents,
   type TokenDimension,
   type TokenMetric,
@@ -28,6 +30,83 @@ import type { IngestStatus, TimeseriesResponse } from '../useTokenStats';
 const MINUTE_MS = 60_000;
 
 type ChartRow = { ts: number } & Record<string, number>;
+
+/**
+ * 自定义刻度函数拿到的 props 里我们实际用到的字段。
+ *
+ * 不 import recharts 的 `XAxisTickContentProps`：它没有从包根导出，而这里只需要
+ * 这几个字段（`payload.value` 是原始 ts 数字）。
+ */
+type AxisTickProps = {
+  x?: number | string;
+  y?: number | string;
+  payload?: { value?: unknown };
+  className?: string;
+  textAnchor?: string;
+  index?: number;
+  visibleTicksCount?: number;
+  fontSize?: number | string;
+};
+
+/**
+ * 造一个横轴刻度渲染函数：双行 —— 上行日期 `MM-DD`，下行时刻 `HH:MM`。
+ *
+ * 为什么是 **function 形态**而不是 element 形态：
+ * 1. element 每次渲染都是新对象，而 recharts 的 `propsAreEqual` 把 `tick` 放进
+ *    `propsToShallowCompare`，两个不同的函数引用判不相等 → XAxis 无条件重渲染。
+ *    所以这里用工厂 + 调用处 `useMemo` 拿到稳定引用。
+ * 2. element 形态的 props 会被 `svgPropertiesNoEventsFromUnknown` 过滤掉非 SVG 属性。
+ *
+ * 标签值必须从 `payload.value` 自己取：function / element 形态都拿不到 `value`
+ * prop（那是 recharts 给内置 `Text` 准备的，值由 `tickFormatter` 算好）。
+ *
+ * 根节点必须挂上 recharts 传进来的 `className`：它里面带着
+ * `recharts-cartesian-axis-tick-value`（`CartesianAxis` 靠这个 class 做 fontSize
+ * 测量）和轴上的 `text-muted-foreground`（`fill: currentColor` 从这里继承颜色）。
+ */
+function makeXAxisTick(bucketMs: number, spanMs: number) {
+  return function XAxisTick({
+    x = 0,
+    y = 0,
+    payload,
+    className,
+    textAnchor,
+    index = 0,
+    visibleTicksCount = 1,
+    fontSize,
+  }: AxisTickProps) {
+    const ts = Number(payload?.value);
+    if (!Number.isFinite(ts)) {
+      return null;
+    }
+    const { primary, secondary } = formatAxisTickParts(ts, bucketMs, spanMs);
+    // 首尾刻度贴边显示：居中的话最后一个 tick（coordinate = chartWidth - margin.right）
+    // 会向右溢出 SVG 视口。
+    const anchor = index === 0 ? 'start' : index === visibleTicksCount - 1 ? 'end' : textAnchor;
+    return (
+      <g className={className}>
+        <text
+          x={x}
+          y={y}
+          textAnchor={anchor as 'start' | 'middle' | 'end'}
+          fontSize={fontSize}
+          fill="currentColor"
+          stroke="none"
+        >
+          {/* dy 复刻 recharts `Text` 在 verticalAnchor='start' 下的取值：首行 capHeight，次行 lineHeight */}
+          <tspan x={x} dy="0.71em">
+            {primary}
+          </tspan>
+          {secondary !== undefined && (
+            <tspan x={x} dy="1em">
+              {secondary}
+            </tspan>
+          )}
+        </text>
+      </g>
+    );
+  };
+}
 
 /** 悬浮提示：按 TPM 降序列出各维度键 + 合计。 */
 function ChartTooltip({
@@ -183,6 +262,31 @@ export function TpmChartCard({
   // 所以没有计数就只说「正在回填」，等有计数了再带上 x/y。
   const hasFileCount = Boolean(ingest && ingest.filesTotal > 0);
 
+  // 横轴刻度必须自己抽样：recharts 对 AreaChart 的 XAxis 恒走 categorical 分支，
+  // 每个数据点都是候选刻度，7 天视图就是 169 个候选，默认的 'preserveEnd' 再按
+  // 像素丢弃，保留间隔 ≈20.x 小时（非整数）→ 钟点逐格漂移。抽样成整数倍间隔，
+  // 配合 XAxis 上的 interval={0}（原样渲染全部 tick，不再做像素过滤）即可消除漂移。
+  //
+  // useMemo 是必要的：recharts 的 propsAreEqual 对 `ticks` 走引用比较，
+  // 每次渲染给新数组会让 XAxis 无条件重渲染。
+  const xTicks = useMemo(() => {
+    const stride = pickAxisTickStride(tpmRows.length);
+    if (stride <= 1) {
+      return tpmRows.map((row) => row.ts);
+    }
+    const ticks: number[] = [];
+    for (let i = 0; i < tpmRows.length; i += stride) {
+      ticks.push(tpmRows[i].ts);
+    }
+    return ticks;
+  }, [tpmRows]);
+
+  // 区间跨度决定刻度是单行还是双行（见 formatAxisTickParts）。用响应里的 range
+  // 而不是首尾桶之差：range 是用户选的那个窗口（如整 7 天 / 整 24 小时）。
+  const spanMs = timeseries ? timeseries.range.to - timeseries.range.from : 0;
+  // 同理 memo：`tick` 也走 shallowEqual，每次渲染给新函数同样会让 XAxis 重渲染。
+  const xTick = useMemo(() => makeXAxisTick(bucketMs, spanMs), [bucketMs, spanMs]);
+
   return (
     <section className="rounded-xl border border-border bg-card p-4">
       <header className="mb-3 flex items-baseline justify-between">
@@ -222,13 +326,24 @@ export function TpmChartCard({
               <XAxis
                 dataKey="ts"
                 type="number"
+                // 保留 scale="time"：它现在的职责是「锁住 domain」而不是生成刻度。
+                // 改成 linear 会让 combineNiceTicks 生效并撑开 domain，首尾桶不再贴边。
                 scale="time"
                 domain={['dataMin', 'dataMax']}
+                ticks={xTicks}
+                // interval={0} 是必要条件而不是优化：getTicks 会走 getNumberIntervalTicks
+                // 提前返回，像素过滤 / minTickGap / isVisible 一次都不执行。
+                // 0 不会被 falsy 判断吞掉（isNumber(0) 为真）。
+                interval={0}
+                tick={xTick}
+                // 保留：interval={0} 路径下它的结果被丢弃，仅作宽度估算的防御。
                 tickFormatter={(value: number) => formatBucketLabel(value, bucketMs)}
-                tick={{ fontSize: 11 }}
+                // 轴级 fontSize：原来的 tick={{ fontSize: 11 }} 与自定义 tick 互斥。
+                fontSize={11}
+                // 默认 30 装不下两行（44 是估算值，需目视微调）。
+                height={44}
                 stroke="currentColor"
                 className="text-muted-foreground"
-                minTickGap={40}
               />
               <YAxis
                 tickFormatter={(value: number) => formatTpm(value)}

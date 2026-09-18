@@ -65,6 +65,70 @@ export function formatFullTime(ts: number): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
+// ---------------------------------------------------------------------------
+// 横轴刻度
+//
+// 为什么不能直接用 formatBucketLabel 当刻度：recharts 对 AreaChart 的 XAxis
+// 恒走 categorical 分支（`isCategoricalAxis` 只看 `layout === 'horizontal' &&
+// axisType === 'xAxis'`，与 `type` 无关），于是**每个数据点都是一个候选刻度**。
+// 7 天视图 ≈169 个 1 小时桶 → 169 个候选，默认的 `interval: 'preserveEnd'`
+// 再按像素从右往左丢弃，保留间隔 ≈20.x 小时这种**非整数**值，钟点就逐格漂移
+// （14:00 → 17:00 → 21:00 → 01:00 …），且标签只有 `HH:00`，分不出是哪一天。
+// 修法是在前端显式抽样（下面两个函数），配合 XAxis 上的 `interval={0}`
+// （原样渲染全部传入的 tick，不再做像素过滤）。
+// ---------------------------------------------------------------------------
+
+/**
+ * 横轴目标刻度数的**上界**（不是精确值，实际条数取 `ceil(bucketCount / stride)`）。
+ *
+ * 取 14 是横轴宽度的折中：再密会互相压字，再疏分不清是哪一天。
+ * 注意实际结果取决于桶数——7 天视图是 169 个桶（窗口起点不是整点，后端补零
+ * 补到 `to`），stride = ceil(169/14) = 13，于是渲染 13 个刻度、间隔 13 小时；
+ * 若想要正好 12 小时间隔，把这个常量改成 15 即可。
+ */
+export const AXIS_TARGET_TICKS = 14;
+
+/**
+ * 按桶数算出抽样步长，使渲染出的刻度数不超过 `targetTicks`。
+ *
+ * 步长必须是整数：间隔取整后刻度才落在真实桶边界上，不会再出现
+ * 「14:00 → 17:00 → 21:00」这种逐格漂移。
+ */
+export function pickAxisTickStride(bucketCount: number, targetTicks = AXIS_TARGET_TICKS): number {
+  if (!Number.isFinite(bucketCount) || bucketCount <= 0) {
+    return 1;
+  }
+  return Math.max(1, Math.ceil(bucketCount / Math.max(1, targetTicks)));
+}
+
+/**
+ * 横轴刻度标签。双行还是单行由「跨度」和「桶大小」共同决定：
+ * - 跨度 ≤ 24h → 单行 `HH:MM`（一天之内，日期是冗余信息）
+ * - 桶 ≥ 24h → 单行 `MM-DD`（每天一个桶，时刻恒为同一个钟点，显示是噪音）
+ * - 其余（跨天 + 亚日桶）→ 双行 `MM-DD` / `HH:MM`
+ *
+ * 与 `formatBucketLabel` 的分工：那个描述的是「单个桶的粒度」（Tooltip 用），
+ * 这个描述的是「刻度之间的间距」——7 天视图的桶是 1 小时，但刻度隔 12 小时，
+ * 只报 `HH:00` 就分不出是哪一天。两者刻意不共用实现。
+ */
+export function formatAxisTickParts(
+  ts: number,
+  bucketMs: number,
+  spanMs: number,
+): { primary: string; secondary?: string } {
+  const date = new Date(ts);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const day = `${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+  const time = `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  if (spanMs <= 24 * 60 * MINUTE_MS) {
+    return { primary: time };
+  }
+  if (bucketMs >= 24 * 60 * MINUTE_MS) {
+    return { primary: day };
+  }
+  return { primary: day, secondary: time };
+}
+
 /**
  * 给模型分配稳定的颜色。同一个模型在同一会话内始终拿到同一个颜色，
  * 避免筛选后颜色跳变。
