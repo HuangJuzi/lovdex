@@ -179,6 +179,9 @@ export function TpmChartCard({
   // 而不是整卡片变成空态把 cache 占比这件事藏掉。
   const hasData = metricValue(totalComponents, 'all') > 0;
   const backfilling = Boolean(ingest?.scanning);
+  // 扫描刚启动、目录还没遍历完时 filesTotal 为 0，此时显示「0/0 个文件」看起来像坏了，
+  // 所以没有计数就只说「正在回填」，等有计数了再带上 x/y。
+  const hasFileCount = Boolean(ingest && ingest.filesTotal > 0);
 
   return (
     <section className="rounded-xl border border-border bg-card p-4">
@@ -188,7 +191,9 @@ export function TpmChartCard({
         </h2>
         {backfilling && ingest && (
           <span className="text-xs text-muted-foreground">
-            正在回填历史 {ingest.filesDone}/{ingest.filesTotal} 个文件…
+            {hasFileCount
+              ? `正在回填历史 ${ingest.filesDone}/${ingest.filesTotal} 个文件…`
+              : '正在回填历史…'}
           </span>
         )}
       </header>
@@ -198,8 +203,9 @@ export function TpmChartCard({
           <span>暂无用量数据</span>
           {backfilling && ingest && (
             <span className="text-xs">
-              首次回填进行中（{ingest.filesDone}/{ingest.filesTotal} 个文件，已入库{' '}
-              {ingest.eventsIndexed} 条）
+              {hasFileCount
+                ? `首次回填进行中（${ingest.filesDone}/${ingest.filesTotal} 个文件，已入库 ${ingest.eventsIndexed} 条）`
+                : '首次回填进行中…'}
             </span>
           )}
         </div>
