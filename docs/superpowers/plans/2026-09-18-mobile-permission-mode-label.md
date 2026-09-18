@@ -411,7 +411,54 @@ React so it is unit-testable (web tests run without a DOM)."
 
 `title` 在触屏上不触发，所以模式按钮需要一个 `aria-label` 来兜住可访问性（Task 3 Step 2 接上）。
 
-- [ ] **Step 3: 确认 JSON 合法且 key 齐全**
+- [ ] **Step 3: 加一条「key 真的存在于 bundle」的交叉校验**
+
+Task 1 的 `LABEL_KEYS` 与它测试里的 `EXPECTED` 是同一批字符串的两份手抄副本 —— 同一个 typo 若同时写进两处，那边测试照样全绿，而 UI 会渲染出裸 key。这条测试堵这个洞：把 `LABEL_KEYS` 里每个 key 拿去真实的 bundle 里解析一遍。
+
+创建 `web/src/components/chat/view/subcomponents/permissionModeLabels.i18n.test.ts`：
+
+```ts
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+
+import { LABEL_KEYS } from './permissionModeLabels';
+
+// LABEL_KEYS and its sibling test's EXPECTED table are both hand-written copies
+// of the same strings, so a typo present in both would pass those tests while the
+// UI renders the raw key. Resolving every key against the bundle the app actually
+// loads is what closes that hole.
+const CHAT_BUNDLE = fileURLToPath(new URL('../../../../i18n/locales/en/chat.json', import.meta.url));
+
+const resolveKey = (root: Record<string, unknown>, key: string): unknown =>
+  key.split('.').reduce<unknown>(
+    (node, part) => (node as Record<string, unknown> | undefined)?.[part],
+    root,
+  );
+
+test('every permission-mode label key exists in the en chat bundle', () => {
+  const bundle = JSON.parse(readFileSync(CHAT_BUNDLE, 'utf8')) as Record<string, unknown>;
+  for (const [mode, { shortKey, fullKey }] of Object.entries(LABEL_KEYS)) {
+    for (const key of [shortKey, fullKey]) {
+      const value = resolveKey(bundle, key);
+      assert.equal(typeof value, 'string', `${mode}: ${key} is missing from en/chat.json`);
+      assert.ok((value as string).trim().length > 0, `${mode}: ${key} resolves to an empty string`);
+    }
+  }
+});
+```
+
+- [ ] **Step 4: 跑测试与 JSON 校验**
+
+```bash
+cd /mnt/b/workdir/github/lovdex/web
+unset TSX_TSCONFIG_PATH && npx tsx --test \
+  src/components/chat/view/subcomponents/permissionModeLabels.test.ts \
+  src/components/chat/view/subcomponents/permissionModeLabels.i18n.test.ts
+```
+
+预期：`# pass 3` / `# fail 0`（Task 1 的 2 条 + 新增 1 条）。
 
 ```bash
 cd /mnt/b/workdir/github/lovdex/web
@@ -427,17 +474,32 @@ print('ok:', d['codex']['modesShort'])
 
 预期：`ok: {'default': 'Default', 'auto': 'Auto', 'acceptEdits': 'Edits', 'bypassPermissions': 'Bypass', 'plan': 'Plan'}`
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: lint 零新增**
+
+```bash
+cd /mnt/b/workdir/github/lovdex/web
+npx eslint src/components/chat/view/subcomponents/permissionModeLabels.i18n.test.ts
+npm run lint 2>&1 | tail -3
+```
+
+预期：新文件 0 problems；`npm run lint` 总数仍是 **224**（Task 1 修完后的基线）。若新增 `import-x/order` 警告，按 Task 1 的分组方式调整（`node:*` → 空行 → 本地 import）。
+
+- [ ] **Step 6: Commit**
 
 ```bash
 cd /mnt/b/workdir/github/lovdex
-git add web/src/i18n/locales/en/chat.json
+git add web/src/i18n/locales/en/chat.json \
+        web/src/components/chat/view/subcomponents/permissionModeLabels.i18n.test.ts
 git commit -m "feat(chat): add short permission-mode labels and mode aria-label copy
 
 Narrow screens get short labels (Default / Auto / Edits / Bypass / Plan)
 so the composer footer does not wrap; desktop keeps the existing full
-copy verbatim."
+copy verbatim. Also pin the label keys against the bundle itself — the
+LABEL_KEYS table and its unit test are two hand-written copies of the
+same strings, so a shared typo would otherwise go unnoticed."
 ```
+
+只 stage 这两个路径。工作区与另一个正在改 `backend/server/modules/scheduler/**` 的会话共用 —— 绝不用 `git add -A` / `.` / `commit -a`，也不切分支或 stash。
 
 ---
 
@@ -607,9 +669,9 @@ const p = require('puppeteer-core');
 
 ## 完成标准
 
-- [ ] `permissionModeLabels.test.ts` 4 条用例全绿
-- [ ] `npm run typecheck` / `npm run lint` 零新增（对比 Task 0 基线）
+- [ ] `permissionModeLabels.test.ts` 2 条 + `permissionModeLabels.i18n.test.ts` 1 条，全绿
+- [ ] `npm run typecheck` 0 errors / `npm run lint` 224 problems（对比 Task 0 基线，零新增）
 - [ ] 375px 下模式按钮显示短标签文字，5 种模式各自可辨
 - [ ] 640px / 1280px 下显示完整文案，与改动前逐字一致
-- [ ] footer 折行高度增长 ≤ 32px
+- [ ] footer 折行高度增长 ≤ 32px（基线 85px）
 - [ ] 无后端改动，未重启后端
