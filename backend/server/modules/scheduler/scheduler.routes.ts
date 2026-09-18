@@ -6,8 +6,8 @@ import { AppError, asyncHandler } from '@/shared/utils.js';
 export type SchedulerServiceLike = {
   list: (filter: { projectPath?: string; enabled?: boolean }) => unknown[];
   get: (scheduleId: string) => unknown;
-  create: (input: Record<string, unknown>) => unknown;
-  update: (scheduleId: string, updates: Record<string, unknown>) => unknown;
+  create: (input: Record<string, unknown>) => Promise<unknown>;
+  update: (scheduleId: string, updates: Record<string, unknown>) => Promise<unknown>;
   remove: (scheduleId: string) => void;
   runNow: (scheduleId: string) => unknown;
   setEnabled: (scheduleId: string, enabled: boolean) => unknown;
@@ -27,7 +27,9 @@ export function buildSchedulerRouter(svc: SchedulerServiceLike) {
     if (typeof body.scheduleType !== 'string' || !isScheduleType(body.scheduleType)) {
       throw new AppError(`invalid scheduleType: ${String(body.scheduleType)}`, { code: 'INVALID_SCHEDULE_TYPE', statusCode: 400 });
     }
-    res.status(201).json(svc.create(body));
+    // Must be awaited: 取名最长阻塞一个 blocking window, and a bare promise
+    // serializes to `{}`.
+    res.status(201).json(await svc.create(body));
   }));
 
   router.get('/:scheduleId', asyncHandler(async (req, res) => {
@@ -41,7 +43,7 @@ export function buildSchedulerRouter(svc: SchedulerServiceLike) {
     if (body.scheduleType !== undefined && (typeof body.scheduleType !== 'string' || !isScheduleType(body.scheduleType))) {
       throw new AppError(`invalid scheduleType: ${String(body.scheduleType)}`, { code: 'INVALID_SCHEDULE_TYPE', statusCode: 400 });
     }
-    const row = svc.update(String(req.params.scheduleId), body);
+    const row = await svc.update(String(req.params.scheduleId), body);
     if (!row) throw new AppError('schedule not found', { code: 'SCHEDULE_NOT_FOUND', statusCode: 404 });
     res.json(row);
   }));

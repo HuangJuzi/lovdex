@@ -81,3 +81,24 @@ test('POST /:id/disable toggles enabled off', async () => {
     assert.equal(body.enabled, 0);
   } finally { await close(); }
 });
+
+test('POST / returns the title the service resolved for a blank title', async () => {
+  const base = makeSvc();
+  // 模拟 scheduler.service 的取名行为：空 title 进来，生成后的名字出去。
+  const svc = {
+    ...base,
+    create: async (i: Record<string, unknown>) =>
+      base.create({ ...i, title: i.title === '' ? 'AI 取的名' : i.title }),
+  };
+  const { baseUrl, close } = await startServer(svc);
+  try {
+    const res = await fetch(`${baseUrl}/api/scheduled-tasks`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ title: '', description: '每天汇总', scheduleType: 'once', runAt: '2026-08-14T01:00:00.000Z' }),
+    });
+    assert.equal(res.status, 201);
+    const body = await res.json() as { title: string };
+    assert.equal(body.title, 'AI 取的名');
+  } finally { await close(); }
+});
