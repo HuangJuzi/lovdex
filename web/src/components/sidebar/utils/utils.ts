@@ -44,6 +44,23 @@ export const writeStoredExpandedProjects = (projectIds: ReadonlySet<string>): vo
   }
 };
 
+/**
+ * 切换单个 Project 的展开态，返回新集合（不修改入参）。
+ * 侧栏支持同时展开多个 Project —— 展开集合是累加的，不再互斥。
+ */
+export const toggleExpandedProject = (
+  expanded: ReadonlySet<string>,
+  projectId: string,
+): Set<string> => {
+  const next = new Set(expanded);
+  if (next.has(projectId)) {
+    next.delete(projectId);
+  } else {
+    next.add(projectId);
+  }
+  return next;
+};
+
 const LEGACY_STARRED_PROJECTS_STORAGE_KEY = 'starredProjects';
 
 /**

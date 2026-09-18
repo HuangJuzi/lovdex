@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import type { Project, ProjectSession } from '../../../types/app';
 
-import { excludeHiddenProjects, formatCompactSessionAge, getRecentSessions, getSessionDotState, isProjectActive, isSessionActive, isSessionRecentlyActive, readStoredExpandedProjects, sortProjects, writeStoredExpandedProjects } from './utils';
+import { excludeHiddenProjects, formatCompactSessionAge, getRecentSessions, getSessionDotState, isProjectActive, isSessionActive, isSessionRecentlyActive, readStoredExpandedProjects, sortProjects, toggleExpandedProject, writeStoredExpandedProjects } from './utils';
 
 const mkSession = (id: string, lastActivity?: string): ProjectSession => ({
   id,
@@ -254,4 +254,32 @@ test('writeStoredExpandedProjects round-trips through readStoredExpandedProjects
   } finally {
     (globalThis as { localStorage?: unknown }).localStorage = original;
   }
+});
+
+test('toggleExpandedProject adds a project that is not expanded', () => {
+  const result = toggleExpandedProject(new Set<string>(), 'p1');
+  assert.deepEqual([...result], ['p1']);
+});
+
+test('toggleExpandedProject removes a project that is already expanded', () => {
+  const result = toggleExpandedProject(new Set(['p1']), 'p1');
+  assert.deepEqual([...result], []);
+});
+
+test('toggleExpandedProject keeps other expanded projects', () => {
+  const result = toggleExpandedProject(new Set(['p1', 'p2']), 'p3');
+  assert.deepEqual([...result].sort(), ['p1', 'p2', 'p3']);
+});
+
+test('toggleExpandedProject does not mutate the input set', () => {
+  const input = new Set(['p1']);
+  toggleExpandedProject(input, 'p2');
+  assert.deepEqual([...input], ['p1']);
+});
+
+test('toggleExpandedProject toggles back to the original state', () => {
+  const input = new Set(['p1']);
+  const once = toggleExpandedProject(input, 'p2');
+  const twice = toggleExpandedProject(once, 'p2');
+  assert.deepEqual([...twice].sort(), ['p1']);
 });
