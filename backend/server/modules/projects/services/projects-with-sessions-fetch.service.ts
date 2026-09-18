@@ -5,7 +5,7 @@ import { projectsDb, sessionsDb } from '@/modules/database/index.js';
 import { sessionSynchronizerService } from '@/modules/providers/index.js';
 import { WS_OPEN_STATE, connectedClients } from '@/modules/websocket/index.js';
 import type { RealtimeClientConnection } from '@/shared/types.js';
-import { AppError } from '@/shared/utils.js';
+import { AppError, normalizeProjectPath } from '@/shared/utils.js';
 import { getMainAgentWorkspace } from '@/utils/runtime-paths.js';
 import { isOperatorWorkspacePath, resolveOperatorWorkspaceRoot } from '@/modules/operators/operator-workspace.service.js';
 
@@ -69,6 +69,14 @@ type GetProjectsWithSessionsOptions = {
   skipSynchronization?: boolean;
   sessionsLimit?: number;
   sessionsOffset?: number;
+  /**
+   * A project path to surface even when it was never added explicitly. The
+   * sidebar payload is explicit-only, but deep links (`?project=<path>`) — the
+   * Tasks page's Chat/Files/Source Control buttons among them — address
+   * projects by path, and most auto-discovered projects are not explicit.
+   * Naming one here returns just that project alongside the usual list.
+   */
+  includePath?: string;
 };
 
 type SessionPaginationOptions = {
@@ -224,6 +232,9 @@ export async function getProjectsWithSessions(
   // sessions for assistant-created tasks) could never resolve their owning
   // project and the UI would stay stuck on "Choose Your Project".
   const operatorWorkspaceRoot = await resolveOperatorWorkspaceRoot();
+  // Normalized the same way rows are stored, so a deep link spelled with a
+  // trailing slash or `..` still matches its row.
+  const includePath = options.includePath ? normalizeProjectPath(options.includePath) : null;
   const projectRows = (projectsDb.getProjectPaths() as Array<{
     project_id: string;
     project_path: string;
@@ -233,7 +244,9 @@ export async function getProjectsWithSessions(
     remote_host_name?: string | null;
     remote_host_id?: string | null;
   }>).filter((row) =>
-    Boolean(row.is_explicit) || (operatorWorkspaceRoot !== null && row.project_path === operatorWorkspaceRoot)
+    Boolean(row.is_explicit)
+      || (operatorWorkspaceRoot !== null && row.project_path === operatorWorkspaceRoot)
+      || (includePath !== null && row.project_path === includePath)
   );
   const totalProjects = projectRows.length;
   const projects: ProjectListItem[] = [];

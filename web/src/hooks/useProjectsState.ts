@@ -486,7 +486,11 @@ export function useProjectsState({
       if (showLoadingState) {
         setIsLoadingProjects(true);
       }
-      const response = await api.projects();
+      // A `?project=<path>` deep link may name a project the explicit-only
+      // payload omits (most auto-discovered ones). Ask for it by path so the
+      // match below can find it — otherwise the deep link silently no-ops and
+      // the workspace stays empty.
+      const response = await api.projects(initialProjectPath);
       const projectData = (await response.json()) as Project[];
 
       setProjects((prevProjects) => {
@@ -508,7 +512,7 @@ export function useProjectsState({
         setIsLoadingProjects(false);
       }
     }
-  }, []);
+  }, [initialProjectPath]);
 
   const refreshProjectsSilently = useCallback(async () => {
     // Keep chat view stable while still syncing sidebar/session metadata in background.
@@ -1023,7 +1027,9 @@ export function useProjectsState({
 
   const handleSidebarRefresh = useCallback(async () => {
     try {
-      const response = await api.projects();
+      // Carry the deep-link path so a refresh does not drop the very project
+      // the URL points at back out of the explicit-only list.
+      const response = await api.projects(initialProjectPath);
       const freshProjects = (await response.json()) as Project[];
       const projectsWithTaskMaster = mergeTaskMasterCache(freshProjects, projects);
       const mergedProjects = mergeExpandedSessionPages(projects, projectsWithTaskMaster);
@@ -1077,7 +1083,7 @@ export function useProjectsState({
     } catch (error) {
       console.error('Error refreshing sidebar:', error);
     }
-  }, [projects]);
+  }, [projects, initialProjectPath]);
 
   const loadMoreProjectSessions = useCallback(async (projectId: string) => {
     const project = projects.find((candidate) => candidate.projectId === projectId);

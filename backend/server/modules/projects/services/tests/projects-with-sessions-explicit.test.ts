@@ -65,6 +65,42 @@ test('getProjectsWithSessions attaches remoteHostName for remote-bound projects 
   });
 });
 
+test('getProjectsWithSessions includes a requested non-explicit project via includePath', async () => {
+  await withIsolatedDatabase(async (dir) => {
+    const discovered = path.join(dir, 'discovered');
+    const otherDiscovered = path.join(dir, 'other-discovered');
+    projectsDb.createProjectPath(discovered);
+    projectsDb.createProjectPath(otherDiscovered);
+    projectsDb.createProjectPath(path.join(dir, 'explicit'), null, true);
+
+    // Baseline: auto-discovered projects stay out of the payload.
+    const before = await getProjectsWithSessions({ skipSynchronization: true });
+    assert.ok(!before.some((p) => p.fullPath === discovered));
+
+    // Naming it surfaces that one project — and only that one. This is what
+    // makes a `?project=<path>` deep link resolve for a project the user never
+    // added explicitly (e.g. the Tasks page jumping into its workspace).
+    const after = await getProjectsWithSessions({ skipSynchronization: true, includePath: discovered });
+    const paths = after.map((p) => p.fullPath);
+    assert.ok(paths.includes(discovered));
+    assert.ok(!paths.includes(otherDiscovered));
+  });
+});
+
+test('getProjectsWithSessions ignores an includePath that matches no project', async () => {
+  await withIsolatedDatabase(async (dir) => {
+    projectsDb.createProjectPath(path.join(dir, 'explicit'), null, true);
+
+    const projects = await getProjectsWithSessions({
+      skipSynchronization: true,
+      includePath: path.join(dir, 'not-registered'),
+    });
+
+    assert.equal(projects.length, 1);
+    assert.equal(projects[0].fullPath, path.join(dir, 'explicit'));
+  });
+});
+
 test('getArchivedProjectsWithSessions only returns explicit projects', async () => {
   await withIsolatedDatabase(async (dir) => {
     projectsDb.createProjectPath(path.join(dir, 'explicit-archived'), null, true);

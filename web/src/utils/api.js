@@ -99,7 +99,14 @@ export const api = {
   // config endpoint removed - no longer needed (frontend uses window.location)
   // After the projectName → projectId migration the path/query identifier is
   // the DB-assigned `projectId`; parameter names reflect that for clarity.
-  projects: () => authenticatedFetch('/api/projects'),
+  // `includePath` surfaces one normally-hidden (non-explicit) project so a
+  // `?project=<path>` deep link can resolve it; see the backend's
+  // GetProjectsWithSessionsOptions.includePath.
+  projects: (includePath) => authenticatedFetch(
+    includePath
+      ? `/api/projects?includePath=${encodeURIComponent(includePath)}`
+      : '/api/projects'
+  ),
   archivedProjects: () => authenticatedFetch('/api/projects/archived'),
   projectSessions: (projectId, { limit = 20, offset = 0 } = {}) => {
     const params = new URLSearchParams();

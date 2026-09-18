@@ -76,10 +76,14 @@ router.get(
       readQueryStringValue(req.query.skipSync).trim() === '1';
     const sessionsLimit = readOptionalNumericQueryValue(req.query.sessionsLimit) ?? undefined;
     const sessionsOffset = readOptionalNumericQueryValue(req.query.sessionsOffset) ?? undefined;
+    // `?includePath=` surfaces one normally-hidden project so a deep link can
+    // resolve it. See GetProjectsWithSessionsOptions.includePath.
+    const includePath = readQueryStringValue(req.query.includePath).trim() || undefined;
     const projects = await getProjectsWithSessions({
       skipSynchronization,
       sessionsLimit,
       sessionsOffset,
+      includePath,
     });
     res.json(projects);
   }),
