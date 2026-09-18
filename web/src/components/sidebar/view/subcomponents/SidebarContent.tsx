@@ -181,8 +181,9 @@ export default function SidebarContent({
           <span className="min-w-0 flex-1 truncate text-sm font-semibold text-primary">项目</span>
         </button>
         {/* 文案硬编码中文，与紧邻的「项目」「展开 项目 / 收起 项目」一致 ——
-            仓库只有 en locale，这一区块本来就是硬编码中文。 */}
-        {hasExpandedProjects && (
+            仓库只有 en locale，这一区块本来就是硬编码中文。
+            区块整体收起时列表被 hidden，此时按钮没有可收起的可见对象，一并藏掉。 */}
+        {hasExpandedProjects && !projectsCollapsed && (
           <button
             type="button"
             onClick={onCollapseAllProjects}

@@ -328,7 +328,11 @@ function Sidebar({
             onShowVersionModal={() => setShowVersionModal(true)}
             onShowSettings={onShowSettings}
             projectListProps={projectListProps}
-            hasExpandedProjects={expandedProjects.size > 0}
+            // 按「可见项目」派生，而不是 `expandedProjects.size > 0`：这个 Set
+            // 从不清理失效 ID（项目被删、或被 excludeHiddenProjects 滤掉的
+            // operator 工作区），用 size 判断会出现「按钮在、但列表里没有任何
+            // 可见的展开项」，点下去唯一的变化是按钮自己消失。
+            hasExpandedProjects={filteredProjects.some((project) => expandedProjects.has(project.projectId))}
             onCollapseAllProjects={collapseAllProjects}
             onRecentSessionSelect={(session, project) => {
               handleProjectSelect(project);
