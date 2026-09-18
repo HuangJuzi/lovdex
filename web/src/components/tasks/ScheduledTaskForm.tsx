@@ -175,17 +175,22 @@ function toDraft(initial?: ScheduledTask | null): ScheduledTaskDraft {
 }
 
 /**
- * 切换 cron 模式。切到「自定义」的那一刻用当前生效的表达式播种 —— 新建任务时
- * `cronExpr` 是空串，不播种的话用户刚在 preset 里选好的「每天 10:00」会凭空消失，
- * 只剩一个空框。
+ * 切换 cron 模式。切到「自定义」时把 `cronExpr` 播种好，判据是**里面有没有内容**
+ * 而不是「解不解析得出来」—— 新建任务时 `cronExpr` 是空串，按后者判会让用户面对
+ * 一个空框，播种的初衷就没了。
  *
  * 只在模式切换这个显式动作里播种一次，之后用户在裸输入框里逐字敲的内容不会再被
  * 回写覆盖（那正是计划里担心的 clobber）。抽成纯函数是为了能在无 DOM 环境下直接
  * 断言（同 toProjectChipOptions）。
  */
 export function switchCronMode(d: ScheduledTaskDraft, mode: CronMode): ScheduledTaskDraft {
-  if (mode === 'custom') return { ...d, cronMode: mode, cronExpr: resolveCronExpr(d) };
-  return { ...d, cronMode: mode };
+  if (mode !== 'custom') return { ...d, cronMode: mode };
+  // 切到自定义时播种，但要区分两种情况：
+  //   - cronExpr 为空（新建任务、或从没进过自定义）→ 用当前生效的表达式播种，
+  //     免得用户面对一个空框；
+  //   - cronExpr 非空（用户手敲过、且切到 preset 时被保留下来）→ 原样留着，
+  //     否则「自定义 → preset → 自定义」的往返会把手敲的内容吞掉。
+  return { ...d, cronMode: mode, cronExpr: d.cronExpr.trim() ? d.cronExpr : resolveCronExpr(d) };
 }
 
 /** 名称芯片：空名时虚线边框 + 文案「名称」，点开是个普通输入框。 */

@@ -189,6 +189,19 @@ test('switchCronMode: switching to custom seeds the raw box with the effective e
   assert.equal(switchCronMode(customDraft, 'daily').cronMode, 'daily');
 });
 
+test('switchCronMode: a custom expression survives a round trip through a preset mode', () => {
+  const typed = { ...EMPTY_DRAFT, cronMode: 'custom' as const, cronExpr: '0 9,17 * * *' };
+  const away = switchCronMode(typed, 'daily');
+  assert.equal(away.cronExpr, '0 9,17 * * *', 'leaving custom must not touch cronExpr');
+  const back = switchCronMode(away, 'custom');
+  assert.equal(back.cronExpr, '0 9,17 * * *', 'coming back must NOT clobber the typed expression');
+});
+
+test('switchCronMode: an empty expression is seeded from the current preset parameters', () => {
+  const fresh = { ...EMPTY_DRAFT, cronMode: 'daily' as const, cronTime: '08:00', cronExpr: '' };
+  assert.equal(switchCronMode(fresh, 'custom').cronExpr, '0 8 * * *');
+});
+
 test('toApiBody: the interval seconds are amount × unit', () => {
   const twoDays = toApiBody({ ...EMPTY_DRAFT, scheduleType: 'interval', intervalAmount: '2', intervalUnit: 'day' });
   assert.equal(twoDays.intervalSeconds, 172800);
