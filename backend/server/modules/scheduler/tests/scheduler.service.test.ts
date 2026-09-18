@@ -133,11 +133,11 @@ test('create validates scheduleType and computes initial next_run_at', async () 
   await assert.rejects(() => svc.create({ title: 'bad', scheduleType: 'once' }));
 });
 
-test('update translates camelCase to snake_case and recomputes next_run_at', () => {
+test('update translates camelCase to snake_case and recomputes next_run_at', async () => {
   const { svc, rows } = makeService('2026-08-13T12:00:00.000Z');
   rows.set('s1', mkRow({ schedule_id: 's1', schedule_type: 'once', run_at: '2026-08-14T01:00:00.000Z' }));
 
-  const row = svc.update('s1', { scheduleType: 'cron', cronExpr: '0 9 * * *', autoRun: 0 }) as ScheduledTaskRow;
+  const row = await svc.update('s1', { scheduleType: 'cron', cronExpr: '0 9 * * *', autoRun: 0 }) as ScheduledTaskRow;
 
   assert.equal(rows.get('s1')?.schedule_type, 'cron');
   assert.equal(rows.get('s1')?.cron_expr, '0 9 * * *');
@@ -230,4 +230,42 @@ test('write-back never throws when the row was deleted mid-flight', async () => 
   release('模型取的名');
   await new Promise((r) => setTimeout(r, 0));
   // 没有 unhandledRejection 就是通过 —— 上面这行 await 之后进程还活着
+});
+
+test('update: a blank title regenerates from the description', async () => {
+  const { svc } = makeService('2026-08-13T12:00:00.000Z', {
+    generateTitle: async ({ description }) => `取自：${description}`,
+    titleBlockingMs: 50,
+  });
+  const created = await svc.create({
+    title: '旧名字', description: '旧描述', scheduleType: 'once', runAt: '2026-08-14T01:00:00.000Z',
+  }) as { schedule_id: string };
+  const updated = await svc.update(created.schedule_id, { title: '', description: '新描述' }) as { title: string };
+  assert.equal(updated.title, '取自：新描述');
+});
+
+test('update: a blank title with no new description falls back to the stored description', async () => {
+  const { svc } = makeService('2026-08-13T12:00:00.000Z', {
+    generateTitle: async ({ description }) => `取自：${description}`,
+    titleBlockingMs: 50,
+  });
+  const created = await svc.create({
+    title: '旧名字', description: '旧描述', scheduleType: 'once', runAt: '2026-08-14T01:00:00.000Z',
+  }) as { schedule_id: string };
+  const updated = await svc.update(created.schedule_id, { title: '' }) as { title: string };
+  assert.equal(updated.title, '取自：旧描述');
+});
+
+test('update: omitting the title leaves it untouched', async () => {
+  let calls = 0;
+  const { svc } = makeService('2026-08-13T12:00:00.000Z', {
+    generateTitle: async () => { calls += 1; return '不该被调用'; },
+    titleBlockingMs: 50,
+  });
+  const created = await svc.create({
+    title: '旧名字', description: '旧描述', scheduleType: 'once', runAt: '2026-08-14T01:00:00.000Z',
+  }) as { schedule_id: string };
+  const updated = await svc.update(created.schedule_id, { priority: 'P0' }) as { title: string };
+  assert.equal(updated.title, '旧名字');
+  assert.equal(calls, 0);
 });

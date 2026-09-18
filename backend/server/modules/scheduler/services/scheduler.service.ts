@@ -232,7 +232,7 @@ export function createSchedulerService(deps: SchedulerDeps) {
       }
       return row;
     },
-    update(scheduleId: string, updates: Record<string, unknown>): unknown {
+    async update(scheduleId: string, updates: Record<string, unknown>): Promise<unknown> {
       const current = deps.scheduledTasksDb.getScheduledTask(scheduleId);
       if (!current) return null;
       if (updates.scheduleType !== undefined && typeof updates.scheduleType === 'string' && !isScheduleType(updates.scheduleType)) {
@@ -268,6 +268,19 @@ export function createSchedulerService(deps: SchedulerDeps) {
       for (const [from, to] of Object.entries(keyMap)) {
         if (updates[from] !== undefined) cleaned[to] = updates[from];
       }
+      // 标题传了空串 = 让模型按描述重新取名；没传 = 不动（keyMap 不会把它放进 cleaned）。
+      let pendingTitle: { promise: Promise<string | null>; placeholder: string } | null = null;
+      if (typeof updates.title === 'string') {
+        const resolved = await resolveGeneratedTitle({
+          title: updates.title,
+          // 同一次 PATCH 里改了描述就用新的，否则用库里现有的。
+          description: typeof cleaned.description === 'string' ? cleaned.description : current.description,
+          generateTitle: deps.generateTitle,
+          blockingMs: deps.titleBlockingMs,
+        });
+        cleaned.title = resolved.title;
+        if (resolved.writeBack) pendingTitle = { promise: resolved.writeBack, placeholder: resolved.title };
+      }
       const recompute = ['cron_expr', 'interval_seconds', 'run_at', 'schedule_type', 'timezone'].some((k) => cleaned[k] !== undefined);
       if (recompute) {
         const merged = { ...current, ...cleaned } as ScheduledTaskRow;
@@ -284,6 +297,10 @@ export function createSchedulerService(deps: SchedulerDeps) {
       }
       const row = deps.scheduledTasksDb.updateScheduledTask(scheduleId, cleaned);
       if (row) deps.broadcast({ kind: 'scheduled_task_upserted', scheduledTask: row, timestamp: now().toISOString() });
+      const pending = pendingTitle;
+      if (row && pending) {
+        void pending.promise.then((generated) => applyGeneratedTitle(scheduleId, generated, pending.placeholder));
+      }
       return row;
     },
     remove(scheduleId: string): void {
