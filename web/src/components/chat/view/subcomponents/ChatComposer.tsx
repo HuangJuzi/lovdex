@@ -35,6 +35,7 @@ import FileAttachment from './FileAttachment';
 import PermissionRequestsBanner from './PermissionRequestsBanner';
 import TokenUsageSummary from './TokenUsageSummary';
 import QueuedMessageCard from './QueuedMessageCard';
+import { getPermissionModeLabelKeys } from './permissionModeLabels';
 
 interface MentionableFile {
   name: string;
@@ -302,6 +303,7 @@ export default function ChatComposer({
     : isLoading
       ? t('input.stop')
       : t('input.send');
+  const modeLabels = getPermissionModeLabelKeys(permissionMode);
 
   return (
     <div className="chat-composer-shell relative flex-shrink-0 px-2 pb-2 pt-0 sm:px-4 sm:pb-4 md:px-4 md:pb-6">
@@ -485,6 +487,10 @@ export default function ChatComposer({
                         : 'border-primary/20 bg-primary/5 text-primary hover:bg-primary/10'
               }`}
               title={t('input.clickToChangeMode')}
+              aria-label={t('input.currentMode', {
+                defaultValue: 'Permission mode: {{mode}}',
+                mode: t(modeLabels.fullKey),
+              })}
             >
               <div className="flex items-center gap-1.5">
                 <div
@@ -500,13 +506,8 @@ export default function ChatComposer({
                             : 'bg-primary'
                   }`}
                 />
-                <span className="hidden whitespace-nowrap sm:inline">
-                  {permissionMode === 'default' && t('codex.modes.default')}
-                  {permissionMode === 'acceptEdits' && t('codex.modes.acceptEdits')}
-                  {permissionMode === 'auto' && t('codex.modes.auto')}
-                  {permissionMode === 'bypassPermissions' && t('codex.modes.bypassPermissions')}
-                  {permissionMode === 'plan' && t('codex.modes.plan')}
-                </span>
+                <span className="whitespace-nowrap sm:hidden">{t(modeLabels.shortKey)}</span>
+                <span className="hidden whitespace-nowrap sm:inline">{t(modeLabels.fullKey)}</span>
               </div>
             </button>
 
