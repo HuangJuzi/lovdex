@@ -52,6 +52,9 @@ export function buildTasksRouter(tasksService: TasksService, deps: { createSessi
         sourceScheduleId: typeof body.sourceScheduleId === 'string' ? body.sourceScheduleId : null,
         sourceSessionId: typeof body.sourceSessionId === 'string' ? body.sourceSessionId : null,
         contextMode: body.contextMode as 'none' | 'summary' | 'raw' | undefined,
+        // 客户端重试 / 双击 / 两个标签页提交的是同一份意图：由服务端合并成一次落库，
+        // 见 task-create-dedup。前端那道「在途禁用确认按钮」管不到跨标签页的场景。
+        dedupIdentical: true,
       });
       res.status(201).json(task);
     }),

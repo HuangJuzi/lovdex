@@ -112,3 +112,34 @@ test('POST /api/tasks forwards sourceSessionId to createTask', async (t) => {
   assert.equal(created.length, 1);
   assert.equal(created[0].sourceSessionId, 'src1');
 });
+
+/** 挂载建任务路由，用一个只记录入参的假服务，验证路由往服务里传了什么。 */
+function buildCreateApp(seen: Record<string, unknown>[]) {
+  const app = express();
+  app.use(express.json());
+  const fakeService = {
+    createTask: async (input: Record<string, unknown>) => {
+      seen.push(input);
+      return { task_id: 't1', title: input.title };
+    },
+  } as unknown as TasksService;
+  app.use('/api/tasks', buildTasksRouter(fakeService, { createSession: () => 's1' }));
+  return app;
+}
+
+test('POST /api/tasks 打开服务端去重，重复提交才不会各建一条', async (t) => {
+  const seen: Record<string, unknown>[] = [];
+  const server = buildCreateApp(seen).listen(0);
+  t.after(() => server.close());
+  const { port } = server.address() as { port: number };
+
+  const res = await fetch(`http://127.0.0.1:${port}/api/tasks`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ projectPath: '/p', title: '', description: '把看板筛选做出来' }),
+  });
+
+  assert.strictEqual(res.status, 201);
+  assert.strictEqual(seen.length, 1);
+  assert.equal(seen[0].dedupIdentical, true);
+});

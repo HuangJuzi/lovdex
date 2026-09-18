@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { ArrowUp, RotateCcw } from 'lucide-react';
+import { ArrowUp, Loader2, RotateCcw } from 'lucide-react';
 
 import { useDeviceSettings } from '../../hooks/useDeviceSettings';
 import { cn } from '../../lib/utils';
@@ -22,6 +22,17 @@ type ProviderModelsApiResponse = {
 /** 「更多…」角标：名称/上下文来源/备注 中已填的数量。 */
 export function moreSetCount(name: string, sourceSessionId: string, remark: string): number {
   return [name.trim(), sourceSessionId, remark.trim()].filter((v) => v !== '').length;
+}
+
+/**
+ * 确认按钮的可用性判据：需求非空，且没有创建请求在途。
+ *
+ * 在途那一档不是锦上添花 —— title 留空时后端要等模型取名（阻塞窗口最长
+ * `TITLE_BLOCKING_TIMEOUT_MS` = 3s）才落库，这期间弹窗一直开着，按钮若仍可点，
+ * 双击 / Enter 连击就是两次 POST，板上多出一条一模一样的任务。
+ */
+export function canSubmitNewTask(prompt: string, submitting: boolean): boolean {
+  return prompt.trim() !== '' && !submitting;
 }
 
 export function CreateTaskDialog({
@@ -49,6 +60,9 @@ export function CreateTaskDialog({
   const [models, setModels] = useState<ProviderModelOption[]>([]);
   const [model, setModel] = useState('');
   const [error, setError] = useState('');
+  // 创建在途（后端取名期间）。state 只驱动按钮的禁用/转圈，拦截靠下面那个 ref。
+  const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
   const modelsRequestRef = useRef(0);
 
   const isAssistant = projectPath === ASSISTANT_OPTION_VALUE || !projectPath;
@@ -151,6 +165,9 @@ export function CreateTaskDialog({
   }, [open]);
 
   async function submit() {
+    // 连击守卫。用同步的 ref 而不是 submitting state：setState 要等下一轮渲染才
+    // 生效，同一 tick 里（双击、Enter 连击）的第二次调用读到的还是旧值。
+    if (submittingRef.current) return;
     setError('');
     const p = prompt.trim();
     if (!p) return;
@@ -162,6 +179,8 @@ export function CreateTaskDialog({
     // description 提炼，失败/超时降级到需求首行。这里不再本地提炼 —— 一旦本地填了
     // 非空 title，后端就认为「用户已指定名字」，LLM 取名永远不会触发。
     const title = name.trim();
+    submittingRef.current = true;
+    setSubmitting(true);
     try {
       const res = await api.tasks.create({
         projectPath: isAssistant ? '' : projectPath,
@@ -189,6 +208,9 @@ export function CreateTaskDialog({
     } catch (err) {
       console.error('createTask failed', err);
       setError('创建失败');
+    } finally {
+      submittingRef.current = false;
+      setSubmitting(false);
     }
   }
 
@@ -216,7 +238,7 @@ export function CreateTaskDialog({
   const moreCount = moreSetCount(name, sourceSessionId, remark);
 
   return (
-    <Dialog open={open} onOpenChange={(next) => { if (!next) onClose(); }}>
+    <Dialog open={open} onOpenChange={(next) => { if (!next && !submittingRef.current) onClose(); }}>
       <DialogContent className="max-h-[85vh] w-full sm:max-w-[66.7vw] overflow-y-auto">
         <DialogTitle>新建任务</DialogTitle>
         <div className="border-b border-border px-5 py-3">
@@ -302,13 +324,19 @@ export function CreateTaskDialog({
               />
               <button
                 type="button"
-                aria-label={prompt.trim() ? '创建任务' : '提示词为空，暂不能创建'}
+                aria-label={submitting ? '创建中，请稍候' : prompt.trim() ? '创建任务' : '提示词为空，暂不能创建'}
+                aria-busy={submitting}
                 title="创建任务"
-                disabled={!prompt.trim()}
+                disabled={!canSubmitNewTask(prompt, submitting)}
                 onClick={() => void submit()}
-                className="ml-auto flex h-10 w-10 items-center justify-center rounded-full bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-40"
+                className={cn(
+                  'ml-auto flex h-10 w-10 items-center justify-center rounded-full bg-primary text-primary-foreground transition-colors hover:bg-primary/90',
+                  // 在途时按钮是 disabled 的，但仍要看得见转圈 —— 取名最长 3s，
+                  // 没反馈的话用户只会以为没点上，再点一次（正是这条 bug 的成因）。
+                  submitting ? 'cursor-wait opacity-70' : 'disabled:cursor-not-allowed disabled:opacity-40',
+                )}
               >
-                <ArrowUp className="h-5 w-5" />
+                {submitting ? <Loader2 className="h-5 w-5 animate-spin" /> : <ArrowUp className="h-5 w-5" />}
               </button>
             </div>
           </div>
@@ -320,8 +348,8 @@ export function CreateTaskDialog({
 
           <div className="mt-3 flex items-center justify-end gap-2">
             <span className="mr-auto text-xs text-muted-foreground">{isMobile ? 'Enter 创建 · Shift+Enter 换行' : ''}</span>
-            <Button size="sm" variant="ghost" onClick={reset}><RotateCcw className="mr-1 h-3.5 w-3.5" />重置</Button>
-            <Button size="sm" onClick={onClose} variant="ghost">取消</Button>
+            <Button size="sm" variant="ghost" onClick={reset} disabled={submitting}><RotateCcw className="mr-1 h-3.5 w-3.5" />重置</Button>
+            <Button size="sm" onClick={onClose} variant="ghost" disabled={submitting}>取消</Button>
           </div>
         </div>
       </DialogContent>

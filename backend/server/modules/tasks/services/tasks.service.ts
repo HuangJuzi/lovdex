@@ -16,6 +16,7 @@ import {
 } from '@/shared/task-status.js';
 import { AppError, normalizeProjectPath } from '@/shared/utils.js';
 import type { TaskEngine, TaskRow, TaskStatus } from '@/shared/types.js';
+import { createTaskDedupGate, taskCreateDedupKey } from './task-create-dedup.js';
 import { deriveFallbackTitle, raceTaskTitle, shouldApplyGeneratedTitle } from './task-title.js';
 
 export const STATUS_ORDER: readonly TaskStatus[] = TASK_STATUSES;
@@ -84,6 +85,13 @@ type CreateTaskInput = {
   sourceSessionId?: string | null;
   /** 上下文处理方式；缺省时按「有来源→summary，无来源→none」推导。 */
   contextMode?: 'none' | 'summary' | 'raw';
+  /**
+   * 把「同一份创建意图」的重复提交合并成一次落库（判定见 task-create-dedup）。
+   * 只有 HTTP 入口（tasks.routes.ts）会传：双击 / 两个标签页 / 客户端重试都属于
+   * 同一个用户意图。程序化调用方（调度器、助手工具）不传 —— 它们本来就只该触发
+   * 一次，而且定时任务需要能反复建同名任务。
+   */
+  dedupIdentical?: boolean;
 };
 
 /**
@@ -125,6 +133,11 @@ export function createTasksService(
      * don't have to sit through the real 3s window.
      */
     titleBlockingMs?: number;
+    /**
+     * 「同一份创建意图」的合并窗口，默认 TASK_CREATE_DEDUP_WINDOW_MS；0 表示只合并
+     * 在途（单测用，免得为「窗口过期」等真实时间）。
+     */
+    dedupWindowMs?: number;
     /**
      * Returns the app session ids that currently have a pending tool-approval
      * request, mapped to the toolName each is waiting on. Used to decorate task
@@ -172,6 +185,24 @@ export function createTasksService(
         await sessionsService.deleteOrArchiveSessionById(sessionId, { force: true, deletedFromDisk: true });
       });
   const pendingApprovalSessions = opts.getPendingApprovalSessions ?? (() => new Map<string, string>());
+
+  /**
+   * 重复提交闸门（仅 dedupIdentical 的调用方走它）。lookup 取的是**当前行**：
+   * 窗口内命中时任务可能已被改名，返回旧快照会让调用方以为改名没生效。
+   */
+  const dedupGate = createTaskDedupGate({
+    windowMs: opts.dedupWindowMs,
+    lookup: (taskId) => {
+      const row = resolveDb.getTask(taskId);
+      return row ? decorate(row) : null;
+    },
+    onHit: (key, taskId) => {
+      console.info('[tasks] 同一份创建意图在窗口内重复提交，复用已有任务', {
+        key: key.slice(0, 8),
+        taskId,
+      });
+    },
+  });
 
   /**
    * Stamps the realtime approval flags onto a task row and derives the effective
@@ -337,112 +368,123 @@ export function createTasksService(
     return decorate(updated);
   }
 
+  async function createTaskInner(input: CreateTaskInput): Promise<TaskRow> {
+    const status = input.status ?? 'todo';
+    const provider = input.executorProvider ?? 'claude';
+    if (!isTaskStatus(status)) {
+      throw new AppError(`invalid status: ${String(status)}`, { code: 'INVALID_STATUS', statusCode: 400 });
+    }
+    if (status === 'archived') {
+      throw new AppError('a task cannot be created as archived', { code: 'INVALID_STATUS', statusCode: 400 });
+    }
+    if (!isTaskEngine(provider)) {
+      throw new AppError(`invalid executor_provider: ${String(provider)}`, { code: 'INVALID_EXECUTOR', statusCode: 400 });
+    }
+    if (input.priority !== undefined && !isTaskPriority(input.priority)) {
+      throw new AppError(`invalid priority: ${String(input.priority)}`, { code: 'INVALID_PRIORITY', statusCode: 400 });
+    }
+    if (input.deadline !== undefined && input.deadline !== null && !isTaskDeadline(input.deadline)) {
+      throw new AppError(`invalid deadline: ${String(input.deadline)}`, { code: 'INVALID_DEADLINE', statusCode: 400 });
+    }
+    if (input.label !== undefined && !isTaskLabel(input.label)) {
+      throw new AppError(`invalid label: ${String(input.label)}`, { code: 'INVALID_LABEL', statusCode: 400 });
+    }
+    const isOperator = input.isOperator === true;
+    let projectPath = input.projectPath;
+    if (isOperator) {
+      if (provider !== 'claude') {
+        throw new AppError('operator tasks must use the claude executor', { code: 'INVALID_EXECUTOR', statusCode: 400 });
+      }
+      const workspace = expandHome(getOperatorConfig().workspace);
+      resolveProject.createProjectPath(workspace);
+      if (!resolveProject.getProjectPath(workspace)) {
+        throw new AppError(`operator workspace not found: ${workspace}`, { code: 'PROJECT_NOT_FOUND', statusCode: 404 });
+      }
+      projectPath = workspace;
+    } else {
+      const project = resolveProject.getProjectPath(input.projectPath);
+      if (!project) {
+        throw new AppError(`project not found: ${input.projectPath}`, { code: 'PROJECT_NOT_FOUND', statusCode: 404 });
+      }
+    }
+    if (input.sessionId != null) {
+      const session = resolveSession(input.sessionId);
+      if (!session) {
+        throw new AppError(`session not found: ${input.sessionId}`, { code: 'SESSION_NOT_FOUND', statusCode: 404 });
+      }
+      if (normalizeProjectPath(session.project_path ?? '') !== normalizeProjectPath(input.projectPath)) {
+        throw new AppError('session does not belong to this project', { code: 'SESSION_PROJECT_MISMATCH', statusCode: 409 });
+      }
+      if (resolveDb.getTaskBySessionId(input.sessionId)) {
+        throw new AppError('session is already linked to a task', { code: 'SESSION_ALREADY_LINKED', statusCode: 409 });
+      }
+    }
+    // 上下文来源与处理方式：mode==='none' 忽略来源、5 个 context 列全 NULL；
+    // mode!=='none' 要求来源存在且归属本项目。缺省 mode 时按「有来源→summary」推导，
+    // 保持既有 sourceSessionId 调用方（ConvertToTaskDialog / 定时任务）行为不变。
+    const rawContextMode = input.contextMode ?? (input.sourceSessionId != null ? 'summary' : 'none');
+    if (!isContextMode(rawContextMode)) {
+      throw new AppError(`invalid contextMode: ${String(input.contextMode)}`, { code: 'INVALID_CONTEXT_MODE', statusCode: 400 });
+    }
+    const contextMode: ContextMode = rawContextMode;
+    const contextSourceSessionId = contextMode === 'none' ? null : (input.sourceSessionId ?? null);
+    if (contextMode !== 'none' && contextSourceSessionId == null) {
+      throw new AppError(`sourceSessionId is required when contextMode is ${contextMode}`, { code: 'SESSION_NOT_FOUND', statusCode: 404 });
+    }
+    if (contextSourceSessionId != null) {
+      const srcSession = resolveSession(contextSourceSessionId);
+      if (!srcSession) {
+        throw new AppError(`session not found: ${contextSourceSessionId}`, { code: 'SESSION_NOT_FOUND', statusCode: 404 });
+      }
+      if (normalizeProjectPath(srcSession.project_path ?? '') !== normalizeProjectPath(input.projectPath)) {
+        throw new AppError('session does not belong to this project', { code: 'SESSION_PROJECT_MISMATCH', statusCode: 409 });
+      }
+    }
+    const { title: createdTitle, writeBack } = await resolveCreateTitle(input);
+    const row = resolveDb.createTask({
+      projectPath,
+      title: createdTitle,
+      description: input.description ?? null,
+      status,
+      executorProvider: provider,
+      executorModel: input.executorModel ?? null,
+      sessionId: input.sessionId ?? null,
+      priority: input.priority ?? 'P2',
+      deadline: input.deadline ?? null,
+      isOperator,
+      label: input.label ?? 'other',
+      remark: input.remark ?? null,
+      sourceScheduleId: input.sourceScheduleId ?? null,
+      contextSourceSessionId,
+      contextMode,
+      contextStatus: contextMode === 'none' ? null : 'pending',
+    });
+    emit({ kind: 'task_upserted', task: row, actor: 'user' });
+    // The model missed the blocking window: it is still in flight, so let it
+    // replace the placeholder name once it lands. `writeBack` never rejects
+    // (raceTaskTitle swallows a late failure into null) — see applyGeneratedTitle
+    // for the CAS that keeps a user rename from being clobbered.
+    if (writeBack) {
+      void writeBack.then((generated) => applyGeneratedTitle(row.task_id, generated, createdTitle));
+    }
+    if (contextSourceSessionId != null && contextMode !== 'none') {
+      opts.onContextSourceProvided?.(row.task_id, contextSourceSessionId, contextMode);
+    }
+    return decorate(row);
+  }
+
   return {
     STATUS_ORDER,
 
+    /**
+     * 建任务。`dedupIdentical` 只有 HTTP 入口会传（tasks.routes.ts）：同一份
+     * 创建意图的重复提交合并成一次落库，见 task-create-dedup。调度器与助手工具
+     * 不传 —— 它们是程序化的、本就只该触发一次，且「每分钟一次的定时任务」需要
+     * 反复建同名任务。
+     */
     async createTask(input: CreateTaskInput): Promise<TaskRow> {
-      const status = input.status ?? 'todo';
-      const provider = input.executorProvider ?? 'claude';
-      if (!isTaskStatus(status)) {
-        throw new AppError(`invalid status: ${String(status)}`, { code: 'INVALID_STATUS', statusCode: 400 });
-      }
-      if (status === 'archived') {
-        throw new AppError('a task cannot be created as archived', { code: 'INVALID_STATUS', statusCode: 400 });
-      }
-      if (!isTaskEngine(provider)) {
-        throw new AppError(`invalid executor_provider: ${String(provider)}`, { code: 'INVALID_EXECUTOR', statusCode: 400 });
-      }
-      if (input.priority !== undefined && !isTaskPriority(input.priority)) {
-        throw new AppError(`invalid priority: ${String(input.priority)}`, { code: 'INVALID_PRIORITY', statusCode: 400 });
-      }
-      if (input.deadline !== undefined && input.deadline !== null && !isTaskDeadline(input.deadline)) {
-        throw new AppError(`invalid deadline: ${String(input.deadline)}`, { code: 'INVALID_DEADLINE', statusCode: 400 });
-      }
-      if (input.label !== undefined && !isTaskLabel(input.label)) {
-        throw new AppError(`invalid label: ${String(input.label)}`, { code: 'INVALID_LABEL', statusCode: 400 });
-      }
-      const isOperator = input.isOperator === true;
-      let projectPath = input.projectPath;
-      if (isOperator) {
-        if (provider !== 'claude') {
-          throw new AppError('operator tasks must use the claude executor', { code: 'INVALID_EXECUTOR', statusCode: 400 });
-        }
-        const workspace = expandHome(getOperatorConfig().workspace);
-        resolveProject.createProjectPath(workspace);
-        if (!resolveProject.getProjectPath(workspace)) {
-          throw new AppError(`operator workspace not found: ${workspace}`, { code: 'PROJECT_NOT_FOUND', statusCode: 404 });
-        }
-        projectPath = workspace;
-      } else {
-        const project = resolveProject.getProjectPath(input.projectPath);
-        if (!project) {
-          throw new AppError(`project not found: ${input.projectPath}`, { code: 'PROJECT_NOT_FOUND', statusCode: 404 });
-        }
-      }
-      if (input.sessionId != null) {
-        const session = resolveSession(input.sessionId);
-        if (!session) {
-          throw new AppError(`session not found: ${input.sessionId}`, { code: 'SESSION_NOT_FOUND', statusCode: 404 });
-        }
-        if (normalizeProjectPath(session.project_path ?? '') !== normalizeProjectPath(input.projectPath)) {
-          throw new AppError('session does not belong to this project', { code: 'SESSION_PROJECT_MISMATCH', statusCode: 409 });
-        }
-        if (resolveDb.getTaskBySessionId(input.sessionId)) {
-          throw new AppError('session is already linked to a task', { code: 'SESSION_ALREADY_LINKED', statusCode: 409 });
-        }
-      }
-      // 上下文来源与处理方式：mode==='none' 忽略来源、5 个 context 列全 NULL；
-      // mode!=='none' 要求来源存在且归属本项目。缺省 mode 时按「有来源→summary」推导，
-      // 保持既有 sourceSessionId 调用方（ConvertToTaskDialog / 定时任务）行为不变。
-      const rawContextMode = input.contextMode ?? (input.sourceSessionId != null ? 'summary' : 'none');
-      if (!isContextMode(rawContextMode)) {
-        throw new AppError(`invalid contextMode: ${String(input.contextMode)}`, { code: 'INVALID_CONTEXT_MODE', statusCode: 400 });
-      }
-      const contextMode: ContextMode = rawContextMode;
-      const contextSourceSessionId = contextMode === 'none' ? null : (input.sourceSessionId ?? null);
-      if (contextMode !== 'none' && contextSourceSessionId == null) {
-        throw new AppError(`sourceSessionId is required when contextMode is ${contextMode}`, { code: 'SESSION_NOT_FOUND', statusCode: 404 });
-      }
-      if (contextSourceSessionId != null) {
-        const srcSession = resolveSession(contextSourceSessionId);
-        if (!srcSession) {
-          throw new AppError(`session not found: ${contextSourceSessionId}`, { code: 'SESSION_NOT_FOUND', statusCode: 404 });
-        }
-        if (normalizeProjectPath(srcSession.project_path ?? '') !== normalizeProjectPath(input.projectPath)) {
-          throw new AppError('session does not belong to this project', { code: 'SESSION_PROJECT_MISMATCH', statusCode: 409 });
-        }
-      }
-      const { title: createdTitle, writeBack } = await resolveCreateTitle(input);
-      const row = resolveDb.createTask({
-        projectPath,
-        title: createdTitle,
-        description: input.description ?? null,
-        status,
-        executorProvider: provider,
-        executorModel: input.executorModel ?? null,
-        sessionId: input.sessionId ?? null,
-        priority: input.priority ?? 'P2',
-        deadline: input.deadline ?? null,
-        isOperator,
-        label: input.label ?? 'other',
-        remark: input.remark ?? null,
-        sourceScheduleId: input.sourceScheduleId ?? null,
-        contextSourceSessionId,
-        contextMode,
-        contextStatus: contextMode === 'none' ? null : 'pending',
-      });
-      emit({ kind: 'task_upserted', task: row, actor: 'user' });
-      // The model missed the blocking window: it is still in flight, so let it
-      // replace the placeholder name once it lands. `writeBack` never rejects
-      // (raceTaskTitle swallows a late failure into null) — see applyGeneratedTitle
-      // for the CAS that keeps a user rename from being clobbered.
-      if (writeBack) {
-        void writeBack.then((generated) => applyGeneratedTitle(row.task_id, generated, createdTitle));
-      }
-      if (contextSourceSessionId != null && contextMode !== 'none') {
-        opts.onContextSourceProvided?.(row.task_id, contextSourceSessionId, contextMode);
-      }
-      return decorate(row);
+      if (!input.dedupIdentical) return createTaskInner(input);
+      return dedupGate.run(taskCreateDedupKey(input), () => createTaskInner(input));
     },
 
     setTaskContextResult(taskId: string, result: { status: 'ready' | 'failed'; summary?: string | null; raw?: string | null }): TaskRow | null {
