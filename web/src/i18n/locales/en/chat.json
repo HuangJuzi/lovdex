@@ -94,6 +94,13 @@
       "bypassPermissions": "Bypass Permissions",
       "plan": "Plan Mode"
     },
+    "modesShort": {
+      "default": "Default",
+      "auto": "Auto",
+      "acceptEdits": "Edits",
+      "bypassPermissions": "Bypass",
+      "plan": "Plan"
+    },
     "descriptions": {
       "default": "Only trusted commands (ls, cat, grep, git status, etc.) run automatically. Other commands are skipped. Can write to workspace.",
       "auto": "A model classifier decides per tool call whether to approve or deny. Hands-off, but safer than Bypass — denials still happen.",
@@ -126,6 +133,7 @@
       "updateQueued": "Enter to update queued message"
     },
     "clickToChangeMode": "Click to change permission mode (or press Tab in input)",
+    "currentMode": "Permission mode: {{mode}}",
     "showAllCommands": "Show all commands",
     "clearInput": "Clear input",
     "scrollToBottom": "Scroll to bottom",
