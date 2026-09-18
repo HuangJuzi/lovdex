@@ -303,7 +303,7 @@ export default function ChatComposer({
     : isLoading
       ? t('input.stop')
       : t('input.send');
-  const modeLabels = getPermissionModeLabelKeys(permissionMode);
+  const modeLabelKeys = getPermissionModeLabelKeys(permissionMode);
 
   return (
     <div className="chat-composer-shell relative flex-shrink-0 px-2 pb-2 pt-0 sm:px-4 sm:pb-4 md:px-4 md:pb-6">
@@ -489,7 +489,7 @@ export default function ChatComposer({
               title={t('input.clickToChangeMode')}
               aria-label={t('input.currentMode', {
                 defaultValue: 'Permission mode: {{mode}}',
-                mode: t(modeLabels.fullKey),
+                mode: t(modeLabelKeys.fullKey),
               })}
             >
               <div className="flex items-center gap-1.5">
@@ -506,8 +506,12 @@ export default function ChatComposer({
                             : 'bg-primary'
                   }`}
                 />
-                <span className="whitespace-nowrap sm:hidden">{t(modeLabels.shortKey)}</span>
-                <span className="hidden whitespace-nowrap sm:inline">{t(modeLabels.fullKey)}</span>
+                {/* Two spans, not one: sm:hidden and sm:inline are both display
+                    utilities at equal specificity, so merging them onto a single
+                    element would be resolved by CSS source order, not by
+                    breakpoint — silently wrong at every width. */}
+                <span className="whitespace-nowrap sm:hidden">{t(modeLabelKeys.shortKey)}</span>
+                <span className="hidden whitespace-nowrap sm:inline">{t(modeLabelKeys.fullKey)}</span>
               </div>
             </button>
 
