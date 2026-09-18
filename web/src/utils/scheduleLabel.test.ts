@@ -28,6 +28,11 @@ test('intervalLabel uses the same exact decomposition as the form', () => {
   assert.equal(intervalLabel(604800), '每 1 星期');
   // 非整除值如实显示，不再四舍五入撒谎成「每 90 分钟」
   assert.equal(intervalLabel(5401), '每 5401 秒');
+  // 退化输入必须走守卫，不能落进 decomposeInterval ——
+  // decomposeInterval(0) 会命中「0 % 604800 === 0」返回「每 0 星期」
+  assert.equal(intervalLabel(0), '每 0 秒');
+  assert.equal(intervalLabel(-5), '每 -5 秒');
+  assert.equal(intervalLabel(Number.NaN), '每 NaN 秒');
 });
 
 test('cronLabel humanizes common patterns and falls back to raw', () => {
@@ -47,6 +52,8 @@ test('cronLabel falls back to raw for expressions the preset parser rejects', ()
   assert.equal(cronLabel('99 9 * * *'), '99 9 * * *');
   assert.equal(cronLabel('0 9 * 3 *'), '0 9 * 3 *');
   assert.equal(cronLabel('0 9 * * 1,3'), '0 9 * * 1,3');
+  assert.equal(cronLabel('0 24 * * *'), '0 24 * * *');
+  assert.equal(cronLabel('0 10 99 * *'), '0 10 99 * *');
 });
 
 test('scheduleLabel dispatches by schedule_type', () => {
