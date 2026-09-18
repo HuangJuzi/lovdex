@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import { Check, ChevronDown, ChevronRight, Edit3, Plus, Server, Star, Trash2, X } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
@@ -117,6 +118,9 @@ export default function SidebarProjectItem({
     : t('tooltips.projectIdle', 'Project is idle');
   const taskStatus = getTaskIndicatorStatus(project, mcpServerStatus);
 
+  // 挂在整个项目条目（项目行 + 会话区）上，用于展开后把内容滚进视野。
+  const itemRef = useRef<HTMLDivElement>(null);
+
   // Remote projects carry `remoteHostName` (joined from remote_hosts). Absence
   // means local — render nothing. The marker tooltip surfaces `host:/path`.
   const remoteHostName =
@@ -147,11 +151,22 @@ export default function SidebarProjectItem({
       onProjectSelect(project);
     }
 
+    if (!isExpanded) {
+      // 只在「本次是展开」时滚。'nearest' 保证元素已经在视口里就一动不动，
+      // 避免每次点击都跳一下。等一帧让 React 先把会话列表渲染出来。
+      requestAnimationFrame(() => {
+        itemRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      });
+    }
+
     toggleProject();
   };
 
   return (
-    <div className={cn('md:space-y-1', isDeleting && 'opacity-50 pointer-events-none')}>
+    <div
+      ref={itemRef}
+      className={cn('md:space-y-1', isDeleting && 'opacity-50 pointer-events-none')}
+    >
       {/* 项目头吸顶：sticky 的包含块是本元素的父级（:154 那个 div），而父级
    同时包含下面的 SidebarProjectSessions，所以项目头会一直粘到本项目
    会话列表结束，再被下一个项目行顶走。
