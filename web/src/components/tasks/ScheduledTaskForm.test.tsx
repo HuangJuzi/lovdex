@@ -18,7 +18,7 @@ reactDomCjs.createPortal = (children) => children;
 
 // Imported after the createPortal patch so ScheduledTaskForm's DialogContent
 // picks up the inline-rendering stub.
-const { ScheduledTaskForm, EMPTY_DRAFT } = await import('./ScheduledTaskForm');
+const { ScheduledTaskForm, EMPTY_DRAFT, canSubmitScheduledTask } = await import('./ScheduledTaskForm');
 
 void EMPTY_DRAFT;
 
@@ -67,4 +67,15 @@ test('renders deterministically with a remote option selected while availability
   // Here we assert the form still renders its remote option deterministically.
   const html = renderWithOptions([{ value: '/r/app', label: 'MyApp', remoteHostName: 'dev-01' }]);
   assert.ok(html.includes('dev-01'));
+});
+
+test('canSubmitScheduledTask: only a non-empty description may be submitted', () => {
+  assert.equal(canSubmitScheduledTask('', false), false);
+  assert.equal(canSubmitScheduledTask('   \n  ', false), false);
+  assert.equal(canSubmitScheduledTask('每天汇总提交记录', false), true);
+});
+
+test('canSubmitScheduledTask: an in-flight save blocks a second submit', () => {
+  // 取名最长阻塞 3s，这期间按钮若仍可点，双击就是两条一模一样的定时任务。
+  assert.equal(canSubmitScheduledTask('每天汇总提交记录', true), false);
 });

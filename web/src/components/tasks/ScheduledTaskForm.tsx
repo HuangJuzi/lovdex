@@ -28,6 +28,20 @@ export const EMPTY_DRAFT: ScheduledTaskDraft = {
   cronExpr: '', intervalSeconds: '3600', runAt: '',
 };
 
+/**
+ * 确认按钮的可用性判据：描述非空，且没有保存请求在途。
+ *
+ * 在途那一档不是锦上添花 —— title 留空时后端要等模型取名（阻塞窗口最长
+ * `TITLE_BLOCKING_TIMEOUT_MS` = 3s）才落库，这期间弹窗一直开着，按钮若仍可点，
+ * 双击 / Enter 连击就是两次 POST，列表里多出一条一模一样的定时任务。
+ *
+ * 只卡描述：调度字段（cron / 触发时间 / 间隔）的缺失走提交时的内联报错，与
+ * CreateTaskDialog 把可用性判据保持在单一维度上的做法一致。
+ */
+export function canSubmitScheduledTask(description: string, submitting: boolean): boolean {
+  return description.trim() !== '' && !submitting;
+}
+
 const INTERVAL_PRESETS = [
   { value: '3600', label: '每 1 小时' },
   { value: '21600', label: '每 6 小时' },
