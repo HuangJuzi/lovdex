@@ -314,3 +314,91 @@ test('update: write-back yields when the user renamed the template in the meanti
 
   assert.equal(rows.get(created.schedule_id)?.title, '用户改的名字');
 });
+
+/**
+ * 回归：前端 toApiBody 对不匹配当前调度类型的字段总是发 null（不是 undefined），
+ * 而 update 的校验曾把 null 当非法类型 → 从 UI 编辑任何定时任务都 400。
+ * 这三个用例刻意用**完整 toApiBody 形状**的 body，而不是部分字段。
+ */
+function toApiBodyShape(d: {
+  title: string; description: string; scheduleType: string;
+  cronExpr?: string; intervalSeconds?: number; runAt?: string;
+}) {
+  return {
+    title: d.title,
+    description: d.description || null,
+    projectPath: null,
+    executorProvider: 'claude',
+    priority: 'P2',
+    label: 'other',
+    autoRun: 1,
+    scheduleType: d.scheduleType,
+    cronExpr: d.scheduleType === 'cron' ? (d.cronExpr ?? '') : null,
+    intervalSeconds: d.scheduleType === 'interval' ? Number(d.intervalSeconds ?? 0) : null,
+    runAt: d.scheduleType === 'once' ? (d.runAt ? new Date(d.runAt).toISOString() : null) : null,
+  };
+}
+
+test('update: a full toApiBody-shaped body is accepted for a once schedule', async () => {
+  const { svc } = makeService('2026-08-13T12:00:00.000Z', {
+    generateTitle: async () => 'AI 取的名', titleBlockingMs: 50,
+  });
+  const created = await svc.create({
+    title: '旧名字', description: '旧描述', scheduleType: 'once', runAt: '2026-08-14T01:00:00.000Z',
+  }) as { schedule_id: string };
+  const updated = await svc.update(created.schedule_id, toApiBodyShape({
+    title: '', description: '每天汇总', scheduleType: 'once', runAt: '2026-08-14T09:00:00.000Z',
+  })) as { title: string };
+  assert.equal(updated.title, 'AI 取的名');
+});
+
+test('update: a full toApiBody-shaped body is accepted for an interval schedule', async () => {
+  const { svc } = makeService('2026-08-13T12:00:00.000Z', {
+    generateTitle: async () => 'AI 取的名', titleBlockingMs: 50,
+  });
+  const created = await svc.create({
+    title: '旧名字', description: '旧描述', scheduleType: 'once', runAt: '2026-08-14T01:00:00.000Z',
+  }) as { schedule_id: string };
+  const updated = await svc.update(created.schedule_id, toApiBodyShape({
+    title: '手填', description: '每天汇总', scheduleType: 'interval', intervalSeconds: 3600,
+  })) as { title: string };
+  assert.equal(updated.title, '手填');
+});
+
+test('update: a full toApiBody-shaped body is accepted for a cron schedule', async () => {
+  const { svc } = makeService('2026-08-13T12:00:00.000Z', {
+    generateTitle: async () => 'AI 取的名', titleBlockingMs: 50,
+  });
+  const created = await svc.create({
+    title: '旧名字', description: '旧描述', scheduleType: 'once', runAt: '2026-08-14T01:00:00.000Z',
+  }) as { schedule_id: string };
+  const updated = await svc.update(created.schedule_id, toApiBodyShape({
+    title: '手填', description: '每天汇总', scheduleType: 'cron', cronExpr: '0 9 * * *',
+  })) as { title: string };
+  assert.equal(updated.title, '手填');
+});
+
+/**
+ * 放行 null 不能把类型校验也放水：真正的错误类型（非 null）仍必须 400。
+ */
+test('update: still rejects non-null wrong types with 400', async () => {
+  const { svc } = makeService('2026-08-13T12:00:00.000Z');
+  const created = await svc.create({
+    title: '旧名字', description: '旧描述', scheduleType: 'once', runAt: '2026-08-14T01:00:00.000Z',
+  }) as { schedule_id: string };
+  await assert.rejects(
+    () => svc.update(created.schedule_id, { cronExpr: 123 }),
+    (err: unknown) => (err as { statusCode?: number }).statusCode === 400
+      && /cronExpr must be a string/.test((err as Error).message),
+  );
+  await assert.rejects(
+    () => svc.update(created.schedule_id, { intervalSeconds: 'nope' }),
+    (err: unknown) => (err as { statusCode?: number }).statusCode === 400
+ && /intervalSeconds must be a number/.test((err as Error).message),
+  );
+await assert.rejects(
+    () => svc.update(created.schedule_id, { runAt: 42 }),
+    (err: unknown) => (err as { statusCode?: number }).statusCode === 400
+      && /runAt must be a string/.test((err as Error).message),
+  );
+});

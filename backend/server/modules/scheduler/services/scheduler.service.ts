@@ -238,13 +238,14 @@ export function createSchedulerService(deps: SchedulerDeps) {
       if (updates.scheduleType !== undefined && typeof updates.scheduleType === 'string' && !isScheduleType(updates.scheduleType)) {
         throw new AppError(`invalid scheduleType: ${String(updates.scheduleType)}`, { code: 'INVALID_SCHEDULE_TYPE', statusCode: 400 });
       }
-      if (updates.cronExpr !== undefined && typeof updates.cronExpr !== 'string') {
+      // null = 清空该字段，是合法输入（前端 toApiBody 对不匹配当前调度类型的字段总是发 null）。
+      if (updates.cronExpr !== undefined && updates.cronExpr !== null && typeof updates.cronExpr !== 'string') {
         throw new AppError('cronExpr must be a string', { code: 'INVALID_SCHEDULE', statusCode: 400 });
       }
-      if (updates.intervalSeconds !== undefined && typeof updates.intervalSeconds !== 'number') {
+      if (updates.intervalSeconds !== undefined && updates.intervalSeconds !== null && typeof updates.intervalSeconds !== 'number') {
         throw new AppError('intervalSeconds must be a number', { code: 'INVALID_SCHEDULE', statusCode: 400 });
       }
-      if (updates.runAt !== undefined && typeof updates.runAt !== 'string') {
+      if (updates.runAt !== undefined && updates.runAt !== null && typeof updates.runAt !== 'string') {
         throw new AppError('runAt must be a string', { code: 'INVALID_SCHEDULE', statusCode: 400 });
       }
       // camelCase (route/frontend) → snake_case (DB), mirroring create().
