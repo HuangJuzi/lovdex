@@ -54,7 +54,11 @@ test('engine chip is disabled while availability resolves (loading)', () => {
   const html = renderWithOptions([]);
   const engineChip = /<button[^>]*aria-label="引擎"[^>]*>/.exec(html)?.[0] ?? '';
   assert.ok(engineChip.length > 0, 'engine chip must render');
-  assert.ok(engineChip.includes('disabled'));
+  // 断言 disabled 属性本身，不能用 engineChip.includes('disabled')：ChipSelect 的
+  // className 里恒有 Tailwind 的 disabled:cursor-not-allowed / disabled:opacity-50
+  // 字面量，子串匹配在启用态也成立，等于没测。renderToStaticMarkup 把该属性渲染成
+  // disabled=""（启用态则完全不渲染该属性）。
+  assert.ok(/ disabled=""/.test(engineChip), 'engine chip must be disabled while availability is loading');
 });
 
 test('renders the schedule section segmented control, defaulting to 单次', () => {
