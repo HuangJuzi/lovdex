@@ -153,6 +153,56 @@ test('单个 transcript 不可读时跳过它，其余文件仍被扫描且 runS
   });
 });
 
+test('扫描进行中 eventsIndexed 就逐文件增长，而不是全部扫完才一次性出现', async () => {
+  await withIsolatedDatabase(async () => {
+    const root = makeTempRoot();
+    // 文件足够多，保证「扫到一半」这个窗口能被观察到。
+    const fileCount = 200;
+    for (let i = 0; i < fileCount; i += 1) {
+      const index = String(i).padStart(4, '0');
+      fs.writeFileSync(
+        path.join(root, `sess-${index}.jsonl`),
+        `${claudeLine(`m-${index}`, '2026-08-18T11:00:00.000Z', 1, 1)}\n`,
+      );
+    }
+
+    const ingest = createTokenUsageIngestService({ claudeRoot: root, codexRoot: null, opencodeDbPath: null });
+
+    // 不 await：在扫描进行中轮询 getStatus()。scanClaude 每个文件都会让出事件循环
+    // （yieldToEventLoop），所以这个循环能稳定观察到中间状态。
+    const scan = ingest.runScan();
+    let settled = false;
+    void scan.then(() => {
+      settled = true;
+    });
+
+    const snapshots: { filesDone: number; filesTotal: number; eventsIndexed: number }[] = [];
+    while (!settled) {
+      const s = ingest.getStatus();
+      snapshots.push({ filesDone: s.filesDone, filesTotal: s.filesTotal, eventsIndexed: s.eventsIndexed });
+      await new Promise((resolve) => setImmediate(resolve));
+    }
+    await scan;
+
+    // 「扫到一半」= 还没处理完所有文件，但已经能看到入库数。
+    const midScan = snapshots.filter(
+      (s) => s.filesDone > 0 && s.filesDone < s.filesTotal && s.eventsIndexed > 0,
+    );
+    assert.ok(
+      midScan.length > 0,
+      `扫描途中应能看到 eventsIndexed 增长，实际快照数=${snapshots.length}，前几个=${JSON.stringify(snapshots.slice(0, 3))}`,
+    );
+
+    // 逐文件累加不能把计数加重复：任何时刻都不该超过最终值。
+    for (const s of snapshots) {
+      assert.ok(s.eventsIndexed <= fileCount, `eventsIndexed 超过总数：${s.eventsIndexed}`);
+    }
+    const final = ingest.getStatus();
+    assert.equal(final.eventsIndexed, fileCount, '结束后 eventsIndexed 应等于入库条数');
+    assert.equal(tokenUsageDb.countEvents(), fileCount);
+  });
+});
+
 test('扫描根不存在时不抛错，getStatus 反映已完成', async () => {
   await withIsolatedDatabase(async () => {
     const ingest = createTokenUsageIngestService({

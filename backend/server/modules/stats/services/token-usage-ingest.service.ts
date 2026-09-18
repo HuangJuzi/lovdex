@@ -132,14 +132,18 @@ export function createTokenUsageIngestService(overrides: Partial<TokenUsageInges
   /** 首次延迟扫描的句柄；stop() 必须能取消它，否则 stop 后还会再扫一轮。 */
   let initialScanTimer: NodeJS.Timeout | null = null;
 
-  /** Claude：按 byte offset 增量读新增的完整行。 */
-  async function scanClaude(): Promise<number> {
+  /**
+   * Claude：按 byte offset 增量读新增的完整行。
+   *
+   * 入库数**逐文件**累加进 `status.eventsIndexed`（而不是扫完一次性返回总数）：
+   * 全量回填要跑 ~30 秒，只在结束时更新会让前端整段时间都显示「已入库 0 条」。
+   */
+  async function scanClaude(): Promise<void> {
     if (!roots.claudeRoot) {
-      return 0;
+      return;
     }
     const files = await listJsonlFiles(roots.claudeRoot);
     status.filesTotal += files.length;
-    let inserted = 0;
 
     for (const file of files) {
       // 单个文件坏掉（EACCES / 列目录后被删的 ENOENT / 插入失败）不能让整轮扫描中断，
@@ -162,7 +166,7 @@ export function createTokenUsageIngestService(overrides: Partial<TokenUsageInges
             // 损坏行跳过，不影响同一文件后续行
           }
         }
-        inserted += insertInBatches(events);
+        status.eventsIndexed += insertInBatches(events);
         tokenUsageDb.setCursor('claude', file, { byteOffset: nextOffset });
       } catch (error) {
         console.error('[token-usage-ingest] claude 文件扫描失败', file, describeError(error));
@@ -171,23 +175,21 @@ export function createTokenUsageIngestService(overrides: Partial<TokenUsageInges
         await yieldToEventLoop();
       }
     }
-    return inserted;
   }
 
   /** Codex：文件极小，每次全量重扫 + 差分，靠 dedupe_key 幂等。 */
-  async function scanCodex(): Promise<number> {
+  async function scanCodex(): Promise<void> {
     if (!roots.codexRoot) {
-      return 0;
+      return;
     }
     const files = await listJsonlFiles(roots.codexRoot);
     status.filesTotal += files.length;
-    let inserted = 0;
 
     for (const file of files) {
       // 与 scanClaude 同理：坏文件跳过，不中断整轮扫描。
       try {
         const text = await fsp.readFile(file, 'utf8');
-        inserted += insertInBatches(parseCodexFile(text, file));
+        status.eventsIndexed += insertInBatches(parseCodexFile(text, file));
       } catch (error) {
         console.error('[token-usage-ingest] codex 文件扫描失败', file, describeError(error));
       } finally {
@@ -195,7 +197,6 @@ export function createTokenUsageIngestService(overrides: Partial<TokenUsageInges
         await yieldToEventLoop();
       }
     }
-    return inserted;
   }
 
   /**
@@ -204,22 +205,21 @@ export function createTokenUsageIngestService(overrides: Partial<TokenUsageInges
    * 该库是 WAL 模式且被 provider 进程同时写入，因此用普通连接（只读连接在 WAL 下
    * 需要写 -shm，会直接报错）并设置 busy_timeout。
    */
-  async function scanOpencode(): Promise<number> {
+  async function scanOpencode(): Promise<void> {
     const dbPath = roots.opencodeDbPath;
     if (!dbPath || !fs.existsSync(dbPath)) {
-      return 0;
+      return;
     }
     const cursor = tokenUsageDb.getCursor('opencode', dbPath);
     let db: Database.Database;
     try {
       db = new Database(dbPath);
     } catch {
-      return 0;
+      return;
     }
 
     // 该来源计入进度：否则 filesDone 会一直低于 filesTotal，进度条到不了 100%。
     status.filesTotal += 1;
-    let inserted = 0;
     try {
       db.pragma('busy_timeout = 2000');
       const rows = db
@@ -247,7 +247,7 @@ export function createTokenUsageIngestService(overrides: Partial<TokenUsageInges
           maxTs = Math.max(maxTs, event.tsMs);
         }
       }
-      inserted = insertInBatches(events);
+      status.eventsIndexed += insertInBatches(events);
       tokenUsageDb.setCursor('opencode', dbPath, { lastTsMs: maxTs });
     } catch {
       // provider 正在写入或表结构变化：本轮跳过，不影响其他来源
@@ -255,7 +255,6 @@ export function createTokenUsageIngestService(overrides: Partial<TokenUsageInges
       db.close();
       status.filesDone += 1;
     }
-    return inserted;
   }
 
   /**
@@ -275,9 +274,11 @@ export function createTokenUsageIngestService(overrides: Partial<TokenUsageInges
     status.eventsIndexed = 0;
     status.startedAt = new Date().toISOString();
     try {
-      status.eventsIndexed += await scanClaude();
-      status.eventsIndexed += await scanCodex();
-      status.eventsIndexed += await scanOpencode();
+      // 三个 scan 各自把入库数累加进 status.eventsIndexed（逐文件/逐来源），
+      // 这里**不能**再 += 它们的返回值，否则计数翻倍。
+      await scanClaude();
+      await scanCodex();
+      await scanOpencode();
     } catch (error) {
       // 兜底：各 scan 内部已逐文件/逐来源吞掉异常，这里只防御意料之外的失败
       // （例如 getCursor 抛错）。已累计的进度保留，下一轮自动重试。
