@@ -23,11 +23,21 @@ export const LABEL_KEYS: Record<PermissionMode, PermissionModeLabelKeys> = {
 };
 
 /**
- * The composer's `permissionMode` prop is typed `PermissionMode | string` — it can
- * hold a value restored from localStorage before provider capabilities load — so
- * unknown input is an expected path, not an error path. Falling back to `default`
- * guarantees the button always renders a readable label; the previous inline
- * `{mode === 'x' && t(…)}` chain rendered nothing at all for unknown values.
+ * The composer's `permissionMode` prop is typed `PermissionMode | string`, so
+ * unknown input is an expected path, not an error path. The genuinely unvalidated
+ * source is the provider capability matrix: `getPermissionModesForProvider` in
+ * `useChatProviderState.ts` casts the backend's `permissionModes: string[]` straight
+ * to `PermissionMode[]` (`return capabilityModes as PermissionMode[]`), and
+ * `cyclePermissionMode` feeds those values into `setPermissionMode` unchanged.
+ *
+ * (The localStorage restore path, by contrast, *is* validated — it filters saved
+ * modes through `validModes.includes(mode)` before restoring. So this fallback is
+ * not dead code; do not delete it on the assumption that localStorage is the only
+ * way a stray string can arrive.)
+ *
+ * Falling back to `default` guarantees the button always renders a readable label;
+ * the previous inline `{mode === 'x' && t(…)}` chain rendered nothing at all for
+ * unknown values.
  */
 export function getPermissionModeLabelKeys(mode: PermissionMode | string): PermissionModeLabelKeys {
   return LABEL_KEYS[mode as PermissionMode] ?? LABEL_KEYS.default;

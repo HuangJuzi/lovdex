@@ -1,30 +1,35 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { LABEL_KEYS, getPermissionModeLabelKeys } from './permissionModeLabels';
 import type { PermissionMode } from '../../types/types';
 
-// 与 PermissionMode 联合类型保持同步的运行时清单。
-// 注意：真正拦住「往联合类型里加了 mode 却忘了补标签」的是 permissionModeLabels.ts
-// 里那个 Record<PermissionMode, …> —— 少一个键 typecheck 就红。本清单只保证
-// 这份测试自己不会漏测。
+import { LABEL_KEYS, getPermissionModeLabelKeys } from './permissionModeLabels';
+import type { PermissionModeLabelKeys } from './permissionModeLabels';
+
+// The expected table is spelled out here on purpose: this test is what pins
+// each mode to its OWN keys. Prefix/shape/distinctness assertions all pass even
+// if two modes' keys are swapped, so they are not a substitute for this.
+//
+// The runtime list below cannot catch a newly added mode on its own; the real
+// guard is the `Record<PermissionMode, …>` in permissionModeLabels.ts — adding a
+// mode to the union without adding a label turns typecheck red.
 const ALL_MODES: PermissionMode[] = ['default', 'auto', 'acceptEdits', 'bypassPermissions', 'plan'];
 
-test('every permission mode maps to a short key and a full key', () => {
-  for (const mode of ALL_MODES) {
-    const { shortKey, fullKey } = getPermissionModeLabelKeys(mode);
-    assert.match(shortKey, /^codex\.modesShort\./, `${mode} shortKey`);
-    assert.match(fullKey, /^codex\.modes\./, `${mode} fullKey`);
-  }
-});
+const EXPECTED: Record<PermissionMode, PermissionModeLabelKeys> = {
+  default: { shortKey: 'codex.modesShort.default', fullKey: 'codex.modes.default' },
+  auto: { shortKey: 'codex.modesShort.auto', fullKey: 'codex.modes.auto' },
+  acceptEdits: { shortKey: 'codex.modesShort.acceptEdits', fullKey: 'codex.modes.acceptEdits' },
+  bypassPermissions: {
+    shortKey: 'codex.modesShort.bypassPermissions',
+    fullKey: 'codex.modes.bypassPermissions',
+  },
+  plan: { shortKey: 'codex.modesShort.plan', fullKey: 'codex.modes.plan' },
+};
 
-test('short keys are distinct from each other and from the full keys', () => {
-  const shorts = ALL_MODES.map((m) => getPermissionModeLabelKeys(m).shortKey);
-  assert.equal(new Set(shorts).size, ALL_MODES.length, 'short keys must not collide');
-
+test('maps each permission mode to its own i18n keys', () => {
+  assert.deepEqual(LABEL_KEYS, EXPECTED);
   for (const mode of ALL_MODES) {
-    const { shortKey, fullKey } = getPermissionModeLabelKeys(mode);
-    assert.notEqual(shortKey, fullKey, `${mode} short/full must differ`);
+    assert.deepEqual(getPermissionModeLabelKeys(mode), EXPECTED[mode], `${mode} label keys`);
   }
 });
 
@@ -32,8 +37,4 @@ test('unknown values fall back to default instead of throwing or returning undef
   assert.deepEqual(getPermissionModeLabelKeys('garbage'), LABEL_KEYS.default);
   assert.deepEqual(getPermissionModeLabelKeys(''), LABEL_KEYS.default);
   // 组件 prop 的类型是 PermissionMode | string，所以未知值不是异常路径而是常态。
-});
-
-test('LABEL_KEYS covers exactly the modes listed above', () => {
-  assert.deepEqual(Object.keys(LABEL_KEYS).sort(), [...ALL_MODES].sort());
 });
