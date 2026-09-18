@@ -17,6 +17,7 @@ import {
   readLegacyStarredProjectIds,
   readStoredExpandedProjects,
   sortProjects,
+  toggleExpandedProject,
   writeStoredExpandedProjects,
 } from '../utils/utils';
 
@@ -350,14 +351,12 @@ export function useSidebarController({
 
   // All sidebar state keys (expanded, starred, loading, etc.) use the DB
   // `projectId` as their identifier after the migration.
+  //
+  // Expansion is additive: opening one project no longer collapses the others.
+  // The persisted shape (a string array) already supports multiple ids, so
+  // `readStoredExpandedProjects` / `writeStoredExpandedProjects` are unchanged.
   const toggleProject = useCallback((projectId: string) => {
-    setExpandedProjects((prev) => {
-      const next = new Set<string>();
-      if (!prev.has(projectId)) {
-        next.add(projectId);
-      }
-      return next;
-    });
+    setExpandedProjects((prev) => toggleExpandedProject(prev, projectId));
   }, []);
 
   const handleSessionClick = useCallback(
