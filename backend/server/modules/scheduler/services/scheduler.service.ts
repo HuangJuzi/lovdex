@@ -1,6 +1,7 @@
 import { Cron } from 'croner';
 
 import { isScheduleType } from '@/modules/database/repositories/scheduled-tasks.db.js';
+import { resolveGeneratedTitle } from '@/modules/tasks/services/task-title.js';
 import type { TasksService } from '@/modules/tasks/services/tasks.service.js';
 import { AppError } from '@/shared/utils.js';
 import type { ScheduledTaskRow, TaskEngine } from '@/shared/types.js';
@@ -13,6 +14,10 @@ export type SchedulerDeps = {
   startTaskRun: (taskId: string, sessionId: string) => boolean;
   broadcast: (event: { kind: string; [k: string]: unknown }) => void;
   now?: () => Date;
+  /** 模板标题留空时用 LLM 从描述取名；与 tasksService 同一个契约。 */
+  generateTitle?: (input: { description: string | null }) => Promise<string | null>;
+  /** 单测注入口；生产走 TITLE_BLOCKING_TIMEOUT_MS（3s）。 */
+  titleBlockingMs?: number;
 };
 
 /**
@@ -66,11 +71,39 @@ export function createSchedulerService(deps: SchedulerDeps) {
   let timer: ReturnType<typeof setInterval> | null = null;
   let ticking = false;
 
+  /**
+   * Background write-back for a template title that arrived after the blocking
+   * window.
+   *
+   * CAS on the placeholder we actually wrote: if the user renamed the template
+   * while the model was thinking — or deleted it — the generated title yields.
+   * Broadcasts a second `scheduled_task_upserted` so an open list picks the new
+   * name up live.
+   *
+   * Never throws: this runs detached from create/update, and a DB hiccup here
+   * must not surface as an unhandled rejection.
+   */
+  function applyGeneratedTitle(scheduleId: string, generated: string | null, placeholderTitle: string): void {
+    try {
+      if (!generated) return;
+      const current = deps.scheduledTasksDb.getScheduledTask(scheduleId);
+      if (!current || current.title !== placeholderTitle) return;
+      const updated = deps.scheduledTasksDb.updateScheduledTask(scheduleId, { title: generated });
+      if (!updated) return;
+      deps.broadcast({ kind: 'scheduled_task_upserted', scheduledTask: updated, timestamp: now().toISOString() });
+    } catch (error) {
+      console.error('[scheduler] title write-back failed', {
+        scheduleId,
+        error: error instanceof Error ? error.message : error,
+      });
+    }
+  }
+
   async function dispatch(schedule: ScheduledTaskRow): Promise<void> {
     const projectPath = schedule.project_path ?? deps.scheduledTasksDb.operatorWorkspacePath;
-    // createTask awaits the title generator when the template title is blank
-    // (task-title), so this can block for up to the blocking window. A schedule
-    // with a real title — the normal case — resolves without touching the model.
+    // The template title is resolved and persisted at save time (task-title), so
+    // this normally does not touch the model. A legacy row with a blank title
+    // still falls back to createTask's own resolution.
     const task = await deps.tasksService.createTask({
       projectPath,
       title: schedule.title,
@@ -167,11 +200,19 @@ export function createSchedulerService(deps: SchedulerDeps) {
     get(scheduleId: string): unknown {
       return deps.scheduledTasksDb.getScheduledTask(scheduleId);
     },
-    create(input: Record<string, unknown>): unknown {
+    async create(input: Record<string, unknown>): Promise<unknown> {
       validateScheduleInput(input);
-      const row = deps.scheduledTasksDb.createScheduledTask({
+      const description = typeof input.description === 'string' ? input.description : null;
+        // 解析放在校验之后：会 400 的请求不该花阻塞窗口（同 tasks.service）。
+      const { title, writeBack } = await resolveGeneratedTitle({
         title: String(input.title ?? ''),
-        description: typeof input.description === 'string' ? input.description : null,
+        description,
+        generateTitle: deps.generateTitle,
+        blockingMs: deps.titleBlockingMs,
+      });
+      const row = deps.scheduledTasksDb.createScheduledTask({
+        title,
+        description,
         projectPath: typeof input.projectPath === 'string' && input.projectPath ? input.projectPath : null,
         executorProvider: typeof input.executorProvider === 'string' ? input.executorProvider : undefined,
         executorModel: typeof input.executorModel === 'string' ? input.executorModel : null,
@@ -186,6 +227,9 @@ export function createSchedulerService(deps: SchedulerDeps) {
         nextRunAt: initialNextRun(input as never, now()),
       });
       deps.broadcast({ kind: 'scheduled_task_upserted', scheduledTask: row, timestamp: now().toISOString() });
+      if (writeBack) {
+        void writeBack.then((generated) => applyGeneratedTitle(row.schedule_id, generated, title));
+      }
       return row;
     },
     update(scheduleId: string, updates: Record<string, unknown>): unknown {
