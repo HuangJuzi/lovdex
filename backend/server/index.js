@@ -467,6 +467,16 @@ const broadcastTask = (event) => {
         if (client.readyState === WS_OPEN_STATE) client.send(JSON.stringify(event));
     });
 };
+// 标题为空时用 LLM（默认 DeepSeek Flash，可在 Operator 设置里换）从 description
+// 提炼一个短名。走与任务上下文压缩同一条 headless 一次性调用路径；失败/超时一律
+// 返回 null，调用方据此降级到需求首行兜底 —— 取名失败绝不能导致建任务/存定时任务
+// 报错。tasksService 与 schedulerService 共用同一份。
+const generateTitle = ({ description }) =>
+    requestTaskTitle({
+        description,
+        runOneShot: runOneShotClaudeText,
+        model: getAppConfig().get().oneshot.titleModel,
+    });
 const tasksService = createTasksService(tasksDb, {
     broadcast: broadcastTask,
     deps: {
@@ -476,16 +486,7 @@ const tasksService = createTasksService(tasksDb, {
         // still streaming (same guard as session transfer) — removing a live
         // agent's transcript mid-write would corrupt history.
         isSessionRunning: (sessionId) => chatRunRegistry.listRunningRuns().some((run) => run.sessionId === sessionId),
-        // 新建任务标题为空时用 LLM（默认 DeepSeek Flash，可在 Operator 设置里换）
-        // 从 description 提炼一个短名。走与任务上下文压缩同一条 headless
-        // 一次性调用路径；失败/超时一律返回 null，createTask 据此降级到需求
-        // 首行兜底 —— 取名失败绝不能导致建任务报错。
-        generateTitle: ({ description }) =>
-            requestTaskTitle({
-                description,
-                runOneShot: runOneShotClaudeText,
-                model: getAppConfig().get().oneshot.titleModel,
-            }),
+        generateTitle,
     },
     // Reconstruct the board's "等你批准" overlay on load/reconnect by reading
     // which sessions currently have pending tool approvals from the run registry.
@@ -587,6 +588,7 @@ const schedulerService = createSchedulerService({
     createSession: createAppSession,
     startTaskRun,
     broadcast: broadcastTask,
+    generateTitle,
 });
 
 // Session-transfer primitive for the operator tool set: moves a task + its
