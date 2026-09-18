@@ -18,7 +18,7 @@ reactDomCjs.createPortal = (children) => children;
 
 // Imported after the createPortal patch so ScheduledTaskForm's DialogContent
 // picks up the inline-rendering stub.
-const { ScheduledTaskForm, EMPTY_DRAFT, canSubmitScheduledTask, toApiBody, toProjectChipOptions } = await import('./ScheduledTaskForm');
+const { ScheduledTaskForm, EMPTY_DRAFT, canSubmitScheduledTask, switchCronMode, toApiBody, toProjectChipOptions } = await import('./ScheduledTaskForm');
 const { ASSISTANT_OPTION_VALUE } = await import('./projectOptions');
 
 void EMPTY_DRAFT;
@@ -156,6 +156,37 @@ test('an unrecognised cron expression falls back to custom mode with the raw box
   const raw = /<input[^>]*aria-label="cron 表达式"[^>]*>/.exec(html)?.[0] ?? '';
   assert.ok(raw.length > 0, 'custom mode must render the raw expression box');
   assert.ok(raw.includes('value="0 9,17 * * *"'), 'the raw expression must be preserved verbatim');
+});
+
+test('the weekly and monthly modes render their extra chip', () => {
+  const weekly = renderWithOptions([], mkScheduledTask({ schedule_type: 'cron', cron_expr: '30 6 * * 0', interval_seconds: null }));
+  assert.ok(/<button[^>]*aria-label="星期"[^>]*>/.test(weekly), 'weekly must render the weekday chip');
+  assert.ok(weekly.includes('每周'), 'the mode chip must show 每周');
+
+  const monthly = renderWithOptions([], mkScheduledTask({ schedule_type: 'cron', cron_expr: '0 10 15 * *', interval_seconds: null }));
+  assert.ok(/<button[^>]*aria-label="日期"[^>]*>/.test(monthly), 'monthly must render the day-of-month chip');
+  assert.ok(monthly.includes('每月'), 'the mode chip must show 每月');
+});
+
+test('the custom mode does not render the preset time box', () => {
+  const html = renderWithOptions([], mkScheduledTask({ schedule_type: 'cron', cron_expr: '0 9,17 * * *', interval_seconds: null }));
+  assert.ok(/<input[^>]*aria-label="cron 表达式"[^>]*>/.test(html), 'the raw box must render');
+  assert.ok(!/<input[^>]*aria-label="触发时间"[^>]*>/.test(html), 'the preset time box must NOT render in custom mode');
+});
+
+test('switchCronMode: switching to custom seeds the raw box with the effective expression', () => {
+  // 新建任务时 cronExpr 是空串，不播种的话用户刚选好的「每天 10:00」会凭空消失。
+  const presetDraft = { ...EMPTY_DRAFT, scheduleType: 'cron' as const, cronMode: 'daily' as const, cronTime: '10:00' };
+  assert.equal(switchCronMode(presetDraft, 'custom').cronExpr, '0 10 * * *');
+
+  // 播种只发生在切到自定义那一刻：已经在自定义里的内容不受影响，
+  // 逐字敲到一半的中间态不会被 clobber（那正是计划里担心的场景）。
+  const customDraft = { ...EMPTY_DRAFT, cronMode: 'custom' as const, cronExpr: '0 9,17 * * *' };
+  assert.equal(switchCronMode(customDraft, 'custom').cronExpr, '0 9,17 * * *');
+
+  // 反向切换（自定义 → preset）不动 cronExpr，回来时用户敲的内容还在。
+  assert.equal(switchCronMode(customDraft, 'daily').cronExpr, '0 9,17 * * *');
+  assert.equal(switchCronMode(customDraft, 'daily').cronMode, 'daily');
 });
 
 test('toApiBody: the interval seconds are amount × unit', () => {

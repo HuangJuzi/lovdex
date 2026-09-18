@@ -39,6 +39,9 @@ export type ScheduledTaskDraft = {
   autoRun: boolean;
   scheduleType: ScheduledTaskScheduleType;
   cronExpr: string;
+  // cronExpr 只承载「自定义」模式；其余模式由 cronMode + 下面三个参数拼出
+  // （见 utils/cronPreset.ts 的 resolveCronExpr）。这样改时间/星期时表达式是算出来的，
+  // 不需要回写，也就不存在双源同步。
   cronMode: CronMode;
   cronTime: string;
   cronDow: string;
@@ -171,6 +174,20 @@ function toDraft(initial?: ScheduledTask | null): ScheduledTaskDraft {
   };
 }
 
+/**
+ * 切换 cron 模式。切到「自定义」的那一刻用当前生效的表达式播种 —— 新建任务时
+ * `cronExpr` 是空串，不播种的话用户刚在 preset 里选好的「每天 10:00」会凭空消失，
+ * 只剩一个空框。
+ *
+ * 只在模式切换这个显式动作里播种一次，之后用户在裸输入框里逐字敲的内容不会再被
+ * 回写覆盖（那正是计划里担心的 clobber）。抽成纯函数是为了能在无 DOM 环境下直接
+ * 断言（同 toProjectChipOptions）。
+ */
+export function switchCronMode(d: ScheduledTaskDraft, mode: CronMode): ScheduledTaskDraft {
+  if (mode === 'custom') return { ...d, cronMode: mode, cronExpr: resolveCronExpr(d) };
+  return { ...d, cronMode: mode };
+}
+
 /** 名称芯片：空名时虚线边框 + 文案「名称」，点开是个普通输入框。 */
 function NameChip({ value, onChange, isMobile }: { value: string; onChange: (v: string) => void; isMobile: boolean }) {
   const [open, setOpen] = useState(false);
@@ -261,7 +278,8 @@ export function ScheduledTaskForm({
       return;
     }
     if (draft.scheduleType === 'cron' && !resolveCronExpr(draft).trim()) {
-      setLocalError('请填写 cron 表达式');
+      // preset 模式下用户眼前是时间控件，没有「表达式」可填，文案得跟着模式走。
+      setLocalError(draft.cronMode === 'custom' ? '请填写 cron 表达式' : '请选择触发时间');
       return;
     }
     if (draft.scheduleType === 'once' && !draft.runAt) {
@@ -429,7 +447,7 @@ export function ScheduledTaskForm({
                     options={CRON_MODES}
                     value={draft.cronMode}
                     isMobile={isMobile}
-                    onChange={(v) => set('cronMode', v as CronMode)}
+                    onChange={(v) => setDraft((d) => switchCronMode(d, v as CronMode))}
                   />
                   {draft.cronMode === 'custom' ? (
                     <Input
