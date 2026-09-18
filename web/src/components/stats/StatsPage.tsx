@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 
 import type { Project } from '../../types/app';
 import { api } from '../../utils/api';
+import { HomeButton } from '../tasks/TaskBackNav';
 import { projectPathOf, taskFormProjects } from '../tasks/projectOptions';
 
 import { DIMENSIONS, METRICS, TIME_RANGES, type TokenDimension, type TokenMetric } from './format';
@@ -75,9 +76,12 @@ export function StatsPage() {
   const allModels = timeseries?.models ?? [];
 
   return (
-    <div className="flex h-full flex-col overflow-y-auto bg-background p-4">
-      <header className="mb-4 flex flex-wrap items-center gap-3">
-        <h1 className="text-base font-medium">Token 统计</h1>
+    // 外壳与 TaskBoard / SettingsPage 对齐：整页不滚，只有内容区滚。
+    // `/stats` 是 `AppContent` 的兄弟路由，不渲染侧边栏，所以返回入口必须在这里。
+    <div className="flex h-dvh flex-col bg-background">
+      <header className="pwa-header-safe flex flex-shrink-0 flex-wrap items-center gap-2 border-b border-border/60 bg-background px-3 py-1.5 sm:px-4 sm:py-2">
+        <HomeButton />
+        <h1 className="ml-2 text-sm font-semibold text-foreground">Token 统计</h1>
 
         <select
           value={projectPath}
@@ -169,17 +173,20 @@ export function StatsPage() {
         {loading && !timeseries && <span className="text-xs text-muted-foreground">加载中…</span>}
       </header>
 
-      {/* 卡片网格：后续统计卡片直接往这里加 */}
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-        <div className="xl:col-span-2">
-          <TpmChartCard
-            timeseries={timeseries}
-            ingest={timeseries?.ingest ?? null}
-            metric={metric}
-            dimension={dimension}
-          />
+      {/* 内容区独立滚动：外层 h-dvh 不滚，长表格/多卡片时整页不跟着滚 */}
+      <div className="min-h-0 flex-1 overflow-y-auto p-4">
+        {/* 卡片网格：后续统计卡片直接往这里加 */}
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+          <div className="xl:col-span-2">
+            <TpmChartCard
+              timeseries={timeseries}
+              ingest={timeseries?.ingest ?? null}
+              metric={metric}
+              dimension={dimension}
+            />
+          </div>
+          <ModelRankCard summary={summary} metric={metric} dimension={dimension} />
         </div>
-        <ModelRankCard summary={summary} metric={metric} dimension={dimension} />
       </div>
     </div>
   );
