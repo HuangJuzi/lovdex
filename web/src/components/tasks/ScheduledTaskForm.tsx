@@ -1,12 +1,16 @@
-import { useEffect, useState } from 'react';
-import type { ScheduledTask, ScheduledTaskScheduleType, TaskEngine, TaskLabel, TaskPriority } from '../../types/app';
+import { useEffect, useRef, useState } from 'react';
+import { ArrowUp, Loader2 } from 'lucide-react';
 
+import type { ScheduledTask, ScheduledTaskScheduleType, TaskEngine, TaskLabel, TaskPriority } from '../../types/app';
+import { useDeviceSettings } from '../../hooks/useDeviceSettings';
+import { cn } from '../../lib/utils';
 import { Button, Dialog, DialogContent, DialogTitle, Input } from '../../shared/view/ui';
+import { AnchorPopover } from './AnchorPopover';
+import { ChipSelect, type ChipSelectOption } from './ChipSelect';
 import { ASSISTANT_OPTION_VALUE } from './projectOptions';
 import { LABEL_META, LABEL_ORDER, PRIORITY_META, PRIORITY_ORDER } from './taskStatus';
 import type { TaskProjectOption } from './TaskCard';
-import { useTaskEngineAvailability } from './useTaskEngineAvailability';
-import { TaskEngineSelect } from './TaskEngineSelect';
+import { ENGINE_NAMES, useTaskEngineAvailability } from './useTaskEngineAvailability';
 
 export type ScheduledTaskDraft = {
   title: string;
@@ -23,9 +27,17 @@ export type ScheduledTaskDraft = {
 };
 
 export const EMPTY_DRAFT: ScheduledTaskDraft = {
-  title: '', description: '', projectPath: ASSISTANT_OPTION_VALUE, executorProvider: 'claude',
-  priority: 'P2', label: 'other', autoRun: true, scheduleType: 'once',
-  cronExpr: '', intervalSeconds: '3600', runAt: '',
+  title: '',
+  description: '',
+  projectPath: ASSISTANT_OPTION_VALUE,
+  executorProvider: 'claude',
+  priority: 'P2',
+  label: 'other',
+  autoRun: true,
+  scheduleType: 'once',
+  cronExpr: '',
+  intervalSeconds: '3600',
+  runAt: '',
 };
 
 /**
@@ -72,6 +84,24 @@ const INTERVAL_PRESETS = [
   { value: '604800', label: '每周' },
 ];
 
+const SCHEDULE_TYPES: { value: ScheduledTaskScheduleType; label: string }[] = [
+  { value: 'once', label: '单次' },
+  { value: 'interval', label: '间隔' },
+  { value: 'cron', label: 'Cron' },
+];
+
+/**
+ * 项目 chip 的选项：远端项目把主机名挂在弹层行的右侧（同 CreateTaskDialog）。
+ * 抽成纯函数是为了能在无 DOM 环境下直接断言。
+ */
+export function toProjectChipOptions(projectOptions: TaskProjectOption[]): ChipSelectOption[] {
+  return projectOptions.map((o) => ({
+    value: o.value,
+    label: o.label,
+    hint: o.remoteHostName ?? undefined,
+  }));
+}
+
 function toLocalDateTimeInput(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
@@ -97,6 +127,42 @@ function toDraft(initial?: ScheduledTask | null): ScheduledTaskDraft {
   };
 }
 
+/** 名称芯片：空名时虚线边框 + 文案「名称」，点开是个普通输入框。 */
+function NameChip({ value, onChange, isMobile }: { value: string; onChange: (v: string) => void; isMobile: boolean }) {
+  const [open, setOpen] = useState(false);
+  const anchorRef = useRef<HTMLButtonElement | null>(null);
+  return (
+    <>
+      <button
+        ref={anchorRef}
+        type="button"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-label="名称"
+        onClick={() => setOpen((v) => !v)}
+        className={cn(
+          'flex h-9 items-center gap-1 rounded-full border bg-card px-3 text-sm transition-colors',
+          'hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50',
+          value.trim() ? 'border-border/80 text-foreground' : 'border-dashed border-border text-muted-foreground',
+        )}
+      >
+        <span className="max-w-[190px] truncate">{value.trim() || '名称'}</span>
+      </button>
+      <AnchorPopover open={open} onOpenChange={setOpen} anchorRef={anchorRef} isMobile={isMobile} ariaLabel="名称">
+        <div className="flex flex-col gap-1 p-1">
+          <span className="text-xs font-medium text-muted-foreground">名称</span>
+          <Input
+            className="h-9 w-full"
+            placeholder="留空则由 AI 从描述生成"
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+          />
+        </div>
+      </AnchorPopover>
+    </>
+  );
+}
+
 export type ScheduledTaskFormProps = {
   open: boolean;
   initial?: ScheduledTask | null;
@@ -107,9 +173,18 @@ export type ScheduledTaskFormProps = {
   onSubmit: (draft: ScheduledTaskDraft) => void;
 };
 
-export function ScheduledTaskForm({ open, initial, projectOptions, submitting, error, onClose, onSubmit }: ScheduledTaskFormProps) {
+export function ScheduledTaskForm({
+  open,
+  initial,
+  projectOptions,
+  submitting,
+  error,
+  onClose,
+  onSubmit,
+}: ScheduledTaskFormProps) {
   const [draft, setDraft] = useState<ScheduledTaskDraft>(() => toDraft(initial));
   const [localError, setLocalError] = useState<string | null>(null);
+  const { isMobile } = useDeviceSettings({ mobileBreakpoint: 640 });
 
   const set = <K extends keyof ScheduledTaskDraft>(key: K, value: ScheduledTaskDraft[K]) =>
     setDraft((d) => ({ ...d, [key]: value }));
@@ -137,96 +212,195 @@ export function ScheduledTaskForm({ open, initial, projectOptions, submitting, e
       setLocalError(engineAvailability.hint);
       return;
     }
-    if (!draft.title.trim()) { setLocalError('标题不能为空'); return; }
-    if (draft.scheduleType === 'cron' && !draft.cronExpr.trim()) { setLocalError('请填写 cron 表达式'); return; }
-    if (draft.scheduleType === 'once' && !draft.runAt) { setLocalError('请选择触发时间'); return; }
-    if (draft.scheduleType === 'interval' && !(Number(draft.intervalSeconds) > 0)) { setLocalError('间隔必须大于 0 秒'); return; }
+    if (!draft.description.trim()) {
+      setLocalError('请先描述这个定时任务要做什么');
+      return;
+    }
+    if (draft.scheduleType === 'cron' && !draft.cronExpr.trim()) {
+      setLocalError('请填写 cron 表达式');
+      return;
+    }
+    if (draft.scheduleType === 'once' && !draft.runAt) {
+      setLocalError('请选择触发时间');
+      return;
+    }
+    if (draft.scheduleType === 'interval' && !(Number(draft.intervalSeconds) > 0)) {
+      setLocalError('间隔必须大于 0 秒');
+      return;
+    }
     onSubmit(draft);
   };
 
-  const fieldCls = 'h-9 w-full rounded-md border border-border bg-muted px-2 py-1.5 text-sm text-foreground';
+  const engineOptions: ChipSelectOption[] =
+    engineAvailability.status === 'ready'
+      ? engineAvailability.options.map((e) => ({ value: e, label: ENGINE_NAMES[e] }))
+      : // 非 ready 时保留一项，芯片才显示得出当前引擎的中文名而不是裸的「引擎」二字。
+        [{ value: draft.executorProvider, label: ENGINE_NAMES[draft.executorProvider] }];
+  const engineHint = 'hint' in engineAvailability ? engineAvailability.hint : undefined;
+  const priorityOptions: ChipSelectOption[] = PRIORITY_ORDER.map((p) => ({ value: p, label: PRIORITY_META[p].label }));
+  const labelOptions: ChipSelectOption[] = LABEL_ORDER.map((l) => ({ value: l, label: LABEL_META[l].label }));
+  const intervalOptions: ChipSelectOption[] = INTERVAL_PRESETS.some((p) => p.value === draft.intervalSeconds)
+    ? INTERVAL_PRESETS.map((p) => ({ value: p.value, label: p.label }))
+    : // 库里存着的自定义间隔不在预设里，补一项进去，免得芯片显示成别的预设值。
+      [
+        { value: draft.intervalSeconds, label: `每 ${draft.intervalSeconds} 秒` },
+        ...INTERVAL_PRESETS.map((p) => ({ value: p.value, label: p.label })),
+      ];
+  const projectChipOptions = toProjectChipOptions(projectOptions);
+  const canSubmit = canSubmitScheduledTask(draft.description, submitting);
 
   return (
-    <Dialog open={open} onOpenChange={(o) => { if (!o && !submitting) onClose(); }}>
-      <DialogContent className="max-h-[85vh] w-full max-w-lg overflow-y-auto">
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        if (!o && !submitting) onClose();
+      }}
+    >
+      <DialogContent className="max-h-[85vh] w-full sm:max-w-[66.7vw] overflow-y-auto">
         <DialogTitle>{initial ? '编辑定时任务' : '新建定时任务'}</DialogTitle>
-        <div className="flex flex-col gap-3 p-5">
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-muted-foreground">标题</label>
-            <Input className="h-9 w-full" placeholder="触发时创建的任务标题" value={draft.title} onChange={(e) => set('title', e.target.value)} autoFocus />
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-muted-foreground">描述</label>
-            <Input className="h-9 w-full" placeholder="触发时创建的任务内容，可选" value={draft.description} onChange={(e) => set('description', e.target.value)} />
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-muted-foreground">项目</label>
-            <select className={fieldCls} value={draft.projectPath} onChange={(e) => set('projectPath', e.target.value)}>
-              <option value={ASSISTANT_OPTION_VALUE}>🤖 Lovdex助手</option>
-              {projectOptions.map((o) => (
-                <option key={o.value} value={o.value} title={o.remoteHostName ? `${o.remoteHostName}:${o.value}` : o.value}>
-                  {o.remoteHostName ? `🌐 ${o.remoteHostName} · ${o.label}` : o.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-muted-foreground">执行引擎</label>
-            <TaskEngineSelect
-              availability={engineAvailability}
-              value={engineAvailability.status === 'unavailable' ? '' : draft.executorProvider}
-              onChange={(engine) => set('executorProvider', engine)}
-              className={fieldCls}
+        <div className="border-b border-border px-5 py-3">
+          <h2 className="text-sm font-semibold text-foreground">{initial ? '编辑定时任务' : '新建定时任务'}</h2>
+          <p className="text-xs text-muted-foreground">说清楚要做什么就行，其余都可以之后再补</p>
+        </div>
+
+        <div className="p-5">
+          <div className="rounded-2xl border border-border/80 transition-colors focus-within:border-primary/60 focus-within:ring-2 focus-within:ring-ring/50">
+            <textarea
+              autoFocus
+              className="min-h-[180px] w-full resize-y rounded-t-2xl border-0 bg-transparent px-4 py-3 text-base leading-relaxed text-foreground placeholder:text-muted-foreground/60 focus:outline-none sm:min-h-[240px]"
+              placeholder="说清楚要做什么就行，名称留空会自动生成"
+              value={draft.description}
+              onChange={(e) => set('description', e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  submit();
+                }
+              }}
             />
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-muted-foreground">优先级</label>
-            <select className={fieldCls} value={draft.priority} onChange={(e) => set('priority', e.target.value as TaskPriority)}>
-              {PRIORITY_ORDER.map((p) => <option key={p} value={p}>{PRIORITY_META[p].label}</option>)}
-            </select>
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-muted-foreground">Label</label>
-            <select className={fieldCls} value={draft.label} onChange={(e) => set('label', e.target.value as TaskLabel)}>
-              {LABEL_ORDER.map((l) => <option key={l} value={l}>{LABEL_META[l].label}</option>)}
-            </select>
-          </div>
-          <label className="flex items-center gap-2 text-sm text-foreground">
-            <input type="checkbox" checked={draft.autoRun} onChange={(e) => set('autoRun', e.target.checked)} />
-            自动执行（关闭则仅生成提醒任务）
-          </label>
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium text-muted-foreground">调度类型</label>
-            <select className={fieldCls} value={draft.scheduleType} onChange={(e) => set('scheduleType', e.target.value as ScheduledTaskScheduleType)}>
-              <option value="once">一次性</option>
-              <option value="interval">间隔</option>
-              <option value="cron">Cron 表达式</option>
-            </select>
-          </div>
-          {draft.scheduleType === 'once' && (
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-medium text-muted-foreground">触发时间</label>
-              <Input type="datetime-local" className="h-9 w-full" value={draft.runAt} onChange={(e) => set('runAt', e.target.value)} />
+            <div className="flex flex-wrap items-center gap-1.5 border-t border-border/60 px-3 py-2.5">
+              <NameChip value={draft.title} onChange={(v) => set('title', v)} isMobile={isMobile} />
+              <ChipSelect
+                ariaLabel="项目"
+                label="项目"
+                options={projectChipOptions}
+                value={draft.projectPath}
+                isMobile={isMobile}
+                onChange={(v) => set('projectPath', v)}
+              />
+              <ChipSelect
+                ariaLabel="引擎"
+                label="引擎"
+                options={engineOptions}
+                value={draft.executorProvider}
+                disabled={engineAvailability.status !== 'ready'}
+                isMobile={isMobile}
+                onChange={(v) => set('executorProvider', v as TaskEngine)}
+              />
+              <ChipSelect
+                ariaLabel="优先级"
+                label="优先级"
+                options={priorityOptions}
+                value={draft.priority}
+                isMobile={isMobile}
+                onChange={(v) => set('priority', v as TaskPriority)}
+              />
+              <ChipSelect
+                ariaLabel="标签"
+                label="标签"
+                options={labelOptions}
+                value={draft.label}
+                isMobile={isMobile}
+                onChange={(v) => set('label', v as TaskLabel)}
+              />
+              <button
+                type="button"
+                aria-label={submitting ? '保存中，请稍候' : canSubmit ? '保存定时任务' : '描述为空，暂不能保存'}
+                aria-busy={submitting}
+                title="保存"
+                disabled={!canSubmit}
+                onClick={submit}
+                className={cn(
+                  'ml-auto flex h-10 w-10 items-center justify-center rounded-full bg-primary text-primary-foreground transition-colors hover:bg-primary/90',
+                  submitting ? 'cursor-wait opacity-70' : 'disabled:cursor-not-allowed disabled:opacity-40',
+                )}
+              >
+                {submitting ? <Loader2 className="h-5 w-5 animate-spin" /> : <ArrowUp className="h-5 w-5" />}
+              </button>
             </div>
-          )}
-          {draft.scheduleType === 'interval' && (
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-medium text-muted-foreground">间隔</label>
-              <select className={fieldCls} value={draft.intervalSeconds} onChange={(e) => set('intervalSeconds', e.target.value)}>
-                {INTERVAL_PRESETS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
-              </select>
+          </div>
+
+          {engineHint && <p className="mt-2 text-xs text-muted-foreground">{engineHint}</p>}
+
+          <div className="mt-3 flex flex-col gap-3 rounded-xl border border-border p-3">
+            <span className="text-[11px] font-semibold tracking-wide text-muted-foreground">调度</span>
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex gap-1 rounded-lg border border-border bg-muted p-1">
+                {SCHEDULE_TYPES.map((t) => (
+                  <button
+                    key={t.value}
+                    type="button"
+                    onClick={() => set('scheduleType', t.value)}
+                    className={cn(
+                      'rounded-md px-3 py-1.5 text-sm transition-colors',
+                      draft.scheduleType === t.value
+                        ? 'bg-card shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground',
+                    )}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+              {draft.scheduleType === 'once' && (
+                <Input
+                  type="datetime-local"
+                  className="h-9 w-auto"
+                  value={draft.runAt}
+                  onChange={(e) => set('runAt', e.target.value)}
+                />
+              )}
+              {draft.scheduleType === 'interval' && (
+                <ChipSelect
+                  ariaLabel="间隔"
+                  label="间隔"
+                  options={intervalOptions}
+                  value={draft.intervalSeconds}
+                  isMobile={isMobile}
+                  onChange={(v) => set('intervalSeconds', v)}
+                />
+              )}
+              {draft.scheduleType === 'cron' && (
+                <Input
+                  className="h-9 w-auto"
+                  placeholder="0 9 * * *"
+                  value={draft.cronExpr}
+                  onChange={(e) => set('cronExpr', e.target.value)}
+                />
+              )}
+              <button
+                type="button"
+                aria-pressed={draft.autoRun}
+                onClick={() => set('autoRun', !draft.autoRun)}
+                className={cn(
+                  'flex h-9 items-center rounded-full border px-3 text-sm transition-colors',
+                  draft.autoRun
+                    ? 'border-primary/60 bg-primary/10 text-primary'
+                    : 'border-border/80 bg-card text-muted-foreground',
+                )}
+              >
+                自动执行
+              </button>
+              <span className="text-xs text-muted-foreground">关闭则仅生成提醒任务，不自动开跑</span>
             </div>
-          )}
-          {draft.scheduleType === 'cron' && (
-            <div className="flex flex-col gap-1">
-              <label className="text-xs font-medium text-muted-foreground">Cron 表达式</label>
-              <Input className="h-9 w-full" placeholder="0 9 * * *" value={draft.cronExpr} onChange={(e) => set('cronExpr', e.target.value)} />
-            </div>
-          )}
-          {(localError || error) && <div className="text-sm text-red-500">{localError ?? error}</div>}
-          <div className="mt-2 flex items-center justify-end gap-2">
-            <Button size="sm" variant="ghost" onClick={onClose} disabled={submitting}>取消</Button>
-            <Button size="sm" onClick={submit} disabled={submitting}>{submitting ? '保存中…' : '保存'}</Button>
+          </div>
+
+          {(localError || error) && <p className="mt-2 text-sm text-red-600">{localError ?? error}</p>}
+
+          <div className="mt-3 flex items-center justify-end gap-2">
+            <Button size="sm" variant="ghost" onClick={onClose} disabled={submitting}>
+              取消
+            </Button>
           </div>
         </div>
       </DialogContent>

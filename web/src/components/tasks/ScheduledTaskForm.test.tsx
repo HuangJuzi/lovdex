@@ -18,7 +18,7 @@ reactDomCjs.createPortal = (children) => children;
 
 // Imported after the createPortal patch so ScheduledTaskForm's DialogContent
 // picks up the inline-rendering stub.
-const { ScheduledTaskForm, EMPTY_DRAFT, canSubmitScheduledTask, toApiBody } = await import('./ScheduledTaskForm');
+const { ScheduledTaskForm, EMPTY_DRAFT, canSubmitScheduledTask, toApiBody, toProjectChipOptions } = await import('./ScheduledTaskForm');
 const { ASSISTANT_OPTION_VALUE } = await import('./projectOptions');
 
 void EMPTY_DRAFT;
@@ -40,34 +40,36 @@ function renderWithOptions(projectOptions: unknown[]) {
   );
 }
 
-test('renders a remote project option with its host prefix', () => {
-  const html = renderWithOptions([
-    { value: '/r/app', label: 'MyApp', remoteHostId: 'h1', remoteHostName: 'dev-01' },
-  ]);
-  assert.ok(html.includes('🌐 dev-01 · MyApp'));
-});
-
-test('renders a local project option without a prefix', () => {
-  const html = renderWithOptions([{ value: '/l/app', label: 'LocalApp' }]);
-  assert.ok(html.includes('LocalApp'));
-  assert.ok(!html.includes('🌐'));
-});
-
-test('engine select is disabled while availability resolves (loading)', () => {
+test('renders the big composer textarea with the auto-naming hint', () => {
   const html = renderWithOptions([]);
-  // The project <select> renders first and stays enabled; the engine select is
-  // the second one and must be disabled while availability is still 'loading'.
-  const engineSelect = (html.match(/<select[^>]*>/g) ?? [])[1] ?? '';
-  assert.ok(engineSelect.includes('disabled'));
+  assert.ok(html.includes('说清楚要做什么就行，名称留空会自动生成'));
 });
 
-test('renders deterministically with a remote option selected while availability resolves', () => {
-  // The availability hook resolves async and the picker only blocks after
-  // 'unavailable' settles, which renderToStaticMarkup cannot drive; that guard
-  // path is covered by code inspection + computeEngineAvailability unit tests.
-  // Here we assert the form still renders its remote option deterministically.
-  const html = renderWithOptions([{ value: '/r/app', label: 'MyApp', remoteHostName: 'dev-01' }]);
-  assert.ok(html.includes('dev-01'));
+test('renders a name chip that reads 名称 while the name is blank', () => {
+  const html = renderWithOptions([]);
+  assert.ok(html.includes('名称'));
+});
+
+test('engine chip is disabled while availability resolves (loading)', () => {
+  const html = renderWithOptions([]);
+  const engineChip = /<button[^>]*aria-label="引擎"[^>]*>/.exec(html)?.[0] ?? '';
+  assert.ok(engineChip.length > 0, 'engine chip must render');
+  assert.ok(engineChip.includes('disabled'));
+});
+
+test('renders the schedule section segmented control, defaulting to 单次', () => {
+  const html = renderWithOptions([]);
+  for (const label of ['单次', '间隔', 'Cron']) assert.ok(html.includes(label));
+  assert.ok(html.includes('自动执行'));
+});
+
+test('toProjectChipOptions: a remote project carries its host name as a hint', () => {
+  const options = toProjectChipOptions([
+    { value: '/r/app', label: 'MyApp', remoteHostId: 'h1', remoteHostName: 'dev-01' },
+    { value: '/l/app', label: 'LocalApp' },
+  ]);
+  assert.deepEqual(options[0], { value: '/r/app', label: 'MyApp', hint: 'dev-01' });
+  assert.deepEqual(options[1], { value: '/l/app', label: 'LocalApp', hint: undefined });
 });
 
 test('canSubmitScheduledTask: only a non-empty description may be submitted', () => {
