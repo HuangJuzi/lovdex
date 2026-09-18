@@ -8,6 +8,7 @@ import {
   buildTitleUserPrompt,
   deriveFallbackTitle,
   raceTaskTitle,
+  resolveGeneratedTitle,
   sanitizeGeneratedTitle,
   shouldApplyGeneratedTitle,
   truncateGraphemes,
@@ -232,4 +233,77 @@ test('shouldApplyGeneratedTitle yields for an archived task', () => {
 test('shouldApplyGeneratedTitle yields when the task is gone', () => {
   assert.equal(shouldApplyGeneratedTitle(null, '首行兜底'), false);
   assert.equal(shouldApplyGeneratedTitle(undefined, '首行兜底'), false);
+});
+
+// ---------------------------------------------------------------------------
+// resolveGeneratedTitle —— tasks.service 与 scheduler.service 共用的骨架
+// ---------------------------------------------------------------------------
+
+// resolveGeneratedTitle 是 tasks.service 与 scheduler.service 共用的骨架：
+// 「给了标题就不碰模型」是两条链路共同的前提，必须钉死。
+test('resolveGeneratedTitle: a provided title never reaches the model', async () => {
+  let calls = 0;
+  const res = await resolveGeneratedTitle({
+    title: '  手填的名字  ',
+    description: '需求正文',
+    generateTitle: async () => { calls += 1; return '模型取的名'; },
+  });
+  assert.equal(res.title, '  手填的名字  ');
+  assert.equal(res.writeBack, null);
+  assert.equal(calls, 0);
+});
+
+test('resolveGeneratedTitle: a blank description skips the model and falls back to the default name', async () => {
+  let calls = 0;
+  const res = await resolveGeneratedTitle({
+    title: '',
+    description: null,
+    generateTitle: async () => { calls += 1; return '模型取的名'; },
+  });
+  assert.equal(res.title, '未命名任务');
+  assert.equal(res.writeBack, null);
+  assert.equal(calls, 0);
+});
+
+test('resolveGeneratedTitle: a model answer inside the window wins', async () => {
+  const res = await resolveGeneratedTitle({
+    title: '',
+    description: '修复登录超时',
+    generateTitle: async () => '修复登录超时',
+    blockingMs: 50,
+  });
+  assert.equal(res.title, '修复登录超时');
+  assert.equal(res.writeBack, null);
+});
+
+test('resolveGeneratedTitle: a model that misses the window yields the fallback plus a write-back', async () => {
+  let release: (v: string | null) => void = () => {};
+  const pending = new Promise<string | null>((r) => { release = r; });
+  const res = await resolveGeneratedTitle({
+    title: '',
+    description: '每天早上汇总提交记录',
+    generateTitle: () => pending,
+    blockingMs: 10,
+  });
+  assert.equal(res.title, '每天早上汇总提交记录');
+  assert.ok(res.writeBack, 'the in-flight request must be handed back for a later write-back');
+  release('每日提交汇总');
+  assert.equal(await res.writeBack, '每日提交汇总');
+});
+
+test('resolveGeneratedTitle: a generateTitle that throws synchronously survives', async () => {
+  const res = await resolveGeneratedTitle({
+    title: '',
+    description: '修复登录超时',
+    generateTitle: () => { throw new Error('mis-wired dep'); },
+    blockingMs: 50,
+  });
+  assert.equal(res.title, '修复登录超时');
+  assert.equal(res.writeBack, null);
+});
+
+test('resolveGeneratedTitle: a missing generateTitle dep falls back without throwing', async () => {
+  const res = await resolveGeneratedTitle({ title: '', description: '修复登录超时', blockingMs: 50 });
+  assert.equal(res.title, '修复登录超时');
+  assert.equal(res.writeBack, null);
 });

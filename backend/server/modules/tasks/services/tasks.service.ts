@@ -17,7 +17,7 @@ import {
 import { AppError, normalizeProjectPath } from '@/shared/utils.js';
 import type { TaskEngine, TaskRow, TaskStatus } from '@/shared/types.js';
 import { createTaskDedupGate, taskCreateDedupKey } from './task-create-dedup.js';
-import { deriveFallbackTitle, raceTaskTitle, shouldApplyGeneratedTitle } from './task-title.js';
+import { resolveGeneratedTitle, shouldApplyGeneratedTitle } from './task-title.js';
 
 export const STATUS_ORDER: readonly TaskStatus[] = TASK_STATUSES;
 
@@ -300,31 +300,19 @@ export function createTasksService(
    *
    * Resolution runs after validation on purpose: a request that is going to 400
    * must not spend the blocking window on a model call.
+   *
+   * The skeleton itself lives in task-title.ts — the scheduler's template titles
+   * share it verbatim.
    */
   async function resolveCreateTitle(
     input: CreateTaskInput,
   ): Promise<{ title: string; writeBack: Promise<string | null> | null }> {
-    const provided = typeof input.title === 'string' ? input.title : '';
-    if (provided.trim()) return { title: provided, writeBack: null };
-
-    const fallback = deriveFallbackTitle(input.description);
-    const description = typeof input.description === 'string' ? input.description.trim() : '';
-    let pending: Promise<string | null> | undefined;
-    try {
-      // The contract is a Promise (so a rejection is handled by raceTaskTitle),
-      // but a synchronous throw here — mis-wired dep, failed init — must not
-      // become "建任务失败": naming is best-effort by definition.
-      pending = description ? opts.deps?.generateTitle?.({ description }) : undefined;
-    } catch (error) {
-      console.error('[tasks] title generation failed', {
-        error: error instanceof Error ? error.message : error,
-      });
-      pending = undefined;
-    }
-    if (!pending) return { title: fallback, writeBack: null };
-
-    const { title, background } = await raceTaskTitle(pending, fallback, opts.titleBlockingMs);
-    return { title, writeBack: background };
+    return resolveGeneratedTitle({
+      title: input.title,
+      description: input.description,
+      generateTitle: opts.deps?.generateTitle,
+      blockingMs: opts.titleBlockingMs,
+    });
   }
 
   function applyStatusChange(taskId: string, status: TaskStatus, actor: 'user' | 'engine'): TaskRow | null {

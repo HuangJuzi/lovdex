@@ -213,3 +213,40 @@ export function shouldApplyGeneratedTitle(
   if (task.status === 'archived') return false;
   return task.title === placeholderTitle;
 }
+
+/**
+ * 标题解析的共用骨架：调用方给了非空 title 就原样用（**永不触模型**），否则先本地
+ * 兜底提炼，再与模型赛跑 `blockingMs` 阻塞窗口。返回要落库的标题，以及超时情况下
+ * 仍在途的请求（调用方负责 fire-and-forget 回写）。
+ *
+ * 从 tasks.service.resolveCreateTitle 原样抽出，定时任务模板复用同一套语义：
+ * 「模型取名是尽力而为，绝不能拖垮保存」。
+ */
+export async function resolveGeneratedTitle(input: {
+  title?: string | null;
+  description?: string | null;
+  generateTitle?: (input: { description: string | null }) => Promise<string | null>;
+  blockingMs?: number;
+}): Promise<{ title: string; writeBack: Promise<string | null> | null }> {
+  const provided = typeof input.title === 'string' ? input.title : '';
+  if (provided.trim()) return { title: provided, writeBack: null };
+
+  const fallback = deriveFallbackTitle(input.description);
+  const description = typeof input.description === 'string' ? input.description.trim() : '';
+  let pending: Promise<string | null> | undefined;
+  try {
+    // The contract is a Promise (so a rejection is handled by raceTaskTitle),
+    // but a synchronous throw here — mis-wired dep, failed init — must not
+    // become "建任务失败": naming is best-effort by definition.
+    pending = description ? input.generateTitle?.({ description }) : undefined;
+  } catch (error) {
+    console.error('[task-title] title generation failed', {
+      error: error instanceof Error ? error.message : error,
+    });
+    pending = undefined;
+  }
+  if (!pending) return { title: fallback, writeBack: null };
+
+  const { title, background } = await raceTaskTitle(pending, fallback, input.blockingMs);
+  return { title, writeBack: background };
+}
