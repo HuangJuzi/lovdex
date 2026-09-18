@@ -27,8 +27,7 @@ export function buildSchedulerRouter(svc: SchedulerServiceLike) {
     if (typeof body.scheduleType !== 'string' || !isScheduleType(body.scheduleType)) {
       throw new AppError(`invalid scheduleType: ${String(body.scheduleType)}`, { code: 'INVALID_SCHEDULE_TYPE', statusCode: 400 });
     }
-    // Must be awaited: 取名最长阻塞一个 blocking window, and a bare promise
-    // serializes to `{}`.
+    // create() 内部要 await LLM 生成标题；不 await 会把 Promise 当对象序列化成 {}。
     res.status(201).json(await svc.create(body));
   }));
 
