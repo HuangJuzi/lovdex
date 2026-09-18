@@ -616,11 +616,13 @@ git commit -m "feat(sidebar): turn the session rail into a tinted panel"
 在 `Sidebar.tsx` 的 `<SidebarContent …>`（:270 起）里，`onRecentSessionSelect={…}`（:330）那一行**之前**插入：
 
 ```tsx
-            hasExpandedProjects={expandedProjects.size > 0}
+            hasExpandedProjects={filteredProjects.some((project) => expandedProjects.has(project.projectId))}
             onCollapseAllProjects={collapseAllProjects}
 ```
 
 > 只传布尔值，不把整个 `Set` 漏进内容组件。
+>
+> **实现时修正**：原稿这里写的是 `expandedProjects.size > 0`，落地后改为按「可见项目」派生。原因是 `expandedProjects` 从不清理失效 id（项目被删、或被 `excludeHiddenProjects` 滤掉的 operator 工作区），用 `size` 会出现「按钮在、但列表里没有任何可见的展开项」，点下去唯一的变化是按钮自己消失。见 commit `9800c3b`。
 
 - [ ] **Step 5: SidebarContent 加 import**
 
@@ -787,3 +789,5 @@ Expected: 只剩与本次无关的既有未跟踪文件（如 `backend/asyncify-
 - **项目行路径截断 / 重名区分**：本次不做。
 - **session 行上的项目面包屑**：与嵌套结构重复，会加噪音。
 - **「吸顶时才显示底边」**：需要 `IntersectionObserver`，成本高于收益。当前是展开态常显底边。
+- **移动端卡片的滚入视野**：Task 5 只把 `scrollIntoView` 接在 `selectAndToggleProject` 上，而移动端卡片（`md:hidden` 那个分支）走的是裸 `toggleProject`，所以移动抽屉里展开靠下的项目不会自动滚入视野。桌面端正常。设计 §5 给移动端的缓解手段本就是「全部收起」，这里是有意取舍；若要补齐，需抽一个只做滚动的 helper（直接复用 `selectAndToggleProject` 会顺带触发 `onProjectSelect`，语义会变）。
+- **视口高度不足时项目列表被挤扁**：侧栏是 flex 列，助手区与「最近任务」（`max-h-[28vh]`）都是 `flex-shrink-0`，在 900px 高的视口里两者合计可占满，`flex-1` 的项目列表会被压到接近 0 高度。这是**既有**布局特性，本次改动未加剧，但会在矮窗口 + 助手会话较多时让项目列表几乎不可见。属独立问题，另行处理。
