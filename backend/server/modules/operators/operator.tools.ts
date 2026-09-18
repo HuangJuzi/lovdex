@@ -1,4 +1,5 @@
 import { isAiVerdict, type AiVerdict, isTaskPriority, type TaskPriority } from '@/shared/task-status.js';
+import { compactTranscriptToText } from '@/shared/session-transcript.js';
 import type { TaskEngine } from '@/shared/types.js';
 
 /**
@@ -217,38 +218,12 @@ export function buildOperatorTools(deps: OperatorToolDeps) {
         // Compact each message to plain text so we don't blow the token budget
         // with raw provider payloads. The operator only needs the gist of what
         // the agent did, not every byte.
-        const lines: string[] = [];
-        for (const msg of messages) {
-          const m = msg as {
-            role?: string;
-            kind?: string;
-            content?: string;
-            commandName?: string;
-            toolName?: string;
-            toolResult?: string;
-            isLocalCommand?: boolean;
-          };
-          const role = m.role ?? m.kind ?? 'message';
-          if (m.isLocalCommand && m.commandName) {
-            lines.push(`[${role}] /${m.commandName}`);
-            continue;
-          }
-          if (role === 'tool' || m.kind === 'tool') {
-            const res = typeof m.toolResult === 'string' ? m.toolResult : '';
-            lines.push(`[tool ${m.toolName ?? ''}] ${res.slice(0, 300)}`);
-            continue;
-          }
-          const text = (m.content ?? '').trim();
-          if (text) {
-            lines.push(`[${role}] ${text.slice(0, 1200)}`);
-          }
-        }
         return {
           total: result?.total ?? messages.length,
           offset,
           limit,
           hasMore: Boolean(result?.hasMore),
-          transcript: lines.join('\n\n') || '(empty transcript)',
+          transcript: compactTranscriptToText(messages),
           finalOutput: finalOutput ? finalOutput.slice(0, 2000) : null,
         };
       },

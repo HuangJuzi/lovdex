@@ -1,20 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { runTaskContextCompression, compactTranscriptToText, scheduleTaskContextCompression } from '../services/task-context.service.js';
+import { runTaskContextCompression, scheduleTaskContextCompression } from '../services/task-context.service.js';
 
 const MESSAGES = [
   { role: 'user', content: '修登录页 500' },
   { role: 'assistant', content: '根因是 Nginx 代理超时，已改 upstream。' },
   { role: 'tool', toolName: 'Write', toolResult: 'ok\n'.repeat(400) },
 ];
-
-test('compactTranscriptToText keeps user/assistant text and truncates tool results', () => {
-  const text = compactTranscriptToText(MESSAGES);
-  assert.match(text, /修登录页 500/);
-  assert.match(text, /根因是 Nginx 代理超时/);
-  assert.ok(text.split('\n').some((line) => line.startsWith('[tool Write]') && line.length <= 320));
-});
 
 test('runTaskContextCompression reads transcript, compresses, writes result', async () => {
   const calls: Array<{ taskId: string; result: { status: string; summary?: string } }> = [];

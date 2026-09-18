@@ -22,6 +22,8 @@
  * import-free so unit tests never pull the SDK.
  */
 
+import { compactTranscriptToText } from '@/shared/session-transcript.js';
+
 export type TaskContextResult = { status: 'ready' | 'failed'; summary?: string; raw?: string };
 
 export type TaskContextCompressionDeps = {
@@ -67,42 +69,6 @@ function reportError(onError: ((error: unknown) => void) | undefined, error: unk
   } catch {
     // onError 回调自身抛错时吞掉，避免级联
   }
-}
-
-/**
- * Compact normalized session messages to plain text so the compression prompt
- * does not blow the token budget with raw provider payloads. Mirrors the
- * operator get_session_transcript compaction (same field shapes, same caps):
- * tool results truncated to 300 chars, user/assistant text to 1200.
- */
-export function compactTranscriptToText(messages: unknown[]): string {
-  const lines: string[] = [];
-  for (const msg of messages) {
-    const m = msg as {
-      role?: string;
-      kind?: string;
-      content?: string;
-      commandName?: string;
-      toolName?: string;
-      toolResult?: string;
-      isLocalCommand?: boolean;
-    };
-    const role = m.role ?? m.kind ?? 'message';
-    if (m.isLocalCommand && m.commandName) {
-      lines.push(`[${role}] /${m.commandName}`);
-      continue;
-    }
-    if (role === 'tool' || m.kind === 'tool') {
-      const res = typeof m.toolResult === 'string' ? m.toolResult : '';
-      lines.push(`[tool ${m.toolName ?? ''}] ${res.slice(0, 300)}`);
-      continue;
-    }
-    const text = (m.content ?? '').trim();
-    if (text) {
-      lines.push(`[${role}] ${text.slice(0, 1200)}`);
-    }
-  }
-  return lines.join('\n\n') || '(empty transcript)';
 }
 
 const CONTEXT_SYSTEM_PROMPT =
