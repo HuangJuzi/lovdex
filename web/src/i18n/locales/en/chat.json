@@ -97,7 +97,7 @@
     "modesShort": {
       "default": "Default",
       "auto": "Auto",
-      "acceptEdits": "Edits",
+      "acceptEdits": "Accept",
       "bypassPermissions": "Bypass",
       "plan": "Plan"
     },

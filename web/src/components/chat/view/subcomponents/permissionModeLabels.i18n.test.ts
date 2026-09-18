@@ -37,12 +37,32 @@ const MAX_SHORT_LABEL_LENGTH = 7;
 
 test('short labels stay short enough not to wrap the composer footer', () => {
   const bundle = JSON.parse(readFileSync(CHAT_BUNDLE, 'utf8')) as Record<string, unknown>;
-  for (const mode of Object.keys(LABEL_KEYS)) {
-    const value = resolveKey(bundle, `codex.modesShort.${mode}`);
-    assert.equal(typeof value, 'string', `${mode}: codex.modesShort.${mode} is missing or not a string`);
+  for (const [mode, { shortKey }] of Object.entries(LABEL_KEYS)) {
+    const value = resolveKey(bundle, shortKey);
+    assert.equal(typeof value, 'string', `${mode}: ${shortKey} is missing or not a string`);
     assert.ok(
       (value as string).length <= MAX_SHORT_LABEL_LENGTH,
       `${mode}: short label "${String(value)}" is ${(value as string).length} chars, over the ${MAX_SHORT_LABEL_LENGTH}-char budget`,
+    );
+  }
+});
+
+// Every short label is an abbreviation of its full label — each one is a
+// substring of the other. That is what makes a short label recognisable as the
+// same mode, and it catches an edit the other tests structurally cannot: swapping
+// two modes' shortKeys in BOTH this repo's LABEL_KEYS and the sibling test's
+// EXPECTED table keeps deepEqual green, keeps every key resolvable, and keeps
+// every value inside the length budget — while the UI shows the wrong mode name.
+test('each short label is a substring of its full label', () => {
+  const bundle = JSON.parse(readFileSync(CHAT_BUNDLE, 'utf8')) as Record<string, unknown>;
+  for (const [mode, { shortKey, fullKey }] of Object.entries(LABEL_KEYS)) {
+    const short = resolveKey(bundle, shortKey);
+    const full = resolveKey(bundle, fullKey);
+    assert.equal(typeof short, 'string', `${mode}: ${shortKey} is missing or not a string`);
+    assert.equal(typeof full, 'string', `${mode}: ${fullKey} is missing or not a string`);
+    assert.ok(
+      (full as string).includes(short as string),
+      `${mode}: short label "${String(short)}" is not a substring of full label "${String(full)}"`,
     );
   }
 });

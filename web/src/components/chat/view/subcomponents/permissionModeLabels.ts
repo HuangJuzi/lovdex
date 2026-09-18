@@ -38,6 +38,10 @@ export const LABEL_KEYS: Record<PermissionMode, PermissionModeLabelKeys> = {
  * Falling back to `default` guarantees the button always renders a readable label;
  * the previous inline `{mode === 'x' && t(…)}` chain rendered nothing at all for
  * unknown values.
+ *
+ * Note: for an unknown mode the button's colour ternary falls through to the `plan`
+ * colour, so such a mode renders as the `default` label on a `plan`-coloured dot.
+ * That mismatch is a known, accepted trade-off.
  */
 export function getPermissionModeLabelKeys(mode: PermissionMode | string): PermissionModeLabelKeys {
   return LABEL_KEYS[mode as PermissionMode] ?? LABEL_KEYS.default;
