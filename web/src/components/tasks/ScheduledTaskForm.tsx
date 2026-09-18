@@ -13,6 +13,14 @@ import {
   intervalSecondsOf,
   type IntervalUnit,
 } from '../../utils/interval';
+import {
+  CRON_MODES,
+  DOM_OPTIONS,
+  DOW_OPTIONS,
+  parseCronPreset,
+  resolveCronExpr,
+  type CronMode,
+} from '../../utils/cronPreset';
 
 import { AnchorPopover } from './AnchorPopover';
 import { ChipSelect, type ChipSelectOption } from './ChipSelect';
@@ -31,6 +39,10 @@ export type ScheduledTaskDraft = {
   autoRun: boolean;
   scheduleType: ScheduledTaskScheduleType;
   cronExpr: string;
+  cronMode: CronMode;
+  cronTime: string;
+  cronDow: string;
+  cronDom: string;
   // 拆成数字 + 单位两个字段而不是只存秒数：用户把数字改成 90 再切到「小时」时，
   // 只存秒数会变成 1.5 小时或需要四舍五入，有损；拆开后改数字和改单位是两个独立动作。
   intervalAmount: string;
@@ -48,6 +60,10 @@ export const EMPTY_DRAFT: ScheduledTaskDraft = {
   autoRun: true,
   scheduleType: 'once',
   cronExpr: '',
+  cronMode: 'daily',
+  cronTime: '09:00',
+  cronDow: '1',
+  cronDom: '1',
   intervalAmount: '1',
   intervalUnit: 'hour',
   runAt: '',
@@ -92,7 +108,7 @@ export function toApiBody(d: ScheduledTaskDraft) {
     label: d.label,
     autoRun: d.autoRun ? 1 : 0,
     scheduleType: d.scheduleType,
-    cronExpr: d.scheduleType === 'cron' ? d.cronExpr : null,
+    cronExpr: d.scheduleType === 'cron' ? resolveCronExpr(d) : null,
     intervalSeconds: d.scheduleType === 'interval' ? draftIntervalSeconds(d) : null,
     runAt: d.scheduleType === 'once' ? (d.runAt ? new Date(d.runAt).toISOString() : null) : null,
   };
@@ -133,6 +149,8 @@ function toDraft(initial?: ScheduledTask | null): ScheduledTaskDraft {
       ? rawSeconds
       : intervalSecondsOf(Number(EMPTY_DRAFT.intervalAmount), EMPTY_DRAFT.intervalUnit);
   const { amount: intervalAmount, unit: intervalUnit } = decomposeInterval(safeSeconds);
+  // 认得出就结构化回填；认不出则自定义模式 + 原始表达式原样保留。
+  const preset = parseCronPreset(initial.cron_expr ?? '');
   return {
     title: initial.title,
     description: initial.description ?? '',
@@ -143,6 +161,10 @@ function toDraft(initial?: ScheduledTask | null): ScheduledTaskDraft {
     autoRun: initial.auto_run === 1,
     scheduleType: initial.schedule_type,
     cronExpr: initial.cron_expr ?? '',
+    cronMode: preset?.mode ?? 'custom',
+    cronTime: preset?.time ?? EMPTY_DRAFT.cronTime,
+    cronDow: preset?.dow ?? EMPTY_DRAFT.cronDow,
+    cronDom: preset?.dom ?? EMPTY_DRAFT.cronDom,
     intervalAmount: String(intervalAmount),
     intervalUnit: intervalUnit,
     runAt,
@@ -238,7 +260,7 @@ export function ScheduledTaskForm({
       setLocalError('请先描述这个定时任务要做什么');
       return;
     }
-    if (draft.scheduleType === 'cron' && !draft.cronExpr.trim()) {
+    if (draft.scheduleType === 'cron' && !resolveCronExpr(draft).trim()) {
       setLocalError('请填写 cron 表达式');
       return;
     }
@@ -400,12 +422,55 @@ export function ScheduledTaskForm({
                 </>
               )}
               {draft.scheduleType === 'cron' && (
-                <Input
-                  className="h-9 w-auto"
-                  placeholder="0 9 * * *"
-                  value={draft.cronExpr}
-                  onChange={(e) => set('cronExpr', e.target.value)}
-                />
+                <>
+                  <ChipSelect
+                    ariaLabel="Cron 模式"
+                    label="Cron 模式"
+                    options={CRON_MODES}
+                    value={draft.cronMode}
+                    isMobile={isMobile}
+                    onChange={(v) => set('cronMode', v as CronMode)}
+                  />
+                  {draft.cronMode === 'custom' ? (
+                    <Input
+                      className="h-9 w-auto"
+                      placeholder="0 9 * * *"
+                      aria-label="cron 表达式"
+                      value={draft.cronExpr}
+                      onChange={(e) => set('cronExpr', e.target.value)}
+                    />
+                  ) : (
+                    <>
+                      {draft.cronMode === 'weekly' && (
+                        <ChipSelect
+                          ariaLabel="星期"
+                          label="星期"
+                          options={DOW_OPTIONS}
+                          value={draft.cronDow}
+                          isMobile={isMobile}
+                          onChange={(v) => set('cronDow', v)}
+                        />
+                      )}
+                      {draft.cronMode === 'monthly' && (
+                        <ChipSelect
+                          ariaLabel="日期"
+                          label="日期"
+                          options={DOM_OPTIONS}
+                          value={draft.cronDom}
+                          isMobile={isMobile}
+                          onChange={(v) => set('cronDom', v)}
+                        />
+                      )}
+                      <Input
+                        type="time"
+                        aria-label="触发时间"
+                        className="h-9 w-auto"
+                        value={draft.cronTime}
+                        onChange={(e) => set('cronTime', e.target.value)}
+                      />
+                    </>
+                  )}
+                </>
               )}
               <button
                 type="button"

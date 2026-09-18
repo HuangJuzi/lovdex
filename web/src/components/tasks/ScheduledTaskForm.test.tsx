@@ -119,9 +119,43 @@ test('toApiBody: only the field matching the schedule type is populated', () => 
   assert.equal(once.intervalSeconds, null);
   assert.ok(once.runAt);
 
-  const cron = toApiBody({ ...EMPTY_DRAFT, scheduleType: 'cron', cronExpr: '0 9 * * *' });
+  const cron = toApiBody({ ...EMPTY_DRAFT, scheduleType: 'cron', cronMode: 'custom', cronExpr: '0 9 * * *' });
   assert.equal(cron.cronExpr, '0 9 * * *');
   assert.equal(cron.runAt, null);
+});
+
+test('toApiBody: a preset cron mode is rebuilt from the parameters, ignoring cronExpr', () => {
+  const daily = toApiBody({ ...EMPTY_DRAFT, scheduleType: 'cron', cronMode: 'daily', cronTime: '08:00', cronExpr: '0 9,17 * * *' });
+  assert.equal(daily.cronExpr, '0 8 * * *');
+
+  const weekday = toApiBody({ ...EMPTY_DRAFT, scheduleType: 'cron', cronMode: 'weekday', cronTime: '09:30' });
+  assert.equal(weekday.cronExpr, '30 9 * * 1-5');
+
+  const monthly = toApiBody({ ...EMPTY_DRAFT, scheduleType: 'cron', cronMode: 'monthly', cronTime: '10:00', cronDom: '15' });
+  assert.equal(monthly.cronExpr, '0 10 15 * *');
+});
+
+test('a new scheduled task defaults to a daily 09:00 cron', () => {
+  // EMPTY_DRAFT 的默认值应当拼出一个合法的表达式，而不是空串
+  assert.equal(EMPTY_DRAFT.cronMode, 'daily');
+  assert.equal(EMPTY_DRAFT.cronTime, '09:00');
+  assert.equal(toApiBody({ ...EMPTY_DRAFT, scheduleType: 'cron' }).cronExpr, '0 9 * * *');
+});
+
+test('a recognised cron expression renders the preset controls with back-filled values', () => {
+  const html = renderWithOptions([], mkScheduledTask({ schedule_type: 'cron', cron_expr: '0 8 * * *', interval_seconds: null }));
+  assert.ok(/<button[^>]*aria-label="Cron 模式"[^>]*>/.test(html), 'the mode chip must render');
+  const timeBox = /<input[^>]*aria-label="触发时间"[^>]*>/.exec(html)?.[0] ?? '';
+  assert.ok(timeBox.length > 0, 'the time box must render for a preset mode');
+  assert.ok(timeBox.includes('value="08:00"'), 'the time must be back-filled from the expression');
+  assert.ok(html.includes('每天'), 'the mode chip must show the recognised mode');
+});
+
+test('an unrecognised cron expression falls back to custom mode with the raw box', () => {
+  const html = renderWithOptions([], mkScheduledTask({ schedule_type: 'cron', cron_expr: '0 9,17 * * *', interval_seconds: null }));
+  const raw = /<input[^>]*aria-label="cron 表达式"[^>]*>/.exec(html)?.[0] ?? '';
+  assert.ok(raw.length > 0, 'custom mode must render the raw expression box');
+  assert.ok(raw.includes('value="0 9,17 * * *"'), 'the raw expression must be preserved verbatim');
 });
 
 test('toApiBody: the interval seconds are amount × unit', () => {
