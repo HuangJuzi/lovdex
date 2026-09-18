@@ -923,7 +923,11 @@ test('engine chip is disabled while availability resolves (loading)', () => {
   const html = renderWithOptions([]);
   const engineChip = /<button[^>]*aria-label="引擎"[^>]*>/.exec(html)?.[0] ?? '';
   assert.ok(engineChip.length > 0, 'engine chip must render');
-  assert.ok(engineChip.includes('disabled'));
+  // 必须断言 disabled **属性**，不能断言子串 'disabled' —— ChipSelect 的 className 里
+  // 始终含 Tailwind 的 `disabled:cursor-not-allowed disabled:opacity-50`，
+  // `includes('disabled')` 恒真，等于没测。（原来的 <select> 用例没这个问题，因为
+  // <select> 的 className 里没有 `disabled:` 前缀的类。）
+  assert.ok(/ disabled=""/.test(engineChip), 'engine chip must carry the disabled attribute while loading');
 });
 
 test('renders the schedule section segmented control, defaulting to 单次', () => {
