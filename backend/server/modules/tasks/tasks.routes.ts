@@ -33,7 +33,10 @@ export function buildTasksRouter(tasksService: TasksService, deps: { createSessi
       if (body.label !== undefined && (typeof body.label !== 'string' || !isTaskLabel(body.label))) {
         throw new AppError(`invalid label: ${String(body.label)}`, { code: 'INVALID_LABEL', statusCode: 400 });
       }
-      const task = tasksService.createTask({
+      // Awaited: a blank title makes createTask consult the title generator
+      // (bounded by the blocking window) before it returns the row. Handing the
+      // bare promise to res.json would silently serialize to `{}`.
+      const task = await tasksService.createTask({
         projectPath: typeof body.projectPath === 'string' ? body.projectPath : '',
         title: typeof body.title === 'string' ? body.title : '',
         description: typeof body.description === 'string' ? body.description : null,

@@ -8,7 +8,6 @@ import { Button, Dialog, DialogContent, DialogTitle, Input } from '../../shared/
 import type { Project, ProviderModelOption, Task, TaskEngine, TaskLabel, TaskPriority } from '../../types/app';
 import { api, authenticatedFetch } from '../../utils/api';
 import { resolveSessionTitle } from '../../utils/sessionTitle';
-import { deriveTaskName } from './taskName';
 import { ASSISTANT_OPTION_VALUE, projectPathOf, taskFormProjects, taskProjectLabel } from './projectOptions';
 import { useTaskEngineAvailability } from './useTaskEngineAvailability';
 import { LABEL_META, LABEL_ORDER, PRIORITY_META, PRIORITY_ORDER } from './taskStatus';
@@ -159,7 +158,10 @@ export function CreateTaskDialog({
       window.alert(newEngineAvailability.hint);
       return;
     }
-    const title = name.trim() || deriveTaskName(p);
+    // 名字留空交给后端取名：title 为空时 createTask 会用 LLM（DeepSeek Flash）从
+    // description 提炼，失败/超时降级到需求首行。这里不再本地提炼 —— 一旦本地填了
+    // 非空 title，后端就认为「用户已指定名字」，LLM 取名永远不会触发。
+    const title = name.trim();
     try {
       const res = await api.tasks.create({
         projectPath: isAssistant ? '' : projectPath,

@@ -141,27 +141,27 @@ function makeProjectStub(...knownPaths: string[]) {
   } as unknown as typeof projectsDb;
 }
 
-test('createTask rejects invalid status / engine', () => {
+test('createTask rejects invalid status / engine', async () => {
   const svc = createTasksService(makeDbStub().db, { broadcast: () => {} });
-  assert.throws(() => svc.createTask({ title: 'x', projectPath: '/p', status: 'bogus' as never }), /status/);
-  assert.throws(() => svc.createTask({ title: 'x', projectPath: '/p', executorProvider: 'nope' as never }), /executor/);
+  await assert.rejects(svc.createTask({ title: 'x', projectPath: '/p', status: 'bogus' as never }), /status/);
+  await assert.rejects(svc.createTask({ title: 'x', projectPath: '/p', executorProvider: 'nope' as never }), /executor/);
 });
 
-test('createTask rejects an unknown project', () => {
+test('createTask rejects an unknown project', async () => {
   const svc = createTasksService(makeDbStub().db, {
     broadcast: () => {},
     deps: { projectsDb: makeProjectStub() },
   });
-  assert.throws(() => svc.createTask({ title: 'x', projectPath: '/p', executorProvider: 'claude' }), /project not found/);
+  await assert.rejects(svc.createTask({ title: 'x', projectPath: '/p', executorProvider: 'claude' }), /project not found/);
 });
 
-test('createTask defaults status to todo and broadcasts task_upserted', () => {
+test('createTask defaults status to todo and broadcasts task_upserted', async () => {
   const events: unknown[] = [];
   const svc = createTasksService(makeDbStub().db, {
     broadcast: (e) => events.push(e),
     deps: { projectsDb: makeProjectStub('/p') },
   });
-  const task = svc.createTask({ title: 'x', projectPath: '/p', executorProvider: 'claude' });
+  const task = await svc.createTask({ title: 'x', projectPath: '/p', executorProvider: 'claude' });
   assert.equal((task as { status: string }).status, 'todo');
   assert.equal(events.length, 1);
   assert.equal((events[0] as { actor: string }).actor, 'user');
@@ -403,7 +403,7 @@ function makeSessionStub(rows: Record<string, SessionLike>) {
   } as unknown as typeof import('@/modules/database/index.js').sessionsDb;
 }
 
-test('createTask with a sessionId links the task and honors status', () => {
+test('createTask with a sessionId links the task and honors status', async () => {
   const { db } = makeDbStub();
   const svc = createTasksService(db, {
     broadcast: () => {},
@@ -412,7 +412,7 @@ test('createTask with a sessionId links the task and honors status', () => {
       sessionsDb: makeSessionStub({ s1: { session_id: 's1', project_path: '/p' } }),
     },
   });
-  const task = svc.createTask({
+  const task = await svc.createTask({
     title: 'x',
     projectPath: '/p',
     executorProvider: 'claude',
@@ -423,7 +423,7 @@ test('createTask with a sessionId links the task and honors status', () => {
   assert.equal(task.status, 'todo');
 });
 
-test('createTask with a sessionId rejects an unknown session', () => {
+test('createTask with a sessionId rejects an unknown session', async () => {
   const svc = createTasksService(makeDbStub().db, {
     broadcast: () => {},
     deps: {
@@ -431,13 +431,13 @@ test('createTask with a sessionId rejects an unknown session', () => {
       sessionsDb: makeSessionStub({}),
     },
   });
-  assert.throws(
-    () => svc.createTask({ title: 'x', projectPath: '/p', executorProvider: 'claude', sessionId: 'nope' }),
+  await assert.rejects(
+    svc.createTask({ title: 'x', projectPath: '/p', executorProvider: 'claude', sessionId: 'nope' }),
     /session not found/,
   );
 });
 
-test('createTask with a sessionId rejects a session from another project', () => {
+test('createTask with a sessionId rejects a session from another project', async () => {
   const svc = createTasksService(makeDbStub().db, {
     broadcast: () => {},
     deps: {
@@ -445,13 +445,13 @@ test('createTask with a sessionId rejects a session from another project', () =>
       sessionsDb: makeSessionStub({ s1: { session_id: 's1', project_path: '/other' } }),
     },
   });
-  assert.throws(
-    () => svc.createTask({ title: 'x', projectPath: '/p', executorProvider: 'claude', sessionId: 's1' }),
+  await assert.rejects(
+    svc.createTask({ title: 'x', projectPath: '/p', executorProvider: 'claude', sessionId: 's1' }),
     /does not belong/,
   );
 });
 
-test('createTask with a sessionId rejects a session already linked to a task', () => {
+test('createTask with a sessionId rejects a session already linked to a task', async () => {
   const { db } = makeDbStub();
   db.linkSession('t1', 's1');
   const svc = createTasksService(db, {
@@ -461,20 +461,20 @@ test('createTask with a sessionId rejects a session already linked to a task', (
       sessionsDb: makeSessionStub({ s1: { session_id: 's1', project_path: '/p' } }),
     },
   });
-  assert.throws(
-    () => svc.createTask({ title: 'x', projectPath: '/p', executorProvider: 'claude', sessionId: 's1' }),
+  await assert.rejects(
+    svc.createTask({ title: 'x', projectPath: '/p', executorProvider: 'claude', sessionId: 's1' }),
     /already linked/,
   );
 });
 
-test('createTask rejects invalid priority / deadline / label', () => {
+test('createTask rejects invalid priority / deadline / label', async () => {
   const svc = createTasksService(makeDbStub().db, { broadcast: () => {} });
-  assert.throws(() => svc.createTask({ projectPath: '/p', title: 't', priority: 'P9' as any }), /invalid priority/);
-  assert.throws(() => svc.createTask({ projectPath: '/p', title: 't', deadline: '2026/13/99' }), /invalid deadline/);
-  assert.throws(() => svc.createTask({ projectPath: '/p', title: 't', label: 'nope' as any }), /invalid label/);
+  await assert.rejects(svc.createTask({ projectPath: '/p', title: 't', priority: 'P9' as any }), /invalid priority/);
+  await assert.rejects(svc.createTask({ projectPath: '/p', title: 't', deadline: '2026/13/99' }), /invalid deadline/);
+  await assert.rejects(svc.createTask({ projectPath: '/p', title: 't', label: 'nope' as any }), /invalid label/);
 });
 
-test('createTask forwards sourceScheduleId to the db layer (null when absent)', () => {
+test('createTask forwards sourceScheduleId to the db layer (null when absent)', async () => {
   type CreateInput = Parameters<TaskDbLike['createTask']>[0];
   const created: CreateInput[] = [];
   const stubDb = {
@@ -495,16 +495,16 @@ test('createTask forwards sourceScheduleId to the db layer (null when absent)', 
     broadcast: () => {},
     deps: { projectsDb: makeProjectStub('/p') },
   });
-  const withSched = svc.createTask({ projectPath: '/p', title: 'sched', executorProvider: 'claude', sourceScheduleId: 'sched-1' });
+  const withSched = await svc.createTask({ projectPath: '/p', title: 'sched', executorProvider: 'claude', sourceScheduleId: 'sched-1' });
   assert.equal(created[0].sourceScheduleId, 'sched-1');
   assert.equal(withSched.source_schedule_id, 'sched-1');
 
   created.length = 0;
-  svc.createTask({ projectPath: '/p', title: 'plain', executorProvider: 'claude' });
+  await svc.createTask({ projectPath: '/p', title: 'plain', executorProvider: 'claude' });
   assert.equal(created[0].sourceScheduleId, null);
 });
 
-test('createTask operator task uses claude + workspace project', () => {
+test('createTask operator task uses claude + workspace project', async () => {
   const created: any[] = [];
   const stubDb = {
     ...makeDbStub().db,
@@ -534,7 +534,7 @@ test('createTask operator task uses claude + workspace project', () => {
     broadcast: () => {},
     deps: { projectsDb: stubProjects as any },
   });
-  const row = svc.createTask({ projectPath: '__assistant__', title: 't', isOperator: true });
+  const row = await svc.createTask({ projectPath: '__assistant__', title: 't', isOperator: true });
   assert.equal(row.is_operator, 1);
   // Hermetic: compare against the same source the service uses (getOperatorConfig),
   // expanding a possible `~` prefix exactly like the service's expandHome helper.
@@ -546,13 +546,13 @@ test('createTask operator task uses claude + workspace project', () => {
   assert.equal(created[0].executorProvider, 'claude');
 });
 
-test('createTask operator task requires the claude executor', () => {
+test('createTask operator task requires the claude executor', async () => {
   const svc = createTasksService(makeDbStub().db, {
     broadcast: () => {},
     deps: { projectsDb: makeProjectStub() },
   });
-  assert.throws(
-    () => svc.createTask({ projectPath: '__assistant__', title: 't', isOperator: true, executorProvider: 'codex' }),
+  await assert.rejects(
+    svc.createTask({ projectPath: '__assistant__', title: 't', isOperator: true, executorProvider: 'codex' }),
     /must use the claude executor/,
   );
 });
@@ -854,7 +854,7 @@ function makeSessionsStub(sessions: Array<{ id: string; project_path: string }>)
   } as unknown as typeof import('@/modules/database/index.js').sessionsDb;
 }
 
-test('createTask with sourceSessionId validates session exists + project match and fires onContextSourceProvided', () => {
+test('createTask with sourceSessionId validates session exists + project match and fires onContextSourceProvided', async () => {
   const events: unknown[] = [];
   const hooks: Array<[string, string]> = [];
   const svc = createTasksService(makeDbStub().db, {
@@ -865,7 +865,7 @@ test('createTask with sourceSessionId validates session exists + project match a
     },
     onContextSourceProvided: (taskId, sourceSessionId) => hooks.push([taskId, sourceSessionId]),
   });
-  const task = svc.createTask({
+  const task = await svc.createTask({
     title: 'x',
     projectPath: '/p',
     executorProvider: 'claude',
@@ -875,7 +875,7 @@ test('createTask with sourceSessionId validates session exists + project match a
   assert.deepEqual(hooks, [['t1', 'src1']]);
 });
 
-test('createTask with sourceSessionId rejects a session from another project', () => {
+test('createTask with sourceSessionId rejects a session from another project', async () => {
   const svc = createTasksService(makeDbStub().db, {
     broadcast: () => {},
     deps: {
@@ -883,31 +883,31 @@ test('createTask with sourceSessionId rejects a session from another project', (
       sessionsDb: makeSessionsStub([{ id: 'src1', project_path: '/other' }]),
     },
   });
-  assert.throws(
-    () => svc.createTask({ title: 'x', projectPath: '/p', executorProvider: 'claude', sourceSessionId: 'src1' }),
+  await assert.rejects(
+    svc.createTask({ title: 'x', projectPath: '/p', executorProvider: 'claude', sourceSessionId: 'src1' }),
     /session does not belong/,
   );
 });
 
-test('createTask with unknown sourceSessionId rejects', () => {
+test('createTask with unknown sourceSessionId rejects', async () => {
   const svc = createTasksService(makeDbStub().db, {
     broadcast: () => {},
     deps: { projectsDb: makeProjectStub('/p'), sessionsDb: makeSessionsStub([]) },
   });
-  assert.throws(
-    () => svc.createTask({ title: 'x', projectPath: '/p', executorProvider: 'claude', sourceSessionId: 'nope' }),
+  await assert.rejects(
+    svc.createTask({ title: 'x', projectPath: '/p', executorProvider: 'claude', sourceSessionId: 'nope' }),
     /session not found/,
   );
 });
 
-test('createTask without sourceSessionId never fires onContextSourceProvided', () => {
+test('createTask without sourceSessionId never fires onContextSourceProvided', async () => {
   const hooks: Array<[string, string]> = [];
   const svc = createTasksService(makeDbStub().db, {
     broadcast: () => {},
     deps: { projectsDb: makeProjectStub('/p') },
     onContextSourceProvided: (taskId, sourceSessionId) => hooks.push([taskId, sourceSessionId]),
   });
-  svc.createTask({ title: 'x', projectPath: '/p', executorProvider: 'claude' });
+  await svc.createTask({ title: 'x', projectPath: '/p', executorProvider: 'claude' });
   assert.deepEqual(hooks, []);
 });
 
@@ -930,65 +930,65 @@ test('setTaskContextResult for a missing task returns null and does not broadcas
   assert.equal(events.length, 0);
 });
 
-test('createTask persists context_mode/status and fires onContextSourceProvided with mode', () => {
+test('createTask persists context_mode/status and fires onContextSourceProvided with mode', async () => {
   const hooks: Array<[string, string, string]> = [];
   const svc = createTasksService(makeDbStub().db, {
     broadcast: () => {},
     deps: { projectsDb: makeProjectStub('/p'), sessionsDb: makeSessionsStub([{ id: 's-1', project_path: '/p' }]) },
     onContextSourceProvided: (taskId, sourceSessionId, mode) => hooks.push([taskId, sourceSessionId, mode]),
   });
-  const row = svc.createTask({ title: 't', projectPath: '/p', executorProvider: 'claude', sourceSessionId: 's-1', contextMode: 'raw' });
+  const row = await svc.createTask({ title: 't', projectPath: '/p', executorProvider: 'claude', sourceSessionId: 's-1', contextMode: 'raw' });
   assert.equal((row as { context_mode: string }).context_mode, 'raw');
   assert.equal((row as { context_status: string | null }).context_status, 'pending');
   assert.equal((row as { context_source_session_id: string | null }).context_source_session_id, 's-1');
   assert.deepEqual(hooks, [['t1', 's-1', 'raw']]);
 });
 
-test('createTask defaults contextMode to summary when only sourceSessionId given', () => {
+test('createTask defaults contextMode to summary when only sourceSessionId given', async () => {
   const hooks: Array<[string, string, string]> = [];
   const svc = createTasksService(makeDbStub().db, {
     broadcast: () => {},
     deps: { projectsDb: makeProjectStub('/p'), sessionsDb: makeSessionsStub([{ id: 's-1', project_path: '/p' }]) },
     onContextSourceProvided: (taskId, sourceSessionId, mode) => hooks.push([taskId, sourceSessionId, mode]),
   });
-  const row = svc.createTask({ title: 't', projectPath: '/p', executorProvider: 'claude', sourceSessionId: 's-1' });
+  const row = await svc.createTask({ title: 't', projectPath: '/p', executorProvider: 'claude', sourceSessionId: 's-1' });
   assert.equal((row as { context_mode: string }).context_mode, 'summary');
   assert.equal((row as { context_status: string | null }).context_status, 'pending');
   assert.deepEqual(hooks, [['t1', 's-1', 'summary']]);
 });
 
-test('createTask rejects invalid contextMode', () => {
+test('createTask rejects invalid contextMode', async () => {
   const svc = createTasksService(makeDbStub().db, {
     broadcast: () => {},
     deps: { projectsDb: makeProjectStub('/p') },
   });
-  assert.throws(
-    () => svc.createTask({ title: 't', projectPath: '/p', executorProvider: 'claude', contextMode: 'bogus' as never }),
+  await assert.rejects(
+    svc.createTask({ title: 't', projectPath: '/p', executorProvider: 'claude', contextMode: 'bogus' as never }),
     /invalid contextMode/,
   );
 });
 
-test('createTask with contextMode=none ignores sourceSessionId', () => {
+test('createTask with contextMode=none ignores sourceSessionId', async () => {
   const hooks: Array<[string, string, string]> = [];
   const svc = createTasksService(makeDbStub().db, {
     broadcast: () => {},
     deps: { projectsDb: makeProjectStub('/p'), sessionsDb: makeSessionsStub([{ id: 's-1', project_path: '/p' }]) },
     onContextSourceProvided: (taskId, sourceSessionId, mode) => hooks.push([taskId, sourceSessionId, mode]),
   });
-  const row = svc.createTask({ title: 't', projectPath: '/p', executorProvider: 'claude', sourceSessionId: 's-1', contextMode: 'none' });
+  const row = await svc.createTask({ title: 't', projectPath: '/p', executorProvider: 'claude', sourceSessionId: 's-1', contextMode: 'none' });
   assert.equal((row as { context_mode: string }).context_mode, 'none');
   assert.equal((row as { context_status: string | null }).context_status, null);
   assert.equal((row as { context_source_session_id: string | null }).context_source_session_id, null);
   assert.deepEqual(hooks, []);
 });
 
-test('createTask with contextMode=summary but no sourceSessionId rejects', () => {
+test('createTask with contextMode=summary but no sourceSessionId rejects', async () => {
   const svc = createTasksService(makeDbStub().db, {
     broadcast: () => {},
     deps: { projectsDb: makeProjectStub('/p') },
   });
-  assert.throws(
-    () => svc.createTask({ title: 't', projectPath: '/p', executorProvider: 'claude', contextMode: 'summary' }),
+  await assert.rejects(
+    svc.createTask({ title: 't', projectPath: '/p', executorProvider: 'claude', contextMode: 'summary' }),
     /sourceSessionId is required/,
   );
 });

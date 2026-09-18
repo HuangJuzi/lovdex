@@ -341,11 +341,11 @@ test('archive: no linked session is tolerated (task-only archive)', async () => 
 });
 
 test('createTask rejects status=archived', async () => {
-  await withIsolatedDatabase(() => {
+  await withIsolatedDatabase(async () => {
     projectsDb.createProjectPath('/tmp/example-repo');
     const svc = makeService();
-    assert.throws(
-      () => svc.createTask({ projectPath: '/tmp/example-repo', title: 't', executorProvider: 'claude', status: 'archived' }),
+    await assert.rejects(
+      svc.createTask({ projectPath: '/tmp/example-repo', title: 't', executorProvider: 'claude', status: 'archived' }),
       /invalid|archive/i,
     );
   });

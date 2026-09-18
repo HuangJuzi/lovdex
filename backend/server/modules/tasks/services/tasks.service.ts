@@ -16,6 +16,7 @@ import {
 } from '@/shared/task-status.js';
 import { AppError, normalizeProjectPath } from '@/shared/utils.js';
 import type { TaskEngine, TaskRow, TaskStatus } from '@/shared/types.js';
+import { deriveFallbackTitle, raceTaskTitle, shouldApplyGeneratedTitle } from './task-title.js';
 
 export const STATUS_ORDER: readonly TaskStatus[] = TASK_STATUSES;
 
@@ -106,7 +107,24 @@ export function createTasksService(
       projectsDb?: typeof projectsDb;
       sessionsDb?: typeof sessionsDb;
       deleteSessionHard?: (sessionId: string) => Promise<void>;
+      /**
+       * Title generation: when `title` is blank, ask the model to distill one
+       * from the description (task-title-llm). Injected so this module never
+       * pulls in the SDK — unit tests pass a stub or nothing at all.
+       *
+       * Must resolve to a sanitized title or null; null means "fall back to the
+       * local first-line derivation". Optional: without it, blank titles get the
+       * local fallback and createTask never touches the network.
+       */
+      generateTitle?: (input: { description: string | null }) => Promise<string | null>;
     };
+    /**
+     * How long createTask waits for `generateTitle` before creating the task
+     * with the local fallback title and leaving the model request running in the
+     * background. Defaults to TITLE_BLOCKING_TIMEOUT_MS; exposed so unit tests
+     * don't have to sit through the real 3s window.
+     */
+    titleBlockingMs?: number;
     /**
      * Returns the app session ids that currently have a pending tool-approval
      * request, mapped to the toolName each is waiting on. Used to decorate task
@@ -206,6 +224,71 @@ export function createTasksService(
     }
   }
 
+  /**
+   * Background write-back for a title that arrived after the blocking window.
+   *
+   * CAS on the placeholder we actually wrote (see shouldApplyGeneratedTitle): if
+   * the user renamed the task, archived it, or it was deleted while the model was
+   * thinking, the generated title yields. Broadcasts a second `task_upserted` so
+   * an open board picks the new name up live.
+   *
+   * Never throws — this runs detached from createTask, and a DB hiccup here must
+   * not surface as an unhandled rejection.
+   */
+  function applyGeneratedTitle(taskId: string, generated: string | null, placeholderTitle: string): void {
+    try {
+      if (!generated) return;
+      const current = resolveDb.getTask(taskId);
+      if (!shouldApplyGeneratedTitle(current, placeholderTitle)) return;
+      const updated = resolveDb.updateTask(taskId, { title: generated });
+      if (!updated) return;
+      emit({ kind: 'task_upserted', task: updated, actor: 'engine' });
+    } catch (error) {
+      console.error('[tasks] title write-back failed', {
+        taskId,
+        error: error instanceof Error ? error.message : error,
+      });
+    }
+  }
+
+  /**
+   * Resolves the title for a new task.
+   *
+   * A title the caller actually provided always wins and never reaches the model.
+   * A blank one is derived locally from the description first line, then — only
+   * when there IS a description worth reading — raced against the model for up to
+   * `titleBlockingMs`. Returns the title to persist plus, when the model was too
+   * slow, the still-in-flight request to write back later.
+   *
+   * Resolution runs after validation on purpose: a request that is going to 400
+   * must not spend the blocking window on a model call.
+   */
+  async function resolveCreateTitle(
+    input: CreateTaskInput,
+  ): Promise<{ title: string; writeBack: Promise<string | null> | null }> {
+    const provided = typeof input.title === 'string' ? input.title : '';
+    if (provided.trim()) return { title: provided, writeBack: null };
+
+    const fallback = deriveFallbackTitle(input.description);
+    const description = typeof input.description === 'string' ? input.description.trim() : '';
+    let pending: Promise<string | null> | undefined;
+    try {
+      // The contract is a Promise (so a rejection is handled by raceTaskTitle),
+      // but a synchronous throw here — mis-wired dep, failed init — must not
+      // become "建任务失败": naming is best-effort by definition.
+      pending = description ? opts.deps?.generateTitle?.({ description }) : undefined;
+    } catch (error) {
+      console.error('[tasks] title generation failed', {
+        error: error instanceof Error ? error.message : error,
+      });
+      pending = undefined;
+    }
+    if (!pending) return { title: fallback, writeBack: null };
+
+    const { title, background } = await raceTaskTitle(pending, fallback, opts.titleBlockingMs);
+    return { title, writeBack: background };
+  }
+
   function applyStatusChange(taskId: string, status: TaskStatus, actor: 'user' | 'engine'): TaskRow | null {
     if (!isTaskStatus(status)) {
       throw new AppError(`invalid status: ${String(status)}`, { code: 'INVALID_STATUS', statusCode: 400 });
@@ -257,7 +340,7 @@ export function createTasksService(
   return {
     STATUS_ORDER,
 
-    createTask(input: CreateTaskInput): TaskRow {
+    async createTask(input: CreateTaskInput): Promise<TaskRow> {
       const status = input.status ?? 'todo';
       const provider = input.executorProvider ?? 'claude';
       if (!isTaskStatus(status)) {
@@ -329,9 +412,10 @@ export function createTasksService(
           throw new AppError('session does not belong to this project', { code: 'SESSION_PROJECT_MISMATCH', statusCode: 409 });
         }
       }
+      const { title: createdTitle, writeBack } = await resolveCreateTitle(input);
       const row = resolveDb.createTask({
         projectPath,
-        title: input.title,
+        title: createdTitle,
         description: input.description ?? null,
         status,
         executorProvider: provider,
@@ -348,6 +432,13 @@ export function createTasksService(
         contextStatus: contextMode === 'none' ? null : 'pending',
       });
       emit({ kind: 'task_upserted', task: row, actor: 'user' });
+      // The model missed the blocking window: it is still in flight, so let it
+      // replace the placeholder name once it lands. `writeBack` never rejects
+      // (raceTaskTitle swallows a late failure into null) — see applyGeneratedTitle
+      // for the CAS that keeps a user rename from being clobbered.
+      if (writeBack) {
+        void writeBack.then((generated) => applyGeneratedTitle(row.task_id, generated, createdTitle));
+      }
       if (contextSourceSessionId != null && contextMode !== 'none') {
         opts.onContextSourceProvided?.(row.task_id, contextSourceSessionId, contextMode);
       }
