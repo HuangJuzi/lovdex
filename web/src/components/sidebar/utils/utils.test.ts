@@ -61,42 +61,28 @@ test('getSessionDotState distinguishes active from idle', () => {
   assert.equal(getSessionDotState(false, false), 'idle');
 });
 
-test('sortProjects floats active projects above inactive regardless of star', () => {
-  const activeUnstarred = mkProject('pa', 'Active project', { sessions: [mkSession('a1')] });
-  const inactiveStarred = mkProject('pb', 'Starred idle', { isStarred: true });
-  const result = sortProjects([inactiveStarred, activeUnstarred], 'name', new Set(['a1']), NOW);
-  assert.deepEqual(result.map((p) => p.projectId), ['pa', 'pb']);
+test('sortProjects floats starred projects above unstarred regardless of name', () => {
+  const unstarredZ = mkProject('za', 'Zulu');
+  const starredA = mkProject('aa', 'Alpha', { isStarred: true });
+  const result = sortProjects([unstarredZ, starredA]);
+  assert.deepEqual(result.map((p) => p.projectId), ['aa', 'za']);
 });
 
-test('sortProjects keeps starred first within the same activity bucket', () => {
-  const activeStarred = mkProject('pa', 'B', { isStarred: true, sessions: [mkSession('a1')] });
-  const activeUnstarred = mkProject('pb', 'A', { sessions: [mkSession('a1')] });
-  const result = sortProjects([activeUnstarred, activeStarred], 'name', new Set(['a1']), NOW);
-  assert.deepEqual(result.map((p) => p.projectId), ['pa', 'pb']);
+test('sortProjects orders by display name within each star bucket', () => {
+  const result = sortProjects([
+    mkProject('bb', 'Bravo', { isStarred: true }),
+    mkProject('zc', 'Charlie'),
+    mkProject('aa', 'Alpha', { isStarred: true }),
+    mkProject('ab', 'Alpha2'),
+  ]);
+  assert.deepEqual(result.map((p) => p.projectId), ['aa', 'bb', 'ab', 'zc']);
 });
 
-test('sortProjects falls back to name order for idle projects', () => {
-  const result = sortProjects(
-    [mkProject('zc', 'Charlie'), mkProject('aa', 'Alpha'), mkProject('bb', 'Bravo')],
-    'name',
-    new Set(),
-    NOW,
-  );
-  assert.deepEqual(result.map((p) => p.projectId), ['aa', 'bb', 'zc']);
-});
-
-test('sortProjects uses date order for idle projects', () => {
-  const older = mkProject('older', 'Older', { sessions: [mkSession('s1', '2026-01-01T00:00:00Z')] });
-  const newer = mkProject('newer', 'Newer', { sessions: [mkSession('s2', '2026-02-01T00:00:00Z')] });
-  const result = sortProjects([older, newer], 'date', new Set(), NOW);
-  assert.deepEqual(result.map((p) => p.projectId), ['newer', 'older']);
-});
-
-test('sortProjects falls back to name order within the active bucket', () => {
-  const activeA = mkProject('pb', 'B', { sessions: [mkSession('a1')] });
-  const activeAa = mkProject('pa', 'A', { sessions: [mkSession('a1')] });
-  const result = sortProjects([activeA, activeAa], 'name', new Set(['a1']), NOW);
-  assert.deepEqual(result.map((p) => p.projectId), ['pa', 'pb']);
+test('sortProjects ignores recent session activity', () => {
+  const recentUnstarred = mkProject('pa', 'Recent', { sessions: [mkSession('s1', '2026-08-04T11:55:00Z')] });
+  const idleStarred = mkProject('pb', 'Idle', { isStarred: true });
+  const result = sortProjects([recentUnstarred, idleStarred]);
+  assert.deepEqual(result.map((p) => p.projectId), ['pb', 'pa']);
 });
 
 test('isSessionRecentlyActive is true only within the 10-minute window', () => {
@@ -121,13 +107,6 @@ test('isSessionActive is true when running or recently active', () => {
 test('isProjectActive returns true for a recently active session', () => {
   const recent = mkProject('p1', 'P1', { sessions: [mkSession('s1', '2026-08-04T11:55:00Z')] });
   assert.equal(isProjectActive(recent, new Set(), NOW), true);
-});
-
-test('sortProjects floats a recently active project above an idle one', () => {
-  const recent = mkProject('pa', 'Recent', { sessions: [mkSession('s1', '2026-08-04T11:55:00Z')] });
-  const idle = mkProject('pb', 'Idle', { sessions: [mkSession('s2', '2026-08-04T10:00:00Z')] });
-  const result = sortProjects([idle, recent], 'name', new Set(), NOW);
-  assert.deepEqual(result.map((p) => p.projectId), ['pa', 'pb']);
 });
 
 test('excludeHiddenProjects drops operator workspace projects', () => {

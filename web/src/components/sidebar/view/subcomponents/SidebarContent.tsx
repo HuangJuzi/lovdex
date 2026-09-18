@@ -1,8 +1,9 @@
-import { type ReactNode } from 'react';
-import { Folder, MessageSquare, Search } from 'lucide-react';
+import { type ReactNode, useState } from 'react';
+import { ChevronDown, ChevronRight, Folder, MessageSquare, Search } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
 import { ScrollArea } from '../../../../shared/view/ui';
+import { cn } from '../../../../lib/utils';
 import type { Project, ProjectSession } from '../../../../types/app';
 import type { ReleaseInfo } from '../../../../types/sharedTypes';
 import type { ConversationSearchResults, SearchProgress } from '../../hooks/useSidebarController';
@@ -108,6 +109,17 @@ export default function SidebarContent({
   onRecentSessionSelect,
   t,
 }: SidebarContentProps) {
+  // 项目列表整体折叠：与 Lovdex助手 / 最近任务同级的整行入口，收起时整个
+  // 项目列表一起隐藏。折叠状态持久化，避免切到 /tasks 等独立路由再回来时
+  // 被重置为展开。
+  const [projectsCollapsed, setProjectsCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('lovdex:sidebar:projects-collapsed') === '1';
+    } catch {
+      return false;
+    }
+  });
+
   const showConversationSearch = searchFilter.trim().length >= 2;
   const hasPartialResults = Boolean(conversationResults && conversationResults.results.length > 0);
 
@@ -137,9 +149,34 @@ export default function SidebarContent({
         onOpenSession={onAssistantSessionSelect}
       />
 
-      <SidebarScheduledEntry />
+      <div className="flex-shrink-0 px-2 pt-1.5 md:px-1.5">
+        <button
+          type="button"
+          onClick={() =>
+            setProjectsCollapsed((prev) => {
+              const next = !prev;
+              try {
+                localStorage.setItem('lovdex:sidebar:projects-collapsed', next ? '1' : '0');
+              } catch {
+                // ignore storage failures
+              }
+              return next;
+            })
+          }
+          title={projectsCollapsed ? '展开 项目' : '收起 项目'}
+          className="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left hover:bg-muted"
+        >
+          {projectsCollapsed ? (
+            <ChevronRight className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+          ) : (
+            <ChevronDown className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+          )}
+          <Folder className="h-4 w-4 flex-shrink-0 text-primary" />
+          <span className="min-w-0 flex-1 truncate text-sm font-semibold text-primary">项目</span>
+        </button>
+      </div>
 
-      <ScrollArea className="flex-1 overflow-y-auto overscroll-contain md:px-1.5 md:py-2">
+      <ScrollArea className={cn('flex-1 overflow-y-auto overscroll-contain md:px-1.5 md:py-2', projectsCollapsed && 'hidden')}>
         {showConversationSearch && (
           <div className="mb-2 border-b border-border/60 pb-2">
             {isSearching && !hasPartialResults ? (
@@ -243,6 +280,8 @@ export default function SidebarContent({
       </ScrollArea>
 
       <SidebarRecentSessions projects={projects} onRecentSessionSelect={onRecentSessionSelect} />
+
+      <SidebarScheduledEntry />
 
       <SidebarFooter
         updateAvailable={updateAvailable}

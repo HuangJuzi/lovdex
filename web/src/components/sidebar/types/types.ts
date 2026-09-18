@@ -1,8 +1,6 @@
 import type { LoadingProgress, Project, ProjectSession, LLMProvider } from '../../../types/app';
 import type { SessionActivityMap } from '../../../hooks/useSessionProtection';
 
-export type ProjectSortOrder = 'name' | 'date';
-
 export type SessionWithProvider = ProjectSession & {
   __provider: LLMProvider;
 };

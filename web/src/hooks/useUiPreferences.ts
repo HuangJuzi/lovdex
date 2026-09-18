@@ -34,7 +34,7 @@ type UiPreferencesAction =
 const DEFAULTS: UiPreferences = {
   showRawParameters: false,
   showThinking: true,
-  sendByCtrlEnter: false,
+  sendByCtrlEnter: true,
   sidebarVisible: true,
   voiceEnabled: false,
 };
@@ -80,6 +80,8 @@ const readInitialPreferences = (storageKey: string): UiPreferences => {
     return DEFAULTS;
   }
 
+  let result: UiPreferences;
+
   try {
     const raw = localStorage.getItem(storageKey);
 
@@ -88,20 +90,27 @@ const readInitialPreferences = (storageKey: string): UiPreferences => {
       if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
         const parsedRecord = parsed as Record<string, unknown>;
 
-        return PREFERENCE_KEYS.reduce((acc, key) => {
+        result = PREFERENCE_KEYS.reduce((acc, key) => {
           acc[key] = parseBoolean(parsedRecord[key], DEFAULTS[key]);
           return acc;
         }, { ...DEFAULTS });
+
+        // `sendByCtrlEnter` has no settings toggle, so a stored value is only a
+        // cached copy of an older default. Pin it to the current default so
+        // flipping it takes effect without a manual localStorage clear.
+        return { ...result, sendByCtrlEnter: DEFAULTS.sendByCtrlEnter };
       }
     }
   } catch {
     // Fall back to legacy keys when unified key is missing or invalid.
   }
 
-  return PREFERENCE_KEYS.reduce((acc, key) => {
+  result = PREFERENCE_KEYS.reduce((acc, key) => {
     acc[key] = readLegacyPreference(key, DEFAULTS[key]);
     return acc;
   }, { ...DEFAULTS });
+
+  return { ...result, sendByCtrlEnter: DEFAULTS.sendByCtrlEnter };
 };
 
 function reducer(state: UiPreferences, action: UiPreferencesAction): UiPreferences {

@@ -2,21 +2,7 @@ import type { TFunction } from 'i18next';
 
 import type { LLMProvider, Project, ProjectSession } from '../../../types/app';
 import { resolveSessionTitle } from '../../../utils/sessionTitle';
-import type { ProjectSortOrder, SettingsProject, SessionViewModel, SessionWithProvider } from '../types/types';
-
-export const readProjectSortOrder = (): ProjectSortOrder => {
-  try {
-    const rawSettings = localStorage.getItem('claude-settings');
-    if (!rawSettings) {
-      return 'name';
-    }
-
-    const settings = JSON.parse(rawSettings) as { projectSortOrder?: ProjectSortOrder };
-    return settings.projectSortOrder === 'date' ? 'date' : 'name';
-  } catch {
-    return 'name';
-  }
-};
+import type { SettingsProject, SessionViewModel, SessionWithProvider } from '../types/types';
 
 const EXPANDED_PROJECTS_STORAGE_KEY = 'lovdex:sidebar:expanded-projects';
 
@@ -238,29 +224,12 @@ export const isProjectActive = (
   return (project.sessions ?? []).some((session) => isSessionActive(session, activeSessionIds, currentTime));
 };
 
-export const sortProjects = (
-  projects: Project[],
-  projectSortOrder: ProjectSortOrder,
-  activeSessionIds: ReadonlySet<string>,
-  currentTime: Date,
-): Project[] => {
-  const byName = [...projects];
-
-  byName.sort((projectA, projectB) => {
-    // Projects with an active session (running or recent) float to the top,
-    // ahead of starred projects and the name/date order.
-    const aActive = isProjectActive(projectA, activeSessionIds, currentTime);
-    const bActive = isProjectActive(projectB, activeSessionIds, currentTime);
-
-    if (aActive && !bActive) {
-      return -1;
-    }
-
-    if (!aActive && bActive) {
-      return 1;
-    }
-
-    // Star order now comes from backend `projects.isStarred`.
+export const sortProjects = (projects: Project[]): Project[] => {
+  return [...projects].sort((projectA, projectB) => {
+    // Starred (favorited) projects float above unstarred; within the same
+    // bucket, order alphabetically by display name. Usage-time ordering
+    // (active-session floating + date sort) was removed — projects now sort
+    // uniformly by name.
     const aStarred = Boolean(projectA.isStarred);
     const bStarred = Boolean(projectB.isStarred);
 
@@ -272,14 +241,8 @@ export const sortProjects = (
       return 1;
     }
 
-    if (projectSortOrder === 'date') {
-      return getProjectLastActivity(projectB).getTime() - getProjectLastActivity(projectA).getTime();
-    }
-
     return (projectA.displayName || projectA.projectId).localeCompare(projectB.displayName || projectB.projectId);
   });
-
-  return byName;
 };
 
 export type SessionDotState = 'attention' | 'active' | 'idle';

@@ -6,7 +6,6 @@ import type { Project, ProjectSession, LLMProvider } from '../../../types/app';
 import type { SessionActivityMap } from '../../../hooks/useSessionProtection';
 import type {
   DeleteProjectConfirmation,
-  ProjectSortOrder,
   SessionDeleteConfirmation,
   SessionWithProvider,
 } from '../types/types';
@@ -16,7 +15,6 @@ import {
   filterProjects,
   getAllSessions,
   readLegacyStarredProjectIds,
-  readProjectSortOrder,
   readStoredExpandedProjects,
   sortProjects,
   writeStoredExpandedProjects,
@@ -110,7 +108,6 @@ export function useSidebarController({
   const [editingName, setEditingName] = useState('');
   const [initialSessionsLoaded, setInitialSessionsLoaded] = useState<Set<string>>(new Set());
   const [currentTime, setCurrentTime] = useState(new Date());
-  const [projectSortOrder, setProjectSortOrder] = useState<ProjectSortOrder>('name');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [editingSession, setEditingSession] = useState<string | null>(null);
   const [editingSessionName, setEditingSessionName] = useState('');
@@ -192,33 +189,6 @@ export function useSidebarController({
       setInitialSessionsLoaded(loadedProjects);
     }
   }, [projects, isLoading]);
-
-  useEffect(() => {
-    const loadSortOrder = () => {
-      setProjectSortOrder(readProjectSortOrder());
-    };
-
-    loadSortOrder();
-
-    const handleStorageChange = (event: StorageEvent) => {
-      if (event.key === 'claude-settings') {
-        loadSortOrder();
-      }
-    };
-
-    window.addEventListener('storage', handleStorageChange);
-
-    const interval = setInterval(() => {
-      if (document.hasFocus()) {
-        loadSortOrder();
-      }
-    }, 1000);
-
-    return () => {
-      window.removeEventListener('storage', handleStorageChange);
-      clearInterval(interval);
-    };
-  }, []);
 
   useEffect(() => {
     onRefreshRef.current = onRefresh;
@@ -534,8 +504,8 @@ export function useSidebarController({
 
   const sortedProjects = useMemo(() => {
     const visibleProjects = excludeHiddenProjects(projectsWithResolvedStarState);
-    return sortProjects(visibleProjects, projectSortOrder, activeSessionIds, currentTime);
-  }, [projectSortOrder, projectsWithResolvedStarState, activeSessionIds, currentTime]);
+    return sortProjects(visibleProjects);
+  }, [projectsWithResolvedStarState]);
 
   const filteredProjects = useMemo(
     () => filterProjects(sortedProjects, debouncedSearchQuery),
@@ -733,7 +703,6 @@ export function useSidebarController({
     editingName,
     initialSessionsLoaded,
     currentTime,
-    projectSortOrder,
     isRefreshing,
     editingSession,
     editingSessionName,

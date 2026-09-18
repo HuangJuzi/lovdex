@@ -68,6 +68,18 @@ type ProjectSessionPage = Pick<Project, 'sessions' | 'sessionMeta'>;
 
 const DEFAULT_PROVIDER: LLMProvider = 'claude';
 
+// In-memory cache of the last loaded project list. AppContent unmounts when
+// navigating to /tasks, /settings, etc. and remounts on return; reusing the
+// cached list lets the workspace render instantly while a fresh /api/projects
+// (which runs a full session synchronization) refreshes in the background.
+let projectsCache: Project[] = [];
+
+const readCachedProjects = (): Project[] => projectsCache;
+
+const writeCachedProjects = (nextProjects: Project[]): void => {
+  projectsCache = nextProjects;
+};
+
 const serialize = (value: unknown) => JSON.stringify(value ?? null);
 
 const readSelectedProvider = (): LLMProvider => {
@@ -371,7 +383,7 @@ export function useProjectsState({
   initialProjectPath,
   initialTab,
 }: UseProjectsStateArgs) {
-  const [projects, setProjects] = useState<Project[]>([]);
+  const [projects, setProjects] = useState<Project[]>(() => readCachedProjects());
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [selectedSession, setSelectedSession] = useState<ProjectSession | null>(null);
   const [attentionSessionIds, setAttentionSessionIds] = useState<Set<string>>(new Set());
@@ -388,7 +400,7 @@ export function useProjectsState({
   }, [activeTab]);
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [isLoadingProjects, setIsLoadingProjects] = useState(true);
+  const [isLoadingProjects, setIsLoadingProjects] = useState<boolean>(() => readCachedProjects().length === 0);
   const [loadingProgress, setLoadingProgress] = useState<LoadingProgress | null>(null);
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -621,8 +633,14 @@ export function useProjectsState({
   }, []);
 
   useEffect(() => {
-    void fetchProjects();
+    // With a cached project list, refresh silently in the background so the
+    // workspace shows immediately instead of flashing the loading spinner.
+    void fetchProjects({ showLoadingState: readCachedProjects().length === 0 });
   }, [fetchProjects]);
+
+  useEffect(() => {
+    writeCachedProjects(projects);
+  }, [projects]);
 
   useEffect(() => {
     if (!selectedProject?.projectId) {
