@@ -269,3 +269,48 @@ test('update: omitting the title leaves it untouched', async () => {
   assert.equal(updated.title, '旧名字');
   assert.equal(calls, 0);
 });
+
+test('update: a model that misses the window writes the title back later and rebroadcasts', async () => {
+  let release: (v: string | null) => void = () => {};
+  const gate = new Promise<string | null>((r) => { release = r; });
+  const { svc, rows, broadcasts } = makeService('2026-08-13T12:00:00.000Z', {
+    generateTitle: () => gate,
+    titleBlockingMs: 10,
+  });
+  // create 传了非空标题 → 不触发取名，gate 只留给 update 挂住。
+  const created = await svc.create({
+    title: '旧名字', description: '旧描述', scheduleType: 'once', runAt: '2026-08-14T01:00:00.000Z',
+  }) as { schedule_id: string };
+  const updated = await svc.update(created.schedule_id, { title: '' }) as { title: string };
+  // 阻塞窗口内没等到模型 → 先落描述首行
+  assert.equal(updated.title, '旧描述');
+  const before = broadcasts.length;
+
+  release('模型取的名');
+  await new Promise((r) => setTimeout(r, 0));
+
+  assert.equal(rows.get(created.schedule_id)?.title, '模型取的名');
+  const after = broadcasts.slice(before);
+  assert.equal(after.length, 1);
+  assert.equal((after[0] as { kind: string }).kind, 'scheduled_task_upserted');
+});
+
+test('update: write-back yields when the user renamed the template in the meantime', async () => {
+  let release: (v: string | null) => void = () => {};
+  const gate = new Promise<string | null>((r) => { release = r; });
+  const { svc, rows } = makeService('2026-08-13T12:00:00.000Z', {
+    generateTitle: () => gate,
+    titleBlockingMs: 10,
+  });
+  const created = await svc.create({
+    title: '旧名字', description: '旧描述', scheduleType: 'once', runAt: '2026-08-14T01:00:00.000Z',
+  }) as { schedule_id: string };
+  const updated = await svc.update(created.schedule_id, { title: '' }) as { title: string };
+  assert.equal(updated.title, '旧描述');
+  rows.set(created.schedule_id, { ...rows.get(created.schedule_id)!, title: '用户改的名字' });
+
+  release('模型取的名');
+  await new Promise((r) => setTimeout(r, 0));
+
+  assert.equal(rows.get(created.schedule_id)?.title, '用户改的名字');
+});
