@@ -90,6 +90,7 @@ function Sidebar({
     showVersionModal,
     filteredProjects,
     toggleProject,
+    collapseAllProjects,
     handleSessionClick,
     toggleStarProject,
     isProjectStarred,
@@ -327,6 +328,8 @@ function Sidebar({
             onShowVersionModal={() => setShowVersionModal(true)}
             onShowSettings={onShowSettings}
             projectListProps={projectListProps}
+            hasExpandedProjects={expandedProjects.size > 0}
+            onCollapseAllProjects={collapseAllProjects}
             onRecentSessionSelect={(session, project) => {
               handleProjectSelect(project);
               // provider-badge selection matches `session.__provider ?? session.provider`

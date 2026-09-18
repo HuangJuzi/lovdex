@@ -359,6 +359,11 @@ export function useSidebarController({
     setExpandedProjects((prev) => toggleExpandedProject(prev, projectId));
   }, []);
 
+  /** 一键收起所有已展开的 Project。 */
+  const collapseAllProjects = useCallback(() => {
+    setExpandedProjects(new Set<string>());
+  }, []);
+
   const handleSessionClick = useCallback(
     (session: SessionWithProvider, projectId: string) => {
       // Tag the session with its owning projectId so downstream handlers
@@ -714,6 +719,7 @@ export function useSidebarController({
     filteredProjects,
     runningSessionsCount,
     toggleProject,
+    collapseAllProjects,
     handleSessionClick,
     toggleStarProject,
     isProjectStarred,

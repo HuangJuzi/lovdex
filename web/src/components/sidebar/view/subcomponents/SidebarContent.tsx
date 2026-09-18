@@ -1,5 +1,5 @@
 import { type ReactNode, useState } from 'react';
-import { ChevronDown, ChevronRight, Folder, MessageSquare, Search } from 'lucide-react';
+import { ChevronDown, ChevronRight, ChevronsDownUp, Folder, MessageSquare, Search } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
 import { ScrollArea } from '../../../../shared/view/ui';
@@ -72,6 +72,10 @@ type SidebarContentProps = {
   onShowVersionModal: () => void;
   onShowSettings: () => void;
   projectListProps: SidebarProjectListProps;
+  /** 是否有 Project 处于展开态 —— 决定「全部收起」按钮是否出现。 */
+  hasExpandedProjects: boolean;
+  /** 一键收起所有已展开的 Project。 */
+  onCollapseAllProjects: () => void;
   /** 点击「最近任务」里某条会话：打开该会话对话。 */
   onRecentSessionSelect: (session: ProjectSession, project: Project) => void;
   t: TFunction;
@@ -106,6 +110,8 @@ export default function SidebarContent({
   onShowVersionModal,
   onShowSettings,
   projectListProps,
+  hasExpandedProjects,
+  onCollapseAllProjects,
   onRecentSessionSelect,
   t,
 }: SidebarContentProps) {
@@ -149,7 +155,7 @@ export default function SidebarContent({
         onOpenSession={onAssistantSessionSelect}
       />
 
-      <div className="flex-shrink-0 px-2 pt-1.5 md:px-1.5">
+      <div className="flex flex-shrink-0 items-center gap-1 px-2 pt-1.5 md:px-1.5">
         <button
           type="button"
           onClick={() =>
@@ -164,7 +170,7 @@ export default function SidebarContent({
             })
           }
           title={projectsCollapsed ? '展开 项目' : '收起 项目'}
-          className="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left hover:bg-muted"
+          className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-2 py-1.5 text-left hover:bg-muted"
         >
           {projectsCollapsed ? (
             <ChevronRight className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
@@ -174,6 +180,19 @@ export default function SidebarContent({
           <Folder className="h-4 w-4 flex-shrink-0 text-primary" />
           <span className="min-w-0 flex-1 truncate text-sm font-semibold text-primary">项目</span>
         </button>
+        {/* 文案硬编码中文，与紧邻的「项目」「展开 项目 / 收起 项目」一致 ——
+            仓库只有 en locale，这一区块本来就是硬编码中文。 */}
+        {hasExpandedProjects && (
+          <button
+            type="button"
+            onClick={onCollapseAllProjects}
+            title="收起全部项目"
+            aria-label="收起全部项目"
+            className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            <ChevronsDownUp className="h-3.5 w-3.5" />
+          </button>
+        )}
       </div>
 
       <ScrollArea className={cn('flex-1 overflow-y-auto overscroll-contain md:px-1.5 md:py-2', projectsCollapsed && 'hidden')}>
