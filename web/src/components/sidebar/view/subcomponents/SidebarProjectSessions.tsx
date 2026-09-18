@@ -84,7 +84,7 @@ export default function SidebarProjectSessions({
   const hasSessions = sessions.length > 0;
 
   return (
-    <div className="ml-3 space-y-1 border-l border-border pl-3">
+    <div className="ml-3 space-y-1 rounded-r-lg border-l-2 border-primary/30 bg-muted/25 py-1 pl-3">
       {!initialSessionsLoaded ? (
         <SessionListSkeleton />
       ) : !hasSessions ? (
