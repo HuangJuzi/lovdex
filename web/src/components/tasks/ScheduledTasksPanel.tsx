@@ -1,4 +1,4 @@
-import { forwardRef, useCallback, useImperativeHandle, useState } from 'react';
+import { forwardRef, useCallback, useImperativeHandle, useRef, useState } from 'react';
 
 import { useWebSocket } from '../../contexts/WebSocketContext';
 import { useScheduledTasks } from '../../hooks/useScheduledTasks';
@@ -21,6 +21,10 @@ export const ScheduledTasksPanel = forwardRef<ScheduledTasksPanelHandle, { proje
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [formKey, setFormKey] = useState(0);
+  // 连击守卫。用同步的 ref 而不是 submitting state：setState 要等下一轮渲染才生效，
+  // 同一 tick 里（双击、Enter 连击）的第二次调用读到的还是旧值。标题留空时后端要等
+  // 模型取名（最长 3s），这个窗口期足够双击两次。
+  const submittingRef = useRef(false);
 
   const openNew = useCallback(() => { setEditing(null); setError(null); setFormKey((k) => k + 1); setFormOpen(true); }, []);
   // 供全局「新建任务」按钮在定时视图下直接唤起新建定时任务表单。
@@ -28,6 +32,8 @@ export const ScheduledTasksPanel = forwardRef<ScheduledTasksPanelHandle, { proje
   const openEdit = (t: ScheduledTask) => { setEditing(t); setError(null); setFormKey((k) => k + 1); setFormOpen(true); };
 
   async function submit(draft: ScheduledTaskDraft) {
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setSubmitting(true);
     setError(null);
     const body = toApiBody(draft);
@@ -45,6 +51,7 @@ export const ScheduledTasksPanel = forwardRef<ScheduledTasksPanelHandle, { proje
     } catch (e) {
       setError(e instanceof Error ? e.message : '保存失败');
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
   }
@@ -80,7 +87,7 @@ export const ScheduledTasksPanel = forwardRef<ScheduledTasksPanelHandle, { proje
   return (
     <>
       <ScheduledTasksView tasks={tasks} projectOptions={projectOptions} onEdit={openEdit} onDelete={(t) => void remove(t)} onToggle={(t) => void toggle(t)} onRunNow={(t) => void runNow(t)} />
-      <ScheduledTaskForm key={formKey} open={formOpen} initial={editing} projectOptions={projectOptions} submitting={submitting} error={error} onClose={() => setFormOpen(false)} onSubmit={(d) => void submit(d)} />
+      <ScheduledTaskForm key={formKey} open={formOpen} initial={editing} projectOptions={projectOptions} submitting={submitting} error={error} onClose={() => { if (!submittingRef.current) setFormOpen(false); }} onSubmit={(d) => void submit(d)} />
     </>
   );
 });
