@@ -64,8 +64,10 @@ import { buildStatsRouter, createTokenUsageIngestService, createTokenUsageQueryS
 import { cleanOperatorWorkspaceLegacySessions } from './modules/operators/operator-cleanup.service.js';
 import { listGitIgnoredDirPaths } from './modules/projects/services/git-ignored-dirs.service.js';
 import { scheduleAutoVerdict } from './modules/operators/operator-verdict.service.js';
+import { initVerdictLlm } from './modules/operators/operator-verdict-llm.js';
 import { sessionsService, setSessionRenameHook } from './modules/providers/services/sessions.service.js';
 import { scheduleTaskContextCompression } from './modules/tasks/services/task-context.service.js';
+import { requestTaskTitle } from './modules/tasks/services/task-title-llm.js';
 import { createSessionTransferService } from './modules/providers/services/session-transfer.service.js';
 import { validateApiKey, authenticateToken, authenticateWebSocket } from './middleware/auth.js';
 import { IS_PLATFORM } from './constants/config.js';
@@ -457,7 +459,14 @@ const broadcastTask = (event) => {
 };
 const tasksService = createTasksService(tasksDb, {
     broadcast: broadcastTask,
-    deps: { projectsDb, sessionsDb },
+    deps: {
+        projectsDb,
+        sessionsDb,
+        // 新建任务标题为空时用 LLM（DeepSeek Flash）从 description 提炼一个短名。
+        // 走与任务上下文压缩同一条 headless 一次性调用路径；失败/超时一律返回 null，
+        // createTask 据此降级到需求首行兜底 —— 取名失败绝不能导致建任务报错。
+        generateTitle: ({ description }) => requestTaskTitle({ description, runOneShot: runOneShotClaudeText }),
+    },
     // Reconstruct the board's "等你批准" overlay on load/reconnect by reading
     // which sessions currently have pending tool approvals from the run registry.
     getPendingApprovalSessions: () => chatRunRegistry.listPendingApprovalSessions(),
@@ -604,6 +613,18 @@ initOperatorHeadless({
     // an explicit projectPath falls back here and lands as an is_operator task.
     contextProjectPath: getOperatorConfig().workspace,
     contextIsOperatorWorkspace: true,
+});
+
+// Wire the lightweight LLM verdict channel (operator_config.verdict_mode='llm',
+// the default). One DeepSeek-Flash text completion judges the transcript and
+// writes the verdict directly — no operator session, no MCP tools. The heavy
+// runOperatorHeadless path stays wired above as the fallback when this channel
+// fails, so a flaky LLM degrades instead of leaving the task unjudged.
+initVerdictLlm({
+    fetchHistory: sessionsService.fetchHistory.bind(sessionsService),
+    oneShot: runOneShotClaudeText,
+    getTask: (taskId) => tasksService.getTask(taskId),
+    writeSummary: (taskId, input) => tasksService.writeSummary(taskId, input),
 });
 
 app.use('/api/tasks', authenticateToken, buildTasksRouter(tasksService, {
