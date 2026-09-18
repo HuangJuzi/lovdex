@@ -22,8 +22,27 @@ test('every permission-mode label key exists in the en chat bundle', () => {
   for (const [mode, { shortKey, fullKey }] of Object.entries(LABEL_KEYS)) {
     for (const key of [shortKey, fullKey]) {
       const value = resolveKey(bundle, key);
-      assert.equal(typeof value, 'string', `${mode}: ${key} is missing from en/chat.json`);
+      assert.equal(typeof value, 'string', `${mode}: ${key} is missing or not a string`);
       assert.ok((value as string).trim().length > 0, `${mode}: ${key} resolves to an empty string`);
     }
+  }
+});
+
+// The whole point of the short labels is that the composer footer does not wrap
+// at 375px. Nothing else asserts that property — the sibling test pins key
+// strings, not values — so without this a future edit could set
+// modesShort.bypassPermissions back to "Bypass Permissions" and every other
+// check would stay green while the phone UI regressed.
+const MAX_SHORT_LABEL_LENGTH = 7;
+
+test('short labels stay short enough not to wrap the composer footer', () => {
+  const bundle = JSON.parse(readFileSync(CHAT_BUNDLE, 'utf8')) as Record<string, unknown>;
+  for (const mode of Object.keys(LABEL_KEYS)) {
+    const value = resolveKey(bundle, `codex.modesShort.${mode}`);
+    assert.equal(typeof value, 'string', `${mode}: codex.modesShort.${mode} is missing or not a string`);
+    assert.ok(
+      (value as string).length <= MAX_SHORT_LABEL_LENGTH,
+      `${mode}: short label "${String(value)}" is ${(value as string).length} chars, over the ${MAX_SHORT_LABEL_LENGTH}-char budget`,
+    );
   }
 });
