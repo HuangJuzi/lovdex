@@ -107,6 +107,33 @@ test('claude provider defaults prefill baseUrl and model alias fields', () => {
   assert.strictEqual(claude.sonnetModel, 'claude-opus-4-8');
 });
 
+test('oneshot model slots default to the provider default slot', () => {
+  const cfg = createAppConfig({ dataDir: tmpDir() });
+  const oneshot = cfg.get().oneshot;
+  // Both single-shot jobs (task title, auto-verdict) ship on the provider's
+  // `default` slot — which resolves to providers.claude.defaultModel (DeepSeek
+  // Flash in the reference deployment). A slot, not a concrete id: hardcoding
+  // an id would pin these channels to whatever id was current when written and
+  // break any deployment using a different one.
+  assert.strictEqual(oneshot.titleModel, 'default');
+  assert.strictEqual(oneshot.verdictModel, 'default');
+});
+
+test('oneshot model slots round-trip and a partial write keeps the sibling slot', () => {
+  const cfg = createAppConfig({ dataDir: tmpDir() });
+  cfg.update({ oneshot: { verdictModel: 'Kimi-K3' } });
+  assert.strictEqual(cfg.get().oneshot.verdictModel, 'Kimi-K3');
+  assert.strictEqual(cfg.get().oneshot.titleModel, 'default');
+});
+
+test('clearing an oneshot model slot falls back to that job\'s built-in default', () => {
+  const cfg = createAppConfig({ dataDir: tmpDir() });
+  cfg.update({ oneshot: { titleModel: '' } });
+  // Empty is a legal value meaning "follow the built-in", which is the same
+  // `default` slot — so clearing and leaving the default agree.
+  assert.strictEqual(cfg.get().oneshot.titleModel, '');
+});
+
 test('claude model alias fields survive deep merge and persist', () => {
   const dir = tmpDir();
   const cfg = createAppConfig({ dataDir: dir });

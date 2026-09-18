@@ -18,9 +18,21 @@ test('resolveSettingsTab maps known tab keys', () => {
   assert.equal(resolveSettingsTab('account'), 'account');
 });
 
+test('resolveSettingsTab rejects the retired models tab', () => {
+  // The model slots moved into the Operator tab (settings → Operator Agent 设置);
+  // a stale ?tab=models link must fall back rather than render nothing.
+  assert.equal(resolveSettingsTab('models'), 'providers');
+});
+
 test('SETTINGS_TABS lists the tabs in order', () => {
   assert.deepEqual(
     SETTINGS_TABS.map((t) => t.key),
     ['providers', 'operator', 'remote-hosts', 'database', 'account'],
   );
+});
+
+test('every listed tab resolves back to itself (no tab is unreachable via ?tab=)', () => {
+  for (const tab of SETTINGS_TABS) {
+    assert.equal(resolveSettingsTab(tab.key), tab.key, `${tab.key} is listed but not resolvable`);
+  }
 });

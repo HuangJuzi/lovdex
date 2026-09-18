@@ -66,3 +66,14 @@ test('verdict_mode round-trips through the stored JSON blob (switch back to prov
     assert.equal(getOperatorConfig().verdict_mode, 'provider');
   });
 });
+
+test('verdict_llm_prompt_override defaults to null (built-in criteria)', () => {
+  assert.equal(DEFAULT_OPERATOR_CONFIG.verdict_llm_prompt_override, null);
+});
+
+test('verdict_llm_prompt_override round-trips through the stored JSON blob', async () => {
+  await withIsolatedDatabase(() => {
+    setOperatorConfig({ verdict_llm_prompt_override: '只看 E2E 冒烟' });
+    assert.equal(getOperatorConfig().verdict_llm_prompt_override, '只看 E2E 冒烟');
+  });
+});

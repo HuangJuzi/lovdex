@@ -197,6 +197,135 @@ test('buildVerdictLlmPrompt includes the prior-verdict weak-reference block only
 });
 
 // ===========================================================================
+// buildVerdictLlmPrompt — operator-supplied criteria override
+//
+// The override replaces ONLY the judgement criteria. The task header, the
+// prior-verdict block, the evidence blocks and the JSON output contract are
+// invariant: `parseVerdictLlmResponse` rejects anything without the JSON shape,
+// so an override that dropped it would silently degrade every verdict to a
+// provider fallback.
+// ===========================================================================
+
+const OVERRIDE = '只看有没有跑 E2E 冒烟，跑了才算 done。';
+
+test('buildVerdictLlmPrompt replaces the default criteria when an override is given', () => {
+  const { user: userPrompt } = buildVerdictLlmPrompt({
+    taskId: 't1',
+    title: 'x',
+    transcript: 't',
+    finalOutput: 'f',
+    priorVerdict: null,
+    promptOverride: OVERRIDE,
+  });
+  assert.match(userPrompt, /只看有没有跑 E2E 冒烟/);
+  assert.doesNotMatch(userPrompt, /判定要同时权衡三方面/);
+});
+
+test('buildVerdictLlmPrompt uses the default criteria when the override is null', () => {
+  const { user: userPrompt } = buildVerdictLlmPrompt({
+    taskId: 't1',
+    title: 'x',
+    transcript: 't',
+    finalOutput: 'f',
+    priorVerdict: null,
+    promptOverride: null,
+  });
+  assert.match(userPrompt, /判定要同时权衡三方面/);
+});
+
+test('buildVerdictLlmPrompt ignores a whitespace-only override', () => {
+  const { user: userPrompt } = buildVerdictLlmPrompt({
+    taskId: 't1',
+    title: 'x',
+    transcript: 't',
+    finalOutput: 'f',
+    priorVerdict: null,
+    promptOverride: '   \n  ',
+  });
+  assert.match(userPrompt, /判定要同时权衡三方面/);
+});
+
+test('an override keeps the evidence blocks so the model still sees the work', () => {
+  const { user: userPrompt } = buildVerdictLlmPrompt({
+    taskId: 't1',
+    title: 'x',
+    transcript: 'THE_TRANSCRIPT',
+    finalOutput: 'THE_FINAL_OUTPUT',
+    priorVerdict: null,
+    promptOverride: OVERRIDE,
+  });
+  assert.match(userPrompt, /THE_FINAL_OUTPUT/);
+  assert.match(userPrompt, /THE_TRANSCRIPT/);
+  assert.match(userPrompt, /<<<FINAL_OUTPUT/);
+  assert.match(userPrompt, /<<<TRANSCRIPT/);
+});
+
+test('an override keeps the JSON output contract the parser depends on', () => {
+  const { user: userPrompt } = buildVerdictLlmPrompt({
+    taskId: 't1',
+    title: 'x',
+    transcript: 't',
+    finalOutput: 'f',
+    priorVerdict: null,
+    promptOverride: OVERRIDE,
+  });
+  assert.match(userPrompt, /只输出 JSON/);
+  assert.match(userPrompt, /"verdict"/);
+});
+
+test('an override keeps the task header and the prior-verdict block', () => {
+  const { user: userPrompt } = buildVerdictLlmPrompt({
+    taskId: 'task-42',
+    title: '修登录',
+    transcript: 't',
+    finalOutput: 'f',
+    priorVerdict: { summary: '上次判 done', verdictAt: '2026-01-01T00:00:00.000Z' },
+    promptOverride: OVERRIDE,
+  });
+  assert.match(userPrompt, /task-42/);
+  assert.match(userPrompt, /修登录/);
+  assert.match(userPrompt, /上次判 done/);
+});
+
+test('runLlmVerdict forwards the override into the prompt it sends', async () => {
+  const { deps, calls } = makeDeps({ oneShot: async () => VALID_JSON });
+
+  await runLlmVerdict({
+    sessionId: 's1',
+    taskId: 't1',
+    title: 'x',
+    deps,
+    promptOverride: OVERRIDE,
+  });
+
+  assert.match(calls[0].prompt, /只看有没有跑 E2E 冒烟/);
+  assert.doesNotMatch(calls[0].prompt, /判定要同时权衡三方面/);
+});
+
+test('runLlmVerdict uses the default criteria when no override is supplied', async () => {
+  const { deps, calls } = makeDeps({ oneShot: async () => VALID_JSON });
+
+  await runLlmVerdict({ sessionId: 's1', taskId: 't1', title: 'x', deps });
+
+  assert.match(calls[0].prompt, /判定要同时权衡三方面/);
+});
+
+test('runLlmVerdict still writes a verdict when an override is in play', async () => {
+  const { deps, writes } = makeDeps({ oneShot: async () => VALID_JSON });
+
+  const outcome = await runLlmVerdict({
+    sessionId: 's1',
+    taskId: 't1',
+    title: 'x',
+    deps,
+    promptOverride: OVERRIDE,
+  });
+
+  assert.equal(outcome, 'written');
+  assert.equal(writes[0].verdict, 'done');
+});
+
+// ===========================================================================
 // runLlmVerdict — happy path
 // ===========================================================================
 
@@ -212,14 +341,18 @@ test('runLlmVerdict writes the parsed verdict and reports written', async () => 
   assert.equal(writes[0].summary, '已修复登录态丢失，单测通过。');
 });
 
-test('runLlmVerdict asks the one-shot runner for the DeepSeek Flash model', async () => {
+test('runLlmVerdict asks the one-shot runner for the provider default slot', async () => {
   const { deps, calls } = makeDeps({ oneShot: async () => VALID_JSON });
 
   await runLlmVerdict({ sessionId: 's1', taskId: 't1', title: 'x', deps });
 
   assert.equal(calls.length, 1);
   assert.equal(calls[0].model, VERDICT_LLM_MODEL);
-  assert.equal(VERDICT_LLM_MODEL, 'DeepSeek-V4-Flash-0731');
+  // A SLOT name, never a concrete id: the slot resolves through
+  // providers.claude.defaultModel, so swapping the deployment's model needs no
+  // source change. Hardcoding an id here would pin this channel to whatever id
+  // happened to be current when it was written.
+  assert.equal(VERDICT_LLM_MODEL, 'default');
 });
 
 test('runLlmVerdict lets the caller override the model', async () => {
@@ -228,6 +361,66 @@ test('runLlmVerdict lets the caller override the model', async () => {
   await runLlmVerdict({ sessionId: 's1', taskId: 't1', title: 'x', deps, model: 'Other-Model' });
 
   assert.equal(calls[0].model, 'Other-Model');
+});
+
+// ---------------------------------------------------------------------------
+// Configurable model (Operator settings → 自动判定 → 状态判断模型)
+// ---------------------------------------------------------------------------
+
+test('runLlmVerdict uses the model from the injected config getter', async () => {
+  const { deps, calls } = makeDeps({ oneShot: async () => VALID_JSON });
+  deps.getModel = () => 'Kimi-K3';
+
+  await runLlmVerdict({ sessionId: 's1', taskId: 't1', title: 'x', deps });
+
+  assert.equal(calls[0].model, 'Kimi-K3');
+});
+
+test('runLlmVerdict falls back to the built-in model when the configured one is blank', async () => {
+  const { deps, calls } = makeDeps({ oneShot: async () => VALID_JSON });
+  deps.getModel = () => '   ';
+
+  await runLlmVerdict({ sessionId: 's1', taskId: 't1', title: 'x', deps });
+
+  assert.equal(calls[0].model, VERDICT_LLM_MODEL);
+});
+
+test('runLlmVerdict falls back to the built-in model when no config getter is wired', async () => {
+  const { deps, calls } = makeDeps({ oneShot: async () => VALID_JSON });
+
+  await runLlmVerdict({ sessionId: 's1', taskId: 't1', title: 'x', deps });
+
+  assert.equal(calls[0].model, VERDICT_LLM_MODEL);
+});
+
+test('an explicit model argument wins over the configured one', async () => {
+  const { deps, calls } = makeDeps({ oneShot: async () => VALID_JSON });
+  deps.getModel = () => 'FromConfig';
+
+  await runLlmVerdict({ sessionId: 's1', taskId: 't1', title: 'x', deps, model: 'FromArg' });
+
+  assert.equal(calls[0].model, 'FromArg');
+});
+
+test('runLlmVerdict trims the configured model', async () => {
+  const { deps, calls } = makeDeps({ oneShot: async () => VALID_JSON });
+  deps.getModel = () => '  GLM-5.2  ';
+
+  await runLlmVerdict({ sessionId: 's1', taskId: 't1', title: 'x', deps });
+
+  assert.equal(calls[0].model, 'GLM-5.2');
+});
+
+test('a throwing config getter does not break the verdict (falls back to built-in)', async () => {
+  const { deps, calls } = makeDeps({ oneShot: async () => VALID_JSON });
+  deps.getModel = () => {
+    throw new Error('config read boom');
+  };
+
+  const outcome = await runLlmVerdict({ sessionId: 's1', taskId: 't1', title: 'x', deps });
+
+  assert.equal(outcome, 'written');
+  assert.equal(calls[0].model, VERDICT_LLM_MODEL);
 });
 
 test('runLlmVerdict sends a system prompt distinct from the user prompt', async () => {

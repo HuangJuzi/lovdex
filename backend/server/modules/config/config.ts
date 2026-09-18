@@ -57,6 +57,20 @@ export const DEFAULT_APP_CONFIG = {
     workspace: '',
     maxConcurrent: 2,
   },
+  /**
+   * Model slots for the single-shot LLM jobs (Operator settings → 自动判定 / 标题生成模型). Both default to
+   * the provider's `default` slot — a slot name, not a concrete id, so the
+   * deployment's own model (providers.claude.defaultModel) is used without a
+   * source change. These jobs are pure text-in/text-out (no tools, no file
+   * reads), so the cheap default model is the right choice.
+   *
+   * Clearing a slot is also legal and means the same thing as leaving it at
+   * `default`: follow that job's built-in default.
+   */
+  oneshot: {
+    titleModel: 'default',
+    verdictModel: 'default',
+  },
   llmProxy: {
     enabled: false,
     port: 8088,

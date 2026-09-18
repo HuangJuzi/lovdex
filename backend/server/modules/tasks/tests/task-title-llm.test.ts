@@ -43,6 +43,50 @@ test('requestTaskTitle returns null when the one-shot path yields nothing', asyn
   );
 });
 
+// ---------------------------------------------------------------------------
+// Configurable model (Operator settings → 标题生成模型)
+// ---------------------------------------------------------------------------
+
+test('requestTaskTitle uses a configured model instead of the built-in default', async () => {
+  const calls: OneShotArgs[] = [];
+  await requestTaskTitle({
+    description: '换个模型取名',
+    runOneShot: recordingRunner('换个模型', calls),
+    model: 'Kimi-K3',
+  });
+  assert.equal(calls[0].model, 'Kimi-K3');
+});
+
+test('requestTaskTitle falls back to the built-in slot when the configured model is blank', async () => {
+  const calls: OneShotArgs[] = [];
+  await requestTaskTitle({
+    description: '留空跟随默认',
+    runOneShot: recordingRunner('留空跟随默认', calls),
+    model: '',
+  });
+  assert.equal(calls[0].model, TITLE_MODEL);
+});
+
+test('requestTaskTitle treats a whitespace-only model as unset', async () => {
+  const calls: OneShotArgs[] = [];
+  await requestTaskTitle({
+    description: '空白',
+    runOneShot: recordingRunner('空白', calls),
+    model: '   ',
+  });
+  assert.equal(calls[0].model, TITLE_MODEL);
+});
+
+test('requestTaskTitle trims a configured model', async () => {
+  const calls: OneShotArgs[] = [];
+  await requestTaskTitle({
+    description: '带空格',
+    runOneShot: recordingRunner('带空格', calls),
+    model: '  GLM-5.2  ',
+  });
+  assert.equal(calls[0].model, 'GLM-5.2');
+});
+
 test('requestTaskTitle returns null when the model answers something unusable', async () => {
   // 「模型答了但答的东西不能用」必须降级，而不是把 `""` 当成标题写进任务。
   assert.equal(

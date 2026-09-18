@@ -44,6 +44,11 @@ export async function requestTaskTitle(input: {
   runOneShot: OneShotRunner;
   /** 单测用的超时注入口；生产走 TITLE_TIMEOUT_MS。 */
   timeoutMs?: number;
+  /**
+   * 设置页「Operator Agent 设置 → 标题生成模型」的配置值。留空或纯空白时回退到内置的
+   * `TITLE_MODEL`（claude provider 的 `default` 槽位），这样默认部署行为不变。
+   */
+  model?: string | null;
 }): Promise<string | null> {
   let content: string | null = null;
   try {
@@ -51,7 +56,7 @@ export async function requestTaskTitle(input: {
       input.runOneShot({
         prompt: buildTitleUserPrompt({ prompt: input.description }),
         systemPrompt: TITLE_SYSTEM_PROMPT,
-        model: TITLE_MODEL,
+        model: input.model?.trim() || TITLE_MODEL,
       }),
       input.timeoutMs ?? TITLE_TIMEOUT_MS,
     );

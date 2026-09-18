@@ -24,13 +24,19 @@
  * unit tests can drive the whole module with a fake LLM and no DB.
  */
 
-import { compactTranscriptToText } from '@/modules/tasks/services/task-context.service.js';
-import { lastAssistantText } from './operator.tools.js';
+import { compactTranscriptToText } from '@/shared/session-transcript.js';
+import { lastAssistantText } from '@/modules/operators/operator.tools.js';
 import { isAiVerdict, type AiVerdict } from '@/shared/task-status.js';
 
-/** One-shot model for every verdict judgement — DeepSeek Flash, matching the
- * task-title / context-compression one-shot path in sophclaw-client. */
-export const VERDICT_LLM_MODEL = 'DeepSeek-V4-Flash-0731';
+/**
+ * One-shot model for every verdict judgement.
+ *
+ * A provider SLOT name (`default`), never a concrete model id — the slot is
+ * resolved by config (`providers.claude.defaultModel`, DeepSeek Flash in the
+ * reference deployment) so swapping the deployment's model needs no source
+ * change. Same rule as `TITLE_MODEL` in the task-title channel.
+ */
+export const VERDICT_LLM_MODEL = 'default';
 
 /** Per-attempt budget for one judgement. Mirrors sophclaw-client's verdict
  * timeout (compression gets 120s; a verdict reads far less). */
@@ -65,6 +71,12 @@ export type VerdictLlmDeps = {
     taskId: string,
     input: { summary: string; verdict: AiVerdict; reason?: string | null },
   ) => unknown;
+  /**
+   * Operator settings → 自动判定 → 状态判断模型. Injected rather than read here so this
+   * module keeps zero config coupling and unit tests need no config file.
+   * Blank/unset falls back to VERDICT_LLM_MODEL.
+   */
+  getModel?: () => string | null | undefined;
 };
 
 export type RunLlmVerdictArgs = {
@@ -77,6 +89,13 @@ export type RunLlmVerdictArgs = {
   model?: string;
   /** Test seam; defaults to VERDICT_LLM_TIMEOUT_MS. */
   timeoutMs?: number;
+  /**
+   * Operator-supplied replacement for the built-in judgement criteria
+   * (`operator_config.verdict_llm_prompt_override`). Replaces ONLY the
+   * criteria — the evidence blocks and the JSON output contract are always
+   * included, so an override can never break parsing.
+   */
+  promptOverride?: string | null;
 };
 
 let depsRef: VerdictLlmDeps | null = null;
@@ -97,9 +116,44 @@ const VERDICT_LLM_SYSTEM_PROMPT =
   'JSON 形如 {"summary": "中文≤3句", "verdict": "done|only_plan|needs_review|blocked", "reason": "一句判定依据"}。';
 
 /**
+ * The judgement criteria. This is the ONLY part an operator-supplied
+ * `verdict_llm_prompt_override` replaces — the task header, prior-verdict
+ * block, evidence and JSON output contract are invariant (see
+ * `buildVerdictLlmPrompt`).
+ */
+const DEFAULT_VERDICT_CRITERIA = [
+  '判定要同时权衡三方面，不要只看结尾措辞：',
+  '1. 实际产出质量：是否定位了根因、做了真实改动、交付物已落地（而非只给计划）。',
+  '2. 验证结果：单测/E2E/构建等是否真正通过（看最终输出与转录里明确给出的验证结论）。',
+  '3. 是否真正收尾：剩余事项的性质——是 Agent 按惯例应自行完成的例行收尾（提交、推送、合入 main、重启、部署），还是必须用户亲自决策的事项（选方案、确认业务方向、授权外部操作）。',
+  '',
+  '判定规则（按优先级）：',
+  '- 实际改动已落地 + 验证已真实完成（有测试/构建/运行结论佐证）+ 仅差例行收尾（提交/推送/合入/部署）→ verdict = done。按 Lovdex 用户偏好，提交推送合入 main 是 Agent 的例行职责，不算用户决策门；仅当工作实质完成、验证已真实通过、只差提交推送时，最终输出礼貌性地问「要我提交并推送吗？」「还需要我做什么吗？」不否定完成度。',
+  '- 实际改动已落地 + 验证通过 + 剩余事项确实需要用户决策（非例行收尾）→ verdict = needs_review。特别注意，以下都判 needs_review 而非 done：验证尚未真正完成（只过了类型检查、没跑运行时/单测/E2E 冒烟，或 Agent 停下来问「要不要我跑验证」）；代码改动尚未提交/推送（根本没提交，不是已提交仅差推送）；最终输出在等用户登录验收、人工冒烟、选方案、拍板分支/合并处理等。',
+  '- 只给了计划/方案、没有实际改动 → verdict = only_plan。',
+  '- 产出错误、验证失败、卡死或必须用户介入才能继续 → verdict = blocked。',
+  '',
+  '注意：仅凭最终输出以问句结尾不足以判 needs_review/blocked——若工作实质完成且验证已真实通过、仅差提交推送，礼貌性收尾提问应判 done；但「要不要我跑验证」「代码还没提交」是实际未完成，不是礼貌性收尾。',
+].join('\n');
+
+/**
+ * The output contract. Never overridable: `parseVerdictLlmResponse` rejects a
+ * response without this JSON shape, so dropping it would make every verdict
+ * fail schema validation and silently fall back to the provider channel.
+ */
+const VERDICT_OUTPUT_CONTRACT =
+  '只输出 JSON：{"summary": "中文≤3句", "verdict": "done|only_plan|needs_review|blocked", "reason": "一句，说明判定依据，含验证结论与剩余事项性质"}。';
+
+/**
  * Build the judgement prompt. `finalOutput` (the session's newest assistant
  * text) is listed first and untruncated — it is the decisive evidence; the
  * transcript is supporting context.
+ *
+ * `promptOverride` replaces ONLY `DEFAULT_VERDICT_CRITERIA`. Everything the
+ * channel structurally depends on is appended regardless: the task header, the
+ * prior-verdict block, the evidence blocks (without which the model has nothing
+ * to judge) and the JSON output contract (without which parsing fails). An
+ * override that is null or blank falls back to the built-in criteria.
  */
 export function buildVerdictLlmPrompt(args: {
   taskId: string;
@@ -107,8 +161,14 @@ export function buildVerdictLlmPrompt(args: {
   transcript: string;
   finalOutput: string;
   priorVerdict: PriorVerdict | null;
+  promptOverride?: string | null;
 }): { system: string; user: string } {
   const { taskId, title, transcript, finalOutput, priorVerdict } = args;
+
+  const criteria =
+    typeof args.promptOverride === 'string' && args.promptOverride.trim()
+      ? args.promptOverride.trim()
+      : DEFAULT_VERDICT_CRITERIA;
 
   const priorBlock = priorVerdict
     ? [
@@ -134,20 +194,9 @@ export function buildVerdictLlmPrompt(args: {
     transcript.slice(0, MAX_VERDICT_TRANSCRIPT_CHARS),
     'TRANSCRIPT',
     '',
-    '判定要同时权衡三方面，不要只看结尾措辞：',
-    '1. 实际产出质量：是否定位了根因、做了真实改动、交付物已落地（而非只给计划）。',
-    '2. 验证结果：单测/E2E/构建等是否真正通过（看最终输出与转录里明确给出的验证结论）。',
-    '3. 是否真正收尾：剩余事项的性质——是 Agent 按惯例应自行完成的例行收尾（提交、推送、合入 main、重启、部署），还是必须用户亲自决策的事项（选方案、确认业务方向、授权外部操作）。',
+    criteria,
     '',
-    '判定规则（按优先级）：',
-    '- 实际改动已落地 + 验证已真实完成（有测试/构建/运行结论佐证）+ 仅差例行收尾（提交/推送/合入/部署）→ verdict = done。按 Lovdex 用户偏好，提交推送合入 main 是 Agent 的例行职责，不算用户决策门；仅当工作实质完成、验证已真实通过、只差提交推送时，最终输出礼貌性地问「要我提交并推送吗？」「还需要我做什么吗？」不否定完成度。',
-    '- 实际改动已落地 + 验证通过 + 剩余事项确实需要用户决策（非例行收尾）→ verdict = needs_review。特别注意，以下都判 needs_review 而非 done：验证尚未真正完成（只过了类型检查、没跑运行时/单测/E2E 冒烟，或 Agent 停下来问「要不要我跑验证」）；代码改动尚未提交/推送（根本没提交，不是已提交仅差推送）；最终输出在等用户登录验收、人工冒烟、选方案、拍板分支/合并处理等。',
-    '- 只给了计划/方案、没有实际改动 → verdict = only_plan。',
-    '- 产出错误、验证失败、卡死或必须用户介入才能继续 → verdict = blocked。',
-    '',
-    '注意：仅凭最终输出以问句结尾不足以判 needs_review/blocked——若工作实质完成且验证已真实通过、仅差提交推送，礼貌性收尾提问应判 done；但「要不要我跑验证」「代码还没提交」是实际未完成，不是礼貌性收尾。',
-    '',
-    '只输出 JSON：{"summary": "中文≤3句", "verdict": "done|only_plan|needs_review|blocked", "reason": "一句，说明判定依据，含验证结论与剩余事项性质"}。',
+    VERDICT_OUTPUT_CONTRACT,
   ].join('\n');
 
   return { system: VERDICT_LLM_SYSTEM_PROMPT, user };
@@ -197,6 +246,23 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return Promise.race([promise, timeout]).finally(() => {
     if (timer) clearTimeout(timer);
   });
+}
+
+/**
+ * Resolve which model judges this run. Precedence: explicit argument (the test
+ * seam / caller override) → configured value → built-in constant. A config read
+ * that throws must not sink the verdict — the channel's whole job is to be the
+ * cheap path, so it degrades to the built-in model instead.
+ */
+function resolveModel(args: RunLlmVerdictArgs, deps: VerdictLlmDeps): string {
+  if (args.model?.trim()) return args.model.trim();
+  try {
+    const configured = deps.getModel?.();
+    if (configured?.trim()) return configured.trim();
+  } catch (e) {
+    console.error('[operator-verdict-llm] read configured model failed', e);
+  }
+  return VERDICT_LLM_MODEL;
 }
 
 /**
@@ -252,6 +318,7 @@ export async function runLlmVerdict(args: RunLlmVerdictArgs): Promise<VerdictLlm
     transcript: compactTranscriptToText(messages),
     finalOutput,
     priorVerdict,
+    promptOverride: args.promptOverride,
   });
 
   let raw: string | null = null;
@@ -260,7 +327,7 @@ export async function runLlmVerdict(args: RunLlmVerdictArgs): Promise<VerdictLlm
       deps.oneShot({
         prompt: user,
         systemPrompt: system,
-        model: args.model ?? VERDICT_LLM_MODEL,
+        model: resolveModel(args, deps),
       }),
       args.timeoutMs ?? VERDICT_LLM_TIMEOUT_MS,
     );

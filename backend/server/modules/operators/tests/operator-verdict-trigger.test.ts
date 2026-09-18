@@ -407,6 +407,36 @@ test('llm mode keeps the auto_verdict_enabled / enabled gates', async () => {
   assert.equal(llm, 0);
 });
 
+test('llm mode forwards verdict_llm_prompt_override from config to runLlm', async () => {
+  __resetAutoVerdictQueue();
+  const seen: Array<string | null | undefined> = [];
+
+  scheduleAutoVerdict(
+    's1', 't1', 'x', false,
+    async () => {},
+    () => cfgWith({ verdict_llm_prompt_override: '只看 E2E' }),
+    async (args) => { seen.push(args.promptOverride); return 'written'; },
+  );
+  await flush();
+
+  assert.deepEqual(seen, ['只看 E2E']);
+});
+
+test('llm mode forwards a null override unchanged (built-in criteria)', async () => {
+  __resetAutoVerdictQueue();
+  const seen: Array<string | null | undefined> = [];
+
+  scheduleAutoVerdict(
+    's1', 't1', 'x', false,
+    async () => {},
+    () => cfgWith({ verdict_llm_prompt_override: null }),
+    async (args) => { seen.push(args.promptOverride); return 'written'; },
+  );
+  await flush();
+
+  assert.deepEqual(seen, [null]);
+});
+
 test('llm mode queues jobs beyond max_concurrent just like provider mode', async () => {
   __resetAutoVerdictQueue();
   const started: string[] = [];

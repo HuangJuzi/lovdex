@@ -471,10 +471,16 @@ const tasksService = createTasksService(tasksDb, {
     deps: {
         projectsDb,
         sessionsDb,
-        // 新建任务标题为空时用 LLM（DeepSeek Flash）从 description 提炼一个短名。
-        // 走与任务上下文压缩同一条 headless 一次性调用路径；失败/超时一律返回 null，
-        // createTask 据此降级到需求首行兜底 —— 取名失败绝不能导致建任务报错。
-        generateTitle: ({ description }) => requestTaskTitle({ description, runOneShot: runOneShotClaudeText }),
+        // 新建任务标题为空时用 LLM（默认 DeepSeek Flash，可在 Operator 设置里换）
+        // 从 description 提炼一个短名。走与任务上下文压缩同一条 headless
+        // 一次性调用路径；失败/超时一律返回 null，createTask 据此降级到需求
+        // 首行兜底 —— 取名失败绝不能导致建任务报错。
+        generateTitle: ({ description }) =>
+            requestTaskTitle({
+                description,
+                runOneShot: runOneShotClaudeText,
+                model: getAppConfig().get().oneshot.titleModel,
+            }),
     },
     // Reconstruct the board's "等你批准" overlay on load/reconnect by reading
     // which sessions currently have pending tool approvals from the run registry.
@@ -634,6 +640,10 @@ initVerdictLlm({
     oneShot: runOneShotClaudeText,
     getTask: (taskId) => tasksService.getTask(taskId),
     writeSummary: (taskId, input) => tasksService.writeSummary(taskId, input),
+    // Read per-call, not at startup: a model change in the Operator settings must apply to
+    // the next verdict without a restart (same reason scheduleAutoVerdict reads
+    // its mode at run time).
+    getModel: () => getAppConfig().get().oneshot.verdictModel,
 });
 
 app.use('/api/tasks', authenticateToken, buildTasksRouter(tasksService, {

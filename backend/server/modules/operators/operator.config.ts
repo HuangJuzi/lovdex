@@ -31,7 +31,19 @@ export type OperatorConfig = {
   model: string;
   workspace: string;
   max_concurrent: number;
+  /**
+   * Custom judgement prompt for the legacy provider channel. Replaces the whole
+   * agent instruction (that prompt tells the agent to call
+   * get_session_transcript / write_task_summary), so it does NOT apply to the
+   * 'llm' channel — use `verdict_llm_prompt_override` there.
+   */
   verdict_prompt_override: string | null;
+  /**
+   * Custom judgement criteria for the 'llm' channel. Replaces only the criteria
+   * block; the evidence (final output + transcript) and the JSON output contract
+   * are always appended, so a custom prompt cannot break verdict parsing.
+   */
+  verdict_llm_prompt_override: string | null;
   interactive_chat_enabled: boolean;
 };
 
@@ -45,6 +57,7 @@ export const DEFAULT_OPERATOR_CONFIG: OperatorConfig = {
   workspace: opCfg.workspace || `${os.homedir()}/.lovdex/operator-workspace`,
   max_concurrent: typeof opCfg.maxConcurrent === 'number' ? opCfg.maxConcurrent : 2,
   verdict_prompt_override: null,
+  verdict_llm_prompt_override: null,
   interactive_chat_enabled: true,
 };
 

@@ -32,7 +32,7 @@
  */
 
 import { runOperatorHeadless } from '@/claude-sdk.js';
-import { runLlmVerdict, type VerdictLlmOutcome } from './operator-verdict-llm.js';
+import { runLlmVerdict, type VerdictLlmOutcome } from '@/modules/operators/operator-verdict-llm.js';
 import { getOperatorConfig, type OperatorConfig } from './operator.config.js';
 
 export type RunHeadless = (args: {
@@ -44,6 +44,8 @@ export type RunLlmVerdict = (args: {
   sessionId: string;
   taskId: string;
   title: string;
+  /** `operator_config.verdict_llm_prompt_override` at run time. */
+  promptOverride?: string | null;
 }) => Promise<VerdictLlmOutcome>;
 export type GetOperatorConfig = () => OperatorConfig;
 
@@ -97,11 +99,17 @@ export function scheduleAutoVerdict(
     try {
       // Read the mode at run time, not at schedule time: a job can sit in the
       // queue behind `max_concurrent`, and a config change made in the meantime
-      // should apply to it.
-      if (getConfig().verdict_mode !== 'provider') {
+      // should apply to it. Same for the prompt override.
+      const cfgAtRun = getConfig();
+      if (cfgAtRun.verdict_mode !== 'provider') {
         let outcome: VerdictLlmOutcome = 'failed';
         try {
-          outcome = await runLlm({ sessionId, taskId, title });
+          outcome = await runLlm({
+            sessionId,
+            taskId,
+            title,
+            promptOverride: cfgAtRun.verdict_llm_prompt_override,
+          });
         } catch (e) {
           // The real channel resolves 'failed' rather than rejecting; a
           // rejection here means an injected/custom implementation blew up.
