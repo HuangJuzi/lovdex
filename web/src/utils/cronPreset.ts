@@ -52,6 +52,7 @@ export function parseCronPreset(expr: string): CronPreset | null {
   if (month !== '*') return null;
 
   const time = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+  // daily/weekday 不消费 dow/dom，'1' 只是让 CronPreset 保持扁平的占位值。
   const base = { time, dow: '1', dom: '1' };
 
   if (dom === '*' && dow === '*') return { mode: 'daily', ...base };
@@ -63,13 +64,15 @@ export function parseCronPreset(expr: string): CronPreset | null {
   return null;
 }
 
-/** (模式, 参数) → cron 表达式。`time` 非法（空 / 缺冒号 / 越界）时返回空串。 */
+/** (模式, 参数) → cron 表达式。`time` 非法（空 / 缺冒号 / 残缺 / 越界）时返回空串。 */
 export function buildCronPreset(preset: CronPreset): string {
   const [h, m] = preset.time.split(':');
+  // 必须用正则而不是 Number()+isInteger：Number('') === 0，会让 ':' / ':30' / '0:'
+  // 这类残缺输入静默通过，变成一个会真实触发的午夜任务。
+  if (!/^\d{1,2}$/.test(h ?? '') || !/^\d{1,2}$/.test(m ?? '')) return '';
   const hh = Number(h);
   const mm = Number(m);
-  if (!Number.isInteger(hh) || !Number.isInteger(mm)) return '';
-  if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return '';
+  if (hh > 23 || mm > 59) return '';
   const head = `${mm} ${hh}`;
   switch (preset.mode) {
     case 'daily':

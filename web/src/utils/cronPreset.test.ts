@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  CRON_MODES,
   DOM_OPTIONS,
   DOW_OPTIONS,
   buildCronPreset,
@@ -39,7 +40,7 @@ test('parse and build round-trip exactly', () => {
 });
 
 test('buildCronPreset returns an empty string for an invalid time', () => {
-  for (const time of ['', '9', '25:00', '09:60', 'ab:cd']) {
+  for (const time of ['', '9', '25:00', '09:60', 'ab:cd', ':', ':30', '0:']) {
     assert.equal(buildCronPreset({ mode: 'daily', time, dow: '1', dom: '1' }), '', `expected '' for ${time}`);
   }
 });
@@ -71,6 +72,7 @@ test('resolveCronExpr: preset modes ignore cronExpr and rebuild from the paramet
 });
 
 test('the option tables cover every weekday and day-of-month', () => {
+  assert.deepEqual(CRON_MODES.map((o) => o.value), ['daily', 'weekly', 'weekday', 'monthly', 'custom']);
   assert.equal(DOW_OPTIONS.length, 7);
   assert.deepEqual(DOW_OPTIONS.map((o) => o.value), ['0', '1', '2', '3', '4', '5', '6']);
   assert.equal(DOM_OPTIONS.length, 31);
