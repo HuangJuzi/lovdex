@@ -18,7 +18,8 @@ reactDomCjs.createPortal = (children) => children;
 
 // Imported after the createPortal patch so ScheduledTaskForm's DialogContent
 // picks up the inline-rendering stub.
-const { ScheduledTaskForm, EMPTY_DRAFT, canSubmitScheduledTask } = await import('./ScheduledTaskForm');
+const { ScheduledTaskForm, EMPTY_DRAFT, canSubmitScheduledTask, toApiBody } = await import('./ScheduledTaskForm');
+const { ASSISTANT_OPTION_VALUE } = await import('./projectOptions');
 
 void EMPTY_DRAFT;
 
@@ -78,4 +79,26 @@ test('canSubmitScheduledTask: only a non-empty description may be submitted', ()
 test('canSubmitScheduledTask: an in-flight save blocks a second submit', () => {
   // 取名最长阻塞 3s，这期间按钮若仍可点，双击就是两条一模一样的定时任务。
   assert.equal(canSubmitScheduledTask('每天汇总提交记录', true), false);
+});
+
+test('toApiBody: a blank name is passed through as an empty string', () => {
+  // 关键回归点：前端一旦在这里本地兜底填了名字，后端的 LLM 取名分支就永远不会进入。
+  const body = toApiBody({ ...EMPTY_DRAFT, description: '每天汇总提交记录', title: '' });
+  assert.equal(body.title, '');
+});
+
+test('toApiBody: the assistant project is sent as a null projectPath', () => {
+  const body = toApiBody({ ...EMPTY_DRAFT, projectPath: ASSISTANT_OPTION_VALUE });
+  assert.equal(body.projectPath, null);
+});
+
+test('toApiBody: only the field matching the schedule type is populated', () => {
+  const once = toApiBody({ ...EMPTY_DRAFT, scheduleType: 'once', runAt: '2026-09-19T01:00', cronExpr: '0 9 * * *' });
+  assert.equal(once.cronExpr, null);
+  assert.equal(once.intervalSeconds, null);
+  assert.ok(once.runAt);
+
+  const cron = toApiBody({ ...EMPTY_DRAFT, scheduleType: 'cron', cronExpr: '0 9 * * *' });
+  assert.equal(cron.cronExpr, '0 9 * * *');
+  assert.equal(cron.runAt, null);
 });

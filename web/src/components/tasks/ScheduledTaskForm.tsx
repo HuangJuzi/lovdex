@@ -42,6 +42,29 @@ export function canSubmitScheduledTask(description: string, submitting: boolean)
   return description.trim() !== '' && !submitting;
 }
 
+/**
+ * draft → POST/PATCH /api/scheduled-tasks 的请求体。
+ *
+ * `title` 原样透传，**不做任何本地兜底**：空串是「让后端用 LLM 从描述取名」的信号，
+ * 前端一旦在这里填了名字，后端的取名分支就永远不会进入（同 CreateTaskDialog）。
+ */
+export function toApiBody(d: ScheduledTaskDraft) {
+  const projectPath = d.projectPath === ASSISTANT_OPTION_VALUE || !d.projectPath ? null : d.projectPath;
+  return {
+    title: d.title,
+    description: d.description || null,
+    projectPath,
+    executorProvider: d.executorProvider,
+    priority: d.priority,
+    label: d.label,
+    autoRun: d.autoRun ? 1 : 0,
+    scheduleType: d.scheduleType,
+    cronExpr: d.scheduleType === 'cron' ? d.cronExpr : null,
+    intervalSeconds: d.scheduleType === 'interval' ? Number(d.intervalSeconds) : null,
+    runAt: d.scheduleType === 'once' ? (d.runAt ? new Date(d.runAt).toISOString() : null) : null,
+  };
+}
+
 const INTERVAL_PRESETS = [
   { value: '3600', label: '每 1 小时' },
   { value: '21600', label: '每 6 小时' },

@@ -4,27 +4,9 @@ import { useWebSocket } from '../../contexts/WebSocketContext';
 import { useScheduledTasks } from '../../hooks/useScheduledTasks';
 import type { ScheduledTask } from '../../types/app';
 import { api } from '../../utils/api';
-import { ASSISTANT_OPTION_VALUE } from './projectOptions';
-import { ScheduledTaskForm, type ScheduledTaskDraft } from './ScheduledTaskForm';
+import { ScheduledTaskForm, toApiBody, type ScheduledTaskDraft } from './ScheduledTaskForm';
 import { ScheduledTasksView } from './ScheduledTasksView';
 import type { TaskProjectOption } from './TaskCard';
-
-function toApiBody(d: ScheduledTaskDraft) {
-  const projectPath = d.projectPath === ASSISTANT_OPTION_VALUE || !d.projectPath ? null : d.projectPath;
-  return {
-    title: d.title,
-    description: d.description || null,
-    projectPath,
-    executorProvider: d.executorProvider,
-    priority: d.priority,
-    label: d.label,
-    autoRun: d.autoRun ? 1 : 0,
-    scheduleType: d.scheduleType,
-    cronExpr: d.scheduleType === 'cron' ? d.cronExpr : null,
-    intervalSeconds: d.scheduleType === 'interval' ? Number(d.intervalSeconds) : null,
-    runAt: d.scheduleType === 'once' ? (d.runAt ? new Date(d.runAt).toISOString() : null) : null,
-  };
-}
 
 export type ScheduledTasksPanelHandle = {
   openNew: () => void;
