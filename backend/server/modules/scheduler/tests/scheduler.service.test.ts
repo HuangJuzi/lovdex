@@ -88,7 +88,7 @@ function makeService(nowIso: string, extra: Partial<SchedulerDeps> = {}) {
     },
     createSession: () => 'sess-1',
     startTaskRun: (taskId: string, sessionId: string) => { launches.push({ taskId, sessionId }); return true; },
-      broadcast: (e: unknown) => broadcasts.push(e),
+    broadcast: (e: unknown) => broadcasts.push(e),
     now: () => new Date(nowIso),
     ...extra,
   });

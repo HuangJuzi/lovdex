@@ -203,7 +203,7 @@ export function createSchedulerService(deps: SchedulerDeps) {
     async create(input: Record<string, unknown>): Promise<unknown> {
       validateScheduleInput(input);
       const description = typeof input.description === 'string' ? input.description : null;
-        // 解析放在校验之后：会 400 的请求不该花阻塞窗口（同 tasks.service）。
+      // 解析放在校验之后：会 400 的请求不该花阻塞窗口（同 tasks.service）。
       const { title, writeBack } = await resolveGeneratedTitle({
         title: String(input.title ?? ''),
         description,
