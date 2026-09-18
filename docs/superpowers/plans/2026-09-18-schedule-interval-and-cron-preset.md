@@ -425,11 +425,19 @@ git commit -m "feat(tasks): add cron preset parse/build with exact round-trip"
 
 **(a)** 顶部 import 补 `intervalLabel` 已经在用了，无需改。
 
-**(b)** `cronLabel humanizes common patterns and falls back to raw` 这条**保持不变**（它没测 `1-5`），但**追加**一条工作日断言：
+**(b)** `cronLabel humanizes common patterns and falls back to raw` 这条**保持不变**（它没测 `1-5`），但**追加**两条：
 
 ```ts
 test('cronLabel humanizes weekdays', () => {
   assert.equal(cronLabel('0 9 * * 1-5'), '工作日 09:00');
+});
+
+test('cronLabel falls back to raw for expressions the preset parser rejects', () => {
+  // 复用 parseCronPreset 之后 cronLabel 变严了：越界的表达式不再被硬凑成中文
+  // （以前 '99 9 * * *' 会输出「每天 09:99」这种明显坏掉的结果）
+  assert.equal(cronLabel('99 9 * * *'), '99 9 * * *');
+  assert.equal(cronLabel('0 9 * 3 *'), '0 9 * 3 *');
+  assert.equal(cronLabel('0 9 * * 1,3'), '0 9 * * 1,3');
 });
 ```
 
@@ -486,16 +494,37 @@ export function intervalLabel(seconds: number): string {
 }
 ```
 
-把 `cronLabel` 里的分支链改成（**在 `/^[0-6]$/` 那条之前**插入工作日）：
+把 `cronLabel` **整个替换**为（不再自己手写一套「切分 → 校验 → 匹配形态」的逻辑，改为复用 `cronPreset.ts` 的识别规则 —— 否则同一套规则会在 `parseCronPreset` 和 `cronLabel` 里各存一份）：
 
 ```ts
-  if (dom === '*' && month === '*' && dow === '*') return `每天 ${hhmm}`;
-  // 必须在 /^[0-6]$/ 之前：'1-5' 不会被那个单字符正则匹配，但排前面意图更清楚。
-  if (dom === '*' && month === '*' && dow === '1-5') return `工作日 ${hhmm}`;
-  if (dom === '*' && month === '*' && /^[0-6]$/.test(dow)) return `每周${DOW_LABELS[Number(dow)]} ${hhmm}`;
-  if (/^\d+$/.test(dom) && month === '*' && dow === '*') return `每月 ${Number(dom)} 日 ${hhmm}`;
-  return expr;
+/** 常见 cron 表达式 → 中文；无法 humanize 时原样返回。 */
+export function cronLabel(expr: string): string {
+  const preset = parseCronPreset(expr);
+  if (!preset) return expr;
+  switch (preset.mode) {
+    case 'daily':
+      return `每天 ${preset.time}`;
+    case 'weekday':
+      return `工作日 ${preset.time}`;
+    case 'weekly':
+      return `每周${DOW_LABELS[Number(preset.dow)]} ${preset.time}`;
+    case 'monthly':
+      return `每月 ${Number(preset.dom)} 日 ${preset.time}`;
+    default:
+      return expr;
+  }
+}
 ```
+
+顶部 import 追加：
+
+```ts
+import { parseCronPreset } from './cronPreset';
+```
+
+`DOW_LABELS` 保留（`weekly` 分支仍在用）。
+
+**副作用（有意的）**：`cronLabel` 因此变**严**了 —— 越界的表达式不再被硬凑成中文。例如 `99 9 * * *` 以前会输出「每天 09:99」（明显是坏的），现在原样返回。这是行为改进，由 Task 3 自己的测试覆盖。
 
 - [ ] **Step 4: 跑测试确认通过**
 
