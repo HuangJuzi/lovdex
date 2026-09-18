@@ -20,14 +20,19 @@ import {
   formatFullTime,
   formatTpm,
   metricValue,
+  pickAxisTargetTicks,
   pickAxisTickStride,
   type TokenComponents,
   type TokenDimension,
   type TokenMetric,
 } from '../format';
 import type { IngestStatus, TimeseriesResponse } from '../useTokenStats';
+import { useElementWidth } from '../useElementWidth';
 
 const MINUTE_MS = 60_000;
+
+/** YAxis 的固定宽度：算绘图区宽度时要把它从容器宽度里扣掉。 */
+const Y_AXIS_WIDTH = 48;
 
 type ChartRow = { ts: number } & Record<string, number>;
 
@@ -220,6 +225,10 @@ export function TpmChartCard({
   const buckets = useMemo(() => timeseries?.buckets ?? [], [timeseries]);
   const bucketMs = timeseries?.bucketMs ?? MINUTE_MS;
 
+  // 量图表容器宽度，用来决定横轴放多少个刻度（窄屏必须少放，见 pickAxisTargetTicks）。
+  // 首帧量不到时 width 为 0，pickAxisTargetTicks(0) 回落到上限，不会先少后多跳变。
+  const { ref: chartRef, width: chartWidth } = useElementWidth<HTMLDivElement>();
+
   const { rows, keys } = useMemo(
     () => buildChartRows(buckets, metric, dimension),
     [buckets, metric, dimension],
@@ -267,10 +276,18 @@ export function TpmChartCard({
   // 像素丢弃，保留间隔 ≈20.x 小时（非整数）→ 钟点逐格漂移。抽样成整数倍间隔，
   // 配合 XAxis 上的 interval={0}（原样渲染全部 tick，不再做像素过滤）即可消除漂移。
   //
+  // 代价是 recharts 那层「窄屏自动丢刻度」的像素过滤也没了，所以目标刻度数改成
+  // 按绘图区宽度算（下面 axisTargetTicks）——否则手机 390px 下 15 个双行标签会
+  // 挤成 ~21px 一个、必然重叠。
+  const axisTargetTicks = useMemo(
+    () => pickAxisTargetTicks(chartWidth - Y_AXIS_WIDTH),
+    [chartWidth],
+  );
+
   // useMemo 是必要的：recharts 的 propsAreEqual 对 `ticks` 走引用比较，
   // 每次渲染给新数组会让 XAxis 无条件重渲染。
   const xTicks = useMemo(() => {
-    const stride = pickAxisTickStride(tpmRows.length);
+    const stride = pickAxisTickStride(tpmRows.length, axisTargetTicks, bucketMs);
     if (stride <= 1) {
       return tpmRows.map((row) => row.ts);
     }
@@ -279,7 +296,7 @@ export function TpmChartCard({
       ticks.push(tpmRows[i].ts);
     }
     return ticks;
-  }, [tpmRows]);
+  }, [tpmRows, axisTargetTicks, bucketMs]);
 
   // 区间跨度决定刻度是单行还是双行（见 formatAxisTickParts）。用响应里的 range
   // 而不是首尾桶之差：range 是用户选的那个窗口（如整 7 天 / 整 24 小时）。
@@ -314,7 +331,7 @@ export function TpmChartCard({
           )}
         </div>
       ) : (
-        <div className="h-64">
+        <div className="h-64" ref={chartRef}>
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={tpmRows} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
               <CartesianGrid
@@ -350,7 +367,7 @@ export function TpmChartCard({
                 tick={{ fontSize: 11 }}
                 stroke="currentColor"
                 className="text-muted-foreground"
-                width={48}
+                width={Y_AXIS_WIDTH}
               />
               <Tooltip content={<ChartTooltip keys={keys} bucketMs={bucketMs} />} />
               {keys.map((key) => (

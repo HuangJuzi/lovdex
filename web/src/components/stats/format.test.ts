@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
-  AXIS_TARGET_TICKS,
+  AXIS_MAX_TICKS,
+  AXIS_MIN_TICKS,
   buildChartRows,
   componentShares,
   EMPTY_COMPONENTS,
@@ -10,6 +11,7 @@ import {
   groupByDimension,
   metricValue,
   METRICS,
+  pickAxisTargetTicks,
   pickAxisTickStride,
   pickBucketMs,
   formatTokenCount,
@@ -76,53 +78,147 @@ test('formatBucketLabel 按桶大小切换格式', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 横轴刻度：抽样步长 + 双行标签
+// 横轴刻度：宽度感知的刻度数 + 抽样步长 + 双行标签
 //
 // 背景：recharts 对 AreaChart 的 XAxis 恒走 categorical 分支，每个数据点都是
-// 候选刻度；7 天视图 = 168 个 1 小时桶，默认的 'preserveEnd' 再按像素丢弃，
+// 候选刻度；7 天视图 = 169 个 1 小时桶，默认的 'preserveEnd' 再按像素丢弃，
 // 保留间隔 ≈20.x 小时（非整数）→ 钟点逐格漂移，且标签只有 HH:00 分不出是哪天。
+//
+// 修法两步：先用绘图区宽度定「目标刻度数」（窄屏自动变少，顶替被 interval={0}
+// 关掉的像素过滤），再把步长吸附到「能整除一天的桶数」的约数上，让刻度落在
+// 固定钟点上（否则 169 桶 / stride 13 会落在 12 个不同钟点上，仍然「乱跳」）。
 // ---------------------------------------------------------------------------
 
 const HOUR = 60 * MIN;
 const DAY = 24 * HOUR;
+const HOUR_MS = 60 * MIN;
+const DAY_MS = 24 * HOUR_MS;
 
-test('pickAxisTickStride 让刻度数不超过目标值', () => {
-  assert.equal(pickAxisTickStride(168), 12); // 7 天 / 1 小时桶 → 12 小时间隔 → 14 个刻度
-  assert.equal(pickAxisTickStride(288), 21); // 24 小时 / 5 分钟桶
-  assert.equal(pickAxisTickStride(30), 3); // 30 天 / 1 天桶
-  assert.equal(pickAxisTickStride(360), 26); // 6 小时 / 1 分钟桶
-  assert.equal(pickAxisTickStride(1), 1); // 少于目标刻度数时不抽样
-  assert.equal(pickAxisTickStride(AXIS_TARGET_TICKS), 1);
-  assert.equal(pickAxisTickStride(AXIS_TARGET_TICKS + 1), 2);
-  // 后端实际返回的 7 天窗口是 169 个桶（窗口起点不是整点，补零一直补到 to），
-  // 于是 stride = ceil(169 / 14) = 13 → 13 个刻度、间隔 13 小时。
-  // 浏览器实测与此一致（见提交说明）。
-  assert.equal(pickAxisTickStride(169), 13);
+test('pickAxisTargetTicks 按绘图区宽度算目标刻度数', () => {
+  // 绘图区 = 容器宽度 − YAxis 的 48px。桌面容器 ≈1374 → 1326/72 = 18 → 被上限截到 15
+  assert.equal(pickAxisTargetTicks(1326), AXIS_MAX_TICKS);
+  // 平板 768 − 32（卡片内边距）− 48 = 688 → floor(688/72) = 9
+  assert.equal(pickAxisTargetTicks(688), 9);
+  // 手机 390 − 32 − 48 = 310 → 4
+  assert.equal(pickAxisTargetTicks(310), 4);
+  // 小屏 360 − 32 − 48 = 280 → 3
+  assert.equal(pickAxisTargetTicks(280), 3);
+});
+
+test('pickAxisTargetTicks 未测量/非法宽度回落到上限（首帧不能渲染 3 个刻度再跳变）', () => {
+  assert.equal(pickAxisTargetTicks(0), AXIS_MAX_TICKS);
+  assert.equal(pickAxisTargetTicks(-48), AXIS_MAX_TICKS);
+  assert.equal(pickAxisTargetTicks(Number.NaN), AXIS_MAX_TICKS);
+  assert.equal(pickAxisTargetTicks(Number.POSITIVE_INFINITY), AXIS_MAX_TICKS);
+  // 极窄也不能低于下限
+  assert.equal(pickAxisTargetTicks(1), AXIS_MIN_TICKS);
+});
+
+test('pickAxisTickStride 吸附到能整除一天的步长（验收表）', () => {
+  const cases = [
+    // 名称, 桶数, bucketMs, target, 期望 stride, 期望刻度数, 期望间隔
+    ['桌面 7 天', 169, HOUR_MS, 15, 12, 15, 12 * HOUR_MS],
+    ['桌面 1 小时', 61, MIN, 15, 4, 16, 4 * MIN],
+    ['桌面 6 小时', 361, MIN, 15, 24, 16, 24 * MIN],
+    ['桌面 24 小时', 289, 5 * MIN, 15, 24, 13, 2 * HOUR_MS],
+    ['桌面 30 天', 31, DAY_MS, 15, 3, 11, 3 * DAY_MS],
+    // 手机：吸附候选（24）会给出 8 个刻度、挤在 342px 里，必须回落到朴素步长
+    ['手机 7 天', 169, HOUR_MS, 4, 43, 4, 43 * HOUR_MS],
+  ] as const;
+
+  for (const [name, bucketCount, bucketMs, target, stride, ticks, intervalMs] of cases) {
+    const actual = pickAxisTickStride(bucketCount, target, bucketMs);
+    assert.equal(actual, stride, `${name}: stride`);
+    assert.equal(Math.ceil(bucketCount / actual), ticks, `${name}: 刻度数`);
+    assert.equal(actual * bucketMs, intervalMs, `${name}: 相邻刻度间隔`);
+  }
+});
+
+test('桌面 7 天：15 个刻度、间隔 12 小时、只出现 2 个钟点值', () => {
+  const start = new Date(2026, 8, 11, 11, 0, 0).getTime(); // 窗口起点不是整点
+  const stride = pickAxisTickStride(169, 15, HOUR_MS);
+  const ticks = Array.from({ length: 169 }, (_, i) => start + i * HOUR_MS).filter(
+    (_, i) => i % stride === 0,
+  );
+  assert.equal(ticks.length, 15);
+  for (let i = 1; i < ticks.length; i++) {
+    assert.equal(ticks[i] - ticks[i - 1], 12 * HOUR_MS);
+  }
+
+  const labels = ticks.map((ts) => formatAxisTickParts(ts, HOUR_MS, 7 * DAY_MS));
+  // 吸附的意义：钟点只有 11:00 / 23:00 两个值，不再「乱跳」
+  const clockValues = [...new Set(labels.map((l) => l.secondary))].sort();
+  assert.deepEqual(clockValues, ['11:00', '23:00']);
+  // 15 个标签两两不同（日期 + 时刻唯一），日期不回头
+  const rendered = labels.map((l) => `${l.primary} ${l.secondary}`);
+  assert.equal(new Set(rendered).size, rendered.length, `标签有重复：${rendered.join(' | ')}`);
+  const dates = labels.map((l) => l.primary);
+  assert.equal(new Set(dates).size, 8);
+  for (let i = 1; i < dates.length; i++) {
+    assert.ok(dates[i] >= dates[i - 1], `日期应逐日递增：${dates[i - 1]} → ${dates[i]}`);
+  }
+});
+
+test('手机 7 天：回落到朴素步长，刻度数远小于桌面（窄屏防回归）', () => {
+  const phoneStride = pickAxisTickStride(169, 4, HOUR_MS);
+  const desktopStride = pickAxisTickStride(169, 15, HOUR_MS);
+  // 不是吸附候选 24：那会渲染 8 个刻度、挤在 342px 里
+  assert.equal(phoneStride, 43);
+  assert.notEqual(phoneStride, 24);
+  const phoneTicks = Math.ceil(169 / phoneStride);
+  assert.equal(phoneTicks, 4);
+  assert.ok(phoneTicks <= 4 + 2, '窄屏刻度数不能超出目标 +2');
+  assert.ok(phoneTicks < Math.ceil(169 / desktopStride), '窄屏刻度数必须少于桌面');
 });
 
 test('pickAxisTickStride 对空/非法桶数退化到 1（不能返回 0 或负数）', () => {
-  assert.equal(pickAxisTickStride(0), 1);
-  assert.equal(pickAxisTickStride(-5), 1);
-  assert.equal(pickAxisTickStride(Number.NaN), 1);
-  assert.equal(pickAxisTickStride(Number.POSITIVE_INFINITY), 1);
+  assert.equal(pickAxisTickStride(0, 15, HOUR_MS), 1);
+  assert.equal(pickAxisTickStride(-5, 15, HOUR_MS), 1);
+  assert.equal(pickAxisTickStride(Number.NaN, 15, HOUR_MS), 1);
+  assert.equal(pickAxisTickStride(Number.POSITIVE_INFINITY, 15, HOUR_MS), 1);
 });
 
-test('pickAxisTickStride 在任何桶数下都保证刻度数不超目标', () => {
-  for (const count of [0, 1, 30, 168, 288, 360, 1000, 43200]) {
-    const stride = pickAxisTickStride(count);
-    assert.ok(Number.isInteger(stride) && stride >= 1, `${count} 个桶的步长应为正整数，实际 ${stride}`);
-    if (count > 0) {
-      assert.ok(
-        Math.ceil(count / stride) <= AXIS_TARGET_TICKS,
-        `${count} 个桶用步长 ${stride} 会渲染出 ${Math.ceil(count / stride)} 个刻度，超过目标 ${AXIS_TARGET_TICKS}`,
-      );
+test('pickAxisTickStride 没有整齐候选时回落朴素步长', () => {
+  // bucketMs 非法 → 算不出「一天的桶数」
+  assert.equal(pickAxisTickStride(169, 15, Number.NaN), Math.ceil(169 / 15));
+  assert.equal(pickAxisTickStride(169, 15, 0), Math.ceil(169 / 15));
+  // 桶比一天还大 → 一天的桶数 < 1，没有约数可枚举
+  assert.equal(pickAxisTickStride(31, 15, 2 * DAY_MS), Math.ceil(31 / 15));
+  // 一天的桶数只有 1 → 候选只有 1，刻度数远超 target+2 → 回落
+  assert.equal(pickAxisTickStride(31, 15, DAY_MS), Math.ceil(31 / 15));
+  // target 非法 → 与 AXIS_MAX_TICKS 等价
+  assert.equal(pickAxisTickStride(169, Number.NaN, HOUR_MS), pickAxisTickStride(169, AXIS_MAX_TICKS, HOUR_MS));
+});
+
+test('pickAxisTickStride 的返回值要么是整齐步长，要么就是朴素回落', () => {
+  for (const bucketMs of [MIN, 5 * MIN, HOUR_MS, DAY_MS]) {
+    const bucketsPerDay = DAY_MS / bucketMs;
+    for (const bucketCount of [31, 61, 169, 289, 361, 1440, 43200]) {
+      for (const target of [AXIS_MIN_TICKS, 4, 9, AXIS_MAX_TICKS]) {
+        const stride = pickAxisTickStride(bucketCount, target, bucketMs);
+        const isAligned = bucketsPerDay % stride === 0;
+        const isNaive = stride === Math.ceil(bucketCount / target);
+        assert.ok(
+          isAligned || isNaive,
+          `bucketMs=${bucketMs} count=${bucketCount} target=${target} → stride=${stride} 既不是整齐步长也不是朴素回落`,
+        );
+      }
     }
   }
 });
 
-test('pickAxisTickStride 支持自定义目标刻度数', () => {
-  assert.equal(pickAxisTickStride(100, 10), 10);
-  assert.equal(pickAxisTickStride(100, 100), 1);
+test('pickAxisTickStride 在任何桶数下都保证刻度数不失控', () => {
+  for (const count of [1, 30, 168, 169, 288, 360, 1000, 43200]) {
+    for (const target of [AXIS_MIN_TICKS, 9, AXIS_MAX_TICKS]) {
+      const stride = pickAxisTickStride(count, target, HOUR_MS);
+      assert.ok(Number.isInteger(stride) && stride >= 1, `${count} 个桶的步长应为正整数，实际 ${stride}`);
+      // 吸附分支允许最多 target+2 个刻度（否则就回落了），再留一点取整余量
+      assert.ok(
+        Math.ceil(count / stride) <= target + 2,
+        `${count} 个桶 / target ${target} 用步长 ${stride} 会渲染出 ${Math.ceil(count / stride)} 个刻度`,
+      );
+    }
+  }
 });
 
 test('formatAxisTickParts 跨度 ≤ 24h 时单行只显示时刻', () => {
@@ -163,29 +259,6 @@ test('formatAxisTickParts 跨天时主行随日期变化（不退回只有钟点
   assert.notEqual(first.primary, second.primary);
   // 同一钟点、不同日期：老实现（只有 HH:00）会渲染出两个一模一样的标签
   assert.equal(first.secondary, second.secondary);
-});
-
-test('7 天视图抽样出的刻度：间隔整齐、无重复标签', () => {
-  const spanMs = 7 * DAY;
-  const start = new Date(2026, 8, 17, 14, 0, 0).getTime();
-  const stride = pickAxisTickStride(168);
-  const ticks = Array.from({ length: 168 }, (_, i) => start + i * HOUR).filter(
-    (_, i) => i % stride === 0,
-  );
-
-  assert.equal(ticks.length, 14);
-  // 相邻刻度间隔是整数倍的桶（不再是 ≈20.x 小时那种漂移值）
-  for (let i = 1; i < ticks.length; i++) {
-    assert.equal(ticks[i] - ticks[i - 1], stride * HOUR);
-  }
-  // 每个刻度都能定位到具体某天的某个时刻，14 个标签互不相同
-  const rendered = ticks.map((ts) => {
-    const { primary, secondary } = formatAxisTickParts(ts, HOUR, spanMs);
-    return secondary ? `${primary} ${secondary}` : primary;
-  });
-  assert.equal(new Set(rendered).size, rendered.length, `标签有重复：${rendered.join(' | ')}`);
-  // 覆盖了不止一天（若退回「只有钟点」的老行为，这里会退化成 2 个值）
-  assert.ok(new Set(ticks.map((ts) => formatAxisTickParts(ts, HOUR, spanMs).primary)).size > 2);
 });
 
 // ---------------------------------------------------------------------------

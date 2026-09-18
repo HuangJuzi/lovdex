@@ -74,31 +74,113 @@ export function formatFullTime(ts: number): string {
 // 7 天视图 ≈169 个 1 小时桶 → 169 个候选，默认的 `interval: 'preserveEnd'`
 // 再按像素从右往左丢弃，保留间隔 ≈20.x 小时这种**非整数**值，钟点就逐格漂移
 // （14:00 → 17:00 → 21:00 → 01:00 …），且标签只有 `HH:00`，分不出是哪一天。
-// 修法是在前端显式抽样（下面两个函数），配合 XAxis 上的 `interval={0}`
-// （原样渲染全部传入的 tick，不再做像素过滤）。
+//
+// 修法两步：先用绘图区宽度定「目标刻度数」（窄屏自动变少，顶替被 `interval={0}`
+// 关掉的像素过滤），再把步长吸附到「能整除一天的桶数」的约数上（让刻度落在固定
+// 钟点上，而不是 12 个互不相干的时刻），最后在 XAxis 上用 `interval={0}` 原样
+// 渲染抽样结果。
 // ---------------------------------------------------------------------------
 
-/**
- * 横轴目标刻度数的**上界**（不是精确值，实际条数取 `ceil(bucketCount / stride)`）。
- *
- * 取 14 是横轴宽度的折中：再密会互相压字，再疏分不清是哪一天。
- * 注意实际结果取决于桶数——7 天视图是 169 个桶（窗口起点不是整点，后端补零
- * 补到 `to`），stride = ceil(169/14) = 13，于是渲染 13 个刻度、间隔 13 小时；
- * 若想要正好 12 小时间隔，把这个常量改成 15 即可。
- */
-export const AXIS_TARGET_TICKS = 14;
+/** 横轴目标刻度数的下限。再窄也要给出 3 个刻度，否则横轴没有参照。 */
+export const AXIS_MIN_TICKS = 3;
+
+/** 横轴目标刻度数的上限。桌面宽度下取到它。 */
+export const AXIS_MAX_TICKS = 15;
+
+/** 每个刻度至少需要的水平像素（双行标签约 35px 宽 + 间隙）。 */
+export const MIN_TICK_SPACING_PX = 72;
 
 /**
- * 按桶数算出抽样步长，使渲染出的刻度数不超过 `targetTicks`。
+ * 按绘图区宽度算目标刻度数；未测量（0/NaN）时回落到 `AXIS_MAX_TICKS`。
  *
- * 步长必须是整数：间隔取整后刻度才落在真实桶边界上，不会再出现
- * 「14:00 → 17:00 → 21:00」这种逐格漂移。
+ * 这一层是**窄屏的安全网**：XAxis 上的 `interval={0}` 关掉了 recharts 的像素
+ * 过滤（那正是消除钟点漂移的前提），代价是刻度不会再自动变少。手机 390px 下
+ * 绘图区只剩 ~310px，若还按 15 个刻度排，相邻标签只有 ~21px 而标签本身约 35px
+ * 宽 → 必然重叠。所以这里按宽度先把目标刻度数压下来。
+ *
+ * 未测量时返回上限而不是 0：首帧量不到宽度，若返回 3 会先渲染 3 个刻度、量到
+ * 宽度后再跳变成 15 个，视觉上是明显的闪动。
  */
-export function pickAxisTickStride(bucketCount: number, targetTicks = AXIS_TARGET_TICKS): number {
+export function pickAxisTargetTicks(drawableWidthPx: number): number {
+  if (!Number.isFinite(drawableWidthPx) || drawableWidthPx <= 0) {
+    return AXIS_MAX_TICKS;
+  }
+  return Math.min(
+    AXIS_MAX_TICKS,
+    Math.max(AXIS_MIN_TICKS, Math.floor(drawableWidthPx / MIN_TICK_SPACING_PX)),
+  );
+}
+
+/** `n` 的正约数（含 1 与 n）。`n` 必须是 >=1 的整数。 */
+function divisorsOf(n: number): number[] {
+  const out: number[] = [];
+  for (let i = 1; i * i <= n; i += 1) {
+    if (n % i === 0) {
+      out.push(i);
+      if (i !== n / i) {
+        out.push(n / i);
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * 按桶数算出抽样步长，使渲染出的刻度数接近 `targetTicks`。
+ *
+ * 步长必须是整数，否则刻度会落在桶中间；更进一步，**步长要吸附到「能整除一天的
+ * 桶数」的约数上**：169 个 1 小时桶用朴素步长 13 会落在 12 个不同的钟点上
+ * （11:00 → 00:00 → 13:00 → 02:00 …），用户看到的仍然是「小时数乱跳」。吸附到
+ * 12 之后刻度只在 11:00 / 23:00 之间交替，日期成为唯一的变化量。
+ *
+ * 规则：
+ * 1. 候选 = 一天的桶数（`86_400_000 / bucketMs`）的正约数；它必须是 >=1 的整数
+ *    （桶比一天还大时没有候选）。
+ * 2. 在候选里取「刻度数 `ceil(bucketCount / d)` 与 target 差值最小」的 d。
+ * 3. 差值并列时取 **d 较大**的（刻度更少、更安静）。
+ * 4. 若最优候选的刻度数 **> target + 2**（太密），或根本没有候选，则回落到朴素的
+ *    `ceil(bucketCount / target)`。这一条是窄屏的关键：手机下 169 桶 / target 4
+ *    的最佳候选是 24（8 个刻度），8 > 4 + 2 成立，于是回落到 43（4 个刻度）。
+ */
+export function pickAxisTickStride(
+  bucketCount: number,
+  targetTicks: number,
+  bucketMs: number,
+): number {
+  const target =
+    Number.isFinite(targetTicks) && targetTicks >= 1 ? Math.floor(targetTicks) : AXIS_MAX_TICKS;
   if (!Number.isFinite(bucketCount) || bucketCount <= 0) {
     return 1;
   }
-  return Math.max(1, Math.ceil(bucketCount / Math.max(1, targetTicks)));
+  const naive = Math.max(1, Math.ceil(bucketCount / target));
+
+  const bucketsPerDay = 86_400_000 / bucketMs;
+  if (!Number.isInteger(bucketsPerDay) || bucketsPerDay < 1) {
+    return naive;
+  }
+
+  let bestStride = 0;
+  let bestTicks = 0;
+  for (const candidate of divisorsOf(bucketsPerDay)) {
+    const ticks = Math.ceil(bucketCount / candidate);
+    if (bestStride === 0) {
+      bestStride = candidate;
+      bestTicks = ticks;
+      continue;
+    }
+    const diff = Math.abs(ticks - target);
+    const bestDiff = Math.abs(bestTicks - target);
+    // 差值并列时取更大的 d（刻度更少）
+    if (diff < bestDiff || (diff === bestDiff && candidate > bestStride)) {
+      bestStride = candidate;
+      bestTicks = ticks;
+    }
+  }
+
+  if (bestStride === 0 || bestTicks > target + 2) {
+    return naive;
+  }
+  return bestStride;
 }
 
 /**
