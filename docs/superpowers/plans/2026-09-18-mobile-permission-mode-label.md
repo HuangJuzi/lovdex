@@ -10,6 +10,17 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-18-mobile-permission-mode-label-design.md`
 
+**状态：已执行完毕。** 提交 `d2929a8` `81b5b6c` `fe0c01d` `1543fda` `1424843` `aa88ec7` `aa9a17e`。**本文的任务正文是执行前的计划，其中被审查推翻的部分没有回改**（保留原样以留痕），实际交付以下面「执行偏差」为准：
+
+| 计划写的 | 实际交付 | 原因 |
+|---|---|---|
+| Task 1 有 4 条用例 | 2 条 | 审查发现「只断言 key 前缀形状 / 互异性 / 键集」拦不住两个模式的 key 被对调，改为整表 `deepEqual(LABEL_KEYS, EXPECTED)`，其余三条被它涵盖 |
+| Task 2 新增 1 条 i18n 测试 | 3 条 | 追加「短标签长度 ≤ 7」（本功能的定义性属性，原先只由手工探针保证）与「短标签是完整标签的子串」（拦整表对调） |
+| 变量名 `modeLabels` | `modeLabelKeys` | 它持有的是 i18n key 不是解析后的文案 |
+| `modesShort.acceptEdits = "Edits"` | `"Accept"` | 产品负责人选定：`Edits` 单看更像泛指的「编辑」 |
+| 计划里 Task 1/Task 2 的 `# pass 4` / `# pass 3` | 2 / 5 | 用例数变了；以 `npm run typecheck` + `npx tsx --test` 实跑为准 |
+| lint 基线 224 | 本次改动零新增，但仓库总数会随并发会话波动 | 工作区与另一个改 `ScheduledTaskForm*` 的会话共用；判据是**所改文件**的 eslint 计数不变 |
+
 ---
 
 ## 文件结构
@@ -17,7 +28,8 @@
 | 文件 | 职责 | 动作 |
 |---|---|---|
 | `web/src/components/chat/view/subcomponents/permissionModeLabels.ts` | 模式 → i18n key 的映射。纯数据 + 纯函数，无 React 依赖 | 新建 |
-| `web/src/components/chat/view/subcomponents/permissionModeLabels.test.ts` | 上述映射的单测 | 新建 |
+| `web/src/components/chat/view/subcomponents/permissionModeLabels.test.ts` | 映射表锁定 + 未知值兜底 | 新建 |
+| `web/src/components/chat/view/subcomponents/permissionModeLabels.i18n.test.ts` | key 存在于真实 bundle / 短标签长度预算 / 短标签是完整标签的子串 | 新建 |
 | `web/src/i18n/locales/en/chat.json` | 新增 `codex.modesShort.*` 与 `input.currentMode` | 修改 |
 | `web/src/components/chat/view/subcomponents/ChatComposer.tsx` | 消费上述两者：双 span + `aria-label` | 修改 |
 
@@ -669,9 +681,9 @@ const p = require('puppeteer-core');
 
 ## 完成标准
 
-- [ ] `permissionModeLabels.test.ts` 2 条 + `permissionModeLabels.i18n.test.ts` 1 条，全绿
-- [ ] `npm run typecheck` 0 errors / `npm run lint` 224 problems（对比 Task 0 基线，零新增）
-- [ ] 375px 下模式按钮显示短标签文字，5 种模式各自可辨
-- [ ] 640px / 1280px 下显示完整文案，与改动前逐字一致
-- [ ] footer 折行高度增长 ≤ 32px（基线 85px）
-- [ ] 无后端改动，未重启后端
+- [x] `permissionModeLabels.test.ts` 2 条 + `permissionModeLabels.i18n.test.ts` 3 条，全绿（实跑 `# pass 5 / # fail 0`）
+- [x] 所改文件 `npx eslint` 零新增；`npm run typecheck` 无一条错误指向本特性的文件（仓库总数受并发会话影响，不作为判据）
+- [x] 375px 下模式按钮显示短标签文字，5 种模式各自可辨（实测 `["Default","Auto","Accept","Bypass","Plan"]`）
+- [x] 640px / 1280px 下显示完整文案，渲染文本与改动前逐字一致（可访问名有意改为 `Permission mode: X`，见 spec §8）
+- [x] footer 折行高度增长 ≤ 32px（实测 **0px**，四个档位均为 85px，与 baseline 逐像素一致）
+- [x] 无后端改动，未重启后端

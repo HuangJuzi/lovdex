@@ -115,11 +115,13 @@ export function getPermissionModeLabelKeys(mode: PermissionMode | string): Permi
 |---|---|---|
 | default | `Default Mode` | `Default` |
 | auto | `Auto Mode` | `Auto` |
-| acceptEdits | `Accept Edits` | `Edits` |
+| acceptEdits | `Accept Edits` | `Accept` |
 | bypassPermissions | `Bypass Permissions` | `Bypass` |
 | plan | `Plan Mode` | `Plan` |
 
-短标签最长 7 字符（`Default` / `Bypass`），手机上一行放得下。
+短标签最长 7 字符（`Default`），手机上一行放得下。每个短标签都是其完整标签的子串（`Default ⊂ Default Mode`、`Accept ⊂ Accept Edits` …），这条不变量由单测钉住 —— 它能抓住「两个模式的 key 被整体对调」这种其余断言都拦不住的编辑。
+
+`acceptEdits` 的短标签由 `Edits` 改为 `Accept`：`Edits` 单看更像泛指的「编辑」而非「接受编辑」，用完整名的首词与 `Default` / `Auto` / `Bypass` / `Plan` 的取词方式也更一致。
 
 另新增 `input.currentMode`（供 `aria-label` 用）。
 
@@ -145,19 +147,27 @@ web 包没有 `npm test`；跑之前必须 `unset TSX_TSCONFIG_PATH`（该变量
 ```bash
 cd /mnt/b/workdir/github/lovdex/web
 unset TSX_TSCONFIG_PATH && npx tsx --test \
-  src/components/chat/view/subcomponents/permissionModeLabels.test.ts
+  src/components/chat/view/subcomponents/permissionModeLabels.test.ts \
+  src/components/chat/view/subcomponents/permissionModeLabels.i18n.test.ts
 npm run typecheck && npm run lint
 ```
 
-`permissionModeLabels.test.ts` 用例：
+`permissionModeLabels.test.ts`：
 
-1. 5 种合法模式各自返回正确的 `shortKey` / `fullKey`，且两个 key 分属 `codex.modesShort.*` 与 `codex.modes.*`；
-2. `getPermissionModeLabelKeys('garbage')` 兜底到 default 而非抛错 / 返回 `undefined`；
-3. `LABEL_KEYS` 的键集与 `PermissionMode` 联合类型完全一致（防漏：新增 mode 时忘了补标签）。
+1. `LABEL_KEYS` 与手写的 `EXPECTED` 整表 `deepEqual`，并对每个 mode 断言 `getPermissionModeLabelKeys(mode)` 的返回值（**这张表钉住的是「哪个 mode 对应哪组 key」**；只断言 key 前缀形状、互异性、键集的话，两个 mode 的 key 被对调仍然全绿）；
+2. `getPermissionModeLabelKeys('garbage')` / `('')` 兜底到 default 而非抛错 / 返回 `undefined`。
+
+`permissionModeLabels.i18n.test.ts`（把 key 拿到真实 bundle 里解析 —— `LABEL_KEYS` 与上面那张 `EXPECTED` 是同一批字符串的两份手抄副本，同一个 typo 写进两处时前一个文件照样全绿）：
+
+3. `LABEL_KEYS` 里每个 key 都能在 `en/chat.json` 解析出非空字符串；
+4. 每个 `codex.modesShort.*` 值长度 ≤ 7 —— 本功能的定义性属性是窄屏不折行，没有这条断言的话，后人把 `bypassPermissions` 改回 `"Bypass Permissions"` 其余检查全绿，只有手工浏览器探针会发现；
+5. 每个短标签是其完整标签的子串。
+
+**注意 3/4/5 都从 `LABEL_KEYS` 读 `shortKey`，不用 `` `codex.modesShort.${mode}` `` 重构造** —— 重构造会让第 5 条失去意义（它解析到的永远是 bundle 里该 mode 的值，与 `LABEL_KEYS` 指向什么无关，对调就抓不住了）。
 
 typecheck / lint **零新增**（仓库 baseline 本就不干净，见 memory `lovdex-backend-baseline-not-clean`）。
 
-**测试写明的局限**：`node:test` + 无 DOM 无排版引擎，本单测只覆盖映射表，**证明不了** `sm:hidden` / `hidden sm:inline` 在浏览器里的实际显隐 —— 那部分由 §6.2 目视确认。
+**测试写明的局限**：`node:test` + 无 DOM 无排版引擎，本单测只覆盖映射表与文案，**证明不了** `sm:hidden` / `hidden sm:inline` 在浏览器里的实际显隐 —— 那部分由 §6.2 目视确认。第 4 条的 7 字符预算也只是「不折行」的**代理指标**：它是针对当前 footer 按钮组合标定的，往 `PromptInputTools` 里再加按钮就可能失效，真实属性今天只由未入库的浏览器探针保证。
 
 ### 6.2 浏览器
 
@@ -174,7 +184,17 @@ typecheck / lint **零新增**（仓库 baseline 本就不干净，见 memory `l
 
 | 文件 | 改动 |
 |---|---|
-| `web/src/components/chat/view/subcomponents/ChatComposer.tsx` | 模式按钮：单 span 拆双 span、5 行链式渲染收敛为查表、补 `aria-label` |
+| `web/src/components/chat/view/subcomponents/ChatComposer.tsx` | 模式按钮：单 span 拆双 span、5 行链式渲染收敛为查表、补 `aria-label`；`modeLabels` 变量最终定名 `modeLabelKeys` |
 | `web/src/components/chat/view/subcomponents/permissionModeLabels.ts` | 新增：`LABEL_KEYS` + `getPermissionModeLabelKeys` |
-| `web/src/components/chat/view/subcomponents/permissionModeLabels.test.ts` | 新增：§6.1 三条用例 |
+| `web/src/components/chat/view/subcomponents/permissionModeLabels.test.ts` | 新增：§6.1 用例 1-2 |
+| `web/src/components/chat/view/subcomponents/permissionModeLabels.i18n.test.ts` | 新增：§6.1 用例 3-5（key 存在于 bundle / 短标签长度预算 / 短标签是完整标签的子串） |
 | `web/src/i18n/locales/en/chat.json` | 新增 `codex.modesShort.*`（5 条）与 `input.currentMode` |
+
+## 8. 实现结果
+
+已实现并验证（提交 `d2929a8` `81b5b6c` `fe0c01d` `1543fda` `1424843` `aa88ec7` `aa9a17e`）。与本文的偏差：
+
+- `acceptEdits` 的短标签由 `Edits` 定为 `Accept`（§4.3 已同步）。
+- 单测由 3 条扩到 5 条：审查发现「只断言 key 形状/互异/键集」拦不住两个模式的 key 被对调，改为整表 `deepEqual`；又补了「key 真的存在于 bundle」与「短标签是完整标签的子串」两条跨文件校验。
+- `aria-label` 让**桌面端**的可访问名从 `Default Mode` 变成 `Permission mode: Default Mode`。这是有意的（对齐两个断点，且可访问名仍包含可见文本，满足 WCAG 2.5.3），但确实不是「桌面端逐字未变」—— 桌面端**渲染文本**逐字未变，可访问名变了。
+- 未知 mode 的兜底仍不一致：文案落到 `default`，颜色落到 `plan` 档。已在 `permissionModeLabels.ts` 注释中记为已知取舍。
