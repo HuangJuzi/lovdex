@@ -152,7 +152,20 @@ export default function SidebarProjectItem({
 
   return (
     <div className={cn('md:space-y-1', isDeleting && 'opacity-50 pointer-events-none')}>
-      <div className="md:group group">
+      {/* 项目头吸顶：sticky 的包含块是本元素的父级（:154 那个 div），而父级
+   同时包含下面的 SidebarProjectSessions，所以项目头会一直粘到本项目
+   会话列表结束，再被下一个项目行顶走。
+
+          不要把它挪到项目行按钮上 —— 那样包含块只剩项目行自身高度，吸顶会
+          静默失效。也不要在 :154 与本元素之间插入任何 overflow-hidden /
+          overflow-auto 容器，同样会吃掉 sticky。 */}
+      <div
+        className={cn(
+          'md:group group sticky top-0 z-20 bg-card',
+                 // 展开时才加底边：收起时后面没有会话，不需要「分组表头」语义。
+          isExpanded && 'border-b border-border/50',
+        )}
+      >
         <div className="md:hidden">
           <div
             className={cn(
