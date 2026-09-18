@@ -26,11 +26,11 @@ void EMPTY_DRAFT;
 const onClose = () => {};
 const onSubmit = () => {};
 
-function renderWithOptions(projectOptions: unknown[]) {
+function renderWithOptions(projectOptions: unknown[], initial: unknown = null) {
   return renderToStaticMarkup(
     React.createElement(ScheduledTaskForm, {
       open: true,
-      initial: null,
+      initial: initial as never,
       projectOptions: projectOptions as never,
       submitting: false,
       error: null,
@@ -38,6 +38,19 @@ function renderWithOptions(projectOptions: unknown[]) {
       onSubmit,
     }),
   );
+}
+
+// 既有定时任务行的最小形状：interval 相关字段给全套，方便按需覆盖单个字段。
+function mkScheduledTask(over: Record<string, unknown>) {
+  return {
+    schedule_id: 's1', title: 't', description: 'd', project_path: null,
+    executor_provider: 'claude', executor_model: null, priority: 'P2', label: 'other',
+    is_operator: 1, auto_run: 1, schedule_type: 'interval', cron_expr: null,
+    interval_seconds: 5400, run_at: null, timezone: 'local',
+    next_run_at: '2026-08-14T09:00:00.000Z', last_run_at: null, last_task_id: null,
+    enabled: 1, created_at: '2026-08-13T00:00:00.000Z', updated_at: '2026-08-13T00:00:00.000Z',
+    ...over,
+  };
 }
 
 test('renders the big composer textarea with the auto-naming hint', () => {
@@ -109,4 +122,23 @@ test('toApiBody: only the field matching the schedule type is populated', () => 
   const cron = toApiBody({ ...EMPTY_DRAFT, scheduleType: 'cron', cronExpr: '0 9 * * *' });
   assert.equal(cron.cronExpr, '0 9 * * *');
   assert.equal(cron.runAt, null);
+});
+
+test('toApiBody: the interval seconds are amount × unit', () => {
+  const twoDays = toApiBody({ ...EMPTY_DRAFT, scheduleType: 'interval', intervalAmount: '2', intervalUnit: 'day' });
+  assert.equal(twoDays.intervalSeconds, 172800);
+
+  const ninetyMin = toApiBody({ ...EMPTY_DRAFT, scheduleType: 'interval', intervalAmount: '90', intervalUnit: 'minute' });
+  assert.equal(ninetyMin.intervalSeconds, 5400);
+});
+
+test('an interval schedule renders a number box plus a unit chip', () => {
+  // 5400 秒 → 分解成 (90, 分钟)，回填的应是分解后的值而不是别的预设
+  const html = renderWithOptions([], mkScheduledTask({ interval_seconds: 5400 }));
+  const numberBox = /<input[^>]*aria-label="间隔数量"[^>]*>/.exec(html)?.[0] ?? '';
+  assert.ok(numberBox.length > 0, 'interval number box must render');
+  assert.ok(numberBox.includes('type="number"'), 'it must be a number input');
+  assert.ok(numberBox.includes('value="90"'), 'the amount must be the decomposed value');
+  assert.ok(/<button[^>]*aria-label="间隔单位"[^>]*>/.test(html), 'the unit chip must render');
+  assert.ok(html.includes('分钟'), 'the unit chip must show the decomposed unit');
 });

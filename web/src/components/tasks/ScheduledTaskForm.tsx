@@ -11,6 +11,14 @@ import { ASSISTANT_OPTION_VALUE } from './projectOptions';
 import { LABEL_META, LABEL_ORDER, PRIORITY_META, PRIORITY_ORDER } from './taskStatus';
 import type { TaskProjectOption } from './TaskCard';
 import { ENGINE_NAMES, useTaskEngineAvailability } from './useTaskEngineAvailability';
+import {
+  INTERVAL_MAX_SECONDS,
+  INTERVAL_MIN_SECONDS,
+  INTERVAL_UNITS,
+  decomposeInterval,
+  intervalSecondsOf,
+  type IntervalUnit,
+} from '../../utils/interval';
 
 export type ScheduledTaskDraft = {
   title: string;
@@ -22,7 +30,10 @@ export type ScheduledTaskDraft = {
   autoRun: boolean;
   scheduleType: ScheduledTaskScheduleType;
   cronExpr: string;
-  intervalSeconds: string;
+  // 拆成数字 + 单位两个字段而不是只存秒数：用户把数字改成 90 再切到「小时」时，
+  // 只存秒数会变成 1.5 小时或需要四舍五入，有损；拆开后改数字和改单位是两个独立动作。
+  intervalAmount: string;
+  intervalUnit: IntervalUnit;
   runAt: string;
 };
 
@@ -36,7 +47,8 @@ export const EMPTY_DRAFT: ScheduledTaskDraft = {
   autoRun: true,
   scheduleType: 'once',
   cronExpr: '',
-  intervalSeconds: '3600',
+  intervalAmount: '1',
+  intervalUnit: 'hour',
   runAt: '',
 };
 
@@ -72,17 +84,10 @@ export function toApiBody(d: ScheduledTaskDraft) {
     autoRun: d.autoRun ? 1 : 0,
     scheduleType: d.scheduleType,
     cronExpr: d.scheduleType === 'cron' ? d.cronExpr : null,
-    intervalSeconds: d.scheduleType === 'interval' ? Number(d.intervalSeconds) : null,
+    intervalSeconds: d.scheduleType === 'interval' ? intervalSecondsOf(Number(d.intervalAmount), d.intervalUnit) : null,
     runAt: d.scheduleType === 'once' ? (d.runAt ? new Date(d.runAt).toISOString() : null) : null,
   };
 }
-
-const INTERVAL_PRESETS = [
-  { value: '3600', label: '每 1 小时' },
-  { value: '21600', label: '每 6 小时' },
-  { value: '86400', label: '每天' },
-  { value: '604800', label: '每周' },
-];
 
 const SCHEDULE_TYPES: { value: ScheduledTaskScheduleType; label: string }[] = [
   { value: 'once', label: '单次' },
@@ -112,6 +117,10 @@ function toLocalDateTimeInput(iso: string): string {
 function toDraft(initial?: ScheduledTask | null): ScheduledTaskDraft {
   if (!initial) return EMPTY_DRAFT;
   const runAt = initial.run_at ? toLocalDateTimeInput(initial.run_at) : '';
+  // 非法值（null / NaN / < 1）兜底到 1 小时；能整除的最大单位由 decomposeInterval 决定。
+  const rawSeconds = Number(initial.interval_seconds);
+  const safeSeconds = Number.isFinite(rawSeconds) && rawSeconds >= 1 ? rawSeconds : 3600;
+  const { amount: intervalAmount, unit: intervalUnit } = decomposeInterval(safeSeconds);
   return {
     title: initial.title,
     description: initial.description ?? '',
@@ -122,7 +131,8 @@ function toDraft(initial?: ScheduledTask | null): ScheduledTaskDraft {
     autoRun: initial.auto_run === 1,
     scheduleType: initial.schedule_type,
     cronExpr: initial.cron_expr ?? '',
-    intervalSeconds: String(initial.interval_seconds ?? 3600),
+    intervalAmount: String(intervalAmount),
+    intervalUnit: intervalUnit,
     runAt,
   };
 }
@@ -224,9 +234,12 @@ export function ScheduledTaskForm({
       setLocalError('请选择触发时间');
       return;
     }
-    if (draft.scheduleType === 'interval' && !(Number(draft.intervalSeconds) > 0)) {
-      setLocalError('间隔必须大于 0 秒');
-      return;
+    if (draft.scheduleType === 'interval') {
+      const seconds = intervalSecondsOf(Number(draft.intervalAmount), draft.intervalUnit);
+      if (!(seconds >= INTERVAL_MIN_SECONDS && seconds <= INTERVAL_MAX_SECONDS)) {
+        setLocalError('间隔需在 1 分钟到 365 天之间');
+        return;
+      }
     }
     onSubmit(draft);
   };
@@ -239,13 +252,6 @@ export function ScheduledTaskForm({
   const engineHint = 'hint' in engineAvailability ? engineAvailability.hint : undefined;
   const priorityOptions: ChipSelectOption[] = PRIORITY_ORDER.map((p) => ({ value: p, label: PRIORITY_META[p].label }));
   const labelOptions: ChipSelectOption[] = LABEL_ORDER.map((l) => ({ value: l, label: LABEL_META[l].label }));
-  const intervalOptions: ChipSelectOption[] = INTERVAL_PRESETS.some((p) => p.value === draft.intervalSeconds)
-    ? INTERVAL_PRESETS.map((p) => ({ value: p.value, label: p.label }))
-    : // 库里存着的自定义间隔不在预设里，补一项进去，免得芯片显示成别的预设值。
-      [
-        { value: draft.intervalSeconds, label: `每 ${draft.intervalSeconds} 秒` },
-        ...INTERVAL_PRESETS.map((p) => ({ value: p.value, label: p.label })),
-      ];
   const projectChipOptions = toProjectChipOptions(projectOptions);
   const canSubmit = canSubmitScheduledTask(draft.description, submitting);
 
@@ -361,14 +367,25 @@ export function ScheduledTaskForm({
                 />
               )}
               {draft.scheduleType === 'interval' && (
-                <ChipSelect
-                  ariaLabel="间隔"
-                  label="间隔"
-                  options={intervalOptions}
-                  value={draft.intervalSeconds}
-                  isMobile={isMobile}
-                  onChange={(v) => set('intervalSeconds', v)}
-                />
+                <>
+                  <Input
+                    type="number"
+                    min={1}
+                    step={1}
+                    aria-label="间隔数量"
+                    className="h-9 w-24"
+                    value={draft.intervalAmount}
+                    onChange={(e) => set('intervalAmount', e.target.value)}
+                  />
+                  <ChipSelect
+                    ariaLabel="间隔单位"
+                    label="间隔单位"
+                    options={INTERVAL_UNITS.map((u) => ({ value: u.value, label: u.label }))}
+                    value={draft.intervalUnit}
+                    isMobile={isMobile}
+                    onChange={(v) => set('intervalUnit', v as IntervalUnit)}
+                  />
+                </>
               )}
               {draft.scheduleType === 'cron' && (
                 <Input
