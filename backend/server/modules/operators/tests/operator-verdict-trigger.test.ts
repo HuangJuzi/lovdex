@@ -9,6 +9,7 @@ import {
   __resetAutoVerdictQueue,
   scheduleAutoVerdict,
 } from '@/modules/operators/operator-verdict.service.js';
+import type { VerdictLlmOutcome } from '@/modules/operators/operator-verdict-llm.js';
 import { createTasksService } from '@/modules/tasks/services/tasks.service.js';
 import type { TaskDbLike } from '@/modules/tasks/services/tasks.service.js';
 import type { AiVerdict } from '@/shared/task-status.js';
@@ -36,6 +37,11 @@ function makeDeferred() {
 
 function cfgWith(overrides: Partial<OperatorConfig> = {}): OperatorConfig {
   return { ...DEFAULT_OPERATOR_CONFIG, ...overrides };
+}
+
+/** Config pinned to the legacy full-provider verdict path. */
+function providerCfg(overrides: Partial<OperatorConfig> = {}): OperatorConfig {
+  return cfgWith({ verdict_mode: 'provider', ...overrides });
 }
 
 // ---------------------------------------------------------------------------
@@ -178,14 +184,14 @@ test('onSessionStatus completed without onTaskCompleted opt is a no-op (backward
 // Part B: scheduleAutoVerdict unit tests
 // ===========================================================================
 
-test('scheduleAutoVerdict calls runHeadless once for a non-operator session', async () => {
+test('scheduleAutoVerdict calls runHeadless once for a non-operator session (provider mode)', async () => {
   __resetAutoVerdictQueue();
   let calls = 0;
   const spy = async () => {
     calls++;
   };
 
-  scheduleAutoVerdict('s1', 't1', 'fix bug', false, spy, () => cfgWith());
+  scheduleAutoVerdict('s1', 't1', 'fix bug', false, spy, () => providerCfg());
   await flush();
 
   assert.equal(calls, 1);
@@ -242,7 +248,7 @@ test('scheduleAutoVerdict queues jobs beyond max_concurrent (3rd not run until a
     deferreds.push(d);
     return d.promise;
   };
-  const getConfig = () => cfgWith({ max_concurrent: 2 });
+  const getConfig = () => providerCfg({ max_concurrent: 2 });
 
   // schedule 3 jobs; max_concurrent=2 → only 2 should start immediately
   scheduleAutoVerdict('s1', 't1', 'x', false, spy, getConfig);
@@ -278,6 +284,155 @@ test('scheduleAutoVerdict swallows runHeadless rejection (does not throw, does n
   });
 
   // must not produce an unhandled rejection — flush and survive
+  await flush();
+});
+
+// ===========================================================================
+// Part C: verdict_mode routing (llm-first, provider fallback)
+//
+// The 'llm' default itself is asserted in operator-config.test.ts; here `cfgWith()`
+// inherits DEFAULT_OPERATOR_CONFIG, so every test below runs in llm mode unless
+// it asks for providerCfg().
+// ===========================================================================
+
+test('llm mode calls runLlm and does NOT spawn a headless provider run when a verdict is written', async () => {
+  __resetAutoVerdictQueue();
+  let headless = 0;
+  let llm = 0;
+
+  scheduleAutoVerdict(
+    's1', 't1', 'x', false,
+    async () => { headless++; },
+    () => cfgWith(),
+    async () => { llm++; return 'written'; },
+  );
+  await flush();
+
+  assert.equal(llm, 1);
+  assert.equal(headless, 0, 'a written LLM verdict must not also run the provider');
+});
+
+test('llm mode does NOT fall back when the LLM path deliberately skipped', async () => {
+  __resetAutoVerdictQueue();
+  let headless = 0;
+
+  scheduleAutoVerdict(
+    's1', 't1', 'x', false,
+    async () => { headless++; },
+    () => cfgWith(),
+    async () => 'skipped',
+  );
+  await flush();
+
+  assert.equal(headless, 0, 'skipped means no evidence — a provider run would skip too');
+});
+
+test('llm mode falls back to runHeadless when the LLM path failed', async () => {
+  __resetAutoVerdictQueue();
+  let headless = 0;
+
+  scheduleAutoVerdict(
+    's1', 't1', 'x', false,
+    async () => { headless++; },
+    () => cfgWith(),
+    async () => 'failed',
+  );
+  await flush();
+
+  assert.equal(headless, 1);
+});
+
+test('llm mode falls back to runHeadless when runLlm rejects (never propagates)', async () => {
+  __resetAutoVerdictQueue();
+  let headless = 0;
+
+  assert.doesNotThrow(() => {
+    scheduleAutoVerdict(
+      's1', 't1', 'x', false,
+      async () => { headless++; },
+      () => cfgWith(),
+      async () => { throw new Error('llm boom'); },
+    );
+  });
+  await flush();
+
+  assert.equal(headless, 1, 'a throwing LLM channel must degrade to the provider path');
+});
+
+test('provider mode never calls runLlm', async () => {
+  __resetAutoVerdictQueue();
+  let llm = 0;
+  let headless = 0;
+
+  scheduleAutoVerdict(
+    's1', 't1', 'x', false,
+    async () => { headless++; },
+    () => providerCfg(),
+    async () => { llm++; return 'written'; },
+  );
+  await flush();
+
+  assert.equal(headless, 1);
+  assert.equal(llm, 0);
+});
+
+test('llm mode keeps the operator recursion guard', async () => {
+  __resetAutoVerdictQueue();
+  let llm = 0;
+  let headless = 0;
+
+  scheduleAutoVerdict(
+    's1', 't1', 'x', true,
+    async () => { headless++; },
+    () => cfgWith(),
+    async () => { llm++; return 'written'; },
+  );
+  await flush();
+
+  assert.equal(llm, 0, 'operator session triggered its own LLM verdict');
+  assert.equal(headless, 0);
+});
+
+test('llm mode keeps the auto_verdict_enabled / enabled gates', async () => {
+  __resetAutoVerdictQueue();
+  let llm = 0;
+  const spy = async (): Promise<VerdictLlmOutcome> => { llm++; return 'written'; };
+
+  scheduleAutoVerdict('s1', 't1', 'x', false, async () => {}, () =>
+    cfgWith({ auto_verdict_enabled: false }), spy);
+  scheduleAutoVerdict('s2', 't2', 'x', false, async () => {}, () =>
+    cfgWith({ enabled: false }), spy);
+  await flush();
+
+  assert.equal(llm, 0);
+});
+
+test('llm mode queues jobs beyond max_concurrent just like provider mode', async () => {
+  __resetAutoVerdictQueue();
+  const started: string[] = [];
+  const deferreds: ReturnType<typeof makeDeferred>[] = [];
+  const runLlm = async (args: { sessionId: string }): Promise<VerdictLlmOutcome> => {
+    started.push(args.sessionId);
+    const d = makeDeferred();
+    deferreds.push(d);
+    await d.promise;
+    return 'written';
+  };
+  const getConfig = () => cfgWith({ max_concurrent: 2 });
+
+  scheduleAutoVerdict('s1', 't1', 'x', false, async () => {}, getConfig, runLlm);
+  scheduleAutoVerdict('s2', 't2', 'x', false, async () => {}, getConfig, runLlm);
+  scheduleAutoVerdict('s3', 't3', 'x', false, async () => {}, getConfig, runLlm);
+  await flush();
+
+  assert.deepEqual(started, ['s1', 's2'], 'max_concurrent=2 should gate the 3rd LLM job');
+
+  deferreds[0].resolve();
+  await flush();
+  assert.equal(started.length, 3);
+
+  deferreds[1].resolve();
+  deferreds[2].resolve();
   await flush();
 });
 

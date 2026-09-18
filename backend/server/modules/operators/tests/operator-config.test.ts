@@ -40,6 +40,9 @@ test('default config has safe automation defaults', () => {
   assert.equal(c.auto_verdict_enabled, true);
   assert.equal(c.interactive_chat_enabled, true);
   assert.equal(c.max_concurrent, 2);
+  // Auto-verdict ships on the cheap LLM channel; the heavy provider run is the
+  // fallback, not the default.
+  assert.equal(c.verdict_mode, 'llm');
 });
 
 test('getOperatorConfig returns defaults when nothing stored', async () => {
@@ -54,5 +57,12 @@ test('setOperatorConfig persists and getOperatorConfig reads back', async () => 
     setOperatorConfig({ auto_verdict_enabled: false });
     const c = getOperatorConfig();
     assert.equal(c.auto_verdict_enabled, false);
+  });
+});
+
+test('verdict_mode round-trips through the stored JSON blob (switch back to provider)', async () => {
+  await withIsolatedDatabase(() => {
+    setOperatorConfig({ verdict_mode: 'provider' });
+    assert.equal(getOperatorConfig().verdict_mode, 'provider');
   });
 });

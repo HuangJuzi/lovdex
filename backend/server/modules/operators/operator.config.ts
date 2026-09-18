@@ -20,6 +20,14 @@ import { appConfigDb } from '@/modules/database/repositories/app-config.js';
 export type OperatorConfig = {
   enabled: boolean;
   auto_verdict_enabled: boolean;
+  /**
+   * Which channel judges a completed session:
+   * - 'llm'      — one DeepSeek-Flash text completion (cheap, default).
+   * - 'provider' — the legacy full operator headless session.
+   * In 'llm' mode a transport/schema failure still falls back to the provider
+   * path, so 'llm' is strictly cheaper, never less covered.
+   */
+  verdict_mode: 'llm' | 'provider';
   model: string;
   workspace: string;
   max_concurrent: number;
@@ -32,6 +40,7 @@ const opCfg = appConfig().get().operator;
 export const DEFAULT_OPERATOR_CONFIG: OperatorConfig = {
   enabled: true,
   auto_verdict_enabled: true,
+  verdict_mode: 'llm',
   model: opCfg.model ?? '',
   workspace: opCfg.workspace || `${os.homedir()}/.lovdex/operator-workspace`,
   max_concurrent: typeof opCfg.maxConcurrent === 'number' ? opCfg.maxConcurrent : 2,
