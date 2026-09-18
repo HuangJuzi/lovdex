@@ -52,7 +52,7 @@ export function buildSchedulerRouter(svc: SchedulerServiceLike) {
   }));
 
   router.post('/:scheduleId/run-now', asyncHandler(async (req, res) => {
-    const result = svc.runNow(String(req.params.scheduleId));
+    const result = await svc.runNow(String(req.params.scheduleId));
     if (!result) throw new AppError('schedule not found', { code: 'SCHEDULE_NOT_FOUND', statusCode: 404 });
     res.json(result);
   }));

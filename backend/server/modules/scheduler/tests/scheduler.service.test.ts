@@ -94,12 +94,12 @@ function makeService(nowIso: string) {
   return { svc, rows, createdTasks, launches, broadcasts };
 }
 
-test('tick dispatches once + auto-run, auto-disables once, skips auto_run=0', () => {
+test('tick dispatches once + auto-run, auto-disables once, skips auto_run=0', async () => {
   const { svc, rows, createdTasks, launches, broadcasts } = makeService('2026-08-13T12:00:00.000Z');
   rows.set('due-once', mkRow({ schedule_id: 'due-once', run_at: '2026-08-13T00:00:00.000Z', next_run_at: '2026-08-13T00:00:00.000Z' }));
   rows.set('due-remind', mkRow({ schedule_id: 'due-remind', auto_run: 0, schedule_type: 'interval', interval_seconds: 3600, next_run_at: '2026-08-13T11:00:00.000Z' }));
 
-  svc.tickNow();
+  await svc.tickNow();
 
   assert.equal(createdTasks.length, 2);
   assert.equal((createdTasks[0] as { sourceScheduleId?: string }).sourceScheduleId, 'due-once');
@@ -109,12 +109,12 @@ test('tick dispatches once + auto-run, auto-disables once, skips auto_run=0', ()
   assert.ok(broadcasts.some((e) => (e as { kind?: string }).kind === 'scheduled_task_upserted'));
 });
 
-test('reconcileMissedRuns creates one reminder task and advances next_run_at without re-dispatch', () => {
+test('reconcileMissedRuns creates one reminder task and advances next_run_at without re-dispatch', async () => {
   const { svc, rows, createdTasks } = makeService('2026-08-13T12:00:00.000Z');
   rows.set('missed', mkRow({ schedule_id: 'missed', schedule_type: 'interval', interval_seconds: 3600, next_run_at: '2026-08-13T10:00:00.000Z' }));
   rows.set('ok', mkRow({ schedule_id: 'ok', schedule_type: 'cron', cron_expr: '0 9 * * *', next_run_at: '2026-08-14T09:00:00.000Z' }));
 
-  svc.reconcileMissedRuns();
+  await svc.reconcileMissedRuns();
 
   assert.equal(createdTasks.length, 1); // 只聚合一条提醒任务
   assert.equal((createdTasks[0] as { label?: string }).label, 'reminder');

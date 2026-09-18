@@ -66,9 +66,12 @@ export function createSchedulerService(deps: SchedulerDeps) {
   let timer: ReturnType<typeof setInterval> | null = null;
   let ticking = false;
 
-  function dispatch(schedule: ScheduledTaskRow): void {
+  async function dispatch(schedule: ScheduledTaskRow): Promise<void> {
     const projectPath = schedule.project_path ?? deps.scheduledTasksDb.operatorWorkspacePath;
-    const task = deps.tasksService.createTask({
+    // createTask awaits the title generator when the template title is blank
+    // (task-title), so this can block for up to the blocking window. A schedule
+    // with a real title — the normal case — resolves without touching the model.
+    const task = await deps.tasksService.createTask({
       projectPath,
       title: schedule.title,
       description: schedule.description,
@@ -99,28 +102,32 @@ export function createSchedulerService(deps: SchedulerDeps) {
     deps.broadcast({ kind: 'task_upserted', task, actor: 'engine', timestamp: firedAt.toISOString() });
   }
 
-  function tick(): void {
+  async function tick(): Promise<void> {
     if (ticking) return;
     ticking = true;
     try {
       for (const schedule of deps.scheduledTasksDb.listDueScheduledTasks(now().toISOString())) {
         try {
-          dispatch(schedule);
+          await dispatch(schedule);
         } catch (error) {
           console.error('[scheduler] tick dispatch failed', error instanceof Error ? error.message : error);
         }
       }
+    } catch (error) {
+      // tick 由 setInterval 驱动，返回值没人接：listDueScheduledTasks 自己抛错时
+      // 冒泡出去就是一次 unhandledRejection（进程级告警），必须在这里吞掉。
+      console.error('[scheduler] tick failed', error instanceof Error ? error.message : error);
     } finally {
       ticking = false;
     }
   }
 
   /** 启动时：停机错过不补跑，聚合成一条 reminder 任务，推进 next_run_at。 */
-  function reconcileMissedRuns(): void {
+  async function reconcileMissedRuns(): Promise<void> {
     const missed = deps.scheduledTasksDb.listMissedSince(now().toISOString());
     if (missed.length === 0) return;
     const lines = missed.map((s) => `- ${s.title}（原定 ${s.next_run_at}）`);
-    deps.tasksService.createTask({
+    await deps.tasksService.createTask({
       projectPath: deps.scheduledTasksDb.operatorWorkspacePath,
       title: `⏰ 错过 ${missed.length} 次定时触发`,
       description: `后端停机期间以下定时任务未触发，已跳过：\n${lines.join('\n')}`,
@@ -244,18 +251,23 @@ export function createSchedulerService(deps: SchedulerDeps) {
       if (row) deps.broadcast({ kind: 'scheduled_task_upserted', scheduledTask: row, timestamp: now().toISOString() });
       return row;
     },
-    runNow(scheduleId: string): unknown {
+    async runNow(scheduleId: string): Promise<unknown> {
       const schedule = deps.scheduledTasksDb.getScheduledTask(scheduleId);
       if (!schedule) return null;
-      dispatch(schedule);
+      // Awaited: createTask may block on title generation, and a dispatch failure
+      // must surface to the route instead of becoming an unhandled rejection.
+      await dispatch(schedule);
       return { ok: true };
     },
     reconcileMissedRuns,
     start(): void {
-      try { reconcileMissedRuns(); } catch (error) {
+      // 补跑提醒任务建失败不该拦住调度器启动：吞掉并记日志。
+      void reconcileMissedRuns().catch((error) => {
         console.error('[scheduler] reconcileMissedRuns failed', error instanceof Error ? error.message : error);
-      }
-      timer = setInterval(tick, 15_000);
+      });
+      timer = setInterval(() => {
+        void tick();
+      }, 15_000);
     },
     stop(): void { if (timer) clearInterval(timer); timer = null; },
     tickNow: tick,
