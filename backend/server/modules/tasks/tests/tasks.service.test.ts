@@ -179,16 +179,81 @@ test('applyStatusChange mutates the stored task and broadcasts the updated row',
   assert.equal((events[0] as { task: { status: string } }).task.status, 'in_progress');
 });
 
-test('deleteTask broadcasts task_deleted', () => {
+test('deleteTask broadcasts task_deleted and returns the outcome', async () => {
   const events: unknown[] = [];
   const { db } = makeDbStub();
   const svc = createTasksService(db, { broadcast: (e) => events.push(e) });
-  svc.deleteTask('t1');
+  const result = await svc.deleteTask('t1');
+  assert.deepEqual(result, { taskId: 't1', deletedSessionId: null });
   assert.equal(events.length, 1);
   assert.equal((events[0] as { kind: string }).kind, 'task_deleted');
   assert.equal((events[0] as { taskId: string }).taskId, 't1');
   assert.equal((events[0] as { actor: string }).actor, 'user');
   assert.equal(db.getTask('t1'), null);
+});
+
+test('deleteTask returns null for a missing task', async () => {
+  const events: unknown[] = [];
+  const svc = createTasksService(makeDbStub().db, { broadcast: (e) => events.push(e) });
+  assert.equal(await svc.deleteTask('missing'), null);
+  assert.equal(events.length, 0);
+});
+
+test('deleteTask hard-deletes the linked session and returns its id', async () => {
+  const { db } = makeDbStub();
+  db.linkSession('t1', 's1');
+  const deleted: string[] = [];
+  const svc = createTasksService(db, {
+    broadcast: () => {},
+    deps: {
+      deleteSessionHard: async (sid: string) => {
+        deleted.push(sid);
+      },
+    },
+  });
+  const result = await svc.deleteTask('t1');
+  assert.deepEqual(result, { taskId: 't1', deletedSessionId: 's1' });
+  assert.deepEqual(deleted, ['s1']);
+  assert.equal(db.getTask('t1'), null);
+});
+
+test('deleteTask tolerates an already-missing linked session', async () => {
+  const { db } = makeDbStub();
+  db.linkSession('t1', 'ghost');
+  const svc = createTasksService(db, {
+    broadcast: () => {},
+    deps: {
+      deleteSessionHard: async () => {
+        throw new AppError('Session not found', { code: 'SESSION_NOT_FOUND', statusCode: 404 });
+      },
+    },
+  });
+  const result = await svc.deleteTask('t1');
+  assert.deepEqual(result, { taskId: 't1', deletedSessionId: 'ghost' });
+  assert.equal(db.getTask('t1'), null);
+});
+
+test('deleteTask rejects when the linked session is running', async () => {
+  const { db } = makeDbStub();
+  db.linkSession('t1', 's1');
+  const svc = createTasksService(db, {
+    broadcast: () => {},
+    deps: { isSessionRunning: () => true },
+  });
+  await assert.rejects(() => svc.deleteTask('t1'), /running\/in_progress/);
+  assert.ok(db.getTask('t1'), 'task must survive a rejected delete');
+});
+
+test('deleteTask rejects an in_progress task even when the run registry is empty', async () => {
+  const { db } = makeDbStub();
+  db.updateTaskStatus('t1', 'in_progress');
+  db.linkSession('t1', 's1');
+  const svc = createTasksService(db, {
+    broadcast: () => {},
+    deps: { isSessionRunning: () => false },
+  });
+  await assert.rejects(() => svc.deleteTask('t1'), /running\/in_progress/);
+  assert.ok(db.getTask('t1'));
 });
 
 test('deleteTasks deletes each id and broadcasts task_deleted per id', () => {

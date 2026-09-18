@@ -143,3 +143,40 @@ test('POST /api/tasks 打开服务端去重，重复提交才不会各建一条'
   assert.strictEqual(seen.length, 1);
   assert.equal(seen[0].dedupIdentical, true);
 });
+
+/** 挂载删除任务路由，用一个只记录入参的假服务，验证 DELETE 的行为。 */
+function buildDeleteApp(deleteTask: (id: string) => Promise<unknown>) {
+  const app = express();
+  app.use(express.json());
+  app.use('/api/tasks', buildTasksRouter({ deleteTask } as unknown as TasksService, { createSession: () => 's1' }));
+  app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    if (err instanceof AppError) {
+      return res.status(err.statusCode).json({ success: false, error: { code: err.code, message: err.message } });
+    }
+    return res.status(500).json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'internal' } });
+  });
+  return app;
+}
+
+test('DELETE /api/tasks/:taskId returns the deletion outcome', async (t) => {
+  const seen: string[] = [];
+  const server = buildDeleteApp(async (id: string) => {
+    seen.push(id);
+    return { taskId: id, deletedSessionId: 's1' };
+  }).listen(0);
+  t.after(() => server.close());
+  const { port } = server.address() as { port: number };
+  const res = await fetch(`http://127.0.0.1:${port}/api/tasks/t1`, { method: 'DELETE' });
+  assert.strictEqual(res.status, 200);
+  assert.deepEqual(await res.json(), { success: true, taskId: 't1', deletedSessionId: 's1' });
+  assert.deepEqual(seen, ['t1']);
+});
+
+test('DELETE /api/tasks/:taskId 404s with TASK_NOT_FOUND when the service reports missing', async (t) => {
+  const server = buildDeleteApp(async () => null).listen(0);
+  t.after(() => server.close());
+  const { port } = server.address() as { port: number };
+  const res = await fetch(`http://127.0.0.1:${port}/api/tasks/missing`, { method: 'DELETE' });
+  assert.strictEqual(res.status, 404);
+  assert.deepEqual(await res.json(), { success: false, error: { code: 'TASK_NOT_FOUND', message: 'task not found' } });
+});

@@ -49,6 +49,11 @@ export type OperatorToolDeps = {
       before: string | null,
       after: string | null,
     ) => unknown;
+    /**
+     * Hard-deletes a task (and, when linked, its session). Real name:
+     * tasksService.deleteTask — returns { taskId, deletedSessionId } | null.
+     */
+    deleteTask: (id: string) => Promise<unknown>;
   };
   projects?: {
     /** List active (non-archived) projects. Real name: projectsDb.getProjectPaths */
@@ -118,6 +123,13 @@ export type OperatorToolDeps = {
     targetProjectPath?: string | null;
     targetProjectId?: string | null;
   }) => Promise<unknown>;
+  /**
+   * Session hard-deletion primitive (delete a session row + transcript file).
+   * Injected from index.js as operatorDeleteService.deleteSession. The tool
+   * handler only forwards the args — all running-session guard, operator-session
+   * protection, and task-reference handling live in the service.
+   */
+  deleteSession?: (input: { sessionId: string; cascade?: boolean }) => Promise<unknown>;
   /**
    * In-place skill execution (allowlisted user-level skills, e.g.
    * claw-agent-get-send). Injected from index.js as
@@ -372,6 +384,34 @@ export function buildOperatorTools(deps: OperatorToolDeps) {
           throw new Error('move_session_to_project is not wired (missing session-transfer dep)');
         }
         return deps.moveSessionToProject(i);
+      },
+    },
+    delete_task: {
+      description:
+        'Physically delete a task and, when it has a linked session, that session too (DB row + transcript file). Irreversible. Refuses to delete while the linked session is running/in_progress — stop or settle the run first. Returns { taskId, deletedSessionId } (deletedSessionId is null when the task had no linked session). Deleting a non-existent task is an error.',
+      inputSchema: {
+        type: 'object',
+        properties: { taskId: { type: 'string' } },
+        required: ['taskId'],
+      },
+      handler: async (i: { taskId: string }) => deps.tasks.deleteTask(i.taskId),
+    },
+    delete_session: {
+      description:
+        'Physically delete a session (DB row + transcript file). Irreversible. Refuses to delete operator assistant sessions (is_operator) or running/in_progress sessions. If the session is still linked to a task, this refuses by default — pass cascade=true to delete anyway (the task will then no longer be able to read its transcript).',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          sessionId: { type: 'string' },
+          cascade: { type: 'boolean', description: 'Explicitly allow deleting a session still linked to a task (default false)' },
+        },
+        required: ['sessionId'],
+      },
+      handler: async (i: { sessionId: string; cascade?: boolean }) => {
+        if (!deps.deleteSession) {
+          throw new Error('delete_session is not wired (missing deleteSession dep)');
+        }
+        return deps.deleteSession({ sessionId: i.sessionId, cascade: i.cascade === true });
       },
     },
     write_task_summary: {

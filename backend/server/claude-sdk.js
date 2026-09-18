@@ -1149,6 +1149,7 @@ export function adaptTasksServiceForOperatorTools(svc) {
       assertStatus(status);
       return svc.moveTask(id, status, before, after);
     },
+    deleteTask: (id) => svc.deleteTask(id),
   };
 }
 
@@ -1178,6 +1179,8 @@ function jsonSchemaToZodRawShape(inputSchema) {
     let base;
     if (def && def.type === 'number') {
       base = z.number();
+    } else if (def && def.type === 'boolean') {
+      base = z.boolean();
     } else if (
       def && Array.isArray(def.enum) && def.enum.length > 0
       && def.enum.every((e) => typeof e === 'string')
@@ -1331,7 +1334,7 @@ ${priorVerdictContext}
 调 write_task_summary 写入：summary（中文≤3句）、verdict（done|only_plan|needs_review|blocked）、reason（一句，说明判定依据，含验证结论与剩余事项性质）。`;
 
   try {
-    const sdkTools = buildOperatorSdkTools(resolvedDeps, { exclude: ['execute_skill', 'workbench'] });
+    const sdkTools = buildOperatorSdkTools(resolvedDeps, { exclude: ['execute_skill', 'workbench', 'delete_task', 'delete_session'] });
     const operatorServer = createSdkMcpServer({
       name: 'lovdex-operator',
       tools: sdkTools,

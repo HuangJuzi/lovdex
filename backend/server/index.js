@@ -79,6 +79,7 @@ import { createSchedulerService, buildSchedulerRouter } from './modules/schedule
 import { getOperatorConfig } from './modules/operators/operator.config.js';
 import { createOperatorExecService } from './modules/operators/operator-exec.service.js';
 import { buildOperatorSkillExecRouter } from './modules/operators/operator-skill-exec.routes.js';
+import { createOperatorDeleteService } from './modules/operators/operator-delete.service.js';
 import { operatorAuditDb } from './modules/database/repositories/operator-audit.db.js';
 import { createRemoteAgentsRegistry } from './modules/remote-agents/remote-agents.registry.js';
 import { createRemoteAgentWss } from './modules/remote-agents/remote-agent.server.js';
@@ -471,6 +472,10 @@ const tasksService = createTasksService(tasksDb, {
     deps: {
         projectsDb,
         sessionsDb,
+        // deleteTask must refuse to hard-delete a task whose linked session is
+        // still streaming (same guard as session transfer) — removing a live
+        // agent's transcript mid-write would corrupt history.
+        isSessionRunning: (sessionId) => chatRunRegistry.listRunningRuns().some((run) => run.sessionId === sessionId),
         // 新建任务标题为空时用 LLM（默认 DeepSeek Flash，可在 Operator 设置里换）
         // 从 description 提炼一个短名。走与任务上下文压缩同一条 headless
         // 一次性调用路径；失败/超时一律返回 null，createTask 据此降级到需求
@@ -604,6 +609,18 @@ const operatorExecService = createOperatorExecService({
     audit: (entry) => operatorAuditDb.insert(entry),
 });
 
+// Session hard-deletion primitive for the operator tool set (delete_session):
+// physical DB row + transcript file removal with running/operator-session/
+// linked-task guards. deleteSessionHard reuses sessionsService so the transcript
+// file is removed before the row, mirroring the cleanup service.
+const operatorDeleteService = createOperatorDeleteService({
+    sessionsDb,
+    tasksDb,
+    deleteSessionHard: (sessionId) =>
+        sessionsService.deleteOrArchiveSessionById(sessionId, { force: true, deletedFromDisk: true }),
+    isSessionRunning: (sessionId) => chatRunRegistry.listRunningRuns().some((run) => run.sessionId === sessionId),
+});
+
 // Wire the operator headless run deps: the real tasksService (adapted so the
 // string-typed operator tool inputs are narrowed to TaskStatus at the boundary),
 // projectsDb, sessionsService, and createSession. runOperatorHeadless (in
@@ -621,6 +638,8 @@ initOperatorHeadless({
     scheduledTasks: schedulerService,
     // Session transfer: move a task + session between registered projects.
     moveSessionToProject: sessionTransferService.moveSessionToProject,
+    // Session hard-deletion: delete a session row + transcript file.
+    deleteSession: operatorDeleteService.deleteSession,
     // In-place execution: allowlisted skills + workspace workbench.
     skillExec: operatorExecService.executeSkill,
     workbench: operatorExecService.workbench,

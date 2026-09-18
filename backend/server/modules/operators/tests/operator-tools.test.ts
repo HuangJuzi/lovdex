@@ -386,3 +386,52 @@ test('move_session_to_project input schema declares task/session/target fields a
     assert.equal(props[key]?.type, 'string', `${key} must be declared as a string property`);
   }
 });
+
+test('delete_task handler delegates to tasks.deleteTask', async () => {
+  let received: string | undefined;
+  const fakeTasks = {
+    deleteTask: async (id: string) => {
+      received = id;
+      return { taskId: id, deletedSessionId: null };
+    },
+  };
+  const tools = buildOperatorTools({ tasks: fakeTasks as never });
+  const out = await tools.delete_task.handler({ taskId: 't1' });
+  assert.equal(received, 't1');
+  assert.deepEqual(out, { taskId: 't1', deletedSessionId: null });
+});
+
+test('delete_task input schema requires taskId', () => {
+  const tools = buildOperatorTools({ tasks: {} as never });
+  assert.deepEqual(tools.delete_task.inputSchema.required, ['taskId']);
+});
+
+test('delete_session handler delegates to the injected delete service with cascade defaulting to false', async () => {
+  const calls: Array<{ sessionId: string; cascade?: boolean }> = [];
+  const tools = buildOperatorTools({
+    tasks: {} as never,
+    deleteSession: async (i: { sessionId: string; cascade?: boolean }) => {
+      calls.push(i);
+      return { sessionId: i.sessionId, action: 'deleted' };
+    },
+  });
+
+  await tools.delete_session.handler({ sessionId: 's1' });
+  assert.deepEqual(calls[0], { sessionId: 's1', cascade: false });
+
+  await tools.delete_session.handler({ sessionId: 's2', cascade: true });
+  assert.deepEqual(calls[1], { sessionId: 's2', cascade: true });
+});
+
+test('delete_session fails clearly when the delete service is not wired', async () => {
+  const tools = buildOperatorTools({ tasks: {} as never });
+  await assert.rejects(() => tools.delete_session.handler({ sessionId: 's1' }), /not wired/);
+});
+
+test('delete_session input schema declares sessionId (string) + cascade (boolean)', () => {
+  const tools = buildOperatorTools({ tasks: {} as never });
+  const props = tools.delete_session.inputSchema.properties as Record<string, { type?: string }>;
+  assert.equal(props.sessionId?.type, 'string');
+  assert.equal(props.cascade?.type, 'boolean');
+  assert.deepEqual(tools.delete_session.inputSchema.required, ['sessionId']);
+});

@@ -3,8 +3,10 @@ import fs from 'node:fs';
 import fsp from 'fs/promises';
 import express from 'express';
 import { forkSession } from '@anthropic-ai/claude-agent-sdk';
-import { sessionsDb } from '../modules/database/index.js';
+import { sessionsDb, tasksDb } from '../modules/database/index.js';
 import { chatRunRegistry } from '../modules/websocket/services/chat-run-registry.service.js';
+import { sessionsService } from '../modules/providers/services/sessions.service.js';
+import { createOperatorDeleteService } from '../modules/operators/operator-delete.service.js';
 import * as gitRewind from '../services/git-rewind.js';
 
 const productionDeps = {
@@ -12,6 +14,14 @@ const productionDeps = {
   chatRunRegistry,
   forkSession,
   gitRewind,
+  deleteSession: createOperatorDeleteService({
+    sessionsDb,
+    tasksDb,
+    deleteSessionHard: (sessionId) =>
+      sessionsService.deleteOrArchiveSessionById(sessionId, { force: true, deletedFromDisk: true }),
+    isSessionRunning: (sessionId) =>
+      chatRunRegistry.listRunningRuns().some((run) => run.sessionId === sessionId),
+  }).deleteSession,
 };
 
 /**
@@ -101,6 +111,30 @@ export async function readWorkflowScript({ path: rawPath, sessionDir }) {
   return { status: 200, body: { content, path: resolved } };
 }
 
+/**
+ * Hard-deletes a session (DB row + transcript file) through the injected
+ * delete service, mapping its AppError (statusCode/code) to a { status, body }
+ * envelope so it can be unit-tested with injected deps. `cascade` is the
+ * explicit confirmation for deleting a session still linked to a task.
+ */
+export async function deleteAppSession(deps, appId, { cascade = false } = {}) {
+  try {
+    const result = await deps.deleteSession({ sessionId: appId, cascade });
+    return { status: 200, body: result };
+  } catch (err) {
+    const status = err && typeof err.statusCode === 'number' ? err.statusCode : 500;
+    return {
+      status,
+      body: {
+        error: {
+          code: (err && err.code) || 'INTERNAL_ERROR',
+          message: (err && err.message) || String(err),
+        },
+      },
+    };
+  }
+}
+
 function buildRouter(deps) {
   const r = express.Router();
   r.post('/:appId/fork', async (req, res) => {
@@ -124,6 +158,12 @@ function buildRouter(deps) {
     } catch (err) {
       res.status(500).json({ error: { message: err.message } });
     }
+  });
+  r.delete('/:appId', async (req, res) => {
+    const { status, body } = await deleteAppSession(deps, req.params.appId, {
+      cascade: req.query.cascade === 'true' || req.body?.cascade === true,
+    });
+    res.status(status).json(body);
   });
   r.get('/:appId/workflow-script', async (req, res) => {
     try {

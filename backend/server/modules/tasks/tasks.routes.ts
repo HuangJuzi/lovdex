@@ -199,8 +199,9 @@ export function buildTasksRouter(tasksService: TasksService, deps: { createSessi
     '/:taskId',
     asyncHandler(async (req, res) => {
       const taskId = String(req.params.taskId);
-      tasksService.deleteTask(taskId);
-      res.json({ success: true });
+      const result = await tasksService.deleteTask(taskId);
+      if (!result) throw new AppError('task not found', { code: 'TASK_NOT_FOUND', statusCode: 404 });
+      res.json({ success: true, ...result });
     }),
   );
 

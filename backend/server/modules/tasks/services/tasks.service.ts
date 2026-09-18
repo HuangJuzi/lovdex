@@ -116,6 +116,13 @@ export function createTasksService(
       sessionsDb?: typeof sessionsDb;
       deleteSessionHard?: (sessionId: string) => Promise<void>;
       /**
+       * Returns true when the session's agent run is still live (chatRunRegistry).
+       * Used by deleteTask to refuse hard-deleting a task whose linked session is
+       * still streaming. Optional so unit tests that only exercise other paths
+       * (and callers without the registry) are unaffected.
+       */
+      isSessionRunning?: (sessionId: string) => boolean;
+      /**
        * Title generation: when `title` is blank, ask the model to distill one
        * from the description (task-title-llm). Injected so this module never
        * pulls in the SDK — unit tests pass a stub or nothing at all.
@@ -592,9 +599,46 @@ export function createTasksService(
       return row ? decorate(row) : null;
     },
 
-    deleteTask(taskId: string): void {
+    /**
+     * Hard-deletes a task row. If the task is linked to a session, that session
+     * is also hard-deleted (DB row + transcript file) via `deleteSessionHard` so
+     * no dangling session remains. Deleting a task whose linked session is still
+     * running / in_progress is rejected — the caller must stop/settle the run
+     * first (the transcript a live agent is still writing must not be removed).
+     *
+     * Returns the deletion outcome (with the cascade-deleted sessionId, if any),
+     * or null when the task does not exist (caller maps null → 404). A linked
+     * session row that is already gone is tolerated (dangling session_id).
+     */
+    async deleteTask(taskId: string): Promise<{ taskId: string; deletedSessionId: string | null } | null> {
+      const row = resolveDb.getTask(taskId);
+      if (!row) return null;
+      const sessionId = row.session_id;
+      if (sessionId) {
+        const sessionRunning = opts.deps?.isSessionRunning?.(sessionId) ?? false;
+        if (row.status === 'in_progress' || sessionRunning) {
+          throw new AppError(
+            `cannot delete task ${taskId}: its linked session ${sessionId} is running/in_progress — stop or settle the run first`,
+            { code: 'SESSION_RUNNING', statusCode: 409 },
+          );
+        }
+        console.warn('[tasks] WARNING: deleting a task and hard-deleting its linked session', {
+          taskId,
+          sessionId,
+          taskTitle: row.title,
+          taskStatus: row.status,
+        });
+        try {
+          await deleteSessionHard(sessionId);
+        } catch (err) {
+          // A session row that is already gone shouldn't block the task delete —
+          // the outcome (no dangling session) is the same.
+          if ((err as AppError)?.code !== 'SESSION_NOT_FOUND') throw err;
+        }
+      }
       resolveDb.deleteTask(taskId);
       emit({ kind: 'task_deleted', taskId, actor: 'user' });
+      return { taskId, deletedSessionId: sessionId };
     },
 
     deleteTasks(taskIds: string[]): number {
