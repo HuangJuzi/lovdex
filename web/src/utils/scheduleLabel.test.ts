@@ -23,6 +23,13 @@ test('intervalLabel converts seconds to readable units', () => {
   assert.equal(intervalLabel(1800), '每 30 分钟');
 });
 
+test('intervalLabel uses the same exact decomposition as the form', () => {
+  // 与表单的单位表对齐：一周不再显示成「每 7 天」
+  assert.equal(intervalLabel(604800), '每 1 星期');
+  // 非整除值如实显示，不再四舍五入撒谎成「每 90 分钟」
+  assert.equal(intervalLabel(5401), '每 5401 秒');
+});
+
 test('cronLabel humanizes common patterns and falls back to raw', () => {
   assert.equal(cronLabel('0 9 * * *'), '每天 09:00');
   assert.equal(cronLabel('0 9 * * 1'), '每周一 09:00');
@@ -30,8 +37,22 @@ test('cronLabel humanizes common patterns and falls back to raw', () => {
   assert.equal(cronLabel('0 9,17 * * *'), '0 9,17 * * *');
 });
 
+test('cronLabel humanizes weekdays', () => {
+  assert.equal(cronLabel('0 9 * * 1-5'), '工作日 09:00');
+});
+
+test('cronLabel falls back to raw for expressions the preset parser rejects', () => {
+  // 复用 parseCronPreset 之后 cronLabel 变严了：越界的表达式不再被硬凑成中文
+  // （以前 '99 9 * * *' 会输出「每天 09:99」这种明显坏掉的结果）
+  assert.equal(cronLabel('99 9 * * *'), '99 9 * * *');
+  assert.equal(cronLabel('0 9 * 3 *'), '0 9 * 3 *');
+  assert.equal(cronLabel('0 9 * * 1,3'), '0 9 * * 1,3');
+});
+
 test('scheduleLabel dispatches by schedule_type', () => {
   assert.equal(scheduleLabel(mkTask({ schedule_type: 'once', run_at: '2026-08-14T01:00:00.000Z' })), '一次性');
   assert.equal(scheduleLabel(mkTask({ schedule_type: 'interval', interval_seconds: 86400 })), '每 1 天');
-  assert.equal(scheduleLabel(mkTask({ schedule_type: 'cron', cron_expr: '0 9 * * 1-5' })), '0 9 * * 1-5');
+  assert.equal(scheduleLabel(mkTask({ schedule_type: 'cron', cron_expr: '0 9 * * 1-5' })), '工作日 09:00');
+  // humanize 不了的表达式仍然原样显示
+  assert.equal(scheduleLabel(mkTask({ schedule_type: 'cron', cron_expr: '0 9,17 * * *' })), '0 9,17 * * *');
 });
