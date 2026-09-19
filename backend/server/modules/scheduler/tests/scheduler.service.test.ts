@@ -402,3 +402,61 @@ await assert.rejects(
       && /runAt must be a string/.test((err as Error).message),
   );
 });
+
+/**
+ * 加固：interval_seconds <= 0 会让 computeNext 的 `while (next <= now) next += stepMs`
+ * 永不终止，而 tick 的重入守卫会让整个调度器从此不再触发任何任务（无日志无告警）；
+ * 空的 cron_expr 会让 computeNext 走 `return now.toISOString()`，该任务每 15 秒触发一次。
+ * 前端已保证取值范围，这里防的是绕过前端的调用方。
+ */
+test('create: a non-positive interval is rejected instead of hanging the scheduler', async () => {
+  const { svc } = makeService('2026-08-13T12:00:00.000Z');
+  for (const intervalSeconds of [0, -60]) {
+    await assert.rejects(
+      () => svc.create({ title: 't', scheduleType: 'interval', intervalSeconds }),
+      (e: { statusCode?: number }) => e.statusCode === 400,
+      `expected 400 for intervalSeconds=${intervalSeconds}`,
+    );
+  }
+});
+
+test('create: a blank cron expression is rejected instead of firing every 15s', async () => {
+  const { svc } = makeService('2026-08-13T12:00:00.000Z');
+  for (const cronExpr of ['', '   ']) {
+    await assert.rejects(
+      () => svc.create({ title: 't', scheduleType: 'cron', cronExpr }),
+      (e: { statusCode?: number }) => e.statusCode === 400,
+      `expected 400 for cronExpr=${JSON.stringify(cronExpr)}`,
+    );
+  }
+});
+
+test('update: a dangerous value is caught even when it comes from the merge', async () => {
+  // 只改部分字段时，危险值可能来自「新传的」与「库里现有的」的组合 ——
+  // 所以必须校验**将要落库的形状**，而不是只看 updates。
+  const { svc } = makeService('2026-08-13T12:00:00.000Z');
+  const created = await svc.create({
+    title: 't', scheduleType: 'cron', cronExpr: '0 9 * * *', runAt: '2026-08-14T01:00:00.000Z',
+  }) as { schedule_id: string };
+
+  // 库里本来是合法 cron，只把表达式清空
+  await assert.rejects(
+    () => svc.update(created.schedule_id, { cronExpr: '' }),
+    (e: { statusCode?: number }) => e.statusCode === 400,
+  );
+  // 把类型切成 interval 但给 0 秒
+  await assert.rejects(
+    () => svc.update(created.schedule_id, { scheduleType: 'interval', intervalSeconds: 0 }),
+    (e: { statusCode?: number }) => e.statusCode === 400,
+  );
+  // 合法值仍然放行
+  const ok = await svc.update(created.schedule_id, { scheduleType: 'interval', intervalSeconds: 60 }) as { interval_seconds: number };
+  assert.equal(ok.interval_seconds, 60);
+});
+
+test('create: the boundary values are still accepted', async () => {
+  const { svc } = makeService('2026-08-13T12:00:00.000Z');
+  // 1 秒是下界，必须放行（前端不会产生，但 API 直调合法）
+  const row = await svc.create({ title: 't', scheduleType: 'interval', intervalSeconds: 1 }) as { interval_seconds: number };
+  assert.equal(row.interval_seconds, 1);
+});

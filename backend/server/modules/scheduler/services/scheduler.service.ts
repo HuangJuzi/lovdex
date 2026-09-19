@@ -177,6 +177,33 @@ export function createSchedulerService(deps: SchedulerDeps) {
     }
   }
 
+  /**
+   * 落库前的调度形状校验 —— 只看**将要落库**的那一份值。
+   *
+   * 这两条不是 UX 约束（60 秒 / 365 天是前端的决定，会变），而是**防止后端被搞坏**的下限：
+   * - `interval_seconds <= 0` 会让 computeNext 的 `while (next <= now) next += stepMs` 永不终止，
+   *   而 tick 的重入守卫会让整个调度器从此不再触发任何任务（无日志、无告警）。
+   * - 空的 cron_expr 会让 computeNext 走 `return now.toISOString()`，该任务每 15 秒触发一次。
+   *
+   * 因为 update 可以只改部分字段，危险值可能来自「新传的」与「库里现有的」的组合，
+   * 所以判断对象必须是合并后的形状，而不是单独的 updates。
+   */
+  function assertScheduleShape(shape: {
+    schedule_type: string;
+    cron_expr?: string | null;
+    interval_seconds?: number | null;
+  }): void {
+    if (shape.schedule_type === 'cron' && !(typeof shape.cron_expr === 'string' && shape.cron_expr.trim())) {
+      throw new AppError('cron schedule requires a non-empty cronExpr', { code: 'INVALID_SCHEDULE', statusCode: 400 });
+    }
+    if (
+      shape.schedule_type === 'interval' &&
+      !(typeof shape.interval_seconds === 'number' && shape.interval_seconds >= 1)
+    ) {
+      throw new AppError('interval schedule requires intervalSeconds >= 1', { code: 'INVALID_SCHEDULE', statusCode: 400 });
+    }
+  }
+
   function validateScheduleInput(input: Record<string, unknown>): void {
     const scheduleType = input.scheduleType;
     if (typeof scheduleType !== 'string' || !isScheduleType(scheduleType)) {
@@ -191,6 +218,12 @@ export function createSchedulerService(deps: SchedulerDeps) {
     if (scheduleType === 'once' && typeof input.runAt !== 'string') {
       throw new AppError('once schedule requires runAt', { code: 'INVALID_SCHEDULE', statusCode: 400 });
     }
+    // 类型对了还不够：0 / 负数的 interval 与空的 cron 表达式能把调度器卡死或让它空转
+    assertScheduleShape({
+      schedule_type: scheduleType,
+      cron_expr: input.cronExpr as string | null | undefined,
+      interval_seconds: input.intervalSeconds as number | null | undefined,
+    });
   }
 
   return {
@@ -269,6 +302,9 @@ export function createSchedulerService(deps: SchedulerDeps) {
       for (const [from, to] of Object.entries(keyMap)) {
         if (updates[from] !== undefined) cleaned[to] = updates[from];
       }
+      // 校验合并后的形状：只改部分字段时，危险值可能来自新值与库里旧值的组合。
+      // 放在标题解析之前 —— 会 400 的请求不该花模型取名的阻塞窗口。
+      assertScheduleShape({ ...current, ...cleaned } as ScheduledTaskRow);
       // 标题传了空串 = 让模型按描述重新取名；没传 = 不动（keyMap 不会把它放进 cleaned）。
       let pendingTitle: { promise: Promise<string | null>; placeholder: string } | null = null;
       if (typeof updates.title === 'string') {
