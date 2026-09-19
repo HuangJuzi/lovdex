@@ -190,15 +190,15 @@ export function createSchedulerService(deps: SchedulerDeps) {
    */
   function assertScheduleShape(shape: {
     schedule_type: string;
-    cron_expr?: string | null;
-    interval_seconds?: number | null;
+    cron_expr?: unknown;
+    interval_seconds?: unknown;
   }): void {
     if (shape.schedule_type === 'cron' && !(typeof shape.cron_expr === 'string' && shape.cron_expr.trim())) {
       throw new AppError('cron schedule requires a non-empty cronExpr', { code: 'INVALID_SCHEDULE', statusCode: 400 });
     }
     if (
       shape.schedule_type === 'interval' &&
-      !(typeof shape.interval_seconds === 'number' && shape.interval_seconds >= 1)
+      !(typeof shape.interval_seconds === 'number' && Number.isFinite(shape.interval_seconds) && shape.interval_seconds >= 1)
     ) {
       throw new AppError('interval schedule requires intervalSeconds >= 1', { code: 'INVALID_SCHEDULE', statusCode: 400 });
     }
@@ -221,8 +221,8 @@ export function createSchedulerService(deps: SchedulerDeps) {
     // 类型对了还不够：0 / 负数的 interval 与空的 cron 表达式能把调度器卡死或让它空转
     assertScheduleShape({
       schedule_type: scheduleType,
-      cron_expr: input.cronExpr as string | null | undefined,
-      interval_seconds: input.intervalSeconds as number | null | undefined,
+      cron_expr: input.cronExpr,
+      interval_seconds: input.intervalSeconds,
     });
   }
 
@@ -304,7 +304,7 @@ export function createSchedulerService(deps: SchedulerDeps) {
       }
       // 校验合并后的形状：只改部分字段时，危险值可能来自新值与库里旧值的组合。
       // 放在标题解析之前 —— 会 400 的请求不该花模型取名的阻塞窗口。
-      assertScheduleShape({ ...current, ...cleaned } as ScheduledTaskRow);
+      assertScheduleShape({ ...current, ...cleaned });
       // 标题传了空串 = 让模型按描述重新取名；没传 = 不动（keyMap 不会把它放进 cleaned）。
       let pendingTitle: { promise: Promise<string | null>; placeholder: string } | null = null;
       if (typeof updates.title === 'string') {

@@ -414,7 +414,18 @@ test('create: a non-positive interval is rejected instead of hanging the schedul
   for (const intervalSeconds of [0, -60]) {
     await assert.rejects(
       () => svc.create({ title: 't', scheduleType: 'interval', intervalSeconds }),
-      (e: { statusCode?: number }) => e.statusCode === 400,
+      (e: { statusCode?: number; code?: string }) => e.statusCode === 400 && e.code === 'INVALID_SCHEDULE',
+      `expected 400 for intervalSeconds=${intervalSeconds}`,
+    );
+  }
+});
+
+test('create: a non-finite interval is rejected instead of 500ing', async () => {
+  const { svc } = makeService('2026-08-13T12:00:00.000Z');
+  for (const intervalSeconds of [Number.POSITIVE_INFINITY, Number.NaN]) {
+    await assert.rejects(
+      () => svc.create({ title: 't', scheduleType: 'interval', intervalSeconds }),
+      (e: { statusCode?: number; code?: string }) => e.statusCode === 400 && e.code === 'INVALID_SCHEDULE',
       `expected 400 for intervalSeconds=${intervalSeconds}`,
     );
   }
@@ -425,7 +436,7 @@ test('create: a blank cron expression is rejected instead of firing every 15s', 
   for (const cronExpr of ['', '   ']) {
     await assert.rejects(
       () => svc.create({ title: 't', scheduleType: 'cron', cronExpr }),
-      (e: { statusCode?: number }) => e.statusCode === 400,
+      (e: { statusCode?: number; code?: string }) => e.statusCode === 400 && e.code === 'INVALID_SCHEDULE',
       `expected 400 for cronExpr=${JSON.stringify(cronExpr)}`,
     );
   }
@@ -442,12 +453,12 @@ test('update: a dangerous value is caught even when it comes from the merge', as
   // 库里本来是合法 cron，只把表达式清空
   await assert.rejects(
     () => svc.update(created.schedule_id, { cronExpr: '' }),
-    (e: { statusCode?: number }) => e.statusCode === 400,
+    (e: { statusCode?: number; code?: string }) => e.statusCode === 400 && e.code === 'INVALID_SCHEDULE',
   );
   // 把类型切成 interval 但给 0 秒
   await assert.rejects(
     () => svc.update(created.schedule_id, { scheduleType: 'interval', intervalSeconds: 0 }),
-    (e: { statusCode?: number }) => e.statusCode === 400,
+    (e: { statusCode?: number; code?: string }) => e.statusCode === 400 && e.code === 'INVALID_SCHEDULE',
   );
   // 合法值仍然放行
   const ok = await svc.update(created.schedule_id, { scheduleType: 'interval', intervalSeconds: 60 }) as { interval_seconds: number };
@@ -459,4 +470,16 @@ test('create: the boundary values are still accepted', async () => {
   // 1 秒是下界，必须放行（前端不会产生，但 API 直调合法）
   const row = await svc.create({ title: 't', scheduleType: 'interval', intervalSeconds: 1 }) as { interval_seconds: number };
   assert.equal(row.interval_seconds, 1);
+});
+
+test('update: a legacy row with a broken schedule is surfaced instead of silently kept', async () => {
+  // 守卫只保护新写入。库里若已有守卫上线前的坏行（interval_seconds <= 0），
+  // 现在连「只改标题」的 PATCH 也会 400 —— 逼调用方先修数据，而不是让它
+  // 继续躺在库里等着把 tick 卡死。这是有意的取舍，钉住它。
+  const { svc, rows } = makeService('2026-08-13T12:00:00.000Z');
+  rows.set('legacy', mkRow({ schedule_id: 'legacy', schedule_type: 'interval', interval_seconds: 0 }));
+  await assert.rejects(
+    () => svc.update('legacy', { title: '只改标题' }),
+    (e: { statusCode?: number; code?: string }) => e.statusCode === 400 && e.code === 'INVALID_SCHEDULE',
+  );
 });
