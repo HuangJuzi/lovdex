@@ -23,8 +23,19 @@ const PALETTE =
   'slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose';
 const SHADE = '[0-9]{2,3}';
 
-const RAW_CLASS = new RegExp(`\\b(?:${UTILS})-(?:${PALETTE})-${SHADE}\\b`, 'g');
-const DARK_PAIR = new RegExp(`dark:(?:${UTILS})-(?:${PALETTE})-${SHADE}`, 'g');
+// These patterns deliberately cover directional side infixes (`border-l-…`,
+// `divide-y-…`) and unnumbered colors (`white`/`black`). Do not "simplify" them
+// back to the utility+palette+shade triple, or the guard goes blind to those.
+const SIDES = '(?:-(?:t|b|l|r|x|y))?';
+const RAW_CLASS = new RegExp(`\\b(?:${UTILS})${SIDES}-(?:${PALETTE})-${SHADE}\\b`, 'g');
+const DARK_PAIR = new RegExp(`dark:(?:${UTILS})${SIDES}-(?:${PALETTE})-${SHADE}`, 'g');
+// `white`/`black` are unnumbered, so they need their own pattern. Alpha forms
+// (`bg-black/50`, `bg-white/10`) are overlay scrims, not theme surfaces, so they
+// are deliberately exempt.
+const NAMED_COLORS = new RegExp(
+  `\\b(?:${UTILS})-${SIDES}(?:white|black)\\b(?!/)`,
+  'g',
+);
 const HARDCODED_HEX = /#[0-9a-fA-F]{6}\b|%23[0-9a-fA-F]{6}/g;
 const RGB_LITERAL = /\brgba?\(\s*[0-9]/g;
 // Neutral black overlays (`hsl(0 0% 0% / <alpha>`) are masks/shadows, not theme
@@ -137,6 +148,11 @@ test('no raw Tailwind palette classes outside exempt dirs', () => {
 
 test('no dark: overrides of raw palette colors', () => {
   const found = matches(DARK_PAIR);
+  assert.equal(found.length, 0, report(found));
+});
+
+test('no opaque white/black utilities outside exempt dirs', () => {
+  const found = matches(NAMED_COLORS);
   assert.equal(found.length, 0, report(found));
 });
 
