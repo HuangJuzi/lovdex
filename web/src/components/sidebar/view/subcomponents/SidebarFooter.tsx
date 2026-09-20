@@ -45,9 +45,9 @@ export default function SidebarFooter({
         <>
           <div className="nav-divider" />
           <div className="px-2 py-1.5 md:px-2 md:py-1.5">
-            <div className="flex items-center gap-2.5 rounded-lg border border-amber-300/60 bg-amber-50/80 px-2.5 py-2 dark:border-amber-700/40 dark:bg-amber-900/15">
-              <AlertTriangle className="h-4 w-4 flex-shrink-0 text-amber-500 dark:text-amber-400" />
-              <span className="min-w-0 flex-1 text-xs font-medium text-amber-700 dark:text-amber-300">
+            <div className="flex items-center gap-2.5 rounded-lg border border-warning/30 bg-warning/10 px-2.5 py-2">
+              <AlertTriangle className="h-4 w-4 flex-shrink-0 text-warning" />
+              <span className="min-w-0 flex-1 text-xs font-medium text-warning">
                 {t('version.restartRequired')}
               </span>
             </div>
@@ -62,18 +62,18 @@ export default function SidebarFooter({
           {/* Desktop update */}
           <div className="hidden px-2 py-1.5 md:block">
             <button
-              className="group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-blue-50/80 dark:hover:bg-blue-900/15"
+              className="group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-info/10"
               onClick={onShowVersionModal}
             >
               <div className="relative flex-shrink-0">
-                <ArrowUpCircle className="h-4 w-4 text-blue-500 dark:text-blue-400" />
-                <span className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500" />
+                <ArrowUpCircle className="h-4 w-4 text-info" />
+                <span className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 animate-pulse rounded-full bg-info" />
               </div>
               <div className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-normal text-blue-600 dark:text-blue-300">
+                <span className="block truncate text-sm font-normal text-info">
                   {releaseInfo?.title || `v${latestVersion}`}
                 </span>
-                <span className="text-[10px] text-blue-500/70 dark:text-blue-400/60">
+                <span className="text-[10px] text-info/70">
                   {t('version.updateAvailable')}
                 </span>
               </div>
@@ -83,18 +83,18 @@ export default function SidebarFooter({
           {/* Mobile update */}
           <div className="px-3 py-2 md:hidden">
             <button
-              className="flex h-11 w-full items-center gap-3 rounded-xl border border-blue-200/60 bg-blue-50/80 px-3.5 transition-all active:scale-[0.98] dark:border-blue-700/40 dark:bg-blue-900/15"
+              className="flex h-11 w-full items-center gap-3 rounded-xl border border-info/30 bg-info/10 px-3.5 transition-all active:scale-[0.98]"
               onClick={onShowVersionModal}
             >
               <div className="relative flex-shrink-0">
-                <ArrowUpCircle className="h-4 w-4 text-blue-500 dark:text-blue-400" />
-                <span className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500" />
+                <ArrowUpCircle className="h-4 w-4 text-info" />
+                <span className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 animate-pulse rounded-full bg-info" />
               </div>
               <div className="min-w-0 flex-1 text-left">
-                <span className="block truncate text-sm font-normal text-blue-600 dark:text-blue-300">
+                <span className="block truncate text-sm font-normal text-info">
                   {releaseInfo?.title || `v${latestVersion}`}
                 </span>
-                <span className="text-xs text-blue-500/70 dark:text-blue-400/60">
+                <span className="text-xs text-info/70">
                   {t('version.updateAvailable')}
                 </span>
               </div>

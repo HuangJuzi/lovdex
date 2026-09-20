@@ -263,24 +263,24 @@ export default function SidebarAssistant({ activeSessionId = null, onOpenSession
               autoFocus
             />
             <button
-              className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded bg-green-50 hover:bg-green-100 dark:bg-green-900/20"
+              className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded bg-success/10 hover:bg-success/20"
               onClick={(e) => {
                 e.stopPropagation();
                 void saveEdit();
               }}
               title="保存"
             >
-              <Check className="h-3 w-3 text-green-600 dark:text-green-400" />
+              <Check className="h-3 w-3 text-success" />
             </button>
             <button
-              className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded bg-gray-50 hover:bg-gray-100 dark:bg-gray-900/20"
+              className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded bg-muted/70 hover:bg-muted"
               onClick={(e) => {
                 e.stopPropagation();
                 cancelEdit();
               }}
               title="取消"
             >
-              <X className="h-3 w-3 text-gray-600 dark:text-gray-400" />
+              <X className="h-3 w-3 text-muted-foreground" />
             </button>
           </div>
         ) : (
@@ -291,9 +291,9 @@ export default function SidebarAssistant({ activeSessionId = null, onOpenSession
                 buttonVariants({ variant: 'ghost' }),
                 'relative h-auto w-full justify-start rounded-md border bg-card p-2 text-left font-normal transition-all duration-150 hover:bg-muted',
                 isSelected
-                  ? 'border-primary/50 bg-card font-medium text-card-foreground shadow-[0_3px_0_#d8d5cd,0_6px_16px_rgba(35,33,41,0.07)]'
+                  ? 'border-primary/50 bg-card font-medium text-card-foreground shadow-[0_3px_0_hsl(var(--foreground)/0.08),0_6px_16px_hsl(var(--foreground)/0.07)]'
                   : sessionIsActive
-                    ? 'border-green-500/30 bg-green-50/5 hover:bg-green-50/10 dark:bg-green-900/5 dark:hover:bg-green-900/10'
+                    ? 'border-success/30 bg-success/5 hover:bg-success/10'
                     : '',
               )}
               // Left-click keeps in-app navigation; Ctrl/Cmd/middle-click and the
@@ -314,8 +314,8 @@ export default function SidebarAssistant({ activeSessionId = null, onOpenSession
                   aria-label={dotLabel}
                   className={cn(
                     'flex-shrink-0 rounded-full',
-                    dotState === 'active' && 'h-2 w-2 bg-green-500',
-                    dotState === 'idle' && 'h-1.5 w-1.5 bg-amber-400',
+                    dotState === 'active' && 'h-2 w-2 bg-success',
+                    dotState === 'idle' && 'h-1.5 w-1.5 bg-warning',
                   )}
                 />
                 <div className="min-w-0 flex-1">
@@ -332,7 +332,7 @@ export default function SidebarAssistant({ activeSessionId = null, onOpenSession
             </a>
             <div className="absolute right-2 top-1/2 flex -translate-y-1/2 transform items-center gap-1 opacity-0 transition-all duration-200 group-hover/row:opacity-100">
               <button
-                className="flex h-6 w-6 items-center justify-center rounded bg-gray-50 text-gray-600 hover:bg-gray-100 dark:bg-gray-900/20 dark:text-gray-400 dark:hover:bg-gray-900/40"
+                className="flex h-6 w-6 items-center justify-center rounded bg-muted/70 text-muted-foreground hover:bg-muted"
                 onClick={(e) => {
                   e.stopPropagation();
                   startEdit(s);
@@ -343,7 +343,7 @@ export default function SidebarAssistant({ activeSessionId = null, onOpenSession
                 <Edit2 className="h-3 w-3" />
               </button>
               <button
-                className="flex h-6 w-6 items-center justify-center rounded bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400 dark:hover:bg-red-900/40"
+                className="flex h-6 w-6 items-center justify-center rounded bg-destructive/10 text-destructive hover:bg-destructive/20"
                 onClick={(e) => {
                   e.stopPropagation();
                   void deleteSession(s.session_id);
@@ -525,7 +525,7 @@ export default function SidebarAssistant({ activeSessionId = null, onOpenSession
             })}
           </div>
           {createError && (
-            <div className="px-6 pb-2 text-sm text-red-500">{createError}</div>
+            <div className="px-6 pb-2 text-sm text-destructive">{createError}</div>
           )}
           <div className="flex justify-end gap-2 border-t border-border bg-muted/30 px-6 py-4">
             <Button

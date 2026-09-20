@@ -84,7 +84,7 @@ export default function SidebarHeader({
             <Button
               variant="ghost"
               size="sm"
-              className="h-7 w-7 rounded-lg p-0 text-amber-500 hover:bg-muted hover:text-amber-500"
+              className="h-7 w-7 rounded-lg p-0 text-warning hover:bg-muted hover:text-warning"
               onClick={() => navigate('/tasks')}
               title={t('tooltips.tasks')}
             >
@@ -196,7 +196,7 @@ export default function SidebarHeader({
               onClick={() => navigate('/tasks')}
               title={t('tooltips.tasks')}
             >
-              <ClipboardList className="h-4 w-4 text-amber-500" />
+              <ClipboardList className="h-4 w-4 text-warning" />
             </button>
             <button
               className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted/50 transition-all active:scale-95"

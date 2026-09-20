@@ -50,8 +50,8 @@ export default function SidebarCollapsed({
           aria-label={t('version.restartRequired')}
           title={t('version.restartRequired')}
         >
-          <AlertTriangle className="h-4 w-4 text-amber-500" />
-          <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500" />
+          <AlertTriangle className="h-4 w-4 text-warning" />
+          <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 animate-pulse rounded-full bg-warning" />
         </div>
       )}
 
@@ -63,8 +63,8 @@ export default function SidebarCollapsed({
           aria-label={t('common:versionUpdate.ariaLabels.updateAvailable')}
           title={t('common:versionUpdate.ariaLabels.updateAvailable')}
         >
-          <Sparkles className="h-4 w-4 text-blue-500" />
-          <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 animate-pulse rounded-full bg-blue-500" />
+          <Sparkles className="h-4 w-4 text-info" />
+          <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 animate-pulse rounded-full bg-info" />
         </button>
       )}
     </div>

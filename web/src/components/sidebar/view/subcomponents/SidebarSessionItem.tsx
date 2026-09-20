@@ -108,9 +108,9 @@ export default function SidebarSessionItem({
             isSelected
               ? 'bg-primary/10 border-primary/50'
               : sessionIsActive
-                ? 'border-green-500/30 bg-green-50/5 dark:bg-green-900/5'
+                ? 'border-success/30 bg-success/5'
                 : needsAttention
-                  ? 'border-amber-500/40 bg-amber-50/5 dark:bg-amber-900/5'
+                  ? 'border-warning/40 bg-warning/5'
                   : 'border-border/30',
           )}
           onClick={selectMobileSession}
@@ -124,9 +124,9 @@ export default function SidebarSessionItem({
               aria-label={dotLabel}
               className={cn(
                 'flex-shrink-0 rounded-full',
-                dotState === 'attention' && 'h-2 w-2 animate-pulse bg-amber-500',
-                dotState === 'active' && 'h-2 w-2 bg-green-500',
-                dotState === 'idle' && 'h-1.5 w-1.5 bg-amber-400',
+                dotState === 'attention' && 'h-2 w-2 animate-pulse bg-warning',
+                dotState === 'active' && 'h-2 w-2 bg-success',
+                dotState === 'idle' && 'h-1.5 w-1.5 bg-warning',
               )}
             />
             <div
@@ -164,13 +164,13 @@ export default function SidebarSessionItem({
 
             {!isProcessing && (
               <button
-                className="ml-1 flex h-5 w-5 items-center justify-center rounded-md bg-red-50 opacity-70 transition-transform active:scale-95 dark:bg-red-900/20"
+                className="ml-1 flex h-5 w-5 items-center justify-center rounded-md bg-destructive/10 opacity-70 transition-transform active:scale-95"
                 onClick={(event) => {
                   event.stopPropagation();
                   requestDeleteSession();
                 }}
               >
-                <Trash2 className="h-2.5 w-2.5 text-red-600 dark:text-red-400" />
+                <Trash2 className="h-2.5 w-2.5 text-destructive" />
               </button>
             )}
           </div>
@@ -184,11 +184,11 @@ export default function SidebarSessionItem({
             buttonVariants({ variant: 'ghost' }),
             'relative h-auto w-full justify-start rounded-md border bg-card p-2 text-left font-normal transition-all duration-150 hover:bg-muted',
             isSelected
-              ? 'border-primary/50 bg-card font-medium text-card-foreground shadow-[0_3px_0_#d8d5cd,0_6px_16px_rgba(35,33,41,0.07)]'
+              ? 'border-primary/50 bg-card font-medium text-card-foreground shadow-[0_3px_0_hsl(var(--foreground)/0.08),0_6px_16px_hsl(var(--foreground)/0.07)]'
               : sessionIsActive
-                ? 'border-green-500/30 bg-green-50/5 hover:bg-green-50/10 dark:bg-green-900/5 dark:hover:bg-green-900/10'
+                ? 'border-success/30 bg-success/5 hover:bg-success/10'
                 : needsAttention
-                  ? 'border-amber-500/40 bg-amber-50/5 hover:bg-amber-50/10 dark:bg-amber-900/5 dark:hover:bg-amber-900/10'
+                  ? 'border-warning/40 bg-warning/5 hover:bg-warning/10'
                   : '',
           )}
           // Left-click keeps in-app navigation; Ctrl/Cmd/middle-click and the
@@ -208,9 +208,9 @@ export default function SidebarSessionItem({
               aria-label={dotLabel}
               className={cn(
                 'flex-shrink-0 rounded-full',
-                dotState === 'attention' && 'h-2 w-2 animate-pulse bg-amber-500',
-                dotState === 'active' && 'h-2 w-2 bg-green-500',
-                dotState === 'idle' && 'h-1.5 w-1.5 bg-amber-400',
+                dotState === 'attention' && 'h-2 w-2 animate-pulse bg-warning',
+                dotState === 'active' && 'h-2 w-2 bg-success',
+                dotState === 'idle' && 'h-1.5 w-1.5 bg-warning',
               )}
             />
             <div
@@ -281,48 +281,48 @@ export default function SidebarSessionItem({
                   autoFocus
                 />
                 <button
-                  className="flex h-6 w-6 items-center justify-center rounded bg-green-50 hover:bg-green-100 dark:bg-green-900/20 dark:hover:bg-green-900/40"
+                  className="flex h-6 w-6 items-center justify-center rounded bg-success/10 hover:bg-success/20"
                   onClick={(event) => {
                     event.stopPropagation();
                     saveEditedSession();
                   }}
                   title={t('tooltips.save')}
                 >
-                  <Check className="h-3 w-3 text-green-600 dark:text-green-400" />
+                  <Check className="h-3 w-3 text-success" />
                 </button>
                 <button
-                  className="flex h-6 w-6 items-center justify-center rounded bg-gray-50 hover:bg-gray-100 dark:bg-gray-900/20 dark:hover:bg-gray-900/40"
+                  className="flex h-6 w-6 items-center justify-center rounded bg-muted/70 hover:bg-muted"
                   onClick={(event) => {
                     event.stopPropagation();
                     onCancelEditingSession();
                   }}
                   title={t('tooltips.cancel')}
                 >
-                  <X className="h-3 w-3 text-gray-600 dark:text-gray-400" />
+                  <X className="h-3 w-3 text-muted-foreground" />
                 </button>
               </>
             ) : (
               <>
                 <button
-                  className="flex h-6 w-6 items-center justify-center rounded bg-gray-50 hover:bg-gray-100 dark:bg-gray-900/20 dark:hover:bg-gray-900/40"
+                  className="flex h-6 w-6 items-center justify-center rounded bg-muted/70 hover:bg-muted"
                   onClick={(event) => {
                     event.stopPropagation();
                     onStartEditingSession(session.id, sessionView.sessionName);
                   }}
                   title={t('tooltips.editSessionName')}
                 >
-                  <Edit2 className="h-3 w-3 text-gray-600 dark:text-gray-400" />
+                  <Edit2 className="h-3 w-3 text-muted-foreground" />
                 </button>
                 {!isProcessing && (
                   <button
-                    className="flex h-6 w-6 items-center justify-center rounded bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:hover:bg-red-900/40"
+                    className="flex h-6 w-6 items-center justify-center rounded bg-destructive/10 hover:bg-destructive/20"
                     onClick={(event) => {
                       event.stopPropagation();
                       requestDeleteSession();
                     }}
                     title={t('tooltips.deleteSessionOptions', 'Archive or permanently delete this session')}
                   >
-                    <Trash2 className="h-3 w-3 text-red-600 dark:text-red-400" />
+                    <Trash2 className="h-3 w-3 text-destructive" />
                   </button>
                 )}
               </>
