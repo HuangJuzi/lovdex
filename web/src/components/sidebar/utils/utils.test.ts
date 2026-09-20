@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import type { Project, ProjectSession } from '../../../types/app';
 
-import { excludeHiddenProjects, formatCompactSessionAge, getRecentSessions, getSessionDotState, isProjectActive, isSessionActive, isSessionRecentlyActive, readStoredExpandedProjects, sortProjects, toggleExpandedProject, writeStoredExpandedProjects } from './utils';
+import { excludeHiddenProjects, formatCompactSessionAge, getRecentSessions, getSessionDotState, isProjectActive, isSessionActive, isSessionRecentlyActive, readStoredExpandedProjects, shouldAutoExpandSelectedProject, sortProjects, toggleExpandedProject, writeStoredExpandedProjects } from './utils';
 
 const mkSession = (id: string, lastActivity?: string): ProjectSession => ({
   id,
@@ -282,4 +282,62 @@ test('toggleExpandedProject toggles back to the original state', () => {
   const once = toggleExpandedProject(input, 'p2');
   const twice = toggleExpandedProject(once, 'p2');
   assert.deepEqual([...twice].sort(), ['p1']);
+});
+
+test('shouldAutoExpandSelectedProject expands a project selected from outside the sidebar', () => {
+  assert.equal(
+    shouldAutoExpandSelectedProject({
+      selectedProjectId: 'p1',
+      userToggledProjectId: null,
+      initialSelectionSettled: true,
+    }),
+    true,
+  );
+});
+
+test('shouldAutoExpandSelectedProject yields to an explicit header toggle', () => {
+  // 回归：项目已展开但不是当前选中项时，点项目头 = 选中 + 折叠。若自动展开
+  // 副作用把刚收起的项目重新展开，用户就得点两次才收得起来。
+  assert.equal(
+    shouldAutoExpandSelectedProject({
+      selectedProjectId: 'p1',
+      userToggledProjectId: 'p1',
+      initialSelectionSettled: true,
+    }),
+    false,
+  );
+});
+
+test('shouldAutoExpandSelectedProject still expands when the toggle hit another project', () => {
+  assert.equal(
+    shouldAutoExpandSelectedProject({
+      selectedProjectId: 'p2',
+      userToggledProjectId: 'p1',
+      initialSelectionSettled: true,
+    }),
+    true,
+  );
+});
+
+test('shouldAutoExpandSelectedProject skips the initial selection resolution', () => {
+  // 挂载后首次解析到选中项目（例如从 /tasks 切回主页面）时严格遵守持久化状态。
+  assert.equal(
+    shouldAutoExpandSelectedProject({
+      selectedProjectId: 'p1',
+      userToggledProjectId: null,
+      initialSelectionSettled: false,
+    }),
+    false,
+  );
+});
+
+test('shouldAutoExpandSelectedProject returns false without a selected project', () => {
+  assert.equal(
+    shouldAutoExpandSelectedProject({
+      selectedProjectId: null,
+      userToggledProjectId: null,
+      initialSelectionSettled: true,
+    }),
+    false,
+  );
 });

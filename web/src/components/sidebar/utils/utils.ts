@@ -61,6 +61,36 @@ export const toggleExpandedProject = (
   return next;
 };
 
+/**
+ * 判断一次「选中 Project 身份变化」是否要自动展开该项目。
+ *
+ * 点项目头同时做两件事：选中它 + 折叠/展开它。选中变化会触发自动展开副作用，
+ * 于是「已展开但不是当前选中」的项目被点一下收起后又被副作用重新展开——用户
+ * 得点两次才收得起来。`userToggledProjectId` 记录刚刚由用户显式切换过的项目
+ * （一次性标记，只对紧随其后的那一次选中变化生效），命中时让位给用户意图。
+ */
+export const shouldAutoExpandSelectedProject = ({
+  selectedProjectId,
+  userToggledProjectId,
+  initialSelectionSettled,
+}: {
+  selectedProjectId: string | null | undefined;
+  userToggledProjectId: string | null;
+  initialSelectionSettled: boolean;
+}): boolean => {
+  if (!selectedProjectId) {
+    return false;
+  }
+
+  // 挂载后首次解析到选中项目（例如从 /tasks 等独立路由切回主页面）时严格遵守
+  // 持久化的展开状态，不强制打开。
+  if (!initialSelectionSettled) {
+    return false;
+  }
+
+  return selectedProjectId !== userToggledProjectId;
+};
+
 const LEGACY_STARRED_PROJECTS_STORAGE_KEY = 'starredProjects';
 
 /**

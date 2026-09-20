@@ -16,6 +16,7 @@ import {
   getAllSessions,
   readLegacyStarredProjectIds,
   readStoredExpandedProjects,
+  shouldAutoExpandSelectedProject,
   sortProjects,
   toggleExpandedProject,
   writeStoredExpandedProjects,
@@ -151,15 +152,29 @@ export function useSidebarController({
   // - 首次解析到选中项目（例如从 /tasks 等独立路由切回主页面后的重挂载）时跳过，
   //   严格遵守持久化的展开状态——否则每次切回主页面当前 Project 的 session
   //   都会被强制打开。
+  // - 用户点项目头 = 选中 + 折叠/展开同时发生。此时选中身份的变化会让本副作用
+  //   把刚收起的项目又展开（要点两次才收得起来），所以用户显式切换过的项目
+  //   要让位（见 shouldAutoExpandSelectedProject）。
   const initialAutoExpandSettledRef = useRef(false);
+  const userToggledProjectRef = useRef<string | null>(null);
   useEffect(() => {
     const selectedProjectId = selectedProject?.projectId;
+    // 一次性标记：只对紧随其后的这一次选中变化生效。
+    const userToggledProjectId = userToggledProjectRef.current;
+    userToggledProjectRef.current = null;
+
     if (!selectedProjectId) {
       return;
     }
 
-    if (!initialAutoExpandSettledRef.current) {
-      initialAutoExpandSettledRef.current = true;
+    const shouldExpand = shouldAutoExpandSelectedProject({
+      selectedProjectId,
+      userToggledProjectId,
+      initialSelectionSettled: initialAutoExpandSettledRef.current,
+    });
+    initialAutoExpandSettledRef.current = true;
+
+    if (!shouldExpand) {
       return;
     }
 
@@ -356,6 +371,9 @@ export function useSidebarController({
   // The persisted shape (a string array) already supports multiple ids, so
   // `readStoredExpandedProjects` / `writeStoredExpandedProjects` are unchanged.
   const toggleProject = useCallback((projectId: string) => {
+    // 记下用户显式切换的项目：同一次点击往往还会改变选中项目，自动展开副作用
+    // 必须让位，否则刚收起的项目会被立刻重新展开。
+    userToggledProjectRef.current = projectId;
     setExpandedProjects((prev) => toggleExpandedProject(prev, projectId));
   }, []);
 
