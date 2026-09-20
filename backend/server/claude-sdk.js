@@ -699,7 +699,11 @@ async function queryClaudeSDK(command, options = {}, ws) {
       const cfg = getOperatorConfig();
       const operatorServer = createSdkMcpServer({
         name: 'lovdex-operator',
-        tools: buildOperatorSdkTools({ ...operatorDepsRef, contextSessionId: sessionId ?? null }),
+        // contextSessionId 必须是 **app** 会话 id，不是 provider 会话 id：
+        // options.sessionId 是 provider 的（chat-websocket.service.ts:264），
+        // 而通知里的 session_id 会被前端拿去跳 /session/<id>，用 provider id
+        // 会跳到不存在的会话。options.appSessionId 才是 DB 里的 app 会话 id。
+        tools: buildOperatorSdkTools({ ...operatorDepsRef, contextSessionId: options.appSessionId ?? null }),
         alwaysLoad: true,
       });
       sdkOptions.tools = [];
