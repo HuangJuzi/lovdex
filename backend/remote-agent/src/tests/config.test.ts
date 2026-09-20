@@ -3,8 +3,6 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
-import os from 'node:os';
-import path from 'node:path';
 
 import { loadConfig, loadConfigFile } from '../config.js';
 
@@ -107,7 +105,7 @@ test('loadConfig defaults skillRoots to the host home .claude/skills', () => {
     hostId: 'h1',
     roots: ['/srv/projects'],
   });
-  assert.deepEqual(cfg.skillRoots, [path.join(os.homedir(), '.claude/skills')]);
+  assert.deepEqual(cfg.skillRoots, [join(homedir(), '.claude', 'skills')]);
 });
 
 test('loadConfig keeps an explicit skillRoots', () => {

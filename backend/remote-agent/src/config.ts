@@ -49,13 +49,19 @@ export function loadConfig(raw: unknown): RemoteAgentConfig {
  * Read a JSON config file from disk and parse it.
  *
  * Resolution order: explicit `filePath` → `LOVDEX_REMOTE_CONFIG` env →
- * default `~/.lovdex-remote/config.json` (via `HOME`).
+ * default `~/.lovdex-remote/config.json`.
+ *
+ * The home directory comes from `os.homedir()`, NOT `process.env.HOME`, so it
+ * agrees with the `skillRoots` default below. They diverge when `HOME` is unset
+ * (some systemd units and minimal containers): `homedir()` falls back to the
+ * passwd entry, while a raw `HOME` read would fall back to `/root` — pointing
+ * the config file and the skill root at different homes on the same host.
  */
 export function loadConfigFile(filePath?: string): RemoteAgentConfig {
   const resolved =
     filePath ??
     process.env.LOVDEX_REMOTE_CONFIG ??
-    `${process.env.HOME ?? '/root'}/.lovdex-remote/config.json`;
+    path.join(homedir(), '.lovdex-remote', 'config.json');
   return loadConfig(JSON.parse(readFileSync(resolved, 'utf8')));
 }
 

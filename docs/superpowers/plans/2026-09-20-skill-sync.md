@@ -29,11 +29,20 @@
 cd /mnt/b/workdir/github/lovdex/backend && unset TSX_TSCONFIG_PATH && npx tsx --tsconfig server/tsconfig.json --test server/shared/tests/skill-hash.test.ts
 ```
 
-类型检查（baseline 有 pre-existing 错误，验收标准是**零新增**）：
+类型检查（baseline 有 pre-existing 错误，验收标准是**零新增**）。
+
+**两个 tsconfig 各管一半，必须都跑** —— `server/tsconfig.json` 的 `include` **不覆盖 `backend/remote-agent/`**，只跑它会漏掉 lite 侧的全部类型错误：
 
 ```bash
-cd /mnt/b/workdir/github/lovdex/backend && npx tsc --noEmit -p server/tsconfig.json
+cd /mnt/b/workdir/github/lovdex/backend && ./node_modules/.bin/tsc --noEmit -p server/tsconfig.json
+cd /mnt/b/workdir/github/lovdex/backend && ./node_modules/.bin/tsc --noEmit -p remote-agent/tsconfig.json
 ```
+
+实测基线（2026-09-21）：`server/tsconfig.json` 15 个错误，`remote-agent/tsconfig.json` 4 个错误（`fs.test.ts` ×2、`transcript.ts` ×2）。改动后必须**数量与分布都不变**。
+
+> 用 `./node_modules/.bin/tsc` 而不是 `npx tsc`：在干净 worktree 里 `npx tsc` 会静默解析到同名的假 `tsc` 包，跑出无意义的结果。
+
+注意 `eslint` 配置**不覆盖 `remote-agent/`**（会输出 `File ignored because no matching configuration was supplied`），所以 lite 侧的改动没有 lint 兜底 —— 只能靠类型检查和你自己读。
 
 提交信息用英文，**不加 `Co-Authored-By` 署名行**。
 
@@ -910,19 +919,18 @@ export function skillRootsOf(cfg: RemoteAgentConfig): string[] {
 
 - [ ] **Step 6: 修被类型变更打到的测试 fixture**
 
-`remote-agent/src/tests/index.test.ts:7` 和 `remote-agent/src/tests/rpc-dispatch-messages.test.ts:14` 是仓库里仅有的两个**带类型**的 `RemoteAgentConfig` 字面量。给它们各加一行：
+`skillRoots` 在 zod 输出类型里是**必填**，仓库里带类型的 `RemoteAgentConfig` 字面量会因此报 TS2741。
 
-```ts
-  skillRoots: ['/home/lite/.claude/skills'],
-```
+**实测更正**：计划原写的两个文件里，只有 `remote-agent/src/tests/index.test.ts:12` 真的需要改（加一行 `skillRoots: ['/home/lite/.claude/skills'],`）。`rpc-dispatch-messages.test.ts` **不受影响** —— 它用的是 `loadConfig({...})`，zod 的 default 会自动补齐。以 tsc 的实际输出为准，别照抄计划里的文件名。
 
-然后确认零新增类型错误：
+确认零新增类型错误（**两个 tsconfig 都要跑**）：
 
 ```bash
-cd /mnt/b/workdir/github/lovdex/backend && npx tsc --noEmit -p server/tsconfig.json 2>&1 | tail -20
+cd /mnt/b/workdir/github/lovdex/backend && ./node_modules/.bin/tsc --noEmit -p server/tsconfig.json 2>&1 | tail -5
+cd /mnt/b/workdir/github/lovdex/backend && ./node_modules/.bin/tsc --noEmit -p remote-agent/tsconfig.json 2>&1 | tail -5
 ```
 
-Expected: 错误数量与改动前一致（baseline 有 pre-existing 错误，**不能多**）
+Expected: 两个都保持基线（15 / 4），数量与分布均不变
 
 - [ ] **Step 7: 提交**
 
@@ -1236,7 +1244,7 @@ import { promises as fsp } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 
-import { collectSkillDir, computeSkillHash, isIgnoredSkillEntry, type SkillFileEntry } from './skill-hash.js';
+import { collectSkillDir, computeSkillHash, isIgnoredSkillEntry, MAX_SKILL_FILE_BYTES, MAX_SKILL_TOTAL_BYTES, type SkillFileEntry } from './skill-hash.js';
 import { parseFrontMatter } from './frontmatter.js';
 import { resolveWithinRoots } from './path-allowlist.js';
 import type {
@@ -1696,6 +1704,20 @@ test('apply rejects an unsafe relativePath', async () => {
   );
 });
 
+test('apply bounds the payload by DECODED size before writing anything', async () => {
+  const root = await mkRoot();
+  const store = createSkillStore({ roots: [root] });
+  const big = 'x'.repeat(2 * 1024 * 1024 + 1);
+  await assert.rejects(
+    () => store.apply({
+      root, name: 'demo', contentHash: computeSkillHash([file('big.bin', big)]),
+      files: [file('big.bin', big)], expectedTargetHash: null, force: false,
+    }),
+    /skill file too large/,
+  );
+  await assert.rejects(() => fsp.stat(path.join(root, 'demo')), /ENOENT/);
+});
+
 test('a failed apply leaves the existing skill untouched', async (t) => {
   if (typeof process.getuid === 'function' && process.getuid() === 0) {
     t.skip('running as root — permission bits do not apply');
@@ -1751,6 +1773,26 @@ Expected: FAIL — `not implemented`
     async apply(input) {
       const dir = resolveSkillDir(input.root, input.name);
       const parent = path.dirname(dir);
+
+      // 0. Bound the payload. The wire schema caps each file coarsely, but this
+      //    is the authoritative check on the DECODED byte length — and it also
+      //    covers in-process callers (the local node) that never touch the wire
+      //    schema at all. Without it, a single apply could write an unbounded
+      //    amount to disk on a host with a small footprint.
+      let totalBytes = 0;
+      for (const file of input.files) {
+        const bytes = Buffer.byteLength(
+          file.content,
+          file.encoding === 'base64' ? 'base64' : 'utf8',
+        );
+        if (bytes > MAX_SKILL_FILE_BYTES) {
+          throw new Error(`skill file too large: ${file.relativePath} (${bytes} bytes)`);
+        }
+        totalBytes += bytes;
+      }
+      if (totalBytes > MAX_SKILL_TOTAL_BYTES) {
+        throw new Error(`skill too large: exceeds ${MAX_SKILL_TOTAL_BYTES} bytes`);
+      }
 
       // 1. The caller's declared hash must actually match the files it sent —
       //    otherwise the drift checks below compare against a lie.
@@ -1868,7 +1910,9 @@ async function writeSkillFiles(baseDir: string, files: readonly SkillFileEntry[]
 cd /mnt/b/workdir/github/lovdex/backend && unset TSX_TSCONFIG_PATH && npx tsx --tsconfig server/tsconfig.json --test server/shared/tests/skill-store-apply.test.ts
 ```
 
-Expected: `# pass 10` / `# fail 0`（`# skipped 1` 仅当以 root 运行）
+Expected: `# pass 11` / `# fail 0`（`# skipped 1` 仅当以 root 运行）
+
+> **执行期修正（审查发现）**：`apply` 原本没有校验入参的字节大小 —— wire schema 的 `.max()` 只粗粒度约束，而本地节点（进程内调用）根本不过 schema。已在步骤 0 加入按**解码后字节长度**的权威校验，并补了对应测试（上面的用例数已含它）。
 
 - [ ] **Step 5: 跑本阶段全部四个文件确认没有互相破坏**
 
