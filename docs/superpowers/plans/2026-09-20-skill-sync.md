@@ -470,7 +470,7 @@ Task 1 的算法是同一份文件，但**风险在于 lite 打包/部署时会�
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { computeSkillHash, type SkillFileEntry } from '../../server/shared/skill-hash.js';
+import { computeSkillHash, type SkillFileEntry } from '../../../server/shared/skill-hash.js';
 
 /**
  * Golden fingerprint — freezes the algorithm on the LITE side.
@@ -527,7 +527,11 @@ test('golden fingerprint is frozen across main and lite', () => {
 cd /mnt/b/workdir/github/lovdex/backend && unset TSX_TSCONFIG_PATH && npx tsx --tsconfig server/tsconfig.json --test remote-agent/src/tests/skill-hash-parity.test.ts server/shared/tests/skill-hash.test.ts
 ```
 
-Expected: `# pass 14` / `# fail 0`（parity 1 条 + skill-hash 13 条）
+Expected: `# pass 21` / `# fail 0`（parity 1 条 + skill-hash 20 条）
+
+> **执行期修正（commit `2e64aa0`）**：计划原写的 import 深度 `../../server/shared/` 少一层 —— 测试在 `remote-agent/src/tests/`，到 `backend/` 需要三级 `../../../server/shared/`（与同目录 `session-provider.test.ts` 的既有写法一致）。已按实际修正。
+>
+> Golden 值：`67235fa7090160e8df19fa7052a0f40e01bb127f0b38991880eee38da70b24f4`，两侧文件各写一份。已独立复算确认匹配，且验证过翻转 exec 位会让它变化（即这条测试真的能抓住算法漂移，不是恒真）。
 
 - [ ] **Step 5: 提交**
 
