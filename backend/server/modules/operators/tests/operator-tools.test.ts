@@ -435,3 +435,101 @@ test('delete_session input schema declares sessionId (string) + cascade (boolean
   assert.equal(props.cascade?.type, 'boolean');
   assert.deepEqual(tools.delete_session.inputSchema.required, ['sessionId']);
 });
+
+test('list_notifications forwards unreadOnly + clamps limit, and reports unreadCount', async () => {
+  let received: { limit?: number; offset?: number; unreadOnly?: boolean } = {};
+  const tools = buildOperatorTools({
+    tasks: {} as never,
+    notifications: {
+      list: (o: { limit: number; offset: number; unreadOnly?: boolean }) => {
+        received = o;
+        return [{ notification_id: 'n1', title: 'A' }];
+      },
+      unreadCount: () => 3,
+      markRead: () => null,
+      markAllRead: () => {},
+    },
+  });
+
+  const res = (await tools.list_notifications.handler({ unreadOnly: 1 })) as {
+    unreadCount: number;
+    notifications: unknown[];
+  };
+  assert.equal(received.unreadOnly, true);
+  assert.equal(received.limit, 20); // default
+  assert.equal(res.unreadCount, 3);
+  assert.equal(res.notifications.length, 1);
+
+  // limit is clamped to the 1..100 window
+  await tools.list_notifications.handler({ limit: 9999 });
+  assert.equal(received.limit, 100);
+  await tools.list_notifications.handler({ limit: 0 });
+  assert.equal(received.limit, 1);
+
+  // omitted unreadOnly → not filtered
+  await tools.list_notifications.handler({});
+  assert.equal(received.unreadOnly, false);
+});
+
+test('list_notifications fails clearly when the notification service is not wired', async () => {
+  const tools = buildOperatorTools({ tasks: {} as never });
+  await assert.rejects(() => tools.list_notifications.handler({}), /not wired/);
+});
+
+test('mark_notification_read marks a single notification by id', async () => {
+  let marked: string | null = null;
+  const tools = buildOperatorTools({
+    tasks: {} as never,
+    notifications: {
+      list: () => [],
+      unreadCount: () => 1,
+      markRead: (id: string) => {
+        marked = id;
+        return { notification_id: id, read_at: 'now' };
+      },
+      markAllRead: () => {},
+    },
+  });
+
+  const res = (await tools.mark_notification_read.handler({ notificationId: 'n1' })) as {
+    success: boolean;
+    unreadCount: number;
+  };
+  assert.equal(marked, 'n1');
+  assert.equal(res.success, true);
+  assert.equal(res.unreadCount, 1);
+});
+
+test('mark_notification_read all=1 marks every unread notification', async () => {
+  let allCalled = false;
+  const tools = buildOperatorTools({
+    tasks: {} as never,
+    notifications: {
+      list: () => [],
+      unreadCount: () => 0,
+      markRead: () => null,
+      markAllRead: () => {
+        allCalled = true;
+      },
+    },
+  });
+
+  const res = (await tools.mark_notification_read.handler({ all: 1 })) as { unreadCount: number };
+  assert.equal(allCalled, true);
+  assert.equal(res.unreadCount, 0);
+});
+
+test('mark_notification_read rejects unknown id and missing args', async () => {
+  const tools = buildOperatorTools({
+    tasks: {} as never,
+    notifications: {
+      list: () => [],
+      unreadCount: () => 0,
+      markRead: () => null, // simulates "not found"
+      markAllRead: () => {},
+    },
+  });
+
+  await assert.rejects(() => tools.mark_notification_read.handler({}), /notificationId is required/);
+  await assert.rejects(() => tools.mark_notification_read.handler({ notificationId: 'nope' }), /not found/);
+});

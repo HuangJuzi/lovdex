@@ -111,6 +111,17 @@ export type OperatorToolDeps = {
     remove: (scheduleId: string) => void;
   };
   /**
+   * 通知中心（收件箱）。注入自 index.js，形状直接匹配 notifications.service，
+   * 无需适配层。助手据此回答「有什么未读通知」并把通知标记为已读。
+   * 可选：纯逻辑单测不需要它。
+   */
+  notifications?: {
+    list: (options: { limit: number; offset: number; unreadOnly?: boolean }) => unknown[];
+    unreadCount: () => number;
+    markRead: (id: string) => unknown;
+    markAllRead: () => void;
+  };
+  /**
    * Session-transfer primitive (move a task + its session to another project).
    * Injected from index.js as `sessionTransferService.moveSessionToProject`. The
    * tool handler only forwards the args — all real validation, running-session
@@ -443,7 +454,7 @@ export function buildOperatorTools(deps: OperatorToolDeps) {
     },
     create_scheduled_task: {
       description:
-        'Create a scheduled-task template. On each trigger it creates a real task (seen in list_tasks). autoRun=1 dispatches the agent run immediately; autoRun=0 creates a todo/reminder only. scheduleType: once (runAt) | interval (intervalSeconds) | cron (cronExpr). projectPath empty = Lovdex 助手 workspace.',
+        'Create a scheduled-task template. On each trigger it creates a real task (seen in list_tasks). autoRun=1 dispatches the agent run immediately; autoRun=0 creates a todo/reminder only. scheduleType: once (runAt) | interval (intervalSeconds) | cron (cronExpr). projectPath empty = Lovdex 助手 workspace. IMPORTANT: for 巡检/监控 tasks that must notify the user on anomaly, the description MUST embed the lovdex-alert code-block convention verbatim — otherwise the run produces no inbox notification (silent miss). The exact text to embed is in the operator system prompt (收件箱 section).',
       inputSchema: {
         type: 'object',
         properties: {
@@ -575,6 +586,60 @@ export function buildOperatorTools(deps: OperatorToolDeps) {
           throw new Error('workbench is not wired (missing workbench dep)');
         }
         return deps.workbench(i);
+      },
+    },
+    list_notifications: {
+      description:
+        'List inbox notifications (收件箱): severity, title, body, code, task_id, session_id, read_at, occurrence_count. unreadOnly=1 returns unread only. Also returns unreadCount. Notifications come from tasks that output a lovdex-alert code block (巡检告警), and are auto-merged by code. Use when the user asks 有什么通知/未读消息/告警.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          unreadOnly: { type: 'number', description: '1 = only unread notifications' },
+          limit: { type: 'number', description: 'Max rows (default 20, max 100)' },
+          offset: { type: 'number', description: 'Pagination offset (default 0)' },
+        },
+      },
+      handler: async (i: { unreadOnly?: number; limit?: number; offset?: number }) => {
+        if (!deps.notifications) {
+          throw new Error('notifications is not wired (missing notifications dep)');
+        }
+        const limit = Math.min(Math.max(i.limit ?? 20, 1), 100);
+        return {
+          unreadCount: deps.notifications.unreadCount(),
+          notifications: deps.notifications.list({
+            limit,
+            offset: Math.max(i.offset ?? 0, 0),
+            unreadOnly: i.unreadOnly === 1,
+          }),
+        };
+      },
+    },
+    mark_notification_read: {
+      description:
+        'Mark inbox notifications as read. Pass notificationId to mark one, or all=1 to mark every unread notification as read.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          notificationId: { type: 'string', description: 'Notification id to mark read' },
+          all: { type: 'number', description: '1 = mark all unread as read' },
+        },
+      },
+      handler: async (i: { notificationId?: string; all?: number }) => {
+        if (!deps.notifications) {
+          throw new Error('notifications is not wired (missing notifications dep)');
+        }
+        if (i.all === 1) {
+          deps.notifications.markAllRead();
+          return { success: true, unreadCount: deps.notifications.unreadCount() };
+        }
+        if (!i.notificationId) {
+          throw new Error('notificationId is required unless all=1');
+        }
+        const row = deps.notifications.markRead(i.notificationId);
+        if (!row) {
+          throw new Error(`notification not found: ${i.notificationId}`);
+        }
+        return { success: true, notification: row, unreadCount: deps.notifications.unreadCount() };
       },
     },
   };

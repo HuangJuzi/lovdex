@@ -660,6 +660,15 @@ initOperatorHeadless({
     // can manage 定时任务. Injected directly — schedulerService already exposes
     // the exact OperatorToolDeps.scheduledTasks shape.
     scheduledTasks: schedulerService,
+    // 通知中心（收件箱）。notificationsService 要等 startServer() 里的
+    // initializeDatabase() 建完表才能实例化，而这里在模块顶层执行 —— 所以传惰性
+    // 委托而不是直接传值：这些箭头函数在 handler 被调用时才求值，那时已经赋值。
+    notifications: {
+        list: (options) => notificationsService.list(options),
+        unreadCount: () => notificationsService.unreadCount(),
+        markRead: (id) => notificationsService.markRead(id),
+        markAllRead: () => notificationsService.markAllRead(),
+    },
     // Session transfer: move a task + session between registered projects.
     moveSessionToProject: sessionTransferService.moveSessionToProject,
     // Session hard-deletion: delete a session row + transcript file.
