@@ -91,6 +91,10 @@ export default function SettingsPage() {
                 <>
                   <OperatorSettingsForm />
                   <OperatorSkillExecSettings />
+                </>
+              )}
+              {activeTab === 'skills' && (
+                <>
                   <InboxSkillSettings />
                   <SkillSyncSettings />
                 </>

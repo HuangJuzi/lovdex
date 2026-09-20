@@ -44,7 +44,7 @@ export function createSkillSyncOperatorTools(deps: SkillSyncOperatorDeps) {
 
     async skill_sync_apply(input: { planId: string; names?: string[]; force?: boolean }) {
       if (!deps.allowApply) {
-        return '技能同步的写操作未开启。请在 设置 → 助手 里打开「允许助手同步技能」后重试。';
+        return '技能同步的写操作未开启。请在 设置 → Operator Agent 设置 里打开「允许助手同步技能」后重试。';
       }
       const result = await deps.service.apply({
         planId: input.planId,

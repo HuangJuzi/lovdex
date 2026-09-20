@@ -13,6 +13,7 @@ test('resolveSettingsTab defaults to providers for missing/unknown values', () =
 test('resolveSettingsTab maps known tab keys', () => {
   assert.equal(resolveSettingsTab('providers'), 'providers');
   assert.equal(resolveSettingsTab('operator'), 'operator');
+  assert.equal(resolveSettingsTab('skills'), 'skills');
   assert.equal(resolveSettingsTab('remote-hosts'), 'remote-hosts');
   assert.equal(resolveSettingsTab('database'), 'database');
   assert.equal(resolveSettingsTab('account'), 'account');
@@ -27,8 +28,15 @@ test('resolveSettingsTab rejects the retired models tab', () => {
 test('SETTINGS_TABS lists the tabs in order', () => {
   assert.deepEqual(
     SETTINGS_TABS.map((t) => t.key),
-    ['providers', 'operator', 'remote-hosts', 'database', 'account'],
+    ['providers', 'operator', 'skills', 'remote-hosts', 'database', 'account'],
   );
+});
+
+test('the skills tab owns the skill sections and the operator tab does not', () => {
+  // Guards the split: skill sync + the inbox skill belong to their own tab,
+  // while the operator skill-exec allowlist stays with the operator settings.
+  const skillsTab = SETTINGS_TABS.find((t) => t.key === 'skills');
+  assert.equal(skillsTab?.label, '技能');
 });
 
 test('every listed tab resolves back to itself (no tab is unreachable via ?tab=)', () => {
