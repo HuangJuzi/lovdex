@@ -16,10 +16,10 @@ function makeSvc() {
   };
 }
 
-async function startServer(svc: unknown) {
+async function startServer(svc: unknown, skillSvc?: unknown) {
   const app = express();
   app.use(express.json());
-  app.use('/api/notifications', buildNotificationsRouter(svc as never));
+  app.use('/api/notifications', buildNotificationsRouter(svc as never, skillSvc as never));
   const server = app.listen(0);
   await new Promise((r) => server.on('listening', r));
   const { port } = server.address() as { port: number };
@@ -66,5 +66,53 @@ test('POST /read-all 全部已读', async () => {
   try {
     const res = await fetch(`${baseUrl}/api/notifications/read-all`, { method: 'POST' });
     assert.equal(res.status, 200);
+  } finally { await close(); }
+});
+
+function makeSkillSvc(installed = false) {
+  const state = { installed, installedVersion: installed ? '0.0.1' : null, bundledVersion: '1.0.0', hasUpdate: installed, skillPath: '/tmp/x/SKILL.md' };
+  return {
+    getStatus: () => state,
+    install: async () => ({ ...state, installed: true, installedVersion: '1.0.0', hasUpdate: false }),
+    uninstall: async () => ({ ...state, installed: false, installedVersion: null, hasUpdate: false }),
+  };
+}
+
+test('GET /skill 返回技能状态', async () => {
+  const { baseUrl, close } = await startServer(makeSvc(), makeSkillSvc());
+  try {
+    const res = await fetch(`${baseUrl}/api/notifications/skill`);
+    assert.equal(res.status, 200);
+    const body = await res.json() as { bundledVersion: string; installed: boolean };
+    assert.equal(body.bundledVersion, '1.0.0');
+    assert.equal(body.installed, false);
+  } finally { await close(); }
+});
+
+test('POST /skill/install 安装后返回已安装状态', async () => {
+  const { baseUrl, close } = await startServer(makeSvc(), makeSkillSvc());
+  try {
+    const res = await fetch(`${baseUrl}/api/notifications/skill/install`, { method: 'POST' });
+    assert.equal(res.status, 200);
+    const body = await res.json() as { installed: boolean };
+    assert.equal(body.installed, true);
+  } finally { await close(); }
+});
+
+test('POST /skill/uninstall 卸载后返回未安装状态', async () => {
+  const { baseUrl, close } = await startServer(makeSvc(), makeSkillSvc(true));
+  try {
+    const res = await fetch(`${baseUrl}/api/notifications/skill/uninstall`, { method: 'POST' });
+    assert.equal(res.status, 200);
+    const body = await res.json() as { installed: boolean };
+    assert.equal(body.installed, false);
+  } finally { await close(); }
+});
+
+test('未接线 skill 服务时 /skill 返回 503', async () => {
+  const { baseUrl, close } = await startServer(makeSvc());
+  try {
+    const res = await fetch(`${baseUrl}/api/notifications/skill`);
+    assert.equal(res.status, 503);
   } finally { await close(); }
 });
