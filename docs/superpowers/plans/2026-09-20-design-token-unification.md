@@ -28,6 +28,10 @@ unset TSX_TSCONFIG_PATH   # 仓库全局导出了该变量，会导致 tsx 读�
 | 硬编码 hex（含 `%23` 编码形式） | 108 |
 | `rgb()`/`rgba()` 字面量 | 85 |
 | 硬编码 `hsl()` 字面量 | 0 |
+| 不透明 `white`/`black` 工具类 | 90（守卫盲区，见下） |
+| 方向性变体（`border-l-*` 等） | 19（守卫盲区，见下） |
+
+> **守卫盲区（执行中发现并已修补，commit `493ce46`）**：初版守卫的正则漏掉了两类用法——① 方向性中缀 `border-l-violet-500`/`border-t-emerald-400`（19 处）；② `white`/`black` 因不在编号调色板列表中，114 处**从未被统计过**。后者尤其危险：迁移后暗色态的 `--success` 是浅绿、其 `-foreground` 为深色，遗留的 `bg-success text-white` 会变成白字浅绿、对比度崩掉。带透明度的形式（`bg-black/50`、`bg-white/10`）是遮罩，**有意豁免**。
 | `npm run typecheck` | 0 error |
 | `npm run lint` | 0 error / 225 warning |
 | 测试 | 496 pass / 0 fail（~2.9s） |
@@ -74,6 +78,18 @@ npx tsx --test $(find src -name "*.test.ts" -o -name "*.test.tsx" | tr '\n' ' ')
 **删除规则**：`X dark:Y` 配对在映射后**整体替换为一个 token**，`dark:` 前缀一并删除。若组件里某处只有 `dark:` 变体而没有亮色对应，说明它是补丁——直接删掉该变体，由 token 承担。
 
 **豁免目录**（守卫测试已排除，不要动）：`components/llm-logo-provider`（品牌色）、`components/terminal`（ANSI 色）。
+
+**`white` / `black` 的处理**（守卫会拦，90 处）：
+
+| 当前 | 目标 | 说明 |
+|---|---|---|
+| `bg-white`（不透明） | `bg-card` | 表面色，暗色态下必须跟随 |
+| `text-white` 在 `bg-success`/`bg-primary`/`bg-destructive` 等 token 底上 | 对应的 `text-*-foreground` | **必须改**——暗色态 base 变浅、前景应为深色，留白字会对比度崩坏 |
+| `text-white` 压在图片/渐变上 | 保留 `text-white` | 无对应 token；这类若残留需在守卫加窄豁免并注释 |
+| `bg-black`（不透明） | `bg-background` 或语义 token | |
+| `bg-black/50`、`bg-white/10` 等带透明度 | **不动** | 遮罩/叠层，守卫已豁免 |
+
+**方向性变体**（`border-l-*`、`border-t-*`、`divide-y-*` 等，19 处）与普通形式映射规则相同，只是多一个方向中缀。
 
 ---
 
@@ -233,12 +249,13 @@ unset TSX_TSCONFIG_PATH
 npx tsx --test src/design/tokenGuard.test.ts
 ```
 
-Expected: **FAIL**，7 个测试中 3 绿 4 红（此代码已实测验证过）：
+Expected: **FAIL**，8 个测试中 3 绿 5 红（此代码已实测验证过）：
 
 | 测试 | 期望结果 |
 |---|---|
-| no raw Tailwind palette classes | ❌ 1717 |
+| no raw Tailwind palette classes | ❌ 1717（含方向性变体） |
 | no dark: overrides | ❌ 579 |
+| no opaque white/black utilities | ❌ 90 |
 | no hardcoded hex | ❌ 108 |
 | no rgb()/rgba() literals | ❌ 85 |
 | no hardcoded hsl() literals | ✅ 0 |
