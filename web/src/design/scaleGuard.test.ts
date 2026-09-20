@@ -44,7 +44,7 @@ function report(found: string[]): string {
   return `${found.length} occurrences, first 10:\n  ${sample}`;
 }
 
-const ARBITRARY_FONT_SIZE = /\btext-\[[0-9.]+px\]/g;
+const ARBITRARY_FONT_SIZE = /\btext-\[[0-9.]+(?:px|em|rem)\]/g;
 const ARBITRARY_RADIUS = /\brounded(?:-[a-z]+)*-\[([^\]]+)\]/g;
 const HARDCODED_BORDER_RADIUS = /border-radius:\s*[0-9]/g;
 
