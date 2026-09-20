@@ -98,13 +98,13 @@ export default function FolderBrowserModal({
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
-      <div className="flex max-h-[80vh] w-full max-w-2xl flex-col rounded-lg border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-800">
-        <div className="flex items-center justify-between border-b border-gray-200 p-4 dark:border-gray-700">
+      <div className="flex max-h-[80vh] w-full max-w-2xl flex-col rounded-lg border border-border bg-card shadow-xl">
+        <div className="flex items-center justify-between border-b border-border p-4">
           <div className="flex items-center gap-3">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-100 dark:bg-blue-900/50">
-              <FolderOpen className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10">
+              <FolderOpen className="h-4 w-4 text-primary" />
             </div>
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Select Folder</h3>
+            <h3 className="text-lg font-semibold text-foreground">Select Folder</h3>
           </div>
 
           <div className="flex items-center gap-2">
@@ -112,8 +112,8 @@ export default function FolderBrowserModal({
               onClick={() => setShowHiddenFolders((previous) => !previous)}
               className={`rounded-md p-2 transition-colors ${
                 showHiddenFolders
-                  ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400'
-                  : 'text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-300'
+                  ? 'bg-primary/10 text-primary'
+                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
               }`}
               title={showHiddenFolders ? 'Hide hidden folders' : 'Show hidden folders'}
             >
@@ -123,8 +123,8 @@ export default function FolderBrowserModal({
               onClick={() => setShowNewFolderInput((previous) => !previous)}
               className={`rounded-md p-2 transition-colors ${
                 showNewFolderInput
-                  ? 'bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400'
-                  : 'text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-300'
+                  ? 'bg-primary/10 text-primary'
+                  : 'text-muted-foreground hover:bg-muted hover:text-foreground'
               }`}
               title="Create new folder"
             >
@@ -132,7 +132,7 @@ export default function FolderBrowserModal({
             </button>
             <button
               onClick={handleClose}
-              className="rounded-md p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-300"
+              className="rounded-md p-2 text-muted-foreground hover:bg-muted hover:text-foreground"
             >
               <X className="h-5 w-5" />
             </button>
@@ -140,7 +140,7 @@ export default function FolderBrowserModal({
         </div>
 
         {showNewFolderInput && (
-          <div className="border-b border-gray-200 bg-blue-50 px-4 py-3 dark:border-gray-700 dark:bg-blue-900/20">
+          <div className="border-b border-border bg-primary/10 px-4 py-3">
             <div className="flex items-center gap-2">
               <Input
                 type="text"
@@ -174,29 +174,29 @@ export default function FolderBrowserModal({
 
         {error && (
           <div className="px-4 pt-3">
-            <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+            <p className="text-sm text-destructive">{error}</p>
           </div>
         )}
 
         <div className="flex-1 overflow-y-auto p-4">
           {loadingFolders ? (
             <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
           ) : (
             <div className="space-y-1">
               {parentPath && (
                 <button
                   onClick={() => loadFolders(parentPath)}
-                  className="flex w-full items-center gap-3 rounded-lg px-4 py-3 text-left hover:bg-gray-100 dark:hover:bg-gray-700"
+                  className="flex w-full items-center gap-3 rounded-lg px-4 py-3 text-left hover:bg-muted"
                 >
-                  <FolderOpen className="h-5 w-5 text-gray-400" />
-                  <span className="font-medium text-gray-700 dark:text-gray-300">..</span>
+                  <FolderOpen className="h-5 w-5 text-muted-foreground" />
+                  <span className="font-medium text-foreground">..</span>
                 </button>
               )}
 
               {visibleFolders.length === 0 ? (
-                <div className="py-8 text-center text-gray-500 dark:text-gray-400">
+                <div className="py-8 text-center text-muted-foreground">
                   No subfolders found
                 </div>
               ) : (
@@ -204,10 +204,10 @@ export default function FolderBrowserModal({
                   <div key={folder.path} className="flex items-center gap-2">
                     <button
                       onClick={() => loadFolders(folder.path)}
-                      className="flex min-w-0 flex-1 items-center gap-3 rounded-lg px-4 py-3 text-left hover:bg-gray-100 dark:hover:bg-gray-700"
+                      className="flex min-w-0 flex-1 items-center gap-3 rounded-lg px-4 py-3 text-left hover:bg-muted"
                     >
-                      <FolderPlus className="h-5 w-5 text-blue-500" />
-                      <span className="truncate font-medium text-gray-900 dark:text-white">
+                      <FolderPlus className="h-5 w-5 text-primary" />
+                      <span className="truncate font-medium text-foreground">
                         {folder.name}
                       </span>
                     </button>
@@ -226,10 +226,10 @@ export default function FolderBrowserModal({
           )}
         </div>
 
-        <div className="border-t border-gray-200 dark:border-gray-700">
-          <div className="flex items-center gap-2 bg-gray-50 px-4 py-3 dark:bg-gray-900/50">
-            <span className="text-sm text-gray-600 dark:text-gray-400">Path:</span>
-            <code className="flex-1 truncate font-mono text-sm text-gray-900 dark:text-white">
+        <div className="border-t border-border">
+          <div className="flex items-center gap-2 bg-muted px-4 py-3">
+            <span className="text-sm text-muted-foreground">Path:</span>
+            <code className="flex-1 truncate font-mono text-sm text-foreground">
               {currentPath}
             </code>
           </div>

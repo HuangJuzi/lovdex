@@ -25,7 +25,7 @@ export default function WizardFooter({
   const { t } = useTranslation();
 
   return (
-    <div className="flex items-center justify-between border-t border-gray-200 p-6 dark:border-gray-700">
+    <div className="flex items-center justify-between border-t border-border p-6">
       <Button variant="outline" onClick={step === 1 ? onClose : onBack} disabled={isCreating}>
         {step === 1 ? (
           t('projectWizard.buttons.cancel')

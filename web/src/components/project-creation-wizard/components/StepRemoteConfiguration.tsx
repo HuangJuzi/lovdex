@@ -109,23 +109,23 @@ export default function StepRemoteConfiguration({
   return (
     <div className="space-y-4">
       <div>
-        <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+        <label className="mb-2 block text-sm font-medium text-foreground">
           远程主机
         </label>
         {hostsLoading ? (
-          <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
             加载中…
           </div>
         ) : hostsError ? (
-          <p className="text-sm text-red-500">{hostsError}</p>
+          <p className="text-sm text-destructive">{hostsError}</p>
         ) : hosts.length === 0 ? (
-          <p className="text-sm text-gray-500 dark:text-gray-400">
+          <p className="text-sm text-muted-foreground">
             暂无在线远程主机，请先在「设置 → 远程机器」中添加并部署。
           </p>
         ) : (
           <select
-            className="h-9 w-full rounded-md border border-gray-300 bg-white px-2 text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-white"
+            className="h-9 w-full rounded-md border border-border bg-card px-2 text-sm text-foreground"
             value={remoteHostId}
             disabled={isCreating}
             onChange={(e) => {
@@ -146,12 +146,12 @@ export default function StepRemoteConfiguration({
       {remoteHostId && (
         <div>
           <div className="mb-2 flex items-center justify-between">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            <label className="block text-sm font-medium text-foreground">
               远程路径
             </label>
             <button
               type="button"
-              className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
               onClick={() => loadDirs(remoteHostId, browsePath)}
               disabled={dirsLoading}
               title="刷新"
@@ -162,21 +162,21 @@ export default function StepRemoteConfiguration({
           </div>
 
           <input
-            className="mb-2 h-9 w-full rounded-md border border-gray-300 bg-white px-2 font-mono text-sm text-gray-900 dark:border-gray-600 dark:bg-gray-900 dark:text-white"
+            className="mb-2 h-9 w-full rounded-md border border-border bg-card px-2 font-mono text-sm text-foreground"
             value={workspacePath}
             placeholder="/home/user/project 或从下方选择"
             disabled={isCreating}
             onChange={(e) => onWorkspacePathChange(e.target.value)}
           />
 
-          <div className="rounded-md border border-gray-200 dark:border-gray-700">
-            <div className="flex items-center justify-between border-b border-gray-200 px-2 py-1.5 dark:border-gray-700">
-              <span className="truncate font-mono text-xs text-gray-500 dark:text-gray-400">
+          <div className="rounded-md border border-border">
+            <div className="flex items-center justify-between border-b border-border px-2 py-1.5">
+              <span className="truncate font-mono text-xs text-muted-foreground">
                 {browsePath}
               </span>
               <button
                 type="button"
-                className="text-xs text-blue-600 hover:underline disabled:opacity-40 dark:text-blue-400"
+                className="text-xs text-primary hover:underline disabled:opacity-40"
                 onClick={goUp}
                 disabled={dirsLoading || browsePath === '~' || browsePath === '/'}
               >
@@ -185,34 +185,34 @@ export default function StepRemoteConfiguration({
             </div>
             <div className="max-h-48 overflow-y-auto">
               {dirsLoading ? (
-                <div className="flex items-center gap-2 px-2 py-3 text-sm text-gray-500 dark:text-gray-400">
+                <div className="flex items-center gap-2 px-2 py-3 text-sm text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin" />
                   加载中…
                 </div>
               ) : dirsError ? (
-                <p className="px-2 py-3 text-sm text-red-500">{dirsError}</p>
+                <p className="px-2 py-3 text-sm text-destructive">{dirsError}</p>
               ) : dirs.length === 0 ? (
-                <p className="px-2 py-3 text-sm text-gray-500 dark:text-gray-400">（无子目录）</p>
+                <p className="px-2 py-3 text-sm text-muted-foreground">（无子目录）</p>
               ) : (
                 dirs.map((dir) => (
                   <button
                     key={dir.name}
                     type="button"
-                    className="flex w-full items-center justify-between px-2 py-1.5 text-left text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800"
+                    className="flex w-full items-center justify-between px-2 py-1.5 text-left text-sm text-foreground hover:bg-muted"
                     onClick={() => drillInto(dir.name)}
                     disabled={isCreating}
                   >
                     <span className="flex items-center gap-2 truncate">
-                      <Folder className="h-4 w-4 flex-shrink-0 text-blue-500" />
+                      <Folder className="h-4 w-4 flex-shrink-0 text-primary" />
                       {dir.name}
                     </span>
-                    <ChevronRight className="h-4 w-4 flex-shrink-0 text-gray-400" />
+                    <ChevronRight className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
                   </button>
                 ))
               )}
             </div>
           </div>
-          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+          <p className="mt-1 text-xs text-muted-foreground">
             点击目录可进入并选中为项目路径，或直接在上方输入绝对路径。
           </p>
         </div>
