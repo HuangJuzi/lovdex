@@ -157,6 +157,12 @@ CREATE INDEX IF NOT EXISTS idx_notifications_dedupe ON notifications(dedupe_key,
 | 打开页面补推 | `AppContent` 挂载时查未读 critical/warning，>0 则弹一次汇总 `Dialog`（复用现有 `Dialog`） |
 | API 客户端 | `web/src/utils/api.js` 加 `notifications` 命名空间（仿 `tasks:`） |
 
+**2026-09-21 修正（断线补推）**：上面两条弹窗路径都是**事件驱动**的 —— toast 只在收到 `notification_created` 时弹，补推汇总只在**挂载**时算一次。于是客户端断线期间产生的通知两头落空：收不到 `notification_created`，而重连后的 `websocket_reconnected` 只做全量 refetch（更新列表与角标，不弹任何东西）—— 表现是**「收件箱有、角标有、就是不弹窗」**。桌面 WS 基本常连所以少见，手机浏览器切后台/锁屏必断，是移动端的主路径。
+
+修法：把汇总弹窗的触发从"挂载时算一次"改成**挂在 store 订阅上**（`claimUnannouncedImportant`，见 `inboxStore.ts`），于是首挂拉取、重连 refetch、实时新告警三条路径都会经过它；store 用模块级 `announced` 集合记账，同一条本次会话只打扰一次（实时那条在 `applyInboxEvent` 里就记了账，不会重复汇总）。页面刷新会重置账本 —— 刷新后重新补推未读项是期望行为。
+
+顺带修掉一个相关缺陷：`AppContent` 原先渲染时直接读 `getInboxSnapshot()` 但**没订阅 store**，所以"弹窗已经开着"时补进来的条目不会出现在列表里（`setSummaryOpen(true)` 在已开时是 no-op，不触发重渲染）。现改为 `useSyncExternalStore` 订阅。
+
 ## 11. 保留与清理
 
 - 保留 **90 天** 或 **最多 500 条**，超出裁剪最旧的**已读**通知。

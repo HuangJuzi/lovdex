@@ -28,6 +28,22 @@ export function countUnread(items: readonly InboxNotification[]): number {
   return items.filter((it) => !it.read_at && it.severity !== 'info').length;
 }
 
+/**
+ * 挑出"值得打扰用户、且本次会话还没打扰过"的通知：未读 + 非 info + 不在
+ * announced 里。补推汇总弹窗用它；announced 由调用方（store）持有并记账。
+ *
+ * 为什么要记账：断线重连后每次 refetch 都会重新看到同一批未读条，不记就会
+ * 网络一抖弹一次。
+ */
+export function selectUnannouncedImportant(
+  items: readonly InboxNotification[],
+  announced: ReadonlySet<string>,
+): InboxNotification[] {
+  return items.filter(
+    (it) => !it.read_at && it.severity !== 'info' && !announced.has(it.notification_id),
+  );
+}
+
 /** 纯 reducer：所有状态变更集中于此，便于单测与 store 复用。 */
 export function inboxReducer(state: InboxState, action: InboxAction): InboxState {
   switch (action.type) {

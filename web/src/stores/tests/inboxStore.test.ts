@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { inboxReducer, countUnread, type InboxState, type InboxNotification } from '../inboxStore.pure.js';
+import { inboxReducer, countUnread, selectUnannouncedImportant, type InboxState, type InboxNotification } from '../inboxStore.pure.js';
 
 const n = (over: Partial<InboxNotification> = {}): InboxNotification => ({
   notification_id: 'n1', severity: 'warning', title: 'A', read_at: null,
@@ -47,4 +47,21 @@ test('markReadLocal：本地置已读', () => {
   const state: InboxState = { items: [n({ notification_id: 'a', read_at: null })] };
   const next = inboxReducer(state, { type: 'markReadLocal', id: 'a' });
   assert.equal(next.items[0].read_at !== null, true);
+});
+
+test('selectUnannouncedImportant：只挑未读、非 info、且没打扰过的', () => {
+  const rows = [
+    n({ notification_id: 'a' }),                     // 未读 warning → 命中
+    n({ notification_id: 'b', severity: 'info' }),   // info 不进角标也不打扰 → 排除
+    n({ notification_id: 'c', read_at: 'now' }),     // 已读 → 排除
+    n({ notification_id: 'd' }),                     // 未读 warning 但已记账 → 排除
+  ];
+  const fresh = selectUnannouncedImportant(rows, new Set(['d']));
+  assert.deepEqual(fresh.map((r) => r.notification_id), ['a']);
+});
+
+test('selectUnannouncedImportant：全空/全已读时返回空', () => {
+  assert.deepEqual(selectUnannouncedImportant([], new Set()), []);
+  const read = [n({ notification_id: 'a', read_at: 'now' })];
+  assert.deepEqual(selectUnannouncedImportant(read, new Set()), []);
 });

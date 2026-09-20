@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
 import Sidebar from '../sidebar/view/Sidebar';
 import MainContent from '../main-content/view/MainContent';
 import { Button, Dialog, DialogContent, DialogTitle, ToastStack, useToastStack } from '../../shared/view/ui';
-import { refreshInbox, applyInboxEvent, getInboxSnapshot } from '../../stores/inboxStore';
+import { refreshInbox, applyInboxEvent, claimUnannouncedImportant, subscribeInbox, getInboxSnapshot } from '../../stores/inboxStore';
 import { useWebSocket } from '../../contexts/WebSocketContext';
 import { useDeviceSettings } from '../../hooks/useDeviceSettings';
 import { useSessionProtection } from '../../hooks/useSessionProtection';
@@ -216,14 +216,29 @@ function AppContentInner() {
   // 收件箱：全局实时 toast + 打开页面补推汇总弹窗（spec §10）。
   const { items: toasts, push: pushToast, dismiss: dismissToast } = useToastStack();
   const [summaryOpen, setSummaryOpen] = useState(false);
+  // 订阅 store：AppContent 只在自身 state/props 变化时重渲染，而断线补推走的是
+  // store 的 refetch。不订阅的话"弹窗已经开着"时补进来的条目不会出现在列表里
+  // —— setSummaryOpen(true) 在已开时是 no-op，压根不会触发重渲染。
+  const inbox = useSyncExternalStore(subscribeInbox, getInboxSnapshot, getInboxSnapshot);
 
-  // 首挂：拉取收件箱，若有未读 warning/critical 弹一次汇总。
+  // 首挂：拉取收件箱。
   useEffect(() => {
-    void (async () => {
-      await refreshInbox();
-      const important = getInboxSnapshot().items.filter((it) => !it.read_at && it.severity !== 'info');
-      if (important.length > 0) setSummaryOpen(true);
-    })();
+    void refreshInbox();
+  }, []);
+
+  // 补推汇总弹窗：只要出现"本次会话还没打扰过的未读重要项"就弹一次。挂在 store
+  // 订阅上，于是首挂拉取、断线重连 refetch、实时新告警三条路径都会经过它；claim
+  // 自带记账，同一条只打扰一次（实时那条已由 toast 记过账，不会重复汇总）。
+  //
+  // 手机切后台期间产生的通知只有这条路径能发现：客户端当时没连着，收不到
+  // notification_created，重连后的 refetch 只更新列表和角标、不弹任何东西 ——
+  // 表现就是"收件箱有、没弹窗"。
+  useEffect(() => {
+    const announce = () => {
+      if (claimUnannouncedImportant().length > 0) setSummaryOpen(true);
+    };
+    announce();
+    return subscribeInbox(announce);
   }, []);
 
   // 全局实时 toast：新告警（created 且非 info）到达即右上角弹一条，点击跳转。
@@ -327,7 +342,7 @@ function AppContentInner() {
         <DialogContent>
           <DialogTitle>你有未读通知</DialogTitle>
           <div className="mt-2 space-y-1.5">
-            {getInboxSnapshot().items.filter((it) => !it.read_at && it.severity !== 'info').slice(0, 8).map((it) => (
+            {inbox.items.filter((it) => !it.read_at && it.severity !== 'info').slice(0, 8).map((it) => (
               <div key={it.notification_id} className="truncate text-sm">· {it.title}{it.occurrence_count > 1 ? ` ×${it.occurrence_count}` : ''}</div>
             ))}
           </div>
