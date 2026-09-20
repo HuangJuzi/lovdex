@@ -13,7 +13,9 @@
 #   4. render the systemd --user unit from the pushed template, substituting
 #      the absolute node/claude binary paths (login-shell PATH; systemd --user
 #      has a minimal PATH that lacks nvm / npm globals).
-#   5. enable linger, reload systemd and enable+start the service.
+#   5. activate the agent: on a systemd host, enable linger then reload/enable/
+#      restart the --user service; on a non-systemd host (container, PID 1 !=
+#      systemd), fall back to launching the lite as a plain background process.
 set -euo pipefail
 
 # systemd --user communicates with the per-user manager through the runtime
@@ -89,22 +91,66 @@ if [ -f "${TEMPLATE}" ]; then
       "${TEMPLATE}" > "${SYSTEMD_USER_DIR}/${UNIT_NAME}"
 fi
 
-# 4. Linger keeps the per-user manager alive without an active login session —
-#    required for a --user service to survive the bootstrap ssh session closing.
-#    Some hosts lack loginctl (containers); warn instead of aborting.
-if command -v loginctl >/dev/null 2>&1; then
-  loginctl enable-linger "${USER_NAME}" >/dev/null 2>&1 \
-    || echo "[install] warning: loginctl enable-linger failed — ${USER_NAME} needs to run systemctl --user" >&2
+# systemd --user talks to the per-user manager, which only exists when PID 1 is
+# systemd (systemd-as-init). Containers frequently run the app as PID 1 (e.g.
+# bash) with no /run/systemd/system; on those hosts loginctl and systemctl
+# --user cannot work, so detect that up front and fall back to a plain
+# background process instead of failing. Either signal suffices: /run/systemd/
+# system is a PID-1-systemd artifact, and /proc/1/comm backs it up.
+have_systemd() {
+  [ -d /run/systemd/system ] \
+    || [ "$(cat /proc/1/comm 2>/dev/null || true)" = "systemd" ]
+}
+
+if have_systemd; then
+  # 4. Linger keeps the per-user manager alive without an active login session —
+  #    required for a --user service to survive the bootstrap ssh session
+  #    closing. Some hosts lack loginctl (containers); warn instead of aborting.
+  if command -v loginctl >/dev/null 2>&1; then
+    loginctl enable-linger "${USER_NAME}" >/dev/null 2>&1 \
+      || echo "[install] warning: loginctl enable-linger failed — ${USER_NAME} needs to run systemctl --user" >&2
+  else
+    echo "[install] warning: loginctl not available — ${USER_NAME} must be able to run systemctl --user" >&2
+  fi
+
+  # 5. Reload + enable + RESTART. A plain `enable --now` would be a no-op when
+  #    the service is already running — a redeploy that pushed a NEW bundle
+  #    would leave the OLD process in memory (the updated dist/lite.mjs never
+  #    takes effect). Always restart so an install always runs the freshest
+  #    artifact.
+  systemctl --user daemon-reload
+  systemctl --user enable "${UNIT_NAME}"
+  systemctl --user restart "${UNIT_NAME}"
+
+  echo "[install] ${UNIT_NAME} enabled and restarted"
 else
-  echo "[install] warning: loginctl not available — ${USER_NAME} must be able to run systemctl --user" >&2
+  echo "[install] warning: not a systemd host (PID 1 is not systemd) — starting ${UNIT_NAME} as a background process" >&2
+
+  # The lite inherits ANTHROPIC_API_KEY from its environment; systemd supplied
+  # it via `EnvironmentFile=-%h/.lovdex-remote/.env`. Reproduce that here by
+  # exporting each KEY=VALUE line VERBATIM (no shell interpretation), matching
+  # systemd's EnvironmentFile semantics. Tolerate absence — the bootstrap only
+  # writes .env when an API key is provisioned.
+  ENV_FILE="${REMOTE_DIR}/.env"
+  if [ -f "${ENV_FILE}" ]; then
+    while IFS= read -r env_line || [ -n "${env_line}" ]; do
+      case "${env_line}" in
+        ''|'#'*) continue ;;
+        *=*)
+          env_key="${env_line%%=*}"
+          env_val="${env_line#*=}"
+          export "${env_key}=${env_val}"
+          ;;
+      esac
+    done < "${ENV_FILE}"
+  fi
+
+  # Detached start so the lite survives the bootstrap ssh session closing:
+  # nohup ignores SIGHUP, stdio is redirected away from the ssh channel, and
+  # `&` + $! capture the node PID (nohup execs node, so the PID is stable).
+  # Log to agent.log so startup failures are diagnosable.
+  AGENT_LOG="${REMOTE_DIR}/agent.log"
+  nohup "${NODE_BIN}" "${REMOTE_DIR}/dist/lite.mjs" </dev/null >>"${AGENT_LOG}" 2>&1 &
+  AGENT_PID=$!
+  echo "[install] ${UNIT_NAME} started as background process (pid ${AGENT_PID}, log ${AGENT_LOG})"
 fi
-
-# 5. Reload + enable + RESTART. A plain `enable --now` would be a no-op when
-#    the service is already running — a redeploy that pushed a NEW bundle would
-#    leave the OLD process in memory (the updated dist/lite.mjs never takes
-#    effect). Always restart so an install always runs the freshest artifact.
-systemctl --user daemon-reload
-systemctl --user enable "${UNIT_NAME}"
-systemctl --user restart "${UNIT_NAME}"
-
-echo "[install] ${UNIT_NAME} enabled and restarted"
