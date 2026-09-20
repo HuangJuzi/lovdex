@@ -28,6 +28,10 @@ export const SKILL_BACKUP_DIR = '.skill-sync-backup';
 const SKILL_TMP_PREFIX = '.skill-sync-tmp-';
 const SKILL_OLD_PREFIX = '.skill-sync-old-';
 
+/** Backups kept per skill. Every apply copies the whole directory, so without
+ * a cap a busy skill would grow the host's disk without bound. */
+const MAX_BACKUPS_PER_SKILL = 10;
+
 /** A skill name is a single directory name — never a path. */
 const SKILL_NAME_RE = /^[A-Za-z0-9._-]+$/;
 
@@ -122,6 +126,23 @@ export function createSkillStore(opts: { roots: string[] }): SkillStore {
     return computeSkillHash(await collectSkillDir(dir));
   }
 
+  // Applies for the same skill must not interleave: two concurrent runs can
+  // otherwise move each other's freshly-written directory aside and then delete
+  // it, so one caller reports success for content that no longer exists.
+  const locks = new Map<string, Promise<void>>();
+
+  function withLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+    const prev = locks.get(key) ?? Promise.resolve();
+    const run = prev.then(fn, fn); // run regardless of the previous outcome
+    const guard = run.then(() => undefined, () => undefined);
+    locks.set(key, guard);
+    // Drop the entry only once nobody else has chained onto it.
+    void guard.then(() => {
+      if (locks.get(key) === guard) locks.delete(key);
+    });
+    return run;
+  }
+
   return {
     async manifest(root) {
       const resolvedRoot = resolveRoot(root);
@@ -178,101 +199,146 @@ export function createSkillStore(opts: { roots: string[] }): SkillStore {
       const dir = resolveSkillDir(input.root, input.name);
       const parent = path.dirname(dir);
 
-      // 0. Bound the payload. The wire schema caps each file coarsely, but this
-      //    is the authoritative check on the DECODED byte length — and it also
-      //    covers in-process callers (the local node) that never touch the wire
-      //    schema at all. Without it, a single apply could write an unbounded
-      //    amount to disk on a host with a small footprint.
-      let totalBytes = 0;
-      for (const file of input.files) {
-        const bytes = Buffer.byteLength(
-          file.content,
-          file.encoding === 'base64' ? 'base64' : 'utf8',
-        );
-        if (bytes > MAX_SKILL_FILE_BYTES) {
-          throw new Error(`skill file too large: ${file.relativePath} (${bytes} bytes)`);
+      // `resolveSkillDir` is pure, so the lock key can be computed before the
+      // lock is taken; the body below must not run concurrently for one target.
+      return withLock(dir, async () => {
+        // An empty bundle hashes to the well-known empty-input digest, so it
+        // would compare equal to any other empty target and silently empty a
+        // skill. Refuse it — a sync never legitimately produces one.
+        if (input.files.length === 0) {
+          throw new Error(`refusing to apply an empty bundle for ${input.name}`);
         }
-        totalBytes += bytes;
-      }
-      if (totalBytes > MAX_SKILL_TOTAL_BYTES) {
-        throw new Error(`skill too large: exceeds ${MAX_SKILL_TOTAL_BYTES} bytes`);
-      }
 
-      // 1. The caller's declared hash must actually match the files it sent —
-      //    otherwise the drift checks below compare against a lie.
-      const desired = computeSkillHash(input.files);
-      if (desired !== input.contentHash) {
-        throw new Error(
-          `bundle hash mismatch for ${input.name}: declared ${input.contentHash}, computed ${desired}`,
-        );
-      }
+        // 0. Bound the payload. The wire schema caps each file coarsely, but this
+        //    is the authoritative check on the DECODED byte length — and it also
+        //    covers in-process callers (the local node) that never touch the wire
+        //    schema at all. Without it, a single apply could write an unbounded
+        //    amount to disk on a host with a small footprint.
+        let totalBytes = 0;
+        for (const file of input.files) {
+          // Path safety first, so an escaping path reports `unsafe relativePath`
+          // rather than being mislabelled by the ignored-entry check below.
+          assertSafeRelativePath(dir, file.relativePath);
+          // `collectSkillDir` skips these on read, so a bundle carrying one could
+          // never pass the post-write verification below — reject it here with an
+          // honest error instead of failing later as "post-write verification
+          // failed".
+          const ignored = file.relativePath.split('/').find(isIgnoredSkillEntry);
+          if (ignored !== undefined) {
+            throw new Error(`ignored path in bundle: ${file.relativePath} (${ignored})`);
+          }
+          const bytes = Buffer.byteLength(
+            file.content,
+            file.encoding === 'base64' ? 'base64' : 'utf8',
+          );
+          if (bytes > MAX_SKILL_FILE_BYTES) {
+            throw new Error(`skill file too large: ${file.relativePath} (${bytes} bytes)`);
+          }
+          totalBytes += bytes;
+        }
+        if (totalBytes > MAX_SKILL_TOTAL_BYTES) {
+          throw new Error(`skill too large: exceeds ${MAX_SKILL_TOTAL_BYTES} bytes`);
+        }
 
-      const current = await readExistingHash(dir);
-      if (current === desired) {
-        return { action: 'skipped', contentHash: desired };
-      }
-      // 2. The target must still be what the caller previewed. This is what
-      //    makes "preview before overwrite" real rather than decorative: a
-      //    skill edited on this host since the preview is never silently lost.
-      if (current !== null && current !== input.expectedTargetHash && !input.force) {
-        throw new Error(
-          `target changed: ${input.name} on this host no longer matches the previewed hash`,
-        );
-      }
+        // 1. The caller's declared hash must actually match the files it sent —
+        //    otherwise the drift checks below compare against a lie.
+        const desired = computeSkillHash(input.files);
+        if (desired !== input.contentHash) {
+          throw new Error(
+            `bundle hash mismatch for ${input.name}: declared ${input.contentHash}, computed ${desired}`,
+          );
+        }
 
-      // 3. Back up the current version before touching anything.
-      let backupPath: string | undefined;
-      if (current !== null) {
-        backupPath = path.join(parent, SKILL_BACKUP_DIR, `${input.name}.${stamp()}`);
-        await fsp.mkdir(path.dirname(backupPath), { recursive: true });
-        await fsp.cp(dir, backupPath, { recursive: true });
-      }
+        const current = await readExistingHash(dir);
+        if (current === desired) {
+          return { action: 'skipped' as const, contentHash: desired };
+        }
+        // 2. The target must still be what the caller previewed. This is what
+        //    makes "preview before overwrite" real rather than decorative: a
+        //    skill edited on this host since the preview is never silently lost.
+        if (current !== null && current !== input.expectedTargetHash && !input.force) {
+          throw new Error(
+            `target changed: ${input.name} on this host no longer matches the previewed hash`,
+          );
+        }
 
-      // 4. Stage the new content in a sibling temp dir (same filesystem, so
-      //    the rename below is atomic).
-      const tmpDir = path.join(parent, `${SKILL_TMP_PREFIX}${randomUUID()}`);
-      await fsp.mkdir(tmpDir, { recursive: true });
-      try {
-        await writeSkillFiles(tmpDir, input.files);
-      } catch (err) {
-        await fsp.rm(tmpDir, { recursive: true, force: true });
-        throw err;
-      }
-
-      // 5. Swap. POSIX rename onto a NON-EMPTY directory fails with ENOTEMPTY,
-      //    so the old directory has to move aside first.
-      const oldDir = path.join(parent, `${SKILL_OLD_PREFIX}${randomUUID()}`);
-      let movedAside = false;
-      try {
+        // 3. Back up the current version before touching anything. The uuid
+        //    suffix matters: the stamp alone is only millisecond-granular, and
+        //    `cp` onto an existing non-empty directory fails.
+        let backupPath: string | undefined;
         if (current !== null) {
-          await fsp.rename(dir, oldDir);
-          movedAside = true;
+          backupPath = path.join(parent, SKILL_BACKUP_DIR, `${input.name}.${stamp()}.${randomUUID()}`);
+          await fsp.mkdir(path.dirname(backupPath), { recursive: true });
+          await fsp.cp(dir, backupPath, { recursive: true });
         }
-        await fsp.rename(tmpDir, dir);
-      } catch (err) {
-        await fsp.rm(tmpDir, { recursive: true, force: true });
-        if (movedAside) {
-          // Put the original back — a failed swap must not leave a hole.
-          await fsp.rename(oldDir, dir);
+
+        // 4. Stage the new content in a sibling temp dir (same filesystem, so
+        //    the rename below is atomic).
+        const tmpDir = path.join(parent, `${SKILL_TMP_PREFIX}${randomUUID()}`);
+        await fsp.mkdir(tmpDir, { recursive: true });
+        try {
+          await writeSkillFiles(tmpDir, input.files);
+        } catch (err) {
+          await fsp.rm(tmpDir, { recursive: true, force: true });
+          throw err;
         }
-        throw err;
-      }
 
-      // 6. Verify what actually landed; restore from the backup if it differs.
-      const landed = await readExistingHash(dir);
-      if (landed !== desired) {
-        await fsp.rm(dir, { recursive: true, force: true });
-        if (backupPath) await fsp.cp(backupPath, dir, { recursive: true });
-        throw new Error(`post-write verification failed for ${input.name}`);
-      }
+        // 5. Swap. POSIX rename onto a NON-EMPTY directory fails with ENOTEMPTY,
+        //    so the old directory has to move aside first.
+        const oldDir = path.join(parent, `${SKILL_OLD_PREFIX}${randomUUID()}`);
+        let movedAside = false;
+        try {
+          if (current !== null) {
+            await fsp.rename(dir, oldDir);
+            movedAside = true;
+          }
+          await fsp.rename(tmpDir, dir);
+        } catch (err) {
+          await fsp.rm(tmpDir, { recursive: true, force: true });
+          if (movedAside) {
+            // Put the original back — a failed swap must not leave a hole.
+            await fsp.rename(oldDir, dir);
+          }
+          throw err;
+        }
 
-      if (movedAside) await fsp.rm(oldDir, { recursive: true, force: true });
+        // 6. Verify what actually landed; restore from the backup if it differs.
+        const landed = await readExistingHash(dir);
+        if (landed !== desired) {
+          // Move the bad result aside rather than deleting it: restoring from the
+          // backup can itself fail (ENOSPC is the likeliest cause of a verify
+          // failure), and the target must never be left as a hole.
+          const failedDir = path.join(parent, `${SKILL_OLD_PREFIX}${randomUUID()}`);
+          try {
+            await fsp.rename(dir, failedDir);
+            if (backupPath) await fsp.cp(backupPath, dir, { recursive: true });
+          } catch (restoreErr) {
+            throw new Error(
+              `post-write verification failed for ${input.name} AND rollback failed: ${errorMessage(restoreErr)}. ` +
+                `The previous version is preserved at ${backupPath ?? failedDir} — restore it manually.`,
+            );
+          }
+          await fsp.rm(failedDir, { recursive: true, force: true });
+          throw new Error(`post-write verification failed for ${input.name}`);
+        }
 
-      return {
-        action: current === null ? 'created' : 'updated',
-        ...(backupPath !== undefined ? { backupPath } : {}),
-        contentHash: desired,
-      };
+        if (movedAside) await fsp.rm(oldDir, { recursive: true, force: true });
+
+        // Best-effort retention: a failed prune must never fail the apply.
+        try {
+          await pruneBackups(path.join(parent, SKILL_BACKUP_DIR), input.name);
+        } catch (err) {
+          console.warn(
+            `[skill-store] failed to prune backups for ${input.name}: ${errorMessage(err)}`,
+          );
+        }
+
+        return {
+          action: current === null ? ('created' as const) : ('updated' as const),
+          ...(backupPath !== undefined ? { backupPath } : {}),
+          contentHash: desired,
+        };
+      });
     },
   };
 }
@@ -280,6 +346,27 @@ export function createSkillStore(opts: { roots: string[] }): SkillStore {
 /** Filesystem-safe ISO timestamp for backup directory names. */
 function stamp(): string {
   return new Date().toISOString().replace(/[:.]/g, '-');
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * Rejects a skill-relative path that escapes `baseDir`.
+ *
+ * The escape test runs on the RESULT of the join, never on the raw string:
+ * `path.join` collapses interior segments, so a literal `..` segment escapes,
+ * while a NAME that merely starts with dots (`..foo.md`) stays inside and must
+ * not be refused here. (Such a name is still refused upstream — see the
+ * ignored-entry check in `apply` — but for its own reason.)
+ */
+function assertSafeRelativePath(baseDir: string, relativePath: string): void {
+  const abs = path.join(baseDir, ...relativePath.split('/'));
+  const rel = path.relative(baseDir, abs);
+  if (rel === '..' || rel.startsWith(`..${path.sep}`) || path.isAbsolute(rel)) {
+    throw new Error(`unsafe relativePath: ${relativePath}`);
+  }
 }
 
 /**
@@ -291,16 +378,27 @@ function stamp(): string {
  */
 async function writeSkillFiles(baseDir: string, files: readonly SkillFileEntry[]): Promise<void> {
   for (const file of files) {
+    assertSafeRelativePath(baseDir, file.relativePath);
     const abs = path.join(baseDir, ...file.relativePath.split('/'));
-    const rel = path.relative(baseDir, abs);
-    if (rel.startsWith('..') || path.isAbsolute(rel)) {
-      throw new Error(`unsafe relativePath: ${file.relativePath}`);
-    }
     await fsp.mkdir(path.dirname(abs), { recursive: true });
     const mode = file.executable ? 0o755 : 0o644;
     await fsp.writeFile(abs, Buffer.from(file.content, file.encoding === 'base64' ? 'base64' : 'utf8'), { mode });
     // writeFile's mode is masked by umask, so normalize explicitly — the exec
     // bit is part of the fingerprint and must survive the round trip.
     await fsp.chmod(abs, mode);
+  }
+}
+
+/** Keeps the newest N backups for `name`; ISO-derived stamps sort lexically. */
+async function pruneBackups(backupRoot: string, name: string): Promise<void> {
+  let entries: string[];
+  try {
+    entries = await fsp.readdir(backupRoot);
+  } catch {
+    return; // no backup dir yet
+  }
+  const mine = entries.filter((e) => e.startsWith(`${name}.`)).sort();
+  for (const stale of mine.slice(0, Math.max(0, mine.length - MAX_BACKUPS_PER_SKILL))) {
+    await fsp.rm(path.join(backupRoot, stale), { recursive: true, force: true });
   }
 }

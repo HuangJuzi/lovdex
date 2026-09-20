@@ -190,3 +190,137 @@ test('the backup directory is never listed as a skill', async () => {
   const manifest = await store.manifest(root);
   assert.deepEqual(manifest.entries.map((e) => e.name), ['demo']);
 });
+
+test('apply rejects a bundle carrying an ignored path, and writes nothing', async () => {
+  const root = await mkRoot();
+  const store = createSkillStore({ roots: [root] });
+  // `collectSkillDir` skips dot-entries, so such a bundle could never pass the
+  // post-write verification — it must be refused up front with a real reason.
+  const v = bundleOf([file('SKILL.md', 'hi'), file('.gitignore', 'node_modules')]);
+  await assert.rejects(
+    () => store.apply({
+      root, name: 'demo', contentHash: v.contentHash, files: v.files,
+      expectedTargetHash: null, force: false,
+    }),
+    /ignored path in bundle/,
+  );
+  await assert.rejects(() => fsp.stat(path.join(root, 'demo')), /ENOENT/);
+});
+
+test('apply refuses an empty bundle', async () => {
+  const root = await mkRoot();
+  const store = createSkillStore({ roots: [root] });
+  await assert.rejects(
+    () => store.apply({
+      root, name: 'demo', contentHash: computeSkillHash([]), files: [],
+      expectedTargetHash: null, force: false,
+    }),
+    /refusing to apply an empty bundle/,
+  );
+  await assert.rejects(() => fsp.stat(path.join(root, 'demo')), /ENOENT/);
+});
+
+test('apply does not mistake a dot-prefixed name for an escape', async () => {
+  const root = await mkRoot();
+  const store = createSkillStore({ roots: [root] });
+  // `..foo.md` used to trip `rel.startsWith('..')`, a false positive that
+  // reported a plain dot-name as a path escape. It is still refused — dot
+  // entries are skipped on read, so it could never verify — but the error must
+  // now name the real reason instead of mislabelling it as an escape.
+  const v = bundleOf([file('..foo.md', 'x')]);
+  await assert.rejects(
+    () => store.apply({
+      root, name: 'demo', contentHash: v.contentHash, files: v.files,
+      expectedTargetHash: null, force: false,
+    }),
+    /ignored path in bundle/,
+  );
+  await assert.rejects(
+    () => store.apply({
+      root, name: 'demo', contentHash: v.contentHash, files: v.files,
+      expectedTargetHash: null, force: false,
+    }),
+    (err: Error) => !/unsafe relativePath/.test(err.message),
+  );
+});
+
+test('concurrent applies for one skill settle without a bare fs error', async () => {
+  const root = await mkRoot();
+  const store = createSkillStore({ roots: [root] });
+  const contents = ['c1', 'c2', 'c3', 'c4'];
+  const settled = await Promise.allSettled(contents.map((content) => {
+    const v = bundleOf([file('SKILL.md', content)]);
+    return store.apply({
+      root, name: 'demo', contentHash: v.contentHash, files: v.files,
+      expectedTargetHash: null, force: true,
+    });
+  }));
+
+  for (const result of settled) {
+    if (result.status === 'rejected') {
+      // Serialized applies must not surface raw EEXIST/ENOTEMPTY/ENOENT — those
+      // are the opaque failures a lost race used to produce.
+      assert.doesNotMatch(
+        result.reason.message,
+        /EEXIST|ENOTEMPTY|ENOENT|EBUSY/,
+        `bare fs error leaked: ${result.reason.message}`,
+      );
+    }
+  }
+  const fulfilled = settled.filter((r) => r.status === 'fulfilled');
+  assert.equal(fulfilled.length, contents.length);
+  // The survivor is exactly one of the four inputs, never a torn mix.
+  const final = await fsp.readFile(path.join(root, 'demo', 'SKILL.md'), 'utf8');
+  assert.ok(contents.includes(final), `unexpected final content: ${final}`);
+});
+
+test('a failed post-write verification keeps a readable backup and restores the target', async () => {
+  const root = await mkRoot();
+  const store = createSkillStore({ roots: [root] });
+  const v1 = bundleOf([file('a/b.md', 'old')]);
+  await store.apply({ root, name: 'demo', contentHash: v1.contentHash, files: v1.files, expectedTargetHash: null, force: false });
+
+  // `a//b.md` and `a/b.md` normalize onto the SAME file, so what a re-read
+  // produces can never match the bundle hash — the reachable way to exercise
+  // the post-write verification branch.
+  const v2 = bundleOf([file('a/b.md', 'new'), file('a//b.md', 'other')]);
+  await assert.rejects(
+    () => store.apply({
+      root, name: 'demo', contentHash: v2.contentHash, files: v2.files,
+      expectedTargetHash: v1.contentHash, force: false,
+    }),
+    /post-write verification failed/,
+  );
+
+  const backupRoot = path.join(root, SKILL_BACKUP_DIR);
+  const backups = (await fsp.readdir(backupRoot)).filter((e) => e.startsWith('demo.'));
+  assert.equal(backups.length, 1, 'the pre-apply version must be preserved');
+  assert.equal(await fsp.readFile(path.join(backupRoot, backups[0], 'a', 'b.md'), 'utf8'), 'old');
+  // …and the target must be restored, not left as a hole.
+  assert.equal(await fsp.readFile(path.join(root, 'demo', 'a', 'b.md'), 'utf8'), 'old');
+});
+
+test('apply keeps at most 10 backups per skill', async () => {
+  const root = await mkRoot();
+  const store = createSkillStore({ roots: [root] });
+  const backupRoot = path.join(root, SKILL_BACKUP_DIR);
+
+  const v0 = bundleOf([file('SKILL.md', 'v0')]);
+  await store.apply({ root, name: 'demo', contentHash: v0.contentHash, files: v0.files, expectedTargetHash: null, force: false });
+  let previous = v0.contentHash;
+  for (let i = 1; i <= 12; i++) {
+    const v = bundleOf([file('SKILL.md', `v${i}`)]);
+    await store.apply({
+      root, name: 'demo', contentHash: v.contentHash, files: v.files,
+      expectedTargetHash: previous, force: false,
+    });
+    previous = v.contentHash;
+  }
+
+  const mine = (await fsp.readdir(backupRoot)).filter((e) => e.startsWith('demo.'));
+  assert.equal(mine.length, 10);
+  // The newest backup must be the version immediately before the last apply.
+  const newest = mine.sort().at(-1)!;
+  assert.equal(await fsp.readFile(path.join(backupRoot, newest, 'SKILL.md'), 'utf8'), 'v11');
+  assert.equal(await fsp.readFile(path.join(root, 'demo', 'SKILL.md'), 'utf8'), 'v12');
+});
