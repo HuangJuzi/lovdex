@@ -9,6 +9,7 @@ import { ProviderSettingsForm } from './ProviderSettingsPage';
 import { OperatorSettingsForm } from './OperatorSettingsForm';
 import { OperatorSkillExecSettings } from './OperatorSkillExecSettings';
 import { InboxSkillSettings } from './InboxSkillSettings';
+import { SkillSyncSettings } from './SkillSyncSettings';
 import { DatabaseSettingsForm } from './DatabaseSettingsForm';
 import { RemoteHostsSettingsSection } from './RemoteHostsSettingsSection';
 import { AccountSettingsSection } from './AccountSettingsSection';
@@ -91,6 +92,7 @@ export default function SettingsPage() {
                   <OperatorSettingsForm />
                   <OperatorSkillExecSettings />
                   <InboxSkillSettings />
+                  <SkillSyncSettings />
                 </>
               )}
               {activeTab === 'remote-hosts' && <RemoteHostsSettingsSection />}

@@ -21,6 +21,7 @@ type OperatorConfig = {
   verdict_prompt_override: string | null;
   verdict_llm_prompt_override: string | null;
   interactive_chat_enabled: boolean;
+  allow_skill_sync: boolean;
 };
 
 const EMPTY: OperatorConfig = {
@@ -32,6 +33,7 @@ const EMPTY: OperatorConfig = {
   verdict_prompt_override: null,
   verdict_llm_prompt_override: null,
   interactive_chat_enabled: true,
+  allow_skill_sync: false,
 };
 
 /**
@@ -196,6 +198,12 @@ export function OperatorSettingsForm() {
           description="关闭后侧边栏不显示「Lovdex助手」入口。"
           checked={config.interactive_chat_enabled}
           onChange={(v) => patch({ interactive_chat_enabled: v })}
+        />
+        <Toggle
+          label="允许助手同步技能"
+          description="开启后助手可用 skill_sync_apply 把 skill 写到其他机器（默认关闭）。保存后需重启后端生效；预览差异（skill_sync_plan）始终可用。"
+          checked={config.allow_skill_sync}
+          onChange={(v) => patch({ allow_skill_sync: v })}
         />
       </section>
 

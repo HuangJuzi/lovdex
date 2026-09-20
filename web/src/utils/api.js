@@ -400,6 +400,29 @@ export const api = {
     skillUninstall: () => authenticatedFetch('/api/notifications/skill/uninstall', { method: 'POST' }),
   },
 
+  // Skill sync (技能同步): plan/apply skill transfers between nodes.
+  // Like every other namespace here, methods return the raw Response so the
+  // caller can surface non-2xx error bodies instead of parsing them as data.
+  skills: {
+    // Node picker data: local plus every registered remote host.
+    nodes: () => authenticatedFetch('/api/skills/nodes'),
+    manifest: (node, scope, projectId) => {
+      const qs = new URLSearchParams({ node, scope });
+      if (projectId != null) qs.set('projectId', String(projectId));
+      return authenticatedFetch(`/api/skills/manifest?${qs.toString()}`);
+    },
+    plan: (body) =>
+      authenticatedFetch('/api/skills/sync/plan', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+    apply: (body) =>
+      authenticatedFetch('/api/skills/sync/apply', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+  },
+
   // Operator Agent configuration (auto-verdict, auto-move, model, concurrency).
   operator: {
     settings: () => authenticatedFetch('/api/operator/settings'),
