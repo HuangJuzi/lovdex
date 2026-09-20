@@ -37,7 +37,11 @@ const NAMED_COLORS = new RegExp(
   'g',
 );
 const HARDCODED_HEX = /#[0-9a-fA-F]{6}\b|%23[0-9a-fA-F]{6}/g;
-const RGB_LITERAL = /\brgba?\(\s*[0-9]/g;
+// A leading `\b` misses colors inside Tailwind arbitrary values, where the color
+// is preceded by an underscore (a word char), e.g. `shadow-[0_3px_0_rgba(...)]`.
+// The lookbehind excludes only letters, so `_rgba(` is caught but an identifier
+// like `myrgba(` is not.
+const RGB_LITERAL = /(?<![a-zA-Z])rgba?\(\s*[0-9]/g;
 // Neutral black overlays (`hsl(0 0% 0% / <alpha>`) are masks/shadows, not theme
 // colors, so they are exempt from the hardcoded-hsl check.
 const HARDCODED_HSL = /hsl\(\s*(?!0\s+0%\s+0%)[0-9]/g;
@@ -64,6 +68,14 @@ const THEME_TOKENS = [
 const ROOT_ONLY_TOKENS = [
   '--radius',
 ];
+
+/**
+ * Color tokens hold space-separated HSL triplets (`--card: 0 0% 100%`), so a
+ * bare `var(--card)` in a color position is invalid — the browser drops the
+ * declaration. They must always be referenced through `hsl(var(--card))`.
+ * Lengths (`--radius`) and the mixed `--nav-*` tokens are deliberately excluded.
+ */
+const COLOR_TOKENS = THEME_TOKENS;
 
 function stripComments(source: string): string {
   return source
@@ -100,6 +112,21 @@ function matches(pattern: RegExp): string[] {
 function report(found: string[]): string {
   const sample = found.slice(0, 10).join('\n  ');
   return `${found.length} occurrences, first 10:\n  ${sample}`;
+}
+
+/** Returns color tokens referenced via `var(...)` without a wrapping `hsl(`. */
+function findUnwrappedColorVars(source: string): string[] {
+  const found: string[] = [];
+  for (const token of COLOR_TOKENS) {
+    const pattern = new RegExp(`var\\(\\s*${token}\\s*\\)`, 'g');
+    for (const match of source.matchAll(pattern)) {
+      // Check the characters immediately before the reference. If they end in
+      // `hsl(` (with optional whitespace), the token is wrapped and fine.
+      const before = source.slice(Math.max(0, match.index - 8), match.index);
+      if (!/hsl\(\s*$/.test(before)) found.push(`${token} at offset ${match.index}`);
+    }
+  }
+  return found;
 }
 
 function hslToRgb(value: string): [number, number, number] | null {
@@ -169,6 +196,15 @@ test('no rgb()/rgba() literals outside exempt dirs', () => {
 test('no hardcoded hsl() literals outside exempt dirs', () => {
   const found = matches(HARDCODED_HSL);
   assert.equal(found.length, 0, report(found));
+});
+
+test('color tokens are always wrapped in hsl()', () => {
+  const failures: string[] = [];
+  for (const file of sourceFiles('src')) {
+    const source = stripComments(readFileSync(file, 'utf8'));
+    for (const hit of findUnwrappedColorVars(source)) failures.push(`${file}: ${hit}`);
+  }
+  assert.deepEqual(failures, [], `bare color tokens:\n  ${failures.join('\n  ')}`);
 });
 
 test('index.css defines every required token', () => {
