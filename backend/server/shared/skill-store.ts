@@ -161,9 +161,18 @@ export function createSkillStore(opts: { roots: string[] }): SkillStore {
       return { root: resolvedRoot, exists: true, entries: entries.sort(byName) };
     },
 
-    // bundle / apply land in Task 8 and Task 9.
-    async bundle() {
-      throw new Error('not implemented');
+    async bundle(root, name) {
+      const dir = resolveSkillDir(root, name);
+      let files;
+      try {
+        files = await collectSkillDir(dir);
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+          throw new Error(`skill not found: ${name}`);
+        }
+        throw err;
+      }
+      return { name, contentHash: computeSkillHash(files), files };
     },
     async apply() {
       throw new Error('not implemented');
