@@ -4737,5 +4737,57 @@ git commit -m "docs(skill-sync): record remote e2e results"
 
 ## 执行记录
 
-（执行时在此追加：每台验证机的实际行为、遇到的偏差、被替代的步骤。）
+**状态（2026-09-21）**：Task 1-18 全部实现并提交（19 文件 / +2588 行，commit `f96fa38`..`bcbaf72`）。**Task 19 未执行**（需要真机 + 重启后端 + 浏览器，需用户授权）。
+
+### 验收结果
+
+| 项目 | 结果 |
+|---|---|
+| 后端全量测试 | **1421 pass / 0 fail**（29s） |
+| `server/tsconfig.json` | 15 错误 = 基线，零新增 |
+| `remote-agent/tsconfig.json` | 4 错误 = 基线，零新增 |
+| `web/tsconfig.json` | 0 错误 = 基线 |
+
+### 未验证的部分（Task 19 的范围）
+
+**任何运行时行为都没跑过** —— 没有重启后端（其他项目在同一后端上跑，按 memory 必须先问用户），没有开浏览器，没有连真机。以下全部只是"代码正确 + 单测通过"，不等于"能跑"：
+
+- `GET /api/skills/nodes` 是否真的返回 401/200（路由已挂载但没 curl 过）
+- 设置页「技能同步」区块是否真的渲染、下拉是否真的列出在线主机
+- local→remote / remote→local / remote→remote 三条路径的真机行为
+- 老 `config.json` 缺 `skillRoots` 的免 deploy 兼容性（单测覆盖了 zod default，但没在真实 lite 上验过）
+- lite 升级：**远程主机上的 lite 必须重新 deploy 才有 `skills/v1`**，否则 plan 阶段会明确报「版本过旧」
+
+### 执行期对计划的修正（共 19 处）
+
+计划文档在 18 个任务里被纠正了 19 处事实错误，全部由执行 agent 实测后回写。最值得注意的三处（不改就是功能性 bug）：
+
+1. **`projectsDb.getProjectById` 不返回 `remote_host_id`** —— 计划假设它返回。不改则**项目级同步到远程主机永远失败**（误判为 "project lives on local"）。已在 `projects.db.ts` 的 SELECT 补上该列。
+2. **设置页 UI 选了「项目级」却从不传 `projectId`/`targetProjectId`** —— 后端必抛 `projectId is required`。已补源/目标项目下拉。
+3. **Task 18 的 staging 漏了 `index.js`** —— 接线改动会滞留在工作区未提交。
+
+其余包括：import 深度少一层（2 处）、`result.ok` 字段不存在、测试夹具误用、`fail()` 助手不存在、计划 CSS class 在仓库里不存在（实际用 Tailwind）、`api.js` 返回 `Response` 而非已解析 JSON、`createOperatorTools` 实际叫 `buildOperatorTools`、`allow_skill_sync` 没有 UI 开关导致工具拒绝文案指向死胡同、测试 fixture 缺 `fromRoot`/`toRoot`。
+
+### 代码审查的产出
+
+两阶段审查（规范符合性 + 对抗性质量审查）抓出的**经复现确认**的问题，按严重度：
+
+1. **编码判定导致哈希碰撞 + 静默字节损坏**（Critical）—— `detectEncoding` 用「含 NUL」判断，无 NUL 的非 UTF-8 文件被判 utf8 后经 `toString('utf8')` 有损。两个不同目录算出同一指纹；apply 后字节永久损坏却仍判「一致」。已修为 UTF-8 往返判定，并用**65536 组穷举 + 20 万次 fuzz** 验证零有损。
+2. **`name` 参数无校验**（Important）—— wire schema 只挡了 `root`，`name: '../.ssh'` 可绕过整个白名单。
+3. **apply 不校验入参字节大小**（Important）—— 本地节点走进程内调用，不过 wire schema。
+4. **含被忽略路径的 bundle 永远失败**（Important）—— 报误导性的 `post-write verification failed`。
+5. **并发 apply 撞车**（Important）—— 修复前 4 个并发只有 1 个成功、3 个报裸 `EEXIST`；修复后 4/4 成功。
+6. **回滚自身失败会留空洞**（Important）—— `rm` 后 `cp` 失败（ENOSPC 恰恰是校验失败最可能的根因）则目标消失。
+7. 空 bundle 清空技能、`..foo` 误判逃逸、备份无回收（保留最近 10 份）。
+
+### 人工验证（不依赖 subagent）
+
+- 编码无损性：65536 组两字节穷举 + 20 万次随机 fuzz → **零有损**
+- 路径白名单：7 种逃逸构造 + symlink 逃逸 → **零泄漏**
+- apply 语义：漂移保护、强制覆盖备份的是**被销毁的本地版本**、无残留临时目录、exec 位往返、逃逸被拒且不落盘
+- 编排层：plan 单次使用、源漂移→冲突且目标不动、单条冲突不中断整批、审计失败不影响成功传输、伪造 plan 对象被拒
+
+### 环境备注
+
+subagent 通道降级：`sonnet` 在实质 prompt 下稳定报 provider 错误（`each thinking block must contain thinking`），全程只有 `haiku` 可用。这直接影响了实现与审查的质量上限 —— 上面那些 Critical/Important 是 haiku 抓出来的，实际可能仍有遗漏。
 
