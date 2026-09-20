@@ -1,9 +1,11 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
 import Sidebar from '../sidebar/view/Sidebar';
 import MainContent from '../main-content/view/MainContent';
+import { Button, Dialog, DialogContent, DialogTitle, ToastStack, useToastStack } from '../../shared/view/ui';
+import { refreshInbox, applyInboxEvent, getInboxSnapshot } from '../../stores/inboxStore';
 import { useWebSocket } from '../../contexts/WebSocketContext';
 import { useDeviceSettings } from '../../hooks/useDeviceSettings';
 import { useSessionProtection } from '../../hooks/useSessionProtection';
@@ -211,6 +213,37 @@ function AppContentInner() {
     return () => vv.removeEventListener('resize', update);
   }, []);
 
+  // 收件箱：全局实时 toast + 打开页面补推汇总弹窗（spec §10）。
+  const { items: toasts, push: pushToast, dismiss: dismissToast } = useToastStack();
+  const [summaryOpen, setSummaryOpen] = useState(false);
+
+  // 首挂：拉取收件箱，若有未读 warning/critical 弹一次汇总。
+  useEffect(() => {
+    void (async () => {
+      await refreshInbox();
+      const important = getInboxSnapshot().items.filter((it) => !it.read_at && it.severity !== 'info');
+      if (important.length > 0) setSummaryOpen(true);
+    })();
+  }, []);
+
+  // 全局实时 toast：新告警（created 且非 info）到达即右上角弹一条，点击跳转。
+  useEffect(() => subscribe((event) => {
+    const row = applyInboxEvent(event as { kind?: string; payload?: unknown });
+    if (row) {
+      pushToast({
+        id: row.notification_id,
+        severity: row.severity,
+        title: row.title,
+        body: row.body,
+        onClick: () => {
+          dismissToast(row.notification_id);
+          if (row.task_id) navigate(`/task/${row.task_id}`);
+          else if (row.session_id) navigate(`/session/${row.session_id}`);
+        },
+      });
+    }
+  }), [subscribe, pushToast, dismissToast, navigate]);
+
   return (
     <div className="fixed inset-0 flex bg-background" style={{ bottom: 'var(--keyboard-height, 0px)' }}>
       {!isMobile ? (
@@ -288,6 +321,22 @@ function AppContentInner() {
           newSessionTrigger={newSessionTrigger}
         />
       </div>
+
+      <ToastStack items={toasts} onDismiss={dismissToast} />
+      <Dialog open={summaryOpen} onOpenChange={setSummaryOpen}>
+        <DialogContent>
+          <DialogTitle>你有未读通知</DialogTitle>
+          <div className="mt-2 space-y-1.5">
+            {getInboxSnapshot().items.filter((it) => !it.read_at && it.severity !== 'info').slice(0, 8).map((it) => (
+              <div key={it.notification_id} className="truncate text-sm">· {it.title}{it.occurrence_count > 1 ? ` ×${it.occurrence_count}` : ''}</div>
+            ))}
+          </div>
+          <div className="mt-4 flex justify-end gap-2">
+            <Button variant="ghost" size="sm" onClick={() => setSummaryOpen(false)}>知道了</Button>
+            <Button size="sm" onClick={() => { setSummaryOpen(false); navigate('/inbox'); }}>去收件箱</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
