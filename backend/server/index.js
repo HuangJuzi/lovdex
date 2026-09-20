@@ -76,6 +76,7 @@ import { appConfig as getAppConfig } from './modules/config/config.js';
 import { buildConfigReadRouter, buildConfigWriteRouter } from './modules/config/config.routes.js';
 import { syncProviderEnv } from './modules/config/env-sync.js';
 import { createSchedulerService, buildSchedulerRouter } from './modules/scheduler/index.js';
+import { createNotificationsDb, createNotificationsService, buildNotificationsRouter, scanCompletedTaskForAlerts } from './modules/notifications/index.js';
 import { getOperatorConfig } from './modules/operators/operator.config.js';
 import { createOperatorExecService } from './modules/operators/operator-exec.service.js';
 import { buildOperatorSkillExecRouter } from './modules/operators/operator-skill-exec.routes.js';
@@ -467,6 +468,13 @@ const broadcastTask = (event) => {
         if (client.readyState === WS_OPEN_STATE) client.send(JSON.stringify(event));
     });
 };
+// 通知中心：emit 走与 broadcastTask 同款全客户端 fan-out（notification_created /
+// notification_updated），扫描消费者挂在 onTaskCompleted（见下）。
+const notificationsDb = createNotificationsDb();
+const notificationsService = createNotificationsService(notificationsDb, {
+    broadcast: (event) => broadcastTask(event),
+    maxRows: 500,
+});
 // 标题为空时用 LLM（默认 DeepSeek Flash，可在 Operator 设置里换）从 description
 // 提炼一个短名。走与任务上下文压缩同一条 headless 一次性调用路径；失败/超时一律
 // 返回 null，调用方据此降级到需求首行兜底 —— 取名失败绝不能导致建任务/存定时任务
@@ -500,6 +508,21 @@ const tasksService = createTasksService(tasksDb, {
         const sessionRow = sessionsDb.getSessionById(sessionId);
         const isOperator = Boolean(sessionRow?.is_operator);
         scheduleAutoVerdict(sessionId, taskId, title, isOperator);
+        // 通知扫描：读转录提取 lovdex-alert 标记 → emit。operator 会话（助手自身）
+        // 不参与，避免助手输出被当巡检告警。永不抛（内部已 try/catch）。
+        if (!isOperator) {
+            void scanCompletedTaskForAlerts(
+                { taskId, sessionId },
+                {
+                    fetchHistory: sessionsService.fetchHistory.bind(sessionsService),
+                    notifications: notificationsService,
+                    getTaskMeta: (id) => {
+                        const t = tasksService.getTask(id);
+                        return t ? { scheduleId: t.source_schedule_id ?? null, projectPath: t.project_path ?? null } : null;
+                    },
+                },
+            );
+        }
     },
     // Task-context compression: createTask 带 sourceSessionId 时后台把来源会话
     // 压成 context_summary（summary 模式）或存原文 context_raw（raw 模式），
@@ -671,6 +694,7 @@ app.use('/api/tasks', authenticateToken, buildTasksRouter(tasksService, {
     createSession: createAppSession,
 }));
 app.use('/api/scheduled-tasks', authenticateToken, buildSchedulerRouter(schedulerService));
+app.use('/api/notifications', authenticateToken, buildNotificationsRouter(notificationsService));
 
 // Token 用量统计 API（protected）— 见 docs/superpowers/specs/2026-09-17-token-usage-stats-design.md
 const tokenUsageIngest = createTokenUsageIngestService();
