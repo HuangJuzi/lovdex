@@ -65,12 +65,10 @@ export const createMinimapExtension = ({
   file,
   showDiff,
   minimapEnabled,
-  isDarkMode,
 }: {
   file: CodeEditorFile;
   showDiff: boolean;
   minimapEnabled: boolean;
-  isDarkMode: boolean;
 }) => {
   if (!file.diffInfo || !showDiff || !minimapEnabled) {
     return [];
@@ -92,7 +90,7 @@ export const createMinimapExtension = ({
         const toLine = state.doc.lineAt(Math.min(chunk.toB, state.doc.length)).number;
 
         for (let lineNumber = fromLine; lineNumber <= toLine; lineNumber += 1) {
-          gutters[lineNumber] = isDarkMode ? 'rgba(34, 197, 94, 0.8)' : 'rgba(34, 197, 94, 1)';
+          gutters[lineNumber] = 'hsl(var(--success) / 0.8)';
         }
       });
 
