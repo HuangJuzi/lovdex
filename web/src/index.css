@@ -946,10 +946,10 @@
   select option {
     font-size: 16px !important;
     padding: 8px !important;
-    background-color: var(--background) !important;
-    color: var(--foreground) !important;
+    background-color: hsl(var(--background)) !important;
+    color: hsl(var(--foreground)) !important;
   }
-  
+
   .dark select option {
     background-color: hsl(var(--background)) !important;
     color: hsl(var(--foreground)) !important;

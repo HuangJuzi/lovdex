@@ -1,11 +1,11 @@
 export const getEditorLoadingStyles = () => {
   return `
     .code-editor-loading {
-      background-color: var(--card) !important;
+      background-color: hsl(var(--card)) !important;
     }
 
     .code-editor-loading:hover {
-      background-color: var(--card) !important;
+      background-color: hsl(var(--card)) !important;
     }
   `;
 };
@@ -41,14 +41,14 @@ export const getEditorStyles = () => {
     }
 
     .cm-gutter.cm-gutter-minimap {
-      background-color: var(--muted);
+      background-color: hsl(var(--muted));
     }
 
     .cm-editor-toolbar-panel {
       padding: 4px 10px;
-      background-color: var(--card);
-      border-bottom: 1px solid var(--border);
-      color: var(--foreground);
+      background-color: hsl(var(--card));
+      border-bottom: 1px solid hsl(var(--border));
+      color: hsl(var(--foreground));
       font-size: 12px;
     }
 
@@ -68,7 +68,7 @@ export const getEditorStyles = () => {
 
     .cm-diff-nav-btn:hover,
     .cm-toolbar-btn:hover {
-      background-color: var(--muted);
+      background-color: hsl(var(--muted));
     }
 
     .cm-diff-nav-btn:disabled {
