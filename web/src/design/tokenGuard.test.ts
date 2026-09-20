@@ -25,8 +25,9 @@ const SHADE = '[0-9]{2,3}';
 
 const RAW_CLASS = new RegExp(`\\b(?:${UTILS})-(?:${PALETTE})-${SHADE}\\b`, 'g');
 const DARK_PAIR = new RegExp(`dark:(?:${UTILS})-(?:${PALETTE})-${SHADE}`, 'g');
-const HARDCODED_HEX = /#[0-9a-fA-F]{6}\b/g;
+const HARDCODED_HEX = /#[0-9a-fA-F]{6}\b|%23[0-9a-fA-F]{6}/g;
 const RGB_LITERAL = /\brgba?\(\s*[0-9]/g;
+const HARDCODED_HSL = /hsl\(\s*[0-9]/g;
 
 /** Tokens that must exist in both `:root` and `.dark`. */
 const THEME_TOKENS = [
@@ -53,7 +54,7 @@ const ROOT_ONLY_TOKENS = [
 
 function stripComments(source: string): string {
   return source
-    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
     .replace(/(^|[^:])\/\/.*$/gm, '$1');
 }
 
@@ -63,7 +64,7 @@ function sourceFiles(dir: string, acc: string[] = []): string[] {
     if (entry.isDirectory()) {
       if (EXEMPT_DIRS.includes(path)) continue;
       sourceFiles(path, acc);
-    } else if (/\.(ts|tsx|css)$/.test(entry.name) && !/\.test\.tsx?$/.test(entry.name)) {
+    } else if (/\.(ts|tsx|css|js|jsx)$/.test(entry.name) && !/\.test\.tsx?$/.test(entry.name)) {
       acc.push(path);
     }
   }
@@ -74,7 +75,10 @@ function matches(pattern: RegExp): string[] {
   const found: string[] = [];
   for (const file of sourceFiles('src')) {
     const source = stripComments(readFileSync(file, 'utf8'));
-    for (const text of source.match(pattern) ?? []) found.push(`${file}: ${text}`);
+    for (const match of source.matchAll(pattern)) {
+      const line = source.slice(0, match.index).split('\n').length;
+      found.push(`${file}:${line}: ${match[0]}`);
+    }
   }
   return found;
 }
@@ -104,9 +108,14 @@ test('no rgb()/rgba() literals outside exempt dirs', () => {
   assert.equal(found.length, 0, report(found));
 });
 
+test('no hardcoded hsl() literals outside exempt dirs', () => {
+  const found = matches(HARDCODED_HSL);
+  assert.equal(found.length, 0, report(found));
+});
+
 test('index.css defines every required token', () => {
   const css = readFileSync(join('src', 'index.css'), 'utf8');
-  const darkStart = css.indexOf('.dark');
+  const darkStart = css.search(/\.dark\s*\{/);
   assert.ok(darkStart > 0, '.dark block not found in index.css');
   const light = css.slice(0, darkStart);
   const dark = css.slice(darkStart);
