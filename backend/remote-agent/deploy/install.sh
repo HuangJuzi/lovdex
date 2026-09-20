@@ -195,6 +195,17 @@ else
   # `&` + $! capture the node PID (nohup execs node, so the PID is stable).
   # Log to agent.log so startup failures are diagnosable.
   AGENT_LOG="${REMOTE_DIR}/agent.log"
+
+  # Rotate on install so a long-lived non-systemd host cannot grow agent.log
+  # without bound — the systemd branch gets rotation from the journal instead.
+  # One generation is kept (agent.log.1), which also means the tail dumped by
+  # the liveness check below covers THIS run only. Safe without a reopen dance
+  # because the lite is started fresh right after: the outgoing process still
+  # holds the renamed inode, but it is about to be replaced.
+  if [ -f "${AGENT_LOG}" ]; then
+    mv -f "${AGENT_LOG}" "${AGENT_LOG}.1"
+  fi
+
   nohup "${NODE_BIN}" "${REMOTE_DIR}/dist/lite.mjs" </dev/null >>"${AGENT_LOG}" 2>&1 &
   AGENT_PID=$!
   echo "[install] ${UNIT_NAME} started as background process (pid ${AGENT_PID}, log ${AGENT_LOG})"
