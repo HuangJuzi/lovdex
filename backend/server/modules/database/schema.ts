@@ -286,6 +286,26 @@ CREATE TABLE IF NOT EXISTS token_ingest_cursor (
 );
 `;
 
+export const NOTIFICATIONS_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS notifications (
+  notification_id   TEXT PRIMARY KEY,
+  severity          TEXT NOT NULL,
+  code              TEXT,
+  title             TEXT NOT NULL,
+  body              TEXT,
+  schedule_id       TEXT,
+  task_id           TEXT,
+  session_id        TEXT,
+  project_path      TEXT,
+  dedupe_key        TEXT NOT NULL,
+  occurrence_count  INTEGER NOT NULL DEFAULT 1,
+  first_seen_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  last_seen_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  read_at           DATETIME,
+  created_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+`;
+
 export const INIT_SCHEMA_SQL = `
 -- Initialize authentication database
 PRAGMA foreign_keys = ON;
@@ -347,4 +367,8 @@ CREATE INDEX IF NOT EXISTS idx_tue_project_ts ON token_usage_events(project_path
 CREATE INDEX IF NOT EXISTS idx_tue_model_ts ON token_usage_events(model, ts_ms);
 
 ${TOKEN_INGEST_CURSOR_TABLE_SCHEMA_SQL}
+
+${NOTIFICATIONS_TABLE_SCHEMA_SQL}
+CREATE INDEX IF NOT EXISTS idx_notifications_unread ON notifications(read_at, created_at);
+CREATE INDEX IF NOT EXISTS idx_notifications_dedupe ON notifications(dedupe_key, read_at);
 `;

@@ -4,6 +4,7 @@ import {
   APP_CONFIG_TABLE_SCHEMA_SQL,
   LAST_SCANNED_AT_SQL,
   NOTIFICATION_CHANNEL_ENDPOINTS_TABLE_SCHEMA_SQL,
+  NOTIFICATIONS_TABLE_SCHEMA_SQL,
   PROJECTS_TABLE_SCHEMA_SQL,
   PUSH_SUBSCRIPTIONS_TABLE_SCHEMA_SQL,
   REMOTE_HOSTS_TABLE_SCHEMA_SQL,
@@ -795,6 +796,9 @@ export const runMigrations = (db: Database) => {
     );
 
     db.exec(APP_CONFIG_TABLE_SCHEMA_SQL);
+    db.exec(NOTIFICATIONS_TABLE_SCHEMA_SQL);
+    db.exec('CREATE INDEX IF NOT EXISTS idx_notifications_unread ON notifications(read_at, created_at)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_notifications_dedupe ON notifications(dedupe_key, read_at)');
     db.exec(USER_NOTIFICATION_PREFERENCES_TABLE_SCHEMA_SQL);
     db.exec(VAPID_KEYS_TABLE_SCHEMA_SQL);
     db.exec(PUSH_SUBSCRIPTIONS_TABLE_SCHEMA_SQL);
