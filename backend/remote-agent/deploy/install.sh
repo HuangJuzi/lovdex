@@ -126,6 +126,51 @@ if have_systemd; then
 else
   echo "[install] warning: not a systemd host (PID 1 is not systemd) — starting ${UNIT_NAME} as a background process" >&2
 
+  # Stop the lite left by a previous install BEFORE starting the new one. The
+  # systemd branch gets this for free from `systemctl --user restart`; here
+  # nothing else reaps the old process, so a redeploy would leave the PREVIOUS
+  # bundle running — and both instances race for the lite's LLM-forwarder port,
+  # so the NEW one comes up half-broken (EADDRINUSE) while the STALE one keeps
+  # serving. That is the same "redeploy didn't take effect" failure the systemd
+  # branch's restart guards against.
+  #
+  # /proc is scanned instead of using pgrep/pkill because this branch exists for
+  # minimal containers, where procps is frequently absent (debian-slim has no
+  # pgrep). Matching the ABSOLUTE bundle path keeps unrelated node processes and
+  # other users' lites untouched.
+  LITE_ENTRY="${REMOTE_DIR}/dist/lite.mjs"
+  lite_pids() {
+    local p cmd
+    for p in /proc/[0-9]*; do
+      [ -r "${p}/cmdline" ] || continue
+      cmd="$(tr '\0' ' ' < "${p}/cmdline" 2>/dev/null || true)"
+      case "${cmd}" in
+        *"${LITE_ENTRY}"*) printf '%s\n' "${p#/proc/}" ;;
+      esac
+    done
+  }
+
+  OLD_PIDS="$(lite_pids)"
+  if [ -n "${OLD_PIDS}" ]; then
+    echo "[install] stopping previous lite (pid: $(printf '%s' "${OLD_PIDS}" | tr '\n' ' '))"
+    # SIGTERM first: the daemon halts its claude sessions and closes the ws on
+    # SIGTERM, so give it a grace period to do that before escalating.
+    # shellcheck disable=SC2086  # intentional word splitting: one pid per line
+    kill -TERM ${OLD_PIDS} 2>/dev/null || true
+    i=0
+    while [ "${i}" -lt 20 ]; do
+      if [ -z "$(lite_pids)" ]; then break; fi
+      sleep 0.5
+      i=$((i + 1))
+    done
+    REMAIN="$(lite_pids)"
+    if [ -n "${REMAIN}" ]; then
+      echo "[install] warning: previous lite ignored SIGTERM — sending SIGKILL to $(printf '%s' "${REMAIN}" | tr '\n' ' ')" >&2
+      # shellcheck disable=SC2086
+      kill -KILL ${REMAIN} 2>/dev/null || true
+    fi
+  fi
+
   # The lite inherits ANTHROPIC_API_KEY from its environment; systemd supplied
   # it via `EnvironmentFile=-%h/.lovdex-remote/.env`. Reproduce that here by
   # exporting each KEY=VALUE line VERBATIM (no shell interpretation), matching
@@ -153,4 +198,17 @@ else
   nohup "${NODE_BIN}" "${REMOTE_DIR}/dist/lite.mjs" </dev/null >>"${AGENT_LOG}" 2>&1 &
   AGENT_PID=$!
   echo "[install] ${UNIT_NAME} started as background process (pid ${AGENT_PID}, log ${AGENT_LOG})"
+
+  # Confirm it actually came up. The bootstrap reports `online` purely on this
+  # script's exit code (bootstrap.service.ts step 9), so a lite that dies
+  # immediately — bad bundle, missing binary, unreadable config — would
+  # otherwise be reported as a healthy deploy. The systemd branch gets the same
+  # protection from Restart=on-failure plus a fail-fast unit.
+  sleep 2
+  if ! kill -0 "${AGENT_PID}" 2>/dev/null; then
+    echo "[install] error: lite exited within 2s of start — last log lines:" >&2
+    tail -n 20 "${AGENT_LOG}" >&2 || true
+    exit 1
+  fi
+  echo "[install] ${UNIT_NAME} is up"
 fi
