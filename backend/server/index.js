@@ -100,6 +100,9 @@ import { runBootstrap } from './modules/remote-agents/bootstrap.service.js';
 import { createSshRunner, createScpPush, createSshpassPubkeyInjector } from './modules/remote-agents/ssh-runner.js';
 import { buildLitePackage } from './modules/remote-agents/lite-package.js';
 import { createRemoteTunnels } from './modules/remote-agents/remote-tunnels.js';
+import { createSkillSyncService } from './modules/skill-sync/skill-sync.service.js';
+import { createSkillSyncRouter } from './modules/skill-sync/skill-sync.routes.js';
+import { skillSyncAuditDb } from './modules/skill-sync/skill-sync.db.js';
 import { createLlmProxyManager } from './modules/llm-proxy/manager.js';
 import { createCompleteMessage } from './shared/utils.js';
 
@@ -212,6 +215,15 @@ setRemoteAgentsRuntime({ registry: remoteAgentsRegistry, fsClient: remoteFsClien
 // The path-routing fallback reads the LIVE registry on every lookup (worktrees
 // and other non-project paths), so hand it a lazy thunk rather than a snapshot.
 setOnlineHostsLookup(() => remoteAgentsRegistry.list());
+
+// Skill sync: ONE service instance so the plan cache is process-wide.
+// The audit repo is a lazy singleton (getConnection()), so nothing here needs
+// to wait for initializeDatabase().
+const skillSyncService = createSkillSyncService({
+    getRegistry: () => getRemoteAgentsRuntime().registry,
+    getProjectById: (projectId) => projectsDb.getProjectById(String(projectId)),
+    audit: (row) => skillSyncAuditDb.record(row),
+});
 
 // Provider runtimes keyed by provider id. Shared by the WebSocket server
 // (interactive chat.send path) and the headless task-run launcher (operator
@@ -465,6 +477,23 @@ app.use('/api/user', authenticateToken, userRoutes);
 
 // Unified provider MCP routes (protected)
 app.use('/api/providers', authenticateToken, providerRoutes);
+
+// Skill sync (技能同步): plan/apply skill transfers between the local machine
+// and the registered remote hosts. Behind the same auth gate as the rest of
+// /api — /nodes also feeds the settings page's node picker.
+app.use('/api/skills', authenticateToken, createSkillSyncRouter({
+    service: skillSyncService,
+    getRegistry: () => getRemoteAgentsRuntime().registry,
+    listNodes: () => [
+        { label: 'local', name: '本机', online: true },
+        ...remoteHostsDb.list().map((h) => ({
+            label: `remote:${h.host_id}`,
+            name: h.name,
+            online: h.status === 'online',
+            ...(h.status === 'online' ? {} : { reason: h.last_error || '离线' }),
+        })),
+    ],
+}));
 
 // Tasks API Routes (protected)
 // Broadcast task_upserted / task_deleted events to connected WS clients. This

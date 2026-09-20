@@ -76,8 +76,12 @@ export const projectsDb = {
 
     getProjectById(projectId: string): ProjectRepositoryRow | null {
         const db = getConnection();
+        // remote_host_id is included so host-aware consumers (skill sync resolves
+        // <project>/.claude/skills on the project's own machine) can cross-check
+        // the project's host against the requested node without a second query.
         const row = db.prepare(`
-            SELECT project_id, project_path, custom_project_name, isStarred, isArchived, is_explicit
+            SELECT project_id, project_path, custom_project_name, isStarred, isArchived, is_explicit,
+                   remote_host_id
             FROM projects
             WHERE project_id = ?
         `).get(projectId) as ProjectRepositoryRow | undefined;
