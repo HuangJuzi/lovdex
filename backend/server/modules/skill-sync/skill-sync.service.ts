@@ -117,6 +117,67 @@ export function createSkillSyncService(deps: SkillSyncServiceDeps): SkillSyncSer
     return path.join(project.project_path, '.claude', 'skills');
   }
 
+  /**
+   * Re-reads the source bundle and re-verifies its fingerprint.
+   *
+   * The plan's `fromHash` was computed at preview time; if the source changed
+   * since, the plan no longer describes what would actually be written, so the
+   * entry is refused rather than silently transferred.
+   */
+  async function transfer(
+    plan: SyncPlan,
+    entry: SkillSyncEntry,
+    force: boolean,
+  ): Promise<SkillSyncResultEntry> {
+    // An inert entry (oversized / unreadable on either side) is refused before
+    // any I/O: treating an unreadable target as "absent" would overwrite
+    // content the server could not even read.
+    if (entry.error) {
+      return { name: entry.name, status: 'failed', error: `无法读取：${entry.error}` };
+    }
+
+    const fromStore = storeFor(plan.from);
+    const toStore = storeFor(plan.to);
+
+    let bundle;
+    try {
+      bundle = await fromStore.bundle(plan.fromRoot, entry.name);
+    } catch (err) {
+      return { name: entry.name, status: 'failed', error: message(err) };
+    }
+    if (bundle.contentHash !== entry.fromHash) {
+      return {
+        name: entry.name,
+        status: 'conflict',
+        error: `源在预览之后被修改（预览 ${short(entry.fromHash)}，当前 ${short(bundle.contentHash)}）`,
+      };
+    }
+
+    try {
+      const applied = await toStore.apply({
+        root: plan.toRoot,
+        name: entry.name,
+        contentHash: bundle.contentHash,
+        files: bundle.files,
+        expectedTargetHash: entry.toHash ?? null,
+        force,
+      });
+      return {
+        name: entry.name,
+        status: applied.action === 'skipped' ? 'skipped' : 'ok',
+        action: entry.action === 'update' ? 'update' : 'create',
+        ...(applied.backupPath !== undefined ? { backupPath: applied.backupPath } : {}),
+      };
+    } catch (err) {
+      const text = message(err);
+      return {
+        name: entry.name,
+        status: /target changed/.test(text) ? 'conflict' : 'failed',
+        error: text,
+      };
+    }
+  }
+
   return {
     resolveRoot: rootFor,
 
@@ -198,5 +259,76 @@ export function createSkillSyncService(deps: SkillSyncServiceDeps): SkillSyncSer
       plans.delete(planId);
       return cached.plan;
     },
+
+    async apply(req) {
+      const plan = this.takePlan(req.planId);
+      if (!plan) throw new Error('plan not found or expired');
+
+      const wanted = req.names ? new Set(req.names) : null;
+      // A blocked entry (`error` set) carries an unknown hash, so `plan` filed it
+      // under a display-only action — yet it must still be REFUSED here (with a
+      // status), never silently lumped in with the skipped ones.
+      const targets = plan.entries.filter(
+        (e) => e.action === 'create' || e.action === 'update' || e.error !== undefined,
+      );
+      const selected = targets.filter((e) => (wanted ? wanted.has(e.name) : true));
+
+      const entries: SkillSyncResultEntry[] = [];
+      for (const entry of selected) {
+        entries.push(await transfer(plan, entry, req.force === true));
+      }
+      // `same` and `onlyTarget` entries are reported as skipped so the UI can
+      // render the full plan rather than a partial list.
+      for (const entry of plan.entries) {
+        if ((entry.action === 'same' || entry.action === 'onlyTarget') && !entry.error) {
+          entries.push({ name: entry.name, status: 'skipped' });
+        }
+      }
+      entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+
+      for (const entry of entries) {
+        const input = {
+          actor: req.actor,
+          from_node: skillNodeLabel(plan.from),
+          to_node: skillNodeLabel(plan.to),
+          scope: plan.scope,
+          project_id: plan.projectId ?? null,
+          target_project_id: plan.targetProjectId ?? null,
+          skill_name: entry.name,
+          action: entry.action ?? 'skip',
+          content_hash: plan.entries.find((e) => e.name === entry.name)?.fromHash ?? null,
+          backup_path: entry.backupPath ?? null,
+          status: entry.status === 'ok' ? ('ok' as const) : ('failed' as const),
+          error: entry.error ?? null,
+        };
+        // Audit must never turn a successful transfer into a reported failure.
+        try {
+          deps.audit(input);
+        } catch (err) {
+          console.warn('[skill-sync] audit write failed:', message(err));
+        }
+      }
+
+      return {
+        planId: plan.planId,
+        from: plan.from,
+        to: plan.to,
+        entries,
+        summary: {
+          ok: entries.filter((e) => e.status === 'ok').length,
+          failed: entries.filter((e) => e.status === 'failed').length,
+          conflict: entries.filter((e) => e.status === 'conflict').length,
+          skipped: entries.filter((e) => e.status === 'skipped').length,
+        },
+      };
+    },
   };
+}
+
+function message(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+function short(hash: string | undefined): string {
+  return hash ? hash.slice(0, 8) : 'none';
 }
