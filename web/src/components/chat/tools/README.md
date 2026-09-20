@@ -39,7 +39,7 @@ Used by: Bash, Read, Grep, Glob, TodoRead, TaskCreate, TaskUpdate, TaskGet
 
 Renders as a single line with `border-l-2` accent. Supports multiple rendering modes based on `action`:
 
-- **terminal** (`style: 'terminal'`) — Dark pill around command text, green `$` prompt
+- **terminal** (`style: 'terminal'`) — Dark pill around command text, monochrome `$` prompt (`text-background/70`)
 - **open-file** — Shows filename only (truncated from full path), clickable to open
 - **jump-to-results** — Shows pattern with anchor link to result section
 - **copy** — Shows value with hover copy button
@@ -87,15 +87,18 @@ Wraps `CollapsibleSection` (`<details>`/`<summary>`) with a `border-l-2` accent 
 ```
 
 **Tool category colors** (via `border-l-2`):
-| Category | Tools | Color |
-|----------|-------|-------|
-| `edit` | Edit, Write, ApplyPatch | amber |
-| `bash` | Bash | green |
-| `search` | Grep, Glob | gray |
-| `todo` | TodoWrite, TodoRead | violet |
-| `task` | TaskCreate/Update/List/Get | violet |
-| `plan` | ExitPlanMode | indigo |
-| `default` | everything else | neutral gray |
+| Category | Tools | Color (border token) |
+|----------|-------|----------------------|
+| `edit` | Edit, Write, ApplyPatch | `border-l-chart-9` (gold) |
+| `bash` | Bash | `border-l-chart-2` (emerald) |
+| `search` | Grep, Glob | `border-l-muted-foreground/40` (gray) |
+| `todo` | TodoWrite, TodoRead | `border-l-chart-6` (violet) |
+| `task` | TaskCreate/Update/List/Get | `border-l-chart-6` (violet) |
+| `workflow` | Workflow | `border-l-chart-4` (indigo) |
+| `agent` | Task (subagent) | `border-l-chart-6` (violet) |
+| `plan` | ExitPlanMode | `border-l-chart-4` (indigo) |
+| `question` | AskUserQuestion | `border-l-chart-4` (indigo) |
+| `default` | everything else | `border-l-border` (neutral gray) |
 
 ---
 
@@ -195,7 +198,7 @@ interface ToolDisplayConfig {
 
 | Tool | Input | Result | Notes |
 |------|-------|--------|-------|
-| Bash | terminal one-line | hide success | Dark command pill, green accent |
+| Bash | command row (BashCommandDisplay) | hide success | `bg-muted/40` surface, green `$`, expandable output |
 | Read | one-line (open-file) | hidden | Shows filename, clicks to open |
 | Edit | collapsible (diff) | hide success | Amber border, clickable filename |
 | Write | collapsible (diff) | hide success | "New" badge on diff |
