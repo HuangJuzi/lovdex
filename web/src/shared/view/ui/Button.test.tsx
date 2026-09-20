@@ -12,16 +12,16 @@ function renderButton(props: React.ComponentProps<typeof Button>, label = 'x') {
 
 test('chunky variant renders white-card gradient + hard bottom edge', () => {
   const html = renderButton({ variant: 'chunky' });
-  assert.match(html, /shadow-\[0_4px_0_#d8d5df/);
+  assert.match(html, /shadow-\[0_4px_0_hsl\(var\(--border\)\)/);
   assert.match(html, /bg-gradient-to-b/);
-  assert.match(html, /hover:shadow-\[0_6px_0_#d8d5df/);
+  assert.match(html, /hover:shadow-\[0_6px_0_hsl\(var\(--border\)\)/);
   assert.match(html, /active:translate-y-\[3px\]/);
 });
 
 test('chunkyPrimary variant renders primary gradient', () => {
   const html = renderButton({ variant: 'chunkyPrimary' });
-  assert.match(html, /from-\[#5b8cff\]/);
-  assert.match(html, /to-\[#2f5fe0\]/);
+  assert.match(html, /from-primary\/90/);
+  assert.match(html, /to-primary/);
 });
 
 test('toolbar size renders 34px height', () => {
