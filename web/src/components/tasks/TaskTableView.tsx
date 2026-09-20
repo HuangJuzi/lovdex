@@ -77,7 +77,7 @@ function ActionBtn({
       onClick={onClick}
       disabled={disabled}
       title={title}
-      className={`whitespace-nowrap rounded-lg px-2.5 py-1 text-[11px] font-semibold ${
+      className={`whitespace-nowrap rounded-lg px-2.5 py-1 text-2xs font-semibold ${
         disabled
           ? 'cursor-not-allowed opacity-60'
           : 'transition-opacity hover:opacity-80'
@@ -244,7 +244,7 @@ export function TaskTableView({
                           style={{ background: STATUS_META[status].color }}
                         />
                         {STATUS_META[status].label}
-                        <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                        <span className="rounded-full bg-muted px-2 py-0.5 text-2xs font-medium text-muted-foreground">
                           {rows.length}
                         </span>
                         <span className="h-px flex-1 bg-border" />
@@ -339,7 +339,7 @@ function TaskRow({
         <div className="line-clamp-2 min-w-40 font-semibold text-card-foreground" title={task.title}>
           {task.title}
         </div>
-        <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+        <div className="mt-1 flex flex-wrap items-center gap-1.5 text-2xs text-muted-foreground">
           {LABEL_META[label] && (
             <span
               className="rounded-full px-2 py-0.5 font-semibold"
@@ -370,7 +370,7 @@ function TaskRow({
               onProjectChange?.(task, e.target.value);
             }}
             title="修改项目"
-            className="max-w-40 cursor-pointer truncate rounded-full border border-border/50 bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground outline-none"
+            className="max-w-40 cursor-pointer truncate rounded-full border border-border/50 bg-muted px-2 py-0.5 text-2xs font-medium text-muted-foreground outline-none"
           >
             {!projectOptions.some((o) => o.value === task.project_path) && (
               <option value={task.project_path} disabled>
@@ -409,7 +409,7 @@ function TaskRow({
       <td className="whitespace-nowrap bg-card px-3 py-3 shadow-sm">
         {PRIORITY_META[priority] && (
           <span
-            className="rounded-full px-2 py-0.5 text-[11px] font-semibold"
+            className="rounded-full px-2 py-0.5 text-2xs font-semibold"
             style={{ color: PRIORITY_META[priority].color, backgroundColor: PRIORITY_META[priority].bg }}
           >
             {PRIORITY_META[priority].label}
@@ -438,12 +438,12 @@ function TaskRow({
       </td>
 
       {/* 创建时间（窄屏隐藏，见表格上方宽度预算注释） */}
-      <td className="hidden whitespace-nowrap bg-card px-3 py-3 font-mono text-[11px] text-muted-foreground shadow-sm xl:table-cell">
+      <td className="hidden whitespace-nowrap bg-card px-3 py-3 font-mono text-2xs text-muted-foreground shadow-sm xl:table-cell">
         {formatAbsoluteTime(task.created_at)}
       </td>
 
       {/* 最近活动（窄屏隐藏） */}
-      <td className="hidden whitespace-nowrap bg-card px-3 py-3 font-mono text-[11px] text-muted-foreground shadow-sm xl:table-cell">
+      <td className="hidden whitespace-nowrap bg-card px-3 py-3 font-mono text-2xs text-muted-foreground shadow-sm xl:table-cell">
         {formatAbsoluteTime(task.updated_at)}
       </td>
 

@@ -136,7 +136,7 @@ function AllowlistSection() {
       <div className="mb-1 flex items-center gap-2">
         <h2 className="text-sm font-semibold text-foreground">技能白名单</h2>
         {loaded && (
-          <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+          <span className="rounded-full bg-muted px-2 py-0.5 text-2xs text-muted-foreground">
             生效来源：{SOURCE_LABELS[source]}
           </span>
         )}
@@ -211,7 +211,7 @@ type CredentialStatus = {
 function FieldBadge({ label, present }: { label: string; present: boolean }) {
   return (
     <span
-      className={`rounded-full px-2 py-0.5 text-[11px] ${
+      className={`rounded-full px-2 py-0.5 text-2xs ${
         present
           ? 'bg-success/10 text-success'
           : 'bg-destructive/10 text-destructive'
@@ -508,7 +508,7 @@ function AuditSection() {
                   </td>
                   <td className="py-1.5 pr-3">
                     <span
-                      className={`rounded-full px-2 py-0.5 text-[11px] ${
+                      className={`rounded-full px-2 py-0.5 text-2xs ${
                         row.decision === 'allow'
                           ? 'bg-success/10 text-success'
                           : 'bg-destructive/10 text-destructive'

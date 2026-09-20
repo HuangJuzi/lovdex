@@ -68,7 +68,7 @@ export default function MainContentTitle({
             <h2 title={getSessionTitle(selectedSession)} className="truncate text-sm font-semibold leading-tight text-foreground">
               {getSessionTitle(selectedSession)}
             </h2>
-            <div className="truncate text-[11px] leading-tight text-muted-foreground">{getProjectLabel(selectedProject)}</div>
+            <div className="truncate text-2xs leading-tight text-muted-foreground">{getProjectLabel(selectedProject)}</div>
           </div>
         ) : showChatNewSession ? (
           <div className="min-w-0">
@@ -80,7 +80,7 @@ export default function MainContentTitle({
             <h2 className="text-sm font-semibold leading-tight text-foreground">
               {getTabTitle(activeTab, shouldShowTasksTab, t)}
             </h2>
-            <div className="truncate text-[11px] leading-tight text-muted-foreground">{getProjectLabel(selectedProject)}</div>
+            <div className="truncate text-2xs leading-tight text-muted-foreground">{getProjectLabel(selectedProject)}</div>
           </div>
         )}
       </div>

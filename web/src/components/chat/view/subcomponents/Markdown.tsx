@@ -149,7 +149,7 @@ const CodeBlock = ({ node, inline, className, children, onInlineFileClick, ...pr
               onInlineFileClick(trimmed);
             }
           }}
-          className={`cursor-pointer whitespace-pre-wrap break-words rounded-md border border-primary/30 bg-primary/10 px-1.5 py-0.5 font-mono text-[0.9em] text-primary hover:underline ${className || ''
+          className={`cursor-pointer whitespace-pre-wrap break-words rounded-md border border-primary/30 bg-primary/10 px-1.5 py-0.5 font-mono text-inline-code text-primary hover:underline ${className || ''
             }`}
           {...props}
         >
@@ -159,7 +159,7 @@ const CodeBlock = ({ node, inline, className, children, onInlineFileClick, ...pr
     }
     return (
       <code
-        className={`whitespace-pre-wrap break-words rounded-md border border-border bg-muted px-1.5 py-0.5 font-mono text-[0.9em] text-foreground ${className || ''
+        className={`whitespace-pre-wrap break-words rounded-md border border-border bg-muted px-1.5 py-0.5 font-mono text-inline-code text-foreground ${className || ''
           }`}
         {...props}
       >

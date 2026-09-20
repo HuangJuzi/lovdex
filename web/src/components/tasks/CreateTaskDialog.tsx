@@ -384,7 +384,7 @@ function MoreChip({
       >
         <span>更多</span>
         {moreCount > 0 && (
-          <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground">{moreCount}</span>
+          <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-3xs font-semibold text-primary-foreground">{moreCount}</span>
         )}
       </button>
       <AnchorPopover open={open} onOpenChange={setOpen} anchorRef={anchorRef} align="right" isMobile={isMobile} ariaLabel="更多设置">

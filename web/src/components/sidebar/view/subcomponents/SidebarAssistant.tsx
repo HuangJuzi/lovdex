@@ -322,7 +322,7 @@ export default function SidebarAssistant({ activeSessionId = null, onOpenSession
                   <div className="flex items-center gap-2">
                     <span className={cn('min-w-0 flex-1 truncate text-sm text-foreground', isSelected ? 'font-medium' : 'font-normal')}>{label}</span>
                     {compactAge && (
-                      <span className="ml-auto flex-shrink-0 text-[11px] text-muted-foreground transition-opacity duration-200 group-hover/row:opacity-0">
+                      <span className="ml-auto flex-shrink-0 text-2xs text-muted-foreground transition-opacity duration-200 group-hover/row:opacity-0">
                         {compactAge}
                       </span>
                     )}

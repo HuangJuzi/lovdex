@@ -229,7 +229,7 @@ export default function SidebarContent({
                   {isSearching && searchProgress && (
                     <div className="flex items-center gap-1.5">
                       <div className="h-3 w-3 animate-spin rounded-full border-[1.5px] border-muted-foreground/40 border-t-primary" />
-                      <p className="text-[10px] text-muted-foreground/60">
+                      <p className="text-3xs text-muted-foreground/60">
                         {searchProgress.scannedProjects}/{searchProgress.totalProjects}
                       </p>
                     </div>
@@ -271,7 +271,7 @@ export default function SidebarContent({
                             {session.sessionSummary}
                           </span>
                           {session.provider && session.provider !== 'claude' && (
-                            <span className="flex-shrink-0 rounded bg-muted px-1 py-0.5 text-[9px] uppercase text-muted-foreground">
+                            <span className="flex-shrink-0 rounded bg-muted px-1 py-0.5 text-4xs uppercase text-muted-foreground">
                               {session.provider}
                             </span>
                           )}
@@ -279,7 +279,7 @@ export default function SidebarContent({
                         <div className="space-y-1 pl-4">
                           {session.matches.map((match, idx) => (
                             <div key={idx} className="flex items-start gap-1">
-                              <span className="mt-0.5 flex-shrink-0 text-[10px] font-normal uppercase text-muted-foreground/60">
+                              <span className="mt-0.5 flex-shrink-0 text-3xs font-normal uppercase text-muted-foreground/60">
                                 {match.role === 'user' ? 'U' : 'A'}
                               </span>
                               <HighlightedSnippet

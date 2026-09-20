@@ -73,7 +73,7 @@ export const TaskCard = memo(function TaskCard({
         )}
       </div>
       {/* 顶部标签条：Label / 优先级 / 截止日期 */}
-      <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px]">
+      <div className="mt-2 flex flex-wrap items-center gap-1.5 text-2xs">
         {label && LABEL_META[label] && (
           <span
             className="rounded-full px-2 py-0.5 font-semibold"
@@ -115,7 +115,7 @@ export const TaskCard = memo(function TaskCard({
           {task.ai_summary}
         </p>
       )}
-      <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px]">
+      <div className="mt-2 flex flex-wrap items-center gap-1.5 text-2xs">
         {task.is_operator === 1 && (
           <span className="rounded-full bg-chart-6/10 px-2 py-0.5 font-semibold text-chart-6">
             🤖 Lovdex助手
@@ -134,7 +134,7 @@ export const TaskCard = memo(function TaskCard({
               onProjectChange(e.target.value);
             }}
             title="修改项目"
-            className="max-w-56 cursor-pointer truncate rounded-full border border-border/50 bg-muted py-0.5 pl-2 pr-6 text-[11px] font-medium text-muted-foreground outline-none transition-colors hover:border-primary/40"
+            className="max-w-56 cursor-pointer truncate rounded-full border border-border/50 bg-muted py-0.5 pl-2 pr-6 text-2xs font-medium text-muted-foreground outline-none transition-colors hover:border-primary/40"
           >
             {!projectOptions.some((o) => o.value === task.project_path) && (
               <option value={task.project_path} disabled>
@@ -168,7 +168,7 @@ export const TaskCard = memo(function TaskCard({
         )}
       </div>
 
-      <div className="mt-1 text-[11px] text-muted-foreground/80" title={formatAbsoluteTime(timeLabel.iso)}>
+      <div className="mt-1 text-2xs text-muted-foreground/80" title={formatAbsoluteTime(timeLabel.iso)}>
         {timeLabel.label} {formatRelativeTime(timeLabel.iso, now)}
       </div>
 

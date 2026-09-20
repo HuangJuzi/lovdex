@@ -543,7 +543,7 @@ export default function ChatComposer({
                   aria-label="Select reasoning effort"
                   title="Select reasoning effort"
                 >
-                  <span className="hidden text-[11px] text-muted-foreground sm:inline">Effort</span>
+                  <span className="hidden text-2xs text-muted-foreground sm:inline">Effort</span>
                   <span className="max-w-16 truncate capitalize sm:max-w-20">{selectedEffortLabel}</span>
                   <ChevronDown className={`h-3 w-3 text-muted-foreground transition-transform ${isEffortDropdownOpen ? 'rotate-180' : ''}`} />
                 </button>
@@ -602,7 +602,7 @@ export default function ChatComposer({
               <MessageSquareIcon />
               {slashCommandsCount > 0 && (
                 <span
-                  className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground"
+                  className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-3xs font-bold text-primary-foreground"
                 >
                   {slashCommandsCount}
                 </span>

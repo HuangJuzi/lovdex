@@ -63,7 +63,7 @@ export function TaskInboxPanel({
         className="flex w-full items-center gap-2 px-3 py-2 text-left sm:px-4"
       >
         <span className="text-sm font-semibold text-foreground">需要你处理</span>
-        <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">{items.length}</span>
+        <span className="rounded-full bg-muted px-2 py-0.5 text-2xs font-medium text-muted-foreground">{items.length}</span>
         <span className="ml-auto text-xs text-muted-foreground">{collapsed ? '▸' : '▾'}</span>
       </button>
       {!collapsed && (
@@ -75,7 +75,7 @@ export function TaskInboxPanel({
           return (
             <div key={item.task.task_id} className="flex items-center gap-2.5 px-3 py-2 sm:px-4">
               <span
-                className="inline-flex shrink-0 items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10.5px] font-semibold"
+                className="inline-flex shrink-0 items-center gap-1 rounded-md border px-1.5 py-0.5 text-2xs font-semibold"
                 style={TONE_STYLE[item.tone]}
               >
                 {item.label}
@@ -85,13 +85,13 @@ export function TaskInboxPanel({
                 <span className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-foreground">
                   <span className="max-w-40 truncate">{info.label}</span>
                   {info.remoteHost && (
-                    <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
+                    <span className="rounded-full bg-muted px-1.5 py-0.5 text-3xs font-semibold text-muted-foreground">
                       🌐 {info.remoteHost}
                     </span>
                   )}
                 </span>
               </span>
-              <span className="hidden shrink-0 text-[11px] text-muted-foreground sm:inline">
+              <span className="hidden shrink-0 text-2xs text-muted-foreground sm:inline">
                 {item.task.task_id}
               </span>
               {/* 主操作 + 「打开会话」并列：只要有会话就能点进会话页看现场（失败任务
@@ -103,7 +103,7 @@ export function TaskInboxPanel({
                     <button
                       type="button"
                       onClick={() => handler(item.task)}
-                      className={`whitespace-nowrap rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-colors ${ACTION_META[item.action].className}`}
+                      className={`whitespace-nowrap rounded-lg px-2.5 py-1 text-2xs font-semibold transition-colors ${ACTION_META[item.action].className}`}
                     >
                       {ACTION_META[item.action].label}
                     </button>
@@ -112,7 +112,7 @@ export function TaskInboxPanel({
                     <button
                       type="button"
                       onClick={() => onOpenSession(item.task)}
-                      className={`whitespace-nowrap rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-colors ${ACTION_META.openSession.className}`}
+                      className={`whitespace-nowrap rounded-lg px-2.5 py-1 text-2xs font-semibold transition-colors ${ACTION_META.openSession.className}`}
                     >
                       {ACTION_META.openSession.label}
                     </button>

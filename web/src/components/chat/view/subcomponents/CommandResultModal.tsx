@@ -117,8 +117,8 @@ function MetricCard({
       <div className={`inline-flex rounded-xl border ${compact ? 'mb-2 p-1.5' : 'mb-3 p-2'} ${toneClass}`}>
         <Icon className={compact ? 'h-3.5 w-3.5' : 'h-4 w-4'} />
       </div>
-      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">{label}</p>
-      <p className={`${compact ? 'mt-0.5 text-[13px]' : 'mt-1 text-sm'} break-all font-semibold text-foreground`}>{value}</p>
+      <p className="text-2xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">{label}</p>
+      <p className={`${compact ? 'mt-0.5 text-sm' : 'mt-1 text-sm'} break-all font-semibold text-foreground`}>{value}</p>
     </div>
   );
 }
@@ -180,7 +180,7 @@ function HelpContent({ data }: { data: HelpCommandData }) {
                   <code className="rounded-lg border border-primary/20 bg-primary/10 px-2 py-1 text-xs font-semibold text-primary">
                     {command.name}
                   </code>
-                  <Badge variant="secondary" className="shrink-0 text-[10px] capitalize">
+                  <Badge variant="secondary" className="shrink-0 text-3xs capitalize">
                     {command.namespace || 'builtin'}
                   </Badge>
                 </div>
@@ -307,7 +307,7 @@ function ModelsContent({
       {/* Compact context bar: active model + refresh, no clutter */}
       <div className="flex items-center justify-between gap-3 rounded-2xl border border-border/70 bg-muted/20 px-3.5 py-2.5">
         <div className="min-w-0">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+          <p className="text-3xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
             Active model · {providerLabel}
           </p>
           <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
@@ -367,7 +367,7 @@ function ModelsContent({
                     <span className="mt-1 text-xs leading-5 text-muted-foreground">{option.description}</span>
                   )}
                   {isCurrent && (
-                    <span className="mt-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-primary">Current selection</span>
+                    <span className="mt-2 text-2xs font-semibold uppercase tracking-[0.16em] text-primary">Current selection</span>
                   )}
                 </button>
               );
@@ -381,7 +381,7 @@ function ModelsContent({
       )}
 
       {/* Single quiet line of guidance / feedback */}
-      <p className="shrink-0 text-[11px] leading-4 text-muted-foreground">
+      <p className="shrink-0 text-2xs leading-4 text-muted-foreground">
         {selectionNotice ? (
           <span className="text-foreground">{selectionNotice}</span>
         ) : hasConcreteSessionId ? (
@@ -455,11 +455,11 @@ function CostContent({ data }: { data: CostCommandData }) {
       <div className="rounded-2xl border border-border/70 bg-muted/20 p-4">
         <div className="grid gap-3 sm:grid-cols-2">
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Provider</p>
+            <p className="text-2xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Provider</p>
             <p className="mt-1 text-sm font-semibold text-foreground">{provider}</p>
           </div>
           <div>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Model</p>
+            <p className="text-2xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Model</p>
             <p className="mt-1 break-all font-mono text-sm text-foreground">{model}</p>
           </div>
         </div>
@@ -568,7 +568,7 @@ export default function CommandResultModal({
               <HeaderIcon className={isModelsModal ? 'h-4 w-4' : 'h-5 w-5'} />
             </div>
             <div className="min-w-0">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+              <p className="text-2xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                 {activeMeta?.eyebrow}
               </p>
               <p className="mt-0.5 text-lg font-semibold tracking-tight text-foreground sm:text-xl">

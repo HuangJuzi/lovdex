@@ -87,16 +87,16 @@ export default function SidebarRecentSessions({
                         {resolveSessionTitle(session) ?? '新建会话'}
                       </span>
                       {provider && provider !== 'claude' && (
-                        <span className="flex-shrink-0 rounded bg-muted px-1 py-0.5 text-[9px] uppercase text-muted-foreground">
+                        <span className="flex-shrink-0 rounded bg-muted px-1 py-0.5 text-4xs uppercase text-muted-foreground">
                           {provider}
                         </span>
                       )}
                     </div>
                     <div className="mt-0.5 flex items-center gap-1.5 pl-3">
-                      <span className="min-w-0 flex-1 truncate text-[10px] text-muted-foreground">
+                      <span className="min-w-0 flex-1 truncate text-3xs text-muted-foreground">
                         {project.displayName || project.projectId}
                       </span>
-                      <span className="flex-shrink-0 text-[10px] text-muted-foreground/60">
+                      <span className="flex-shrink-0 text-3xs text-muted-foreground/60">
                         {formatCompactSessionAge(getSessionTime(session), currentTime)}
                       </span>
                     </div>

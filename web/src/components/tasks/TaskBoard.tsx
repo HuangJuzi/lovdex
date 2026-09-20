@@ -499,7 +499,7 @@ export function TaskBoardPage() {
                     <span className="text-sm font-semibold text-foreground">
                       {STATUS_META[status].label}
                     </span>
-                    <span className="ml-auto rounded-full border border-border/70 bg-card px-2 py-0.5 text-[11px] text-muted-foreground">
+                    <span className="ml-auto rounded-full border border-border/70 bg-card px-2 py-0.5 text-2xs text-muted-foreground">
                       {groups[status].length}
                     </span>
                   </div>

@@ -48,7 +48,7 @@ function formatUsage(usage: WorkflowUsage | undefined): string | null {
 }
 
 const BUTTON_BASE =
-  'rounded border border-border px-2 py-1 text-[11px] text-foreground hover:bg-muted';
+  'rounded border border-border px-2 py-1 text-2xs text-foreground hover:bg-muted';
 const BUTTON_DISABLED = ' disabled:opacity-40 disabled:cursor-not-allowed';
 
 export const WorkflowContainer: React.FC<WorkflowContainerProps> = ({
@@ -132,7 +132,7 @@ export const WorkflowContainer: React.FC<WorkflowContainerProps> = ({
                 {renderAgentUsage(agent)}
               </div>
               {agent.tools.length > 0 && (
-                <div className="mt-0.5 space-y-0.5 pl-2 text-[11px] text-muted-foreground">
+                <div className="mt-0.5 space-y-0.5 pl-2 text-2xs text-muted-foreground">
                   {agent.tools.map((tool) => (
                     <div key={tool.toolUseId}>
                       {tool.toolName} · {tool.elapsedTimeSeconds}s

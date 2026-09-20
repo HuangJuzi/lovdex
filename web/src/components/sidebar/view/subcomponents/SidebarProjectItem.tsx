@@ -130,7 +130,7 @@ export default function SidebarProjectItem({
   const remoteMarker = remoteHostName ? (
     <span
       role="img"
-      className="inline-flex flex-shrink-0 items-center gap-0.5 rounded bg-chart-4/10 px-1 py-0.5 text-[10px] font-medium text-chart-4"
+      className="inline-flex flex-shrink-0 items-center gap-0.5 rounded bg-chart-4/10 px-1 py-0.5 text-3xs font-medium text-chart-4"
       title={`${remoteHostName}:${project.fullPath}`}
       aria-label={`远程主机 ${remoteHostName}`}
     >

@@ -478,13 +478,13 @@ export function TaskDetailPage() {
               }}
             />
             {task.is_operator === 1 && (
-              <span className="mt-1 inline-flex items-center rounded-full bg-chart-6/10 px-2 py-0.5 text-[11px] font-semibold text-chart-6">
+              <span className="mt-1 inline-flex items-center rounded-full bg-chart-6/10 px-2 py-0.5 text-2xs font-semibold text-chart-6">
                 🤖 Lovdex助手
               </span>
             )}
             {task.source_schedule_id && (
               <button
-                className="mt-1 ml-2 inline-flex items-center rounded-full bg-warning/10 px-2 py-0.5 text-[11px] font-semibold text-warning hover:bg-warning/20"
+                className="mt-1 ml-2 inline-flex items-center rounded-full bg-warning/10 px-2 py-0.5 text-2xs font-semibold text-warning hover:bg-warning/20"
                 onClick={() => navigate('/tasks?view=scheduled')}
               >
                 ⏰ 定时

@@ -60,7 +60,7 @@ function ScheduledTaskCard({ task, projectOptions, onEdit, onDelete, onToggle, o
       <div className="self-start">{statusBadge(task)}</div>
       <FieldRow label="调度" value={<><CalendarClock className="mr-1 inline h-3 w-3" />{scheduleLabel(task)}</>} />
       <FieldRow label="项目" value={projectLabel(task, projectOptions)} />
-      <FieldRow label="下次" value={<span className="font-mono text-[11px]">{formatAbsoluteTime(task.next_run_at)}</span>} />
+      <FieldRow label="下次" value={<span className="font-mono text-2xs">{formatAbsoluteTime(task.next_run_at)}</span>} />
       <FieldRow
         label="上次"
         value={task.last_task_id ? <Link className="text-primary underline" to={`/task/${task.last_task_id}`}>查看任务</Link> : '—'}
@@ -118,7 +118,7 @@ export function ScheduledTasksView({ tasks, projectOptions, onEdit, onDelete, on
                   </span>
                 </td>
                 <td className="px-4 py-3 text-xs">{task.auto_run === 1 ? '✅ 自动执行' : '🔔 仅提醒'}</td>
-                <td className="px-4 py-3 font-mono text-[11px] text-muted-foreground">{formatAbsoluteTime(task.next_run_at)}</td>
+                <td className="px-4 py-3 font-mono text-2xs text-muted-foreground">{formatAbsoluteTime(task.next_run_at)}</td>
                 <td className="px-4 py-3 text-xs text-muted-foreground">
                   {task.last_task_id ? (
                     <button className="text-primary underline" onClick={() => navigate(`/task/${task.last_task_id}`)}>查看</button>

@@ -73,12 +73,12 @@ export const QuestionAnswerContent: React.FC<QuestionAnswerContentProps> = ({
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
                   {q.header && (
-                    <span className="inline-flex items-center rounded border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-primary">
+                    <span className="inline-flex items-center rounded border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-4xs font-semibold uppercase tracking-wider text-primary">
                       {q.header}
                     </span>
                   )}
                   {total > 1 && (
-                    <span className="text-[10px] tabular-nums text-muted-foreground">
+                    <span className="text-3xs tabular-nums text-muted-foreground">
                       {idx + 1}/{total}
                     </span>
                   )}
@@ -94,11 +94,11 @@ export const QuestionAnswerContent: React.FC<QuestionAnswerContentProps> = ({
                       return (
                         <span
                           key={lbl}
-                          className="inline-flex items-center gap-1 rounded-md bg-primary/10 px-1.5 py-0.5 text-[11px] font-medium text-primary"
+                          className="inline-flex items-center gap-1 rounded-md bg-primary/10 px-1.5 py-0.5 text-2xs font-medium text-primary"
                         >
                           {lbl}
                           {isCustom && (
-                            <span className="text-[9px] font-normal text-primary/70">(custom)</span>
+                            <span className="text-4xs font-normal text-primary/70">(custom)</span>
                           )}
                         </span>
                       );
@@ -107,7 +107,7 @@ export const QuestionAnswerContent: React.FC<QuestionAnswerContentProps> = ({
                 )}
 
                 {!isExpanded && skipped && hasAnyAnswer && (
-                  <span className="mt-1 inline-block text-[10px] italic text-muted-foreground">
+                  <span className="mt-1 inline-block text-3xs italic text-muted-foreground">
                     Skipped
                   </span>
                 )}
@@ -131,7 +131,7 @@ export const QuestionAnswerContent: React.FC<QuestionAnswerContentProps> = ({
                     return (
                       <div
                         key={opt.label}
-                        className={`flex items-start gap-2 rounded-lg px-2.5 py-1.5 text-[12px] ${
+                        className={`flex items-start gap-2 rounded-lg px-2.5 py-1.5 text-xs ${
                           wasSelected
                             ? 'border border-primary/30 bg-primary/10'
                             : 'text-muted-foreground'
@@ -153,7 +153,7 @@ export const QuestionAnswerContent: React.FC<QuestionAnswerContentProps> = ({
                             {opt.label}
                           </span>
                           {opt.description && (
-                            <span className={`mt-0.5 block text-[11px] ${
+                            <span className={`mt-0.5 block text-2xs ${
                               wasSelected ? 'text-primary/70' : 'text-muted-foreground'
                             }`}>
                               {opt.description}
@@ -167,7 +167,7 @@ export const QuestionAnswerContent: React.FC<QuestionAnswerContentProps> = ({
                   {answerLabels.filter(lbl => !options.some(o => o.label === lbl)).map(lbl => (
                     <div
                       key={lbl}
-                      className="flex items-start gap-2 rounded-lg border border-primary/30 bg-primary/10 px-2.5 py-1.5 text-[12px]"
+                      className="flex items-start gap-2 rounded-lg border border-primary/30 bg-primary/10 px-2.5 py-1.5 text-xs"
                     >
                       <div className={`mt-0.5 h-3.5 w-3.5 flex-shrink-0 ${q.multiSelect ? 'rounded-xs' : 'rounded-full'} flex items-center justify-center border-[1.5px] border-primary bg-primary`}>
                         <svg className="h-2 w-2 text-primary-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={3}>
@@ -176,13 +176,13 @@ export const QuestionAnswerContent: React.FC<QuestionAnswerContentProps> = ({
                       </div>
                       <div className="min-w-0 flex-1">
                         <span className="font-medium text-foreground">{lbl}</span>
-                        <span className="ml-1 text-[10px] text-primary/70">(custom)</span>
+                        <span className="ml-1 text-3xs text-primary/70">(custom)</span>
                       </div>
                     </div>
                   ))}
 
                   {skipped && hasAnyAnswer && (
-                    <div className="px-2.5 py-1 text-[11px] italic text-muted-foreground">
+                    <div className="px-2.5 py-1 text-2xs italic text-muted-foreground">
                       No answer provided
                     </div>
                   )}
@@ -194,7 +194,7 @@ export const QuestionAnswerContent: React.FC<QuestionAnswerContentProps> = ({
       })}
 
       {!hasAnyAnswer && total === 1 && (
-        <div className="text-[11px] italic text-muted-foreground">
+        <div className="text-2xs italic text-muted-foreground">
           Skipped
         </div>
       )}

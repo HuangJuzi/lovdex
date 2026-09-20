@@ -103,7 +103,7 @@ export default function ActivityIndicator({ activity, onAbort, isInputFocused = 
               <rect x="5" y="5" width="14" height="14" rx="2" />
             </svg>
             <span>{t('claudeStatus.stop', { defaultValue: 'Stop' })}</span>
-            <kbd className="hidden rounded border border-border/60 px-1 text-[10px] text-muted-foreground/70 sm:inline-block">
+            <kbd className="hidden rounded border border-border/60 px-1 text-3xs text-muted-foreground/70 sm:inline-block">
               esc
             </kbd>
           </button>

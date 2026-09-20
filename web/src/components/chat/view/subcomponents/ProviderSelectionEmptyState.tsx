@@ -230,7 +230,7 @@ export default function ProviderSelectionEmptyState({
             <h2 className="text-lg font-semibold tracking-tight text-foreground sm:text-xl">
               {t("providerSelection.title")}
             </h2>
-            <p className="mt-1 text-[13px] text-muted-foreground">
+            <p className="mt-1 text-sm text-muted-foreground">
               {t("providerSelection.description")}
             </p>
           </div>
@@ -272,7 +272,7 @@ export default function ProviderSelectionEmptyState({
                         {currentModelLabel}
                       </span>
                     </div>
-                    <p className="mt-0.5 text-[11px] text-muted-foreground">
+                    <p className="mt-0.5 text-2xs text-muted-foreground">
                       {t("providerSelection.clickToChange", {
                         defaultValue: "Click to change model",
                       })}
@@ -390,7 +390,7 @@ export default function ProviderSelectionEmptyState({
               values={{ shortcut: MOD_KEY === "⌘" ? "⌘K" : "Ctrl+K" }}
               components={{
                 kbd: (
-                  <kbd className="inline-flex items-center gap-0.5 rounded border border-border/60 bg-muted/40 px-1.5 py-0.5 font-mono text-[10px]" />
+                  <kbd className="inline-flex items-center gap-0.5 rounded border border-border/60 bg-muted/40 px-1.5 py-0.5 font-mono text-3xs" />
                 ),
               }}
             />

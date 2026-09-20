@@ -46,7 +46,7 @@ function Badge({ tone, children }: { tone: 'green' | 'red' | 'gray' | 'amber'; c
     gray: 'bg-muted text-muted-foreground',
     amber: 'bg-warning/10 text-warning',
   }[tone];
-  return <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${cls}`}>{children}</span>;
+  return <span className={`rounded-full px-2 py-0.5 text-2xs font-medium ${cls}`}>{children}</span>;
 }
 
 function OutputBlock({ label, text, defaultOpen }: { label: string; text: string; defaultOpen: boolean }) {
@@ -57,7 +57,7 @@ function OutputBlock({ label, text, defaultOpen }: { label: string; text: string
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+        className="flex items-center gap-1 text-2xs text-muted-foreground hover:text-foreground"
       >
         <span className={`inline-block transition-transform ${open ? 'rotate-90' : ''}`}>▶</span>
         {label}（{text.length} 字符）
@@ -126,7 +126,7 @@ export const SkillExecResult: React.FC<Props> = memo(({ content }) => {
       {/* workbench payloads */}
       {parsed.command === 'list' && Array.isArray(parsed.entries) && (
         <div className="mt-1.5 overflow-x-auto">
-          <div className="mb-0.5 font-mono text-[11px] text-muted-foreground">{parsed.path}</div>
+          <div className="mb-0.5 font-mono text-2xs text-muted-foreground">{parsed.path}</div>
           <table className="text-xs">
             <tbody>
               {parsed.entries.map((e) => (
@@ -144,7 +144,7 @@ export const SkillExecResult: React.FC<Props> = memo(({ content }) => {
       )}
       {parsed.command === 'read' && typeof parsed.content === 'string' && (
         <div className="mt-1.5">
-          <div className="mb-0.5 font-mono text-[11px] text-muted-foreground">
+          <div className="mb-0.5 font-mono text-2xs text-muted-foreground">
             {parsed.path}
             {parsed.truncated ? '（已截断）' : ''}
           </div>
@@ -159,7 +159,7 @@ export const SkillExecResult: React.FC<Props> = memo(({ content }) => {
         </div>
       )}
       {parsed.script && (
-        <div className="mt-1.5 font-mono text-[11px] text-muted-foreground">{parsed.script}</div>
+        <div className="mt-1.5 font-mono text-2xs text-muted-foreground">{parsed.script}</div>
       )}
 
       {/* process output (execute_skill / run-script) */}

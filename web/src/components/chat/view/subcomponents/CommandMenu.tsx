@@ -253,9 +253,9 @@ export default function CommandMenu({
       {orderedNamespaces.map((namespace) => (
         <div key={namespace} className="command-group">
           {orderedNamespaces.length > 1 && (
-            <div className="flex items-center justify-between px-2 pb-1.5 pt-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            <div className="flex items-center justify-between px-2 pb-1.5 pt-2 text-3xs font-semibold uppercase tracking-wide text-muted-foreground">
               <span>{namespaceLabels[namespace] || namespace}</span>
-              <span className="rounded border border-border bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+              <span className="rounded border border-border bg-muted px-1.5 py-0.5 text-3xs text-muted-foreground">
                 {(groupedCommands[namespace] || []).length}
               </span>
             </div>
@@ -289,20 +289,20 @@ export default function CommandMenu({
                 <div className="min-w-0 flex-1 pr-1">
                   <div className={`flex min-w-0 items-center gap-2 ${command.description ? 'mb-1' : 'mb-0'}`}>
                     <span
-                      className="min-w-0 truncate font-mono text-[13px] font-semibold text-foreground"
+                      className="min-w-0 truncate font-mono text-sm font-semibold text-foreground"
                       title={command.name}
                     >
                       {command.name}
                     </span>
                     {command.metadata?.type && (
-                      <span className="command-metadata-badge shrink-0 rounded border border-border bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground shadow-sm">
+                      <span className="command-metadata-badge shrink-0 rounded border border-border bg-muted px-1.5 py-0.5 text-3xs font-medium text-muted-foreground shadow-sm">
                         {command.metadata.type}
                       </span>
                     )}
                   </div>
                   {command.description && (
                     <div
-                      className="truncate whitespace-nowrap text-[12px] leading-4 text-muted-foreground"
+                      className="truncate whitespace-nowrap text-xs leading-4 text-muted-foreground"
                       title={command.description}
                     >
                       {command.description}

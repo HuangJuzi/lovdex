@@ -17,10 +17,10 @@ const formatSize = (bytes: number): string => {
 const FileAttachment = ({ file, onRemove, uploadProgress, error }: FileAttachmentProps) => (
   <div className="group relative flex h-20 w-24 flex-col items-center justify-center rounded-xl border border-border/50 bg-card shadow-sm">
     <FileIcon className="h-6 w-6 text-primary" />
-    <span className="mt-1 max-w-full truncate px-1 text-[11px] text-muted-foreground" title={file.name}>
+    <span className="mt-1 max-w-full truncate px-1 text-2xs text-muted-foreground" title={file.name}>
       {file.name}
     </span>
-    <span className="text-[10px] text-muted-foreground/70">{formatSize(file.size)}</span>
+    <span className="text-3xs text-muted-foreground/70">{formatSize(file.size)}</span>
     {uploadProgress !== undefined && uploadProgress < 100 && (
       <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-black/50">
         <div className="text-xs text-white/90">{uploadProgress}%</div>
@@ -28,7 +28,7 @@ const FileAttachment = ({ file, onRemove, uploadProgress, error }: FileAttachmen
     )}
     {error && (
       <div
-        className="absolute inset-0 flex items-center justify-center rounded-xl bg-destructive/60 p-1 text-center text-[10px] leading-tight text-white/90"
+        className="absolute inset-0 flex items-center justify-center rounded-xl bg-destructive/60 p-1 text-center text-3xs leading-tight text-white/90"
         title={error}
       >
         {error}

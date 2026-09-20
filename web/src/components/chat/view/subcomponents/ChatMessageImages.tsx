@@ -131,7 +131,7 @@ function ChatMessageImage({ image, projectId }: { image: ChatImage; projectId?: 
 
   if (failed) {
     return (
-      <div className="flex h-28 w-28 items-center justify-center rounded-xl border border-border/50 bg-muted px-2 text-center text-[10px] text-muted-foreground">
+      <div className="flex h-28 w-28 items-center justify-center rounded-xl border border-border/50 bg-muted px-2 text-center text-3xs text-muted-foreground">
         {alt}
       </div>
     );

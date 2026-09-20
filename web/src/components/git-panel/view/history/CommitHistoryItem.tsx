@@ -24,7 +24,7 @@ function RefBadge({ refName, color, tint }: { refName: string; color: string; ti
 
   return (
     <span
-      className="inline-flex max-w-40 items-center gap-1 rounded-full border px-1.5 py-px text-[10px] font-medium leading-4"
+      className="inline-flex max-w-40 items-center gap-1 rounded-full border px-1.5 py-px text-3xs font-medium leading-4"
       style={{
         borderColor: color,
         color,
@@ -159,7 +159,7 @@ export default function CommitHistoryItem({
                       }`}
                     >
                       <span
-                        className={`inline-flex h-4 w-4 flex-shrink-0 items-center justify-center rounded border text-[9px] font-bold ${getStatusBadgeClass(file.status)}`}
+                        className={`inline-flex h-4 w-4 flex-shrink-0 items-center justify-center rounded border text-4xs font-bold ${getStatusBadgeClass(file.status)}`}
                       >
                         {file.status}
                       </span>

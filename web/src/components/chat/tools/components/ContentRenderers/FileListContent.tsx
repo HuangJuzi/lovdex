@@ -23,7 +23,7 @@ export const FileListContent: React.FC<FileListContentProps> = ({
   return (
     <div>
       {title && (
-        <div className="mb-1 text-[11px] text-muted-foreground">
+        <div className="mb-1 text-2xs text-muted-foreground">
           {title}
         </div>
       )}
@@ -39,13 +39,13 @@ export const FileListContent: React.FC<FileListContentProps> = ({
             <span key={index} className="inline-flex items-center">
               <button
                 onClick={handleClick}
-                className="max-w-full truncate font-mono text-[11px] text-primary transition-colors hover:text-primary/80 hover:underline"
+                className="max-w-full truncate font-mono text-2xs text-primary transition-colors hover:text-primary/80 hover:underline"
                 title={filePath}
               >
                 {fileName}
               </button>
               {index < files.length - 1 && (
-                <span className="ml-1 text-[10px] text-muted-foreground/60">,</span>
+                <span className="ml-1 text-3xs text-muted-foreground/60">,</span>
               )}
             </span>
           );

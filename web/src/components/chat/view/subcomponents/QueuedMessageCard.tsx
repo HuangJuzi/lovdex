@@ -17,7 +17,7 @@ export default function QueuedMessageCard({ content, imageCount = 0, onEdit, onD
         <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary/60" aria-hidden />
 
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-primary/70">
+          <div className="flex items-center gap-1.5 text-2xs font-medium uppercase tracking-wide text-primary/70">
             <span>{t('input.queue.label', { defaultValue: 'Queued' })}</span>
             <span className="normal-case text-muted-foreground/60">
               · {t('input.queue.willSend', { defaultValue: 'Will send when this finishes' })}

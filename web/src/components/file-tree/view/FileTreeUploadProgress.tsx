@@ -69,11 +69,11 @@ export default function FileTreeUploadProgress({ upload }: FileTreeUploadProgres
         <div className="min-w-0 flex-1">
           <div className="flex items-center justify-between gap-3">
             <span className="truncate text-xs font-medium">{title}</span>
-            <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
+            <span className="shrink-0 text-2xs tabular-nums text-muted-foreground">
               {isUploading ? `${progress}%` : isComplete ? t('common.done', 'Done') : t('common.failed', 'Failed')}
             </span>
           </div>
-          <div className="mt-1 truncate text-[11px] text-muted-foreground">{detail}</div>
+          <div className="mt-1 truncate text-2xs text-muted-foreground">{detail}</div>
         </div>
       </div>
       <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-background/80">

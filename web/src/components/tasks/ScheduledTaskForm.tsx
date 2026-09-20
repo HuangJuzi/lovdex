@@ -396,7 +396,7 @@ export function ScheduledTaskForm({
           {engineHint && <p className="mt-2 text-xs text-muted-foreground">{engineHint}</p>}
 
           <div className="mt-3 flex flex-col gap-3 rounded-xl border border-border p-3">
-            <span className="text-[11px] font-semibold tracking-wide text-muted-foreground">调度</span>
+            <span className="text-2xs font-semibold tracking-wide text-muted-foreground">调度</span>
             <div className="flex flex-wrap items-center gap-3">
               <div className="flex gap-1 rounded-lg border border-border bg-muted p-1">
                 {SCHEDULE_TYPES.map((t) => (
