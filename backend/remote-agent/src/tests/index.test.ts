@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createLiteService, handleIncomingFrame } from '../index.js';
+import { createLiteService, handleIncomingFrame, buildHelloFrame } from '../index.js';
+import { SKILLS_CAPABILITY } from '../../../server/shared/agent-runtime/protocol.js';
 import type { RemoteAgentConfig } from '../config.js';
 
 const cfg: RemoteAgentConfig = {
@@ -49,6 +50,13 @@ test('handleIncomingFrame ignores frames it does not handle', async () => {
   const ws = makeFakeWs();
   await handleIncomingFrame(ws, { type: 'pong', at: 5 }, cfg);
   assert.equal(ws.sent.length, 0);
+});
+
+test('hello frame advertises the skills capability', () => {
+  const frame = JSON.parse(buildHelloFrame(cfg));
+  assert.equal(frame.type, 'hello');
+  assert.ok(frame.capabilities.includes(SKILLS_CAPABILITY));
+  assert.ok(frame.capabilities.includes('fs/read'));
 });
 
 test('createLiteService exposes a lifecycle handle and stop is idempotent pre-start', () => {

@@ -10,7 +10,12 @@ if (typeof (globalThis as { crypto?: unknown }).crypto !== 'object') {
   (globalThis as { crypto?: unknown }).crypto = webcrypto;
 }
 
-import { makePing, LLM_FORWARDER_PORT, LLM_FORWARD_CAPABILITY } from '../../server/shared/agent-runtime/protocol.js';
+import {
+  makePing,
+  LLM_FORWARDER_PORT,
+  LLM_FORWARD_CAPABILITY,
+  SKILLS_CAPABILITY,
+} from '../../server/shared/agent-runtime/protocol.js';
 import { createLlmForwarder } from './llm-forwarder.js';
 import { loadConfigFile, type RemoteAgentConfig } from './config.js';
 import { handleRpc, interruptAllFor, setPushEmitter } from './rpc-dispatch.js';
@@ -98,12 +103,15 @@ export async function handleIncomingFrame(
  * `setPushEmitter` (see `handleOpen`). rpc_res re-delivery remains unwired.
  */
 
-function buildHelloFrame(cfg: RemoteAgentConfig): string {
+export function buildHelloFrame(cfg: RemoteAgentConfig): string {
   // capabilities: every RPC method the dispatcher understands is advertised so
   // main can offer the host's full surface. session/start stays claude-only
   // probe-aware: the lite currently runs ONE provider CLI (claude); codex/
   // opencode/qoder generalization lands with the multi-provider session/start
   // work. session/messages (remote history) serves the claude/qoder transcript.
+  // `skills/v1` gates the directory-level skill sync RPCs; main refuses to plan
+  // a sync against a host that does not advertise it rather than falling back
+  // to per-file fs/* copies (no atomicity, no remote fingerprint).
   return JSON.stringify({
     type: 'hello',
     hostId: cfg.hostId,
@@ -125,6 +133,7 @@ function buildHelloFrame(cfg: RemoteAgentConfig): string {
       'fs/delete',
       'git/exec',
       'providers/probe',
+      SKILLS_CAPABILITY,
     ],
   });
 }

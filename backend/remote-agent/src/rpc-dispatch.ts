@@ -6,7 +6,15 @@ import { readSessionMessagesDir } from './transcript.js';
 import type { QuerySdkLike, RunManager } from './agent-run.js';
 import type { RemoteAgentConfig } from './config.js';
 import type { RemoteProvider } from '../../server/shared/agent-runtime/protocol.js';
-import { makeGitExecParamsSchema, makeSessionMessagesParamsSchema, makeSessionStartParamsSchema } from '../../server/shared/agent-runtime/protocol.js';
+import {
+  makeGitExecParamsSchema,
+  makeSessionMessagesParamsSchema,
+  makeSessionStartParamsSchema,
+  makeSkillsApplyParamsSchema,
+  makeSkillsBundleParamsSchema,
+  makeSkillsManifestParamsSchema,
+} from '../../server/shared/agent-runtime/protocol.js';
+import { skillStoreFor } from './skills.js';
 
 /**
  * Bridge to the current WebSocket push bus. index.ts calls {@link setPushEmitter}
@@ -126,6 +134,9 @@ export function makeProbeAccessor() {
  * - `fs/stat|list|read|write|tree|create|rename|delete` → allowlisted fs ops scoped to `cfg.roots`.
  * - `git/exec`          → roots-allowlisted git subprocess (abortable via controller).
  * - `providers/probe`   → probe installed provider CLIs + git + node.
+ * - `skills/manifest|bundle|apply` → directory-level skill read/write scoped to
+ *   `cfg.roots` + `cfg.skillRoots` (the shared skill store, so local and remote
+ *   sync through identical code).
  * - anything else       → `unknown rpc method`.
  */
 export async function handleRpc(
@@ -207,6 +218,19 @@ export async function handleRpc(
   }
   if (method === 'providers/probe') {
     return probeRemoteHost();
+  }
+  if (method === 'skills/manifest' || method === 'skills/bundle' || method === 'skills/apply') {
+    const store = skillStoreFor(cfg);
+    if (method === 'skills/manifest') {
+      const p = makeSkillsManifestParamsSchema().parse(params);
+      return store.manifest(p.root);
+    }
+    if (method === 'skills/bundle') {
+      const p = makeSkillsBundleParamsSchema().parse(params);
+      return store.bundle(p.root, p.name);
+    }
+    const p = makeSkillsApplyParamsSchema().parse(params);
+    return store.apply(p);
   }
   throw new Error('unknown rpc method: ' + method);
 }
