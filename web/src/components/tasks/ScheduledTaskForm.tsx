@@ -512,7 +512,7 @@ export function ScheduledTaskForm({
             </div>
           </div>
 
-          {(localError || error) && <p className="mt-2 text-sm text-red-600">{localError ?? error}</p>}
+          {(localError || error) && <p className="mt-2 text-sm text-destructive">{localError ?? error}</p>}
 
           <div className="mt-3 flex items-center justify-end gap-2">
             <Button size="sm" variant="ghost" onClick={onClose} disabled={submitting}>

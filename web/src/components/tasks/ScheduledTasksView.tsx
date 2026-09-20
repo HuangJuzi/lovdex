@@ -29,9 +29,9 @@ function statusBadge(task: ScheduledTask) {
     return <span className="rounded-full bg-muted px-2 py-0.5 font-semibold text-muted-foreground">⏸ 已停用</span>;
   }
   return task.auto_run === 1 ? (
-    <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 font-semibold text-emerald-600 dark:text-emerald-400">✅ 自动执行</span>
+    <span className="rounded-full bg-success/10 px-2 py-0.5 font-semibold text-success">✅ 自动执行</span>
   ) : (
-    <span className="rounded-full bg-amber-500/10 px-2 py-0.5 font-semibold text-amber-600 dark:text-amber-400">🔔 仅提醒</span>
+    <span className="rounded-full bg-warning/10 px-2 py-0.5 font-semibold text-warning">🔔 仅提醒</span>
   );
 }
 
@@ -66,10 +66,10 @@ function ScheduledTaskCard({ task, projectOptions, onEdit, onDelete, onToggle, o
         value={task.last_task_id ? <Link className="text-primary underline" to={`/task/${task.last_task_id}`}>查看任务</Link> : '—'}
       />
       <div className="mt-1 flex items-center justify-end gap-1 border-t border-border pt-1.5">
-        <ActionButton title="立即触发" label="立即触发" className="text-sky-600 hover:bg-sky-500/10" onClick={() => onRunNow(task)}><Play className="h-3.5 w-3.5" /></ActionButton>
+        <ActionButton title="立即触发" label="立即触发" className="text-info hover:bg-info/10" onClick={() => onRunNow(task)}><Play className="h-3.5 w-3.5" /></ActionButton>
         <ActionButton title={task.enabled === 1 ? '停用' : '启用'} label="启停" className="text-muted-foreground hover:bg-muted" onClick={() => onToggle(task)}><Power className="h-3.5 w-3.5" /></ActionButton>
         <ActionButton title="编辑" label="编辑" className="text-muted-foreground hover:bg-muted" onClick={() => onEdit(task)}><Pencil className="h-3.5 w-3.5" /></ActionButton>
-        <ActionButton title="删除" label="删除" className="text-red-500 hover:bg-red-500/10" onClick={() => onDelete(task)}><Trash2 className="h-3.5 w-3.5" /></ActionButton>
+        <ActionButton title="删除" label="删除" className="text-destructive hover:bg-destructive/10" onClick={() => onDelete(task)}><Trash2 className="h-3.5 w-3.5" /></ActionButton>
       </div>
     </div>
   );
@@ -126,10 +126,10 @@ export function ScheduledTasksView({ tasks, projectOptions, onEdit, onDelete, on
                 </td>
                 <td className="whitespace-nowrap rounded-r-lg px-4 py-3 text-right">
                   <div className="inline-flex items-center gap-1">
-                    <button title="立即触发" aria-label="立即触发" onClick={() => onRunNow(task)} className="rounded-lg px-2 py-1 text-sky-600 hover:bg-sky-500/10"><Play className="h-3 w-3" /></button>
+                    <button title="立即触发" aria-label="立即触发" onClick={() => onRunNow(task)} className="rounded-lg px-2 py-1 text-info hover:bg-info/10"><Play className="h-3 w-3" /></button>
                     <button title={task.enabled === 1 ? '停用' : '启用'} aria-label="启停" onClick={() => onToggle(task)} className="rounded-lg px-2 py-1 text-muted-foreground hover:bg-muted"><Power className="h-3 w-3" /></button>
                     <button title="编辑" aria-label="编辑" onClick={() => onEdit(task)} className="rounded-lg px-2 py-1 text-muted-foreground hover:bg-muted"><Pencil className="h-3 w-3" /></button>
-                    <button title="删除" aria-label="删除" onClick={() => onDelete(task)} className="rounded-lg px-2 py-1 text-red-500 hover:bg-red-500/10"><Trash2 className="h-3 w-3" /></button>
+                    <button title="删除" aria-label="删除" onClick={() => onDelete(task)} className="rounded-lg px-2 py-1 text-destructive hover:bg-destructive/10"><Trash2 className="h-3 w-3" /></button>
                   </div>
                 </td>
               </tr>

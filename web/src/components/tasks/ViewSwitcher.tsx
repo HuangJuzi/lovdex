@@ -32,16 +32,16 @@ export function ViewSwitcher({ active, className }: { active: View; className?: 
       label: t('navigation.chat'),
       icon: MessageSquare,
       to: '/',
-      activeClass: 'bg-card text-card-foreground shadow-[0_2px_0_rgba(30,27,50,0.10),0_4px_10px_rgba(35,33,41,0.06)]',
-      iconClass: 'text-sky-500',
+      activeClass: 'bg-card text-card-foreground shadow-[0_2px_0_hsl(var(--foreground)/0.10),0_4px_10px_hsl(var(--foreground)/0.06)]',
+      iconClass: 'text-info',
     },
     {
       value: 'tasks',
       label: t('navigation.tasks'),
       icon: ClipboardList,
       to: '/tasks',
-      activeClass: 'bg-card text-card-foreground shadow-[0_2px_0_rgba(30,27,50,0.10),0_4px_10px_rgba(35,33,41,0.06)]',
-      iconClass: 'text-emerald-500',
+      activeClass: 'bg-card text-card-foreground shadow-[0_2px_0_hsl(var(--foreground)/0.10),0_4px_10px_hsl(var(--foreground)/0.06)]',
+      iconClass: 'text-success',
     },
   ];
 

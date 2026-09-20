@@ -300,7 +300,7 @@ export function TaskBoardPage() {
             className={cn(
               'flex items-center justify-center gap-2 rounded-lg px-2.5 py-2 text-sm font-normal transition-all',
               effectiveView === 'board'
-                ? 'bg-card text-card-foreground shadow-[0_2px_0_rgba(30,27,50,0.10),0_4px_10px_rgba(35,33,41,0.06)]'
+                ? 'bg-card text-card-foreground shadow-[0_2px_0_hsl(var(--foreground)/0.10),0_4px_10px_hsl(var(--foreground)/0.06)]'
                 : 'text-muted-foreground hover:text-foreground',
             )}
           >
@@ -317,7 +317,7 @@ export function TaskBoardPage() {
               // 表格在手机上体验差，整个按钮只在 sm+ 出现。
               'hidden items-center justify-center gap-2 rounded-lg px-2.5 py-2 text-sm font-normal transition-all sm:flex',
               effectiveView === 'table'
-                ? 'bg-card text-card-foreground shadow-[0_2px_0_rgba(30,27,50,0.10),0_4px_10px_rgba(35,33,41,0.06)]'
+                ? 'bg-card text-card-foreground shadow-[0_2px_0_hsl(var(--foreground)/0.10),0_4px_10px_hsl(var(--foreground)/0.06)]'
                 : 'text-muted-foreground hover:text-foreground',
             )}
           >
@@ -332,7 +332,7 @@ export function TaskBoardPage() {
             className={cn(
               'flex items-center justify-center gap-2 rounded-lg px-2.5 py-2 text-sm font-normal transition-all',
               effectiveView === 'scheduled'
-                ? 'bg-card text-card-foreground shadow-[0_2px_0_rgba(30,27,50,0.10),0_4px_10px_rgba(35,33,41,0.06)]'
+                ? 'bg-card text-card-foreground shadow-[0_2px_0_hsl(var(--foreground)/0.10),0_4px_10px_hsl(var(--foreground)/0.06)]'
                 : 'text-muted-foreground hover:text-foreground',
             )}
           >
@@ -359,7 +359,7 @@ export function TaskBoardPage() {
               className={cn(
                 'relative flex items-center justify-center gap-2 rounded-lg px-2.5 py-2 text-sm font-normal transition-all',
                 filtersOpen
-                  ? 'bg-card text-card-foreground shadow-[0_2px_0_rgba(30,27,50,0.10),0_4px_10px_rgba(35,33,41,0.06)]'
+                  ? 'bg-card text-card-foreground shadow-[0_2px_0_hsl(var(--foreground)/0.10),0_4px_10px_hsl(var(--foreground)/0.06)]'
                   : 'text-muted-foreground hover:text-foreground',
               )}
             >
@@ -413,7 +413,7 @@ export function TaskBoardPage() {
           <>
           <TaskFilterBar projectOptions={projectOptions} filter={filter} onChange={setFilter} open={filtersOpen} />
           {filterStillHidesNewTask && hiddenCreated && (
-            <div className="flex flex-shrink-0 items-center gap-3 border-b border-border/60 bg-amber-500/10 px-3 py-2 sm:px-4">
+            <div className="flex flex-shrink-0 items-center gap-3 border-b border-border/60 bg-warning/10 px-3 py-2 sm:px-4">
               <span className="min-w-0 flex-1 truncate text-sm text-foreground">
                 任务「{hiddenCreated.title}」已创建，但当前筛选未包含它，因此列表中没有显示。
               </span>
@@ -451,7 +451,7 @@ export function TaskBoardPage() {
                 type="button"
                 disabled={deleting}
                 onClick={() => void deleteSelected()}
-                className="ml-auto rounded-lg bg-red-500/10 px-3 py-1.5 text-sm font-semibold text-red-500 hover:bg-red-500/20 disabled:opacity-50 dark:text-red-400"
+                className="ml-auto rounded-lg bg-destructive/10 px-3 py-1.5 text-sm font-semibold text-destructive hover:bg-destructive/20 disabled:opacity-50"
               >
                 {deleting ? '删除中…' : '删除'}
               </button>
@@ -489,7 +489,7 @@ export function TaskBoardPage() {
               {renderableStatuses.map((status) => (
                 <div
                   key={status}
-                  className="flex w-full flex-col rounded-2xl border border-border/70 bg-muted/30 shadow-[0_3px_0_rgba(30,27,50,0.07),0_12px_26px_rgba(35,33,41,0.07)] sm:min-w-64 sm:flex-1"
+                  className="flex w-full flex-col rounded-2xl border border-border/70 bg-muted/30 shadow-[0_3px_0_hsl(var(--foreground)/0.07),0_12px_26px_hsl(var(--foreground)/0.07)] sm:min-w-64 sm:flex-1"
                 >
                   <div className="flex items-center gap-2 px-3 py-2.5">
                     <span

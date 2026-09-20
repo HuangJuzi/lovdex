@@ -40,9 +40,9 @@ export function WorkspaceNav({
   const navigate = useNavigate();
 
   const tabItems: { value: WorkspaceTab; label: string; icon: LucideIcon; iconClass: string }[] = [
-    { value: 'chat', label: 'Chat', icon: MessageSquare, iconClass: 'text-sky-500' },
-    { value: 'files', label: 'Files', icon: FolderOpen, iconClass: 'text-emerald-500' },
-    { value: 'git', label: gitTabLabel ?? 'Source Control', icon: GitBranch, iconClass: 'text-violet-500' },
+    { value: 'chat', label: 'Chat', icon: MessageSquare, iconClass: 'text-info' },
+    { value: 'files', label: 'Files', icon: FolderOpen, iconClass: 'text-success' },
+    { value: 'git', label: gitTabLabel ?? 'Source Control', icon: GitBranch, iconClass: 'text-chart-6' },
   ];
 
   const handleTab = (tab: WorkspaceTab) => {
@@ -86,7 +86,7 @@ export function WorkspaceNav({
             className={cn(
               'flex items-center justify-center gap-2 rounded-lg px-2.5 py-2 text-sm font-normal transition-all',
               isActive
-                ? 'bg-card text-card-foreground shadow-[0_2px_0_rgba(30,27,50,0.10),0_4px_10px_rgba(35,33,41,0.06)]'
+                ? 'bg-card text-card-foreground shadow-[0_2px_0_hsl(var(--foreground)/0.10),0_4px_10px_hsl(var(--foreground)/0.06)]'
                 : 'text-muted-foreground hover:text-foreground',
             )}
           >

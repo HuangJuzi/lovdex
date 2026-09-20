@@ -73,7 +73,7 @@ export function AnchorPopover({
           ref={popRef}
           role="dialog"
           aria-label={ariaLabel}
-          className="absolute inset-x-0 bottom-0 max-h-[70vh] overflow-y-auto rounded-t-2xl border border-border bg-popover p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] shadow-[0_-8px_30px_rgba(0,0,0,0.2)]"
+          className="absolute inset-x-0 bottom-0 max-h-[70vh] overflow-y-auto rounded-t-2xl border border-border bg-popover p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] shadow-[0_-8px_30px_hsl(var(--foreground)/0.2)]"
         >
           {children}
         </div>
@@ -89,7 +89,7 @@ export function AnchorPopover({
           right: align === 'right' ? pos.vw - pos.right : undefined,
           maxWidth: 'min(440px, calc(100vw - 24px))',
         }}
-        className="fixed z-[60] min-w-[200px] rounded-lg border border-border bg-popover p-1.5 text-popover-foreground shadow-[0_8px_26px_rgba(0,0,0,0.14)]"
+        className="fixed z-[60] min-w-[200px] rounded-lg border border-border bg-popover p-1.5 text-popover-foreground shadow-[0_8px_26px_hsl(var(--foreground)/0.14)]"
       >
         {children}
       </div>

@@ -344,7 +344,7 @@ export function CreateTaskDialog({
           {isAssistant && (
             <p className="mt-2 text-xs text-muted-foreground">🤖 Lovdex助手任务固定使用 Claude + 默认模型，以上引擎/模型设置将被忽略。</p>
           )}
-          {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+          {error && <p className="mt-2 text-sm text-destructive">{error}</p>}
 
           <div className="mt-3 flex items-center justify-end gap-2">
             <span className="mr-auto text-xs text-muted-foreground">{isMobile ? 'Enter 创建 · Shift+Enter 换行' : ''}</span>

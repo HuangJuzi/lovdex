@@ -143,7 +143,7 @@ export function TaskTableView({
   const hasVisibleRows = visibleStatuses.some((s) => groups[s].length > 0);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col rounded-2xl border border-border/70 bg-card text-card-foreground shadow-[0_3px_0_rgba(30,27,50,0.07),0_12px_26px_rgba(35,33,41,0.07)]">
+    <div className="flex min-h-0 flex-1 flex-col rounded-2xl border border-border/70 bg-card text-card-foreground shadow-[0_3px_0_hsl(var(--foreground)/0.07),0_12px_26px_hsl(var(--foreground)/0.07)]">
       {/* 状态筛选行：固定，不随表格横向滚动。折叠筛选区时整行不渲染（筛选本身仍生效）。 */}
       {showStatusFilter && (
         <div
@@ -343,7 +343,7 @@ function TaskRow({
           {LABEL_META[label] && (
             <span
               className="rounded-full px-2 py-0.5 font-semibold"
-              style={{ color: LABEL_META[label].color, backgroundColor: `${LABEL_META[label].color}1a` }}
+              style={{ color: LABEL_META[label].color, backgroundColor: LABEL_META[label].bg }}
             >
               {LABEL_META[label].label}
             </span>
@@ -388,7 +388,7 @@ function TaskRow({
             title={task.is_operator === 1 ? '🤖 Lovdex助手' : task.project_path}
             className={`block max-w-40 truncate ${
               task.is_operator === 1
-                ? 'font-medium text-violet-600 dark:text-violet-400'
+                ? 'font-medium text-chart-6'
                 : 'text-muted-foreground'
             }`}
           >
@@ -410,7 +410,7 @@ function TaskRow({
         {PRIORITY_META[priority] && (
           <span
             className="rounded-full px-2 py-0.5 text-[11px] font-semibold"
-            style={{ color: PRIORITY_META[priority].color, backgroundColor: `${PRIORITY_META[priority].color}1a` }}
+            style={{ color: PRIORITY_META[priority].color, backgroundColor: PRIORITY_META[priority].bg }}
           >
             {PRIORITY_META[priority].label}
           </span>
@@ -429,7 +429,7 @@ function TaskRow({
       {/* 截止日期 */}
       <td className="whitespace-nowrap bg-card px-3 py-3 text-xs shadow-sm">
         {task.deadline ? (
-          <span className={overdue ? 'font-semibold text-red-500' : 'text-muted-foreground'}>
+          <span className={overdue ? 'font-semibold text-destructive' : 'text-muted-foreground'}>
             {task.deadline}
           </span>
         ) : (
@@ -466,7 +466,7 @@ function TaskRow({
           {task.status === 'in_review' && (
             <ActionBtn
               onClick={() => onStatusChange?.(task, 'done')}
-              className="bg-green-500/10 text-green-600 dark:text-green-400"
+              className="bg-success/10 text-success"
             >
               ✓ 标记完成
             </ActionBtn>
@@ -474,7 +474,7 @@ function TaskRow({
           {task.status === 'done' && (
             <ActionBtn
               onClick={() => onStatusChange?.(task, 'archived')}
-              className="bg-gray-500/10 text-gray-500 dark:text-gray-400"
+              className="bg-muted/50 text-muted-foreground"
             >
               🗄 归档
             </ActionBtn>
@@ -482,7 +482,7 @@ function TaskRow({
           {task.status === 'archived' && (
             <ActionBtn
               onClick={() => onStatusChange?.(task, 'done')}
-              className="bg-gray-500/10 text-gray-500 dark:text-gray-400"
+              className="bg-muted/50 text-muted-foreground"
             >
               ↩ 取消归档
             </ActionBtn>

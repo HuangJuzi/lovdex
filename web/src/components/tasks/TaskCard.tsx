@@ -50,7 +50,7 @@ export const TaskCard = memo(function TaskCard({
 
   return (
     <div
-      className="cursor-pointer rounded-2xl border border-border/70 bg-card p-3 transition-all shadow-[0_3px_0_rgba(30,27,50,0.07),0_8px_18px_rgba(35,33,41,0.05)] hover:-translate-y-0.5 hover:shadow-[0_5px_0_rgba(30,27,50,0.08),0_12px_24px_rgba(35,33,41,0.10)]"
+      className="cursor-pointer rounded-2xl border border-border/70 bg-card p-3 transition-all shadow-[0_3px_0_hsl(var(--foreground)/0.07),0_8px_18px_hsl(var(--foreground)/0.05)] hover:-translate-y-0.5 hover:shadow-[0_5px_0_hsl(var(--foreground)/0.08),0_12px_24px_hsl(var(--foreground)/0.10)]"
       onClick={() => navigate(`/task/${task.task_id}`)}
     >
       <div className="flex items-start gap-2">
@@ -77,20 +77,20 @@ export const TaskCard = memo(function TaskCard({
         {label && LABEL_META[label] && (
           <span
             className="rounded-full px-2 py-0.5 font-semibold"
-            style={{ color: LABEL_META[label].color, backgroundColor: `${LABEL_META[label].color}1a` }}
+            style={{ color: LABEL_META[label].color, backgroundColor: LABEL_META[label].bg }}
           >
             {LABEL_META[label].label}
           </span>
         )}
         {task.source_schedule_id && (
-          <span className="rounded-full bg-amber-500/10 px-2 py-0.5 font-semibold text-amber-600 dark:text-amber-400">
+          <span className="rounded-full bg-warning/10 px-2 py-0.5 font-semibold text-warning">
             ⏰ 定时
           </span>
         )}
         {priority && PRIORITY_META[priority] && (
           <span
             className="rounded-full px-2 py-0.5 font-semibold"
-            style={{ color: PRIORITY_META[priority].color, backgroundColor: `${PRIORITY_META[priority].color}1a` }}
+            style={{ color: PRIORITY_META[priority].color, backgroundColor: PRIORITY_META[priority].bg }}
           >
             {PRIORITY_META[priority].label}
           </span>
@@ -99,7 +99,7 @@ export const TaskCard = memo(function TaskCard({
           <span
             className={`rounded-full px-2 py-0.5 font-medium ${
               deadline.overdue
-                ? 'bg-red-500/10 text-red-500 dark:text-red-400'
+                ? 'bg-destructive/10 text-destructive'
                 : 'bg-muted text-muted-foreground'
             }`}
           >
@@ -117,7 +117,7 @@ export const TaskCard = memo(function TaskCard({
       )}
       <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px]">
         {task.is_operator === 1 && (
-          <span className="rounded-full bg-violet-500/10 px-2 py-0.5 font-semibold text-violet-500 dark:text-violet-400">
+          <span className="rounded-full bg-chart-6/10 px-2 py-0.5 font-semibold text-chart-6">
             🤖 Lovdex助手
           </span>
         )}
@@ -186,7 +186,7 @@ export const TaskCard = memo(function TaskCard({
               e.stopPropagation();
               onStart();
             }}
-            className="min-h-9 min-w-0 flex-1 rounded-lg bg-primary py-1.5 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90 sm:min-h-0 shadow-[0_2px_0_#1c3fa8]"
+            className="min-h-9 min-w-0 flex-1 rounded-lg bg-primary py-1.5 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90 sm:min-h-0 shadow-[0_2px_0_hsl(var(--primary))]"
           >
             ▶ 开始执行
           </button>
@@ -197,7 +197,7 @@ export const TaskCard = memo(function TaskCard({
               e.stopPropagation();
               onStart();
             }}
-            className="min-h-9 min-w-0 flex-1 rounded-lg bg-primary py-1.5 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90 sm:min-h-0 shadow-[0_2px_0_#1c3fa8]"
+            className="min-h-9 min-w-0 flex-1 rounded-lg bg-primary py-1.5 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90 sm:min-h-0 shadow-[0_2px_0_hsl(var(--primary))]"
           >
             ↻ 重试
           </button>
@@ -208,7 +208,7 @@ export const TaskCard = memo(function TaskCard({
               e.stopPropagation();
               onStatusChange?.('done');
             }}
-            className="min-h-9 min-w-0 flex-1 rounded-lg bg-green-500/10 py-1.5 text-xs font-semibold text-green-600 transition-colors hover:bg-green-500/20 dark:text-green-400 sm:min-h-0 shadow-[0_2px_0_rgba(30,27,50,0.08)]"
+            className="min-h-9 min-w-0 flex-1 rounded-lg bg-success/10 py-1.5 text-xs font-semibold text-success transition-colors hover:bg-success/20 sm:min-h-0 shadow-[0_2px_0_hsl(var(--foreground)/0.08)]"
           >
             ✓ 标记完成
           </button>
@@ -219,7 +219,7 @@ export const TaskCard = memo(function TaskCard({
               e.stopPropagation();
               onStatusChange?.('archived');
             }}
-            className="min-h-9 min-w-0 flex-1 rounded-lg bg-gray-500/10 py-1.5 text-xs font-semibold text-gray-500 transition-colors hover:bg-gray-500/20 sm:min-h-0 shadow-[0_2px_0_rgba(30,27,50,0.08)] dark:text-gray-400"
+            className="min-h-9 min-w-0 flex-1 rounded-lg bg-muted/50 py-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:bg-muted sm:min-h-0 shadow-[0_2px_0_hsl(var(--foreground)/0.08)]"
           >
             🗄 归档
           </button>
@@ -230,7 +230,7 @@ export const TaskCard = memo(function TaskCard({
               e.stopPropagation();
               onStatusChange?.('done');
             }}
-            className="min-h-9 min-w-0 flex-1 rounded-lg bg-gray-500/10 py-1.5 text-xs font-semibold text-gray-500 transition-colors hover:bg-gray-500/20 sm:min-h-0 shadow-[0_2px_0_rgba(30,27,50,0.08)] dark:text-gray-400"
+            className="min-h-9 min-w-0 flex-1 rounded-lg bg-muted/50 py-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:bg-muted sm:min-h-0 shadow-[0_2px_0_hsl(var(--foreground)/0.08)]"
           >
             ↩ 取消归档
           </button>
@@ -250,7 +250,7 @@ export const TaskCard = memo(function TaskCard({
                 e.stopPropagation();
                 onOpenSession();
               }}
-              className="min-h-9 min-w-0 flex-1 rounded-lg bg-primary/10 py-1.5 text-xs font-semibold text-primary transition-colors hover:bg-primary/20 sm:min-h-0 shadow-[0_2px_0_rgba(30,27,50,0.08)]"
+              className="min-h-9 min-w-0 flex-1 rounded-lg bg-primary/10 py-1.5 text-xs font-semibold text-primary transition-colors hover:bg-primary/20 sm:min-h-0 shadow-[0_2px_0_hsl(var(--foreground)/0.08)]"
             >
               打开会话
             </button>

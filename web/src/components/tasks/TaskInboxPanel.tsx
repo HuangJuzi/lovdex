@@ -18,17 +18,17 @@ type TaskInboxPanelProps = {
 };
 
 const TONE_STYLE: Record<AttentionTone, CSSProperties> = {
-  wait:   { color: '#92400e', backgroundColor: '#fef3c7', borderColor: '#fde68a' },
-  fail:   { color: '#991b1b', backgroundColor: '#fee2e2', borderColor: '#fecaca' },
-  accept: { color: '#7e22ce', backgroundColor: '#f3e8ff', borderColor: '#e9d5ff' },
-  plan:   { color: '#1e40af', backgroundColor: '#dbeafe', borderColor: '#bfdbfe' },
-  late:   { color: '#991b1b', backgroundColor: '#fee2e2', borderColor: '#fecaca' },
+  wait:   { color: 'hsl(var(--warning))', backgroundColor: 'hsl(var(--warning) / 0.1)', borderColor: 'hsl(var(--warning) / 0.3)' },
+  fail:   { color: 'hsl(var(--destructive))', backgroundColor: 'hsl(var(--destructive) / 0.1)', borderColor: 'hsl(var(--destructive) / 0.3)' },
+  accept: { color: 'hsl(var(--chart-6))', backgroundColor: 'hsl(var(--chart-6) / 0.1)', borderColor: 'hsl(var(--chart-6) / 0.3)' },
+  plan:   { color: 'hsl(var(--info))', backgroundColor: 'hsl(var(--info) / 0.1)', borderColor: 'hsl(var(--info) / 0.3)' },
+  late:   { color: 'hsl(var(--destructive))', backgroundColor: 'hsl(var(--destructive) / 0.1)', borderColor: 'hsl(var(--destructive) / 0.3)' },
 };
 
 const ACTION_META: Record<AttentionAction, { label: string; className: string }> = {
   retry:       { label: '↻ 重试', className: 'bg-primary/10 text-primary hover:bg-primary/20' },
   start:       { label: '▶ 开始执行', className: 'bg-primary/10 text-primary hover:bg-primary/20' },
-  accept:      { label: '✓ 标记完成', className: 'bg-green-500/10 text-green-600 hover:bg-green-500/20 dark:text-green-400' },
+  accept:      { label: '✓ 标记完成', className: 'bg-success/10 text-success hover:bg-success/20' },
   openSession: { label: '打开会话', className: 'bg-muted text-muted-foreground hover:bg-primary/10 hover:text-primary' },
   openTask:    { label: '查看', className: 'bg-muted text-muted-foreground hover:bg-primary/10 hover:text-primary' },
 };

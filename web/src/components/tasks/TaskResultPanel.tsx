@@ -37,9 +37,9 @@ export function TaskResultPanel({ state, content, onRefresh }: TaskResultPanelPr
       )}
       {state === 'error' && (
         <div className="flex items-center gap-3">
-          <div className="text-sm text-red-500">加载结果失败</div>
+          <div className="text-sm text-destructive">加载结果失败</div>
           <button
-            className="rounded-md bg-red-500/10 px-2 py-1 text-xs text-red-500 hover:bg-red-500/20"
+            className="rounded-md bg-destructive/10 px-2 py-1 text-xs text-destructive hover:bg-destructive/20"
             onClick={onRefresh}
           >
             重试

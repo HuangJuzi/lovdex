@@ -441,7 +441,7 @@ export function TaskDetailPage() {
       <div className="flex h-dvh flex-col items-center justify-center gap-3 bg-background">
         <div className="text-sm text-muted-foreground">加载任务失败</div>
         <button
-          className="rounded-lg bg-primary px-3 py-1.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 shadow-[0_2px_0_#1c3fa8]"
+          className="rounded-lg bg-primary px-3 py-1.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 shadow-[0_2px_0_hsl(var(--primary))]"
           onClick={() => void load()}
         >
           重试
@@ -465,7 +465,7 @@ export function TaskDetailPage() {
             title="任务面板"
             aria-label="任务面板"
           >
-            <ClipboardList className="text-amber-500" />
+            <ClipboardList className="text-warning" />
             任务面板
           </Button>
           <div className="min-w-0 flex-1">
@@ -478,13 +478,13 @@ export function TaskDetailPage() {
               }}
             />
             {task.is_operator === 1 && (
-              <span className="mt-1 inline-flex items-center rounded-full bg-violet-500/10 px-2 py-0.5 text-[11px] font-semibold text-violet-500 dark:text-violet-400">
+              <span className="mt-1 inline-flex items-center rounded-full bg-chart-6/10 px-2 py-0.5 text-[11px] font-semibold text-chart-6">
                 🤖 Lovdex助手
               </span>
             )}
             {task.source_schedule_id && (
               <button
-                className="mt-1 ml-2 inline-flex items-center rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] font-semibold text-amber-600 hover:bg-amber-500/20 dark:text-amber-400"
+                className="mt-1 ml-2 inline-flex items-center rounded-full bg-warning/10 px-2 py-0.5 text-[11px] font-semibold text-warning hover:bg-warning/20"
                 onClick={() => navigate('/tasks?view=scheduled')}
               >
                 ⏰ 定时
@@ -516,7 +516,7 @@ export function TaskDetailPage() {
               )
             ) : task.status !== 'archived' ? (
               <button
-                className="w-full rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90 sm:px-6 shadow-[0_2px_0_#1c3fa8]"
+                className="w-full rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90 sm:px-6 shadow-[0_2px_0_hsl(var(--primary))]"
                 onClick={() => void startExecution()}
               >
                 ▶ 开始执行
@@ -525,7 +525,7 @@ export function TaskDetailPage() {
             <div className="flex w-full gap-2 sm:gap-3">
               {task.status !== 'done' && task.status !== 'archived' && (
                 <button
-                  className="flex-1 rounded-md bg-green-500/15 px-4 py-2 text-sm font-semibold text-green-500 hover:bg-green-500/25 dark:text-green-400 sm:w-auto sm:flex-none sm:px-6"
+                  className="flex-1 rounded-md bg-success/15 px-4 py-2 text-sm font-semibold text-success hover:bg-success/25 sm:w-auto sm:flex-none sm:px-6"
                   onClick={() => updateStatus('done')}
                 >
                   ✓ 标记完成
@@ -533,7 +533,7 @@ export function TaskDetailPage() {
               )}
               {task.status === 'done' && (
                 <button
-                  className="flex-1 rounded-md bg-gray-500/15 px-4 py-2 text-sm font-semibold text-gray-500 hover:bg-gray-500/25 sm:w-auto sm:flex-none sm:px-6 dark:text-gray-400"
+                  className="flex-1 rounded-md bg-muted/50 px-4 py-2 text-sm font-semibold text-muted-foreground hover:bg-muted sm:w-auto sm:flex-none sm:px-6"
                   onClick={() => updateStatus('archived')}
                 >
                   🗄 归档
@@ -541,14 +541,14 @@ export function TaskDetailPage() {
               )}
               {task.status === 'archived' && (
                 <button
-                  className="flex-1 rounded-md bg-gray-500/15 px-4 py-2 text-sm font-semibold text-gray-500 hover:bg-gray-500/25 sm:w-auto sm:flex-none sm:px-6 dark:text-gray-400"
+                  className="flex-1 rounded-md bg-muted/50 px-4 py-2 text-sm font-semibold text-muted-foreground hover:bg-muted sm:w-auto sm:flex-none sm:px-6"
                   onClick={() => updateStatus('done')}
                 >
                   ↩ 取消归档
                 </button>
               )}
               <button
-                className="flex-1 rounded-md bg-red-500/10 px-4 py-2 text-sm text-red-500 hover:bg-red-500/20 dark:text-red-400 sm:w-auto sm:flex-none sm:px-6"
+                className="flex-1 rounded-md bg-destructive/10 px-4 py-2 text-sm text-destructive hover:bg-destructive/20 sm:w-auto sm:flex-none sm:px-6"
                 onClick={remove}
               >
                 删除
@@ -559,18 +559,18 @@ export function TaskDetailPage() {
 
         {/* 状态横幅：失败 / 等你…（有状态才出现） */}
         {task.sub_status === 'failed' && task.session_id && (
-          <div className="mt-4 flex flex-col gap-3 rounded-md border border-red-500/40 bg-red-500/10 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="mt-4 flex flex-col gap-3 rounded-md border border-destructive/30 bg-destructive/10 p-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-start gap-2">
-              <span className="mt-0.5 h-2 w-2 shrink-0 rounded-full bg-red-500" />
+              <span className="mt-0.5 h-2 w-2 shrink-0 rounded-full bg-destructive" />
               <div>
-                <div className="text-sm font-semibold text-red-500">执行失败</div>
+                <div className="text-sm font-semibold text-destructive">执行失败</div>
                 <p className="mt-1 text-xs text-muted-foreground">
                   任务执行出错，可以重试或打开会话查看原因。
                 </p>
               </div>
             </div>
             <button
-              className="w-full shrink-0 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90 sm:w-auto shadow-[0_2px_0_#1c3fa8]"
+              className="w-full shrink-0 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90 sm:w-auto shadow-[0_2px_0_hsl(var(--primary))]"
               onClick={() => retryTask()}
             >
               ↻ 重试
@@ -591,16 +591,16 @@ export function TaskDetailPage() {
             desc = 'Lovdex助手已出 plan，等你确认后才会开始执行。';
           }
           return (
-            <div className="mt-4 flex flex-col gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="mt-4 flex flex-col gap-3 rounded-md border border-warning/30 bg-warning/10 p-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-start gap-2">
-                <span className="mt-0.5 h-2 w-2 shrink-0 animate-pulse rounded-full bg-amber-500" />
+                <span className="mt-0.5 h-2 w-2 shrink-0 animate-pulse rounded-full bg-warning" />
                 <div>
-                  <div className="text-sm font-semibold text-amber-500">{label}</div>
+                  <div className="text-sm font-semibold text-warning">{label}</div>
                   <p className="mt-1 text-xs text-muted-foreground">{desc}</p>
                 </div>
               </div>
               <button
-                className="w-full shrink-0 rounded-md bg-amber-500/15 px-4 py-2 text-sm font-semibold text-amber-600 transition-colors hover:bg-amber-500/25 dark:text-amber-400 sm:w-auto"
+                className="w-full shrink-0 rounded-md bg-warning/15 px-4 py-2 text-sm font-semibold text-warning transition-colors hover:bg-warning/25 sm:w-auto"
                 onClick={() => navigate(`/session/${task.session_id}`)}
               >
                 去处理
@@ -611,7 +611,7 @@ export function TaskDetailPage() {
 
         <div className="mt-6 flex flex-col gap-6">
           <div className="flex flex-col gap-6">
-            <div className="rounded-2xl border border-border/70 bg-card text-card-foreground shadow-[0_3px_0_rgba(30,27,50,0.07),0_12px_26px_rgba(35,33,41,0.07)] p-4">
+            <div className="rounded-2xl border border-border/70 bg-card text-card-foreground shadow-[0_3px_0_hsl(var(--foreground)/0.07),0_12px_26px_hsl(var(--foreground)/0.07)] p-4">
               <textarea
                 className="min-h-[160px] w-full resize-y bg-transparent text-sm text-muted-foreground outline-none"
                 value={description}
@@ -623,7 +623,7 @@ export function TaskDetailPage() {
               />
             </div>
             {(task.ai_summary || task.verdict_reason || task.verdict_at) && (
-              <div className="rounded-2xl border border-border/70 bg-card text-card-foreground shadow-[0_3px_0_rgba(30,27,50,0.07),0_12px_26px_rgba(35,33,41,0.07)] p-4">
+              <div className="rounded-2xl border border-border/70 bg-card text-card-foreground shadow-[0_3px_0_hsl(var(--foreground)/0.07),0_12px_26px_hsl(var(--foreground)/0.07)] p-4">
                 <div className="mb-2 flex items-center justify-between">
                   <h4 className="text-xs uppercase tracking-wide text-muted-foreground">完成度</h4>
                   {task.sub_status && ['done', 'only_plan', 'needs_review', 'blocked'].includes(task.sub_status) && (
@@ -652,7 +652,7 @@ export function TaskDetailPage() {
             />
           </div>
           <div className="flex flex-col gap-3">
-            <div className="rounded-2xl border border-border/70 bg-card text-card-foreground shadow-[0_3px_0_rgba(30,27,50,0.07),0_12px_26px_rgba(35,33,41,0.07)] p-4">
+            <div className="rounded-2xl border border-border/70 bg-card text-card-foreground shadow-[0_3px_0_hsl(var(--foreground)/0.07),0_12px_26px_hsl(var(--foreground)/0.07)] p-4">
               <h4 className="mb-3 text-xs uppercase tracking-wide text-muted-foreground">属性</h4>
               <div className="flex max-w-xl flex-col gap-3">
                 <div className="flex items-center gap-3">
