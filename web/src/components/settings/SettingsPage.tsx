@@ -8,6 +8,7 @@ import { HomeButton } from '../tasks/TaskBackNav';
 import { ProviderSettingsForm } from './ProviderSettingsPage';
 import { OperatorSettingsForm } from './OperatorSettingsForm';
 import { OperatorSkillExecSettings } from './OperatorSkillExecSettings';
+import { InboxSkillSettings } from './InboxSkillSettings';
 import { DatabaseSettingsForm } from './DatabaseSettingsForm';
 import { RemoteHostsSettingsSection } from './RemoteHostsSettingsSection';
 import { AccountSettingsSection } from './AccountSettingsSection';
@@ -89,6 +90,7 @@ export default function SettingsPage() {
                 <>
                   <OperatorSettingsForm />
                   <OperatorSkillExecSettings />
+                  <InboxSkillSettings />
                 </>
               )}
               {activeTab === 'remote-hosts' && <RemoteHostsSettingsSection />}
