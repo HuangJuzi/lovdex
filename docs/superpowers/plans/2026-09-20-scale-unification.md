@@ -23,7 +23,7 @@ unset TSX_TSCONFIG_PATH   # 仓库全局导出了该变量，会让 tsx 读错 t
 
 | 项目 | 基线（2026-09-20 实测） |
 |---|---|
-| `text-[…px]` 任意字号 | 153 处 / 52 文件 |
+| 任意字号 | **156 处**（153 个 `px` + 3 个 `em`）/ 55 文件 |
 | `rounded-[…]` 任意圆角 | 3 处（`[3px]` ×2、`[inherit]` ×1） |
 | `index.css` 硬编码 `border-radius` | **6 处**（`index.css` 5 + `editorStyles.ts` 1） |
 | 5 种重复 3D 阴影配方（内联） | 27 处 / 13 文件 |
@@ -65,6 +65,11 @@ npx tsx --test $(find src -name "*.test.ts" -o -name "*.test.tsx" | tr '\n' ' ')
 | `text-[14px]` | `text-sm` | 14px |
 | `text-[13px]` | `text-sm` | 14px（**吸附，+1px**） |
 | `text-[10.5px]` | `text-2xs` | 11px（**吸附，+0.5px**） |
+| `text-[0.9em]` | `text-inline-code` | 0.9em（**相对值，见下**） |
+
+> **关于 `text-[0.9em]`（3 处）**：它们全是 Markdown 的**行内代码**（`<code>` 嵌在正文里）。用 `em` 是**有意相对**——代码片段要跟着所在正文（标题、列表项、段落）的字号缩放，换成固定 px 会破坏这个行为。所以刻度里为它保留一个**相对档位** `inline-code: "0.9em"`，而不是塞进 px 刻度。
+>
+> 这 3 处由代码审查发现（守卫原本只匹配 `px`，看不见它们）。若不处理，Task 4 完成后仍会残留 3 处任意值。
 
 ### 阴影（仅命名，取值逐字不变）
 
@@ -147,7 +152,7 @@ function report(found: string[]): string {
   return `${found.length} occurrences, first 10:\n  ${sample}`;
 }
 
-const ARBITRARY_FONT_SIZE = /\btext-\[[0-9.]+px\]/g;
+const ARBITRARY_FONT_SIZE = /\btext-\[[0-9.]+(?:px|em|rem)\]/g;
 const ARBITRARY_RADIUS = /\brounded(?:-[a-z]+)*-\[([^\]]+)\]/g;
 const HARDCODED_BORDER_RADIUS = /border-radius:\s*[0-9]/g;
 
@@ -215,7 +220,7 @@ Expected: **4 个测试全挂**，计数如下（已实测）：
 
 | 测试 | 期望失败数 |
 |---|---|
-| no arbitrary font sizes | 153 |
+| no arbitrary font sizes | 156 |
 | no arbitrary radius values | 2 |
 | no hardcoded border-radius in CSS | 6 |
 | recurring 3D shadow recipes inlined | 27 |
@@ -270,10 +275,14 @@ git commit -m "test(design): guard radius, font-size and shadow against arbitrar
         base: "16px",
         lg: "18px",
         xl: "20px",
+        // The one RELATIVE step: inline code inside Markdown prose must scale
+        // with whatever it sits in (heading, list item, paragraph). Do not
+        // "fix" this to px -- see the plan's note on text-[0.9em].
+        "inline-code": "0.9em",
       },
 ```
 
-显式写出 `xs`/`sm`/`base`/`lg`/`xl` 的 Tailwind 默认值，是为了让刻度表在一处可见。
+显式写出 `xs`/`sm`/`base`/`lg`/`xl` 的 Tailwind 默认值，是为了让刻度表在一处可见。`inline-code` 是唯一的相对档位，理由见上。
 
 - [ ] **Step 3: 新增 5 个 `boxShadow` 配方**
 
@@ -398,7 +407,7 @@ git commit -m "refactor(design): migrate radius values onto the named scale"
 
 ---
 
-## Task 4: 迁移字号（153 处 / 52 文件）
+## Task 4: 迁移字号（156 处 / 55 文件）
 
 **Files:**
 - Modify: `src/**/*.tsx`（52 个文件，见下表）
@@ -416,12 +425,13 @@ git commit -m "refactor(design): migrate radius values onto the named scale"
 | `text-[12px]` | `text-xs` | 3 |
 | `text-[14px]` | `text-sm` | 1 |
 | `text-[10.5px]` | `text-2xs` | 1 |
+| `text-[0.9em]` | `text-inline-code` | 3 |
 
 用精确字符串替换（**不要用正则匹配数字**，否则会把 `text-[10px]` 误伤成 `text-1xs`）：
 
 ```bash
 cd /mnt/b/workdir/github/lovdex/web
-FILES=$(grep -rlE 'text-\[[0-9.]+px\]' src --include=*.tsx)
+FILES=$(grep -rlE 'text-\[[0-9.]+(px|em|rem)\]' src --include=*.tsx)
 for f in $FILES; do
   sed -i \
     -e 's/text-\[11px\]/text-2xs/g' \
@@ -431,6 +441,7 @@ for f in $FILES; do
     -e 's/text-\[12px\]/text-xs/g' \
     -e 's/text-\[14px\]/text-sm/g' \
     -e 's/text-\[10\.5px\]/text-2xs/g' \
+    -e 's/text-\[0\.9em\]/text-inline-code/g' \
     "$f"
 done
 ```
@@ -440,12 +451,12 @@ done
 - [ ] **Step 2: 确认替换彻底**
 
 ```bash
-echo -n "剩余任意字号: "; grep -rhoE 'text-\[[0-9.]+px\]' src --include=*.tsx | wc -l
+echo -n "剩余任意字号: "; grep -rhoE 'text-\[[0-9.]+(px|em|rem)\]' src --include=*.tsx | wc -l
 echo "=== 新类名的使用量 ==="
-grep -rhoE '\btext-(2xs|3xs|4xs)\b' src --include=*.tsx | sort | uniq -c
+grep -rhoE '\btext-(2xs|3xs|4xs|inline-code)\b' src --include=*.tsx | sort | uniq -c
 ```
 
-Expected: 剩余 **0**；`text-2xs` 83、`text-3xs` 49、`text-4xs` 10。
+Expected: 剩余 **0**；`text-2xs` 83、`text-3xs` 49、`text-4xs` 10、`text-inline-code` 3。
 
 - [ ] **Step 3: 验证**
 
@@ -566,7 +577,7 @@ Expected: **4 tests / 4 pass / 0 fail**。
 - [ ] **Step 2: 独立复核四项指标（不依赖守卫）**
 
 ```bash
-echo -n "任意字号: "; grep -rhoE 'text-\[[0-9.]+px\]' src --include=*.tsx --include=*.ts | wc -l
+echo -n "任意字号: "; grep -rhoE 'text-\[[0-9.]+(px|em|rem)\]' src --include=*.tsx --include=*.ts | wc -l
 echo -n "任意圆角(除 inherit): "; grep -rhoE 'rounded(-[a-z]+)*-\[[^]]+\]' src --include=*.tsx --include=*.ts | grep -v '\[inherit\]' | wc -l
 echo -n "CSS 硬编码 border-radius: "; grep -rhoE 'border-radius:\s*[0-9]' src --include=*.css | wc -l
 echo -n "重复阴影配方: "; node -e "
