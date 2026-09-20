@@ -395,6 +395,9 @@ export const api = {
     unreadCount: () => authenticatedFetch('/api/notifications/unread-count'),
     markRead: (id) => authenticatedFetch(`/api/notifications/${encodeURIComponent(id)}/read`, { method: 'POST' }),
     markAllRead: () => authenticatedFetch('/api/notifications/read-all', { method: 'POST' }),
+    skillStatus: () => authenticatedFetch('/api/notifications/skill'),
+    skillInstall: () => authenticatedFetch('/api/notifications/skill/install', { method: 'POST' }),
+    skillUninstall: () => authenticatedFetch('/api/notifications/skill/uninstall', { method: 'POST' }),
   },
 
   // Operator Agent configuration (auto-verdict, auto-move, model, concurrency).
