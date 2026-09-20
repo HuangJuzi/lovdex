@@ -4,6 +4,8 @@ import test from 'node:test';
 
 import express from 'express';
 
+import { AppError } from '@/shared/utils.js';
+
 import { createSkillSyncRouter } from '../skill-sync.routes.js';
 import type { SkillSyncService } from '../skill-sync.service.js';
 
@@ -41,7 +43,19 @@ async function withServer(
   app.use(express.json());
   app.use('/api/skills', createSkillSyncRouter(deps));
   app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-    res.status(400).json({ error: err.message });
+    // Mirrors the production handler in server/index.js: an AppError carries its
+    // own status + message through to the client, while a bare Error is
+    // flattened into an opaque 500. Using the same shape here is what makes
+    // these tests able to catch a regression where an actionable error (offline
+    // host, lite needs deploying, expired preview) loses its message.
+    if (err instanceof AppError) {
+      return res
+        .status(err.statusCode)
+        .json({ success: false, error: { code: err.code, message: err.message } });
+    }
+    return res
+      .status(500)
+      .json({ success: false, error: { code: 'INTERNAL_ERROR', message: 'Internal server error' } });
   });
   const server = http.createServer(app);
   await new Promise<void>((resolve) => server.listen(0, resolve));
@@ -99,7 +113,7 @@ test('POST /sync/plan rejects an invalid node label', async () => {
       body: JSON.stringify({ from: 'nope', to: 'local', scope: 'user' }),
     });
     assert.equal(res.status, 400);
-    assert.match(((await res.json()) as { error: string }).error, /invalid skill node/);
+    assert.match(((await res.json()) as { error: { message: string } }).error.message, /invalid skill node/);
   });
 });
 
@@ -146,7 +160,7 @@ test('POST /sync/apply surfaces an expired plan as 400', async () => {
       body: JSON.stringify({ planId: 'gone' }),
     });
     assert.equal(res.status, 400);
-    assert.match(((await res.json()) as { error: string }).error, /plan not found or expired/);
+    assert.match(((await res.json()) as { error: { message: string } }).error.message, /plan not found or expired/);
   });
 });
 
@@ -161,4 +175,57 @@ test('GET /manifest parses the node label and forwards scope/projectId', async (
     assert.equal(res.status, 200);
   });
   assert.deepEqual(seen, { node: { kind: 'remote', hostId: 'h1' }, scope: 'project', projectId: 7 });
+});
+
+// Regression guards for the message-preservation contract. Before these, an
+// offline host or an un-upgraded lite surfaced to the UI as a bare
+// "Internal server error" — the exact opposite of what the capability gate and
+// the offline check exist to communicate.
+
+test('an offline host surfaces its actionable message as a 400', async () => {
+  const service = fakeService({
+    plan: async () => {
+      throw new Error('远程主机 h1 不在线');
+    },
+  });
+  await withServer({ ...DEPS, service }, async (base) => {
+    const res = await fetch(`${base}/sync/plan`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ from: 'local', to: 'remote:h1', scope: 'user' }),
+    });
+    assert.equal(res.status, 400);
+    assert.equal(((await res.json()) as { error: { message: string } }).error.message, '远程主机 h1 不在线');
+  });
+});
+
+test('a lite without the skills capability surfaces the deploy hint as a 400', async () => {
+  const service = fakeService({
+    plan: async () => {
+      throw new Error('目标主机 lite 版本过旧（缺少 skills/v1），请先 deploy 升级');
+    },
+  });
+  await withServer({ ...DEPS, service }, async (base) => {
+    const res = await fetch(`${base}/sync/plan`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ from: 'local', to: 'remote:h1', scope: 'user' }),
+    });
+    assert.equal(res.status, 400);
+    assert.match(((await res.json()) as { error: { message: string } }).error.message, /请先 deploy 升级/);
+  });
+});
+
+test('a GET /manifest failure is also surfaced rather than flattened', async () => {
+  const manifest = async () => {
+    throw new Error('path outside allowed root');
+  };
+  await withServer({ ...DEPS, service: fakeService(), manifest: manifest as never }, async (base) => {
+    const res = await fetch(`${base}/manifest?node=local&scope=user`);
+    assert.equal(res.status, 400);
+    assert.equal(
+      ((await res.json()) as { error: { message: string } }).error.message,
+      'path outside allowed root',
+    );
+  });
 });

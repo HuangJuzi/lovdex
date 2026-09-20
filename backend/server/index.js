@@ -484,14 +484,21 @@ app.use('/api/providers', authenticateToken, providerRoutes);
 app.use('/api/skills', authenticateToken, createSkillSyncRouter({
     service: skillSyncService,
     getRegistry: () => getRemoteAgentsRuntime().registry,
+    // Online state comes from the LIVE registry, not remote_hosts.status: that
+    // column is only the last known value and survives a backend restart, so a
+    // host whose lite has not reconnected yet would show as selectable and then
+    // fail the plan with "不在线".
     listNodes: () => [
         { label: 'local', name: '本机', online: true },
-        ...remoteHostsDb.list().map((h) => ({
-            label: `remote:${h.host_id}`,
-            name: h.name,
-            online: h.status === 'online',
-            ...(h.status === 'online' ? {} : { reason: h.last_error || '离线' }),
-        })),
+        ...remoteHostsDb.list().map((h) => {
+            const live = remoteAgentsRegistry.isOnline(h.host_id);
+            return {
+                label: `remote:${h.host_id}`,
+                name: h.name,
+                online: live,
+                ...(live ? {} : { reason: h.last_error || '离线（lite 未连接）' }),
+            };
+        }),
     ],
 }));
 
