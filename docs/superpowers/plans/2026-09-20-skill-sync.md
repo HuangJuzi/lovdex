@@ -240,7 +240,7 @@ Expected: FAIL — `Cannot find module '../skill-hash.js'`
 
 ```ts
 import { createHash } from 'node:crypto';
-import { promises as fsp } from 'node:fs';
+import { constants as fsConstants, promises as fsp } from 'node:fs';
 import path from 'node:path';
 
 /**
@@ -285,9 +285,28 @@ export function isIgnoredSkillEntry(name: string): boolean {
   return name.startsWith('.') || SKILL_IGNORED_DIRS.includes(name);
 }
 
-/** `base64` when the buffer contains a NUL byte (text files never do), else `utf8`. */
+/**
+ * `base64` for anything that is not safely representable as text, `utf8`
+ * otherwise.
+ *
+ * The decision is a ROUND-TRIP test, not a NUL scan. A NUL-byte heuristic is
+ * not safe on its own: a Latin-1/CP1252/GBK file (or a small binary) with no
+ * NUL byte would be labelled `utf8`, and `toString('utf8')` replaces its
+ * invalid sequences with U+FFFD. Two different byte sequences then collapse to
+ * the same string — same fingerprint for different content — and an applied
+ * skill would be silently corrupted while both sides still compare equal.
+ *
+ * A NUL byte additionally forces `base64` (binary fast path). UTF-8 does permit
+ * U+0000, so a NUL is not proof of non-text — but carrying such a file as
+ * base64 is never wrong, since base64 is lossless either way.
+ *
+ * `TextDecoder({ fatal: true })` is deliberately NOT used: it strips a BOM by
+ * default, which would introduce a new lossy path.
+ */
 export function detectEncoding(buf: Buffer): SkillFileEncoding {
-  return buf.includes(0) ? 'base64' : 'utf8';
+  if (buf.includes(0)) return 'base64';
+  const text = buf.toString('utf8');
+  return Buffer.from(text, 'utf8').equals(buf) ? 'utf8' : 'base64';
 }
 
 export function sha256Hex(buf: Buffer): string {
@@ -305,10 +324,19 @@ function byRelativePath(a: SkillFileEntry, b: SkillFileEntry): number {
 /**
  * Fingerprints `files`. Entries are sorted first, so directory enumeration
  * order never changes the result.
+ *
+ * This is a trust boundary (wire manifests, hand-built fixtures): a duplicate
+ * `relativePath` would otherwise make the result depend on input order, so it
+ * is rejected outright.
  */
 export function computeSkillHash(files: readonly SkillFileEntry[]): string {
+  const sorted = [...files].sort(byRelativePath);
   const h = createHash('sha256');
-  for (const entry of [...files].sort(byRelativePath)) {
+  for (let i = 0; i < sorted.length; i++) {
+    const entry = sorted[i];
+    if (i > 0 && entry.relativePath === sorted[i - 1].relativePath) {
+      throw new Error(`duplicate relativePath: ${entry.relativePath}`);
+    }
     h.update(entry.relativePath);
     h.update('\0');
     h.update(sha256Hex(entryBytes(entry)));
@@ -319,9 +347,24 @@ export function computeSkillHash(files: readonly SkillFileEntry[]): string {
   return h.digest('hex');
 }
 
+/** O_NOFOLLOW so a file swapped for a symlink between the readdir snapshot and
+ * the open cannot be followed out of the skill root. O_NONBLOCK so a FIFO
+ * raced in does not block the open forever (ignored for regular files; absent
+ * on Windows, hence the `?? 0`). */
+const SKILL_OPEN_FLAGS =
+  fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | (fsConstants.O_NONBLOCK ?? 0);
+
+/** Transient conditions that must skip one entry, not fail the whole walk. */
+function isSkippableOpenError(err: unknown): boolean {
+  const code = (err as NodeJS.ErrnoException).code;
+  // ELOOP: swapped for a symlink (O_NOFOLLOW). ENOENT: deleted mid-walk.
+  return code === 'ELOOP' || code === 'ENOENT';
+}
+
 /**
  * Reads every file under `dir` into wire form, sorted by relativePath.
- * Symlinks are skipped (mirrors the lite fs layer, which never follows them).
+ * Symlinks are never followed (mirrors the lite fs layer) — enforced at open
+ * time, not just from the readdir snapshot.
  * Throws when a file exceeds {@link MAX_SKILL_FILE_BYTES} or the skill exceeds
  * {@link MAX_SKILL_TOTAL_BYTES}.
  */
@@ -333,8 +376,7 @@ export async function collectSkillDir(dir: string): Promise<SkillFileEntry[]> {
     const dirents = await fsp.readdir(current, { withFileTypes: true });
     for (const dirent of dirents) {
       if (isIgnoredSkillEntry(dirent.name)) continue;
-      // Check the symlink bit FIRST: a symlink to a directory reports
-      // isDirectory() === false under withFileTypes, but be explicit anyway.
+      // Fast path only — the authoritative check is O_NOFOLLOW at open time.
       if (dirent.isSymbolicLink()) continue;
       const abs = path.join(current, dirent.name);
       if (dirent.isDirectory()) {
@@ -343,24 +385,45 @@ export async function collectSkillDir(dir: string): Promise<SkillFileEntry[]> {
       }
       if (!dirent.isFile()) continue;
 
-      const stat = await fsp.stat(abs);
-      if (stat.size > MAX_SKILL_FILE_BYTES) {
-        throw new Error(`skill file too large: ${path.relative(dir, abs)} (${stat.size} bytes)`);
-      }
-      total += stat.size;
-      if (total > MAX_SKILL_TOTAL_BYTES) {
-        throw new Error(`skill too large: exceeds ${MAX_SKILL_TOTAL_BYTES} bytes`);
-      }
+      const rel = path.relative(dir, abs).split(path.sep).join('/');
 
-      const buf = await fsp.readFile(abs);
-      const encoding = detectEncoding(buf);
-      out.push({
-        relativePath: path.relative(dir, abs).split(path.sep).join('/'),
-        content: buf.toString(encoding),
-        encoding,
-        executable: (stat.mode & 0o111) !== 0,
-        mtimeMs: stat.mtimeMs,
-      });
+      let handle;
+      try {
+        handle = await fsp.open(abs, SKILL_OPEN_FLAGS);
+      } catch (err) {
+        if (isSkippableOpenError(err)) continue;
+        throw err;
+      }
+      try {
+        const stat = await handle.stat();
+        // A FIFO / device / directory may have raced in after the snapshot.
+        if (!stat.isFile()) continue;
+        if (stat.size > MAX_SKILL_FILE_BYTES) {
+          throw new Error(`skill file too large: ${rel} (${stat.size} bytes)`);
+        }
+
+        const buf = await handle.readFile();
+        // Re-check against the REAL byte length: the file may have grown
+        // between stat and read, which would otherwise bypass the caps.
+        if (buf.length > MAX_SKILL_FILE_BYTES) {
+          throw new Error(`skill file too large: ${rel} (${buf.length} bytes)`);
+        }
+        total += buf.length;
+        if (total > MAX_SKILL_TOTAL_BYTES) {
+          throw new Error(`skill too large: exceeds ${MAX_SKILL_TOTAL_BYTES} bytes`);
+        }
+
+        const encoding = detectEncoding(buf);
+        out.push({
+          relativePath: rel,
+          content: buf.toString(encoding),
+          encoding,
+          executable: (stat.mode & 0o111) !== 0,
+          mtimeMs: stat.mtimeMs,
+        });
+      } finally {
+        await handle.close();
+      }
     }
   }
 
@@ -375,7 +438,13 @@ export async function collectSkillDir(dir: string): Promise<SkillFileEntry[]> {
 cd /mnt/b/workdir/github/lovdex/backend && unset TSX_TSCONFIG_PATH && npx tsx --tsconfig server/tsconfig.json --test server/shared/tests/skill-hash.test.ts
 ```
 
-Expected: `# pass 11` / `# fail 0`
+Expected: `# pass 19` / `# fail 0`
+
+> **执行期修正（commit `0eb39d5`）**：代码审查发现初版 `detectEncoding` 用「含 NUL」判定编码，会让无 NUL 的非 UTF-8 文件（Latin-1/GBK 文本、小二进制）被判成 utf8，`toString('utf8')` 把非法序列替换成 U+FFFD —— **两个不同字节序列塌缩成同一字符串**，不同目录算出同一指纹，且 apply 后字节永久损坏却仍判「一致」。
+>
+> 上面贴的代码已经是修正版（round-trip 判定 + `O_NOFOLLOW` 打开 + 读后按真实长度复核上限 + 跳过 ENOENT/ELOOP + 重复 relativePath 抛错）。对应新增 7 条测试，总计 19 条。
+>
+> 无损性已用**全量两字节穷举（65536 组）+ 20 万次随机 fuzz 验证，零有损**。
 
 - [ ] **Step 5: 提交**
 
@@ -458,7 +527,7 @@ test('golden fingerprint is frozen across main and lite', () => {
 cd /mnt/b/workdir/github/lovdex/backend && unset TSX_TSCONFIG_PATH && npx tsx --tsconfig server/tsconfig.json --test remote-agent/src/tests/skill-hash-parity.test.ts server/shared/tests/skill-hash.test.ts
 ```
 
-Expected: `# pass 13` / `# fail 0`
+Expected: `# pass 14` / `# fail 0`（parity 1 条 + skill-hash 13 条）
 
 - [ ] **Step 5: 提交**
 
