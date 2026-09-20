@@ -4720,6 +4720,21 @@ git commit -m "docs(skill-sync): record remote e2e results"
 
 ---
 
+## 已知限制（v1 明确接受，不修）
+
+这些是执行期对抗性审查发现、**经复现确认真实存在**，但判断为 v1 可接受的问题。写在这里是为了它们不会被当成"已经处理过"。
+
+| # | 限制 | 后果 | 为什么不修 |
+|---|---|---|---|
+| L1 | `rename(dir→old)` 与 `rename(tmp→dir)` 之间进程被杀，目标处于"不存在"状态，且启动时没有恢复扫描 | 该 skill 暂时消失；`.skill-sync-old-*` 成为孤儿目录（内容仍在，可手工恢复）；下次 apply 会走 create 分支重建 | 恢复扫描是独立特性，收益低于复杂度。点前缀保证孤儿目录不进 manifest、不污染指纹 |
+| L2 | `relativePath` 为 `a/b` 与 `a/./b` 时字符串不同（`computeSkillHash` 的重复检查不报错），但 `path.join` 后落到同一路径 | 后写覆盖先写 → 校验失败 → 回滚，错误信息是 `post-write verification failed` 而非"路径冲突" | 被校验兜住，不会静默损坏。真实 bundle 由 `collectSkillDir` 产生，不含这类路径 |
+| L3 | `resolveSkillDir` 的 `path.dirname(dir) !== resolvedRoot` 用字符串相等比较 | 大小写不敏感文件系统（macOS/Windows）上，root 大小写与盘上不一致时合法名字会被拒 | Linux↔Linux 是当前唯一部署形态，不受影响 |
+| L4 | `readExistingHash` 用 `fsp.stat`（跟随符号链接） | 目标是符号链接时，drift 校验读的是外部目录内容 | 写入侧仍安全（`rename` 移动的是链接本身，最终落一个真目录），不构成逃逸 |
+| L5 | 校验发生在任何 `fsync` 之前 | "post-write verification" 保证的是崩溃一致性，不是掉电持久性 | 对同步工具超纲。文件头注释里的 "atomic-write discipline" 指的是前者 |
+| L6 | 目标位置存在同名**普通文件**时，apply 永远抛 `not a directory`，`force` 也绕不过 | 该 skill 的同步永久失败，UI 上看不出原因 | 需要先决定"force 是否允许删掉非目录目标"的产品语义 |
+
+**已修**（同样来自这次审查，经复现确认）：含被忽略路径的 bundle 永远失败、并发 apply 撞车、备份目录同毫秒撞名、回滚自身失败会留空洞、空 bundle 清空技能、`..foo` 被误判逃逸、备份无回收。见 commit `fix(skill-sync): serialize applies and harden rollback`。
+
 ## 执行记录
 
 （执行时在此追加：每台验证机的实际行为、遇到的偏差、被替代的步骤。）
