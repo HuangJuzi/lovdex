@@ -39,6 +39,8 @@ export default function InboxPage() {
     markReadLocal(it.notification_id);
     if (it.task_id) navigate(`/task/${it.task_id}`);
     else if (it.session_id) navigate(`/session/${it.session_id}`);
+    // 版本更新通知没有 task/session 关联，点它跳设置页去更新 skill。
+    else if (it.code === 'skill_update') navigate('/settings?tab=operator');
   };
 
   return (
