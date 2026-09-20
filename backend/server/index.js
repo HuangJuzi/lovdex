@@ -18,7 +18,7 @@ import * as pty from 'node-pty';
 import { AppError, WORKSPACES_ROOT, validateWorkspacePath } from '@/shared/utils.js';
 import { closeSessionsWatcher, initializeSessionsWatcher } from '@/modules/providers/index.js';
 import { createWebSocketServer, connectedClients, WS_OPEN_STATE } from '@/modules/websocket/index.js';
-import { chatRunRegistry, setTaskLinkage } from '@/modules/websocket/services/chat-run-registry.service.js';
+import { chatRunRegistry, setTaskLinkage, setSessionAlertScanner } from '@/modules/websocket/services/chat-run-registry.service.js';
 import { startHeadlessTaskRun } from '@/modules/websocket/services/headless-task-run.service.js';
 
 import { getConnectableHost } from '../shared/networkHosts.js';
@@ -76,7 +76,13 @@ import { appConfig as getAppConfig } from './modules/config/config.js';
 import { buildConfigReadRouter, buildConfigWriteRouter } from './modules/config/config.routes.js';
 import { syncProviderEnv } from './modules/config/env-sync.js';
 import { createSchedulerService, buildSchedulerRouter } from './modules/scheduler/index.js';
-import { createNotificationsDb, createNotificationsService, buildNotificationsRouter, scanCompletedTaskForAlerts } from './modules/notifications/index.js';
+import {
+    createNotificationsDb,
+    createNotificationsService,
+    buildNotificationsRouter,
+    createSessionAlertScanner,
+    createAlertSkillService,
+} from './modules/notifications/index.js';
 import { getOperatorConfig } from './modules/operators/operator.config.js';
 import { createOperatorExecService } from './modules/operators/operator-exec.service.js';
 import { buildOperatorSkillExecRouter } from './modules/operators/operator-skill-exec.routes.js';
@@ -507,21 +513,6 @@ const tasksService = createTasksService(tasksDb, {
         const sessionRow = sessionsDb.getSessionById(sessionId);
         const isOperator = Boolean(sessionRow?.is_operator);
         scheduleAutoVerdict(sessionId, taskId, title, isOperator);
-        // 通知扫描：读转录提取 lovdex-alert 标记 → emit。operator 会话（助手自身）
-        // 不参与，避免助手输出被当巡检告警。永不抛（内部已 try/catch）。
-        if (!isOperator) {
-            void scanCompletedTaskForAlerts(
-                { taskId, sessionId },
-                {
-                    fetchHistory: sessionsService.fetchHistory.bind(sessionsService),
-                    notifications: notificationsService,
-                    getTaskMeta: (id) => {
-                        const t = tasksService.getTask(id);
-                        return t ? { scheduleId: t.source_schedule_id ?? null, projectPath: t.project_path ?? null } : null;
-                    },
-                },
-            );
-        }
     },
     // Task-context compression: createTask 带 sourceSessionId 时后台把来源会话
     // 压成 context_summary（summary 模式）或存原文 context_raw（raw 模式），
@@ -2186,7 +2177,33 @@ async function startServer() {
             broadcast: (event) => broadcastTask(event),
             maxRows: 500,
         });
-        app.use('/api/notifications', authenticateToken, buildNotificationsRouter(notificationsService));
+        // 告警扫描器：会话结束时读 run.events 提取 lovdex-alert 标记。
+        // 必须在 notificationsService 赋值之后注入（registry 是模块级单例）。
+        setSessionAlertScanner(createSessionAlertScanner({
+            getSessionById: (id) => sessionsDb.getSessionById(id),
+            getTaskBySession: (id) => tasksDb.getTaskBySessionId(id),
+            notifications: notificationsService,
+        }));
+
+        // 收件箱 skill：状态从磁盘推导，装/卸走 provider skills 层（claude）。
+        const alertSkillService = createAlertSkillService();
+        app.use('/api/notifications', authenticateToken, buildNotificationsRouter(notificationsService, alertSkillService));
+
+        // 启动时比对内置 vs 已安装版本，落后就发一条 info 通知（进收件箱、
+        // 不弹窗不计角标）。失败绝不阻塞启动。
+        try {
+            const skillStatus = alertSkillService.getStatus();
+            if (skillStatus.installed && skillStatus.hasUpdate) {
+                notificationsService.emit({
+                    severity: 'info',
+                    title: `收件箱技能有新版本 v${skillStatus.bundledVersion}`,
+                    body: `已安装 v${skillStatus.installedVersion}。到设置页更新后，任务的告警格式才与后端一致。`,
+                    code: 'skill_update',
+                });
+            }
+        } catch (error) {
+            console.warn('[notifications] skill update check failed', error);
+        }
 
         // Prime the remote-projects routing index AFTER the DB is ready (it is a
         // projection of the projects table); project create/delete refresh it.
