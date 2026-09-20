@@ -22,6 +22,12 @@ export type BootstrapInput = {
   serverUrl: string; // main server ws URL, e.g. ws://host:port/api/remote-agents/ws
   roots: string[];
   /**
+   * Directories the lite's `skills/*` RPCs may touch. Optional: the lite
+   * defaults to its own `~/.claude/skills` when the key is absent, so an
+   * existing host does NOT need a re-deploy to gain skill sync.
+   */
+  skillRoots?: string[];
+  /**
    * Stable identifier for this remote host. When provided it is written
    * verbatim into config.json and echoed back in the result so the caller can
    * persist it against the `remote_hosts` row bound to the token — the lite's
@@ -47,6 +53,8 @@ export type BootstrapResult = {
   tokenHash?: string;
   /** The hostId used for this run (caller-supplied or freshly generated). */
   hostId?: string;
+  /** Echoed back when the caller supplied one (absent = lite default). */
+  skillRoots?: string[];
 };
 
 const REMOTE_DIR = '~/.lovdex-remote';
@@ -130,6 +138,16 @@ export async function runBootstrap(
     };
   }
 
+  // skillRoots is optional (the lite falls back to its own ~/.claude/skills),
+  // but an explicitly empty array would look like intent and silently lock the
+  // lite out of every skill dir — reject it instead.
+  if (input.skillRoots !== undefined && input.skillRoots.length === 0) {
+    return {
+      status: 'error',
+      message: 'skillRoots must be non-empty when provided (omit it to use the lite default)',
+    };
+  }
+
   const remote = `${input.sshUser}@${input.host}`;
   const id = input.identityFile ?? null;
   const port = input.port;
@@ -206,6 +224,7 @@ export async function runBootstrap(
     token: input.token,
     hostId,
     roots: input.roots,
+    ...(input.skillRoots ? { skillRoots: input.skillRoots } : {}),
     apiKeyEnvPath: ENV_PATH,
   };
   const configJson = JSON.stringify(config, null, 2);
@@ -235,6 +254,7 @@ export async function runBootstrap(
       message: 'deployed config but systemd install deferred (no FilePush wired)',
       tokenHash: sha256(input.token),
       hostId,
+      ...(input.skillRoots ? { skillRoots: input.skillRoots } : {}),
     };
   }
 
@@ -263,7 +283,13 @@ export async function runBootstrap(
     return { status: 'error', message: `install failed: ${install.stderr.trim() || 'unknown'}`, hostId };
   }
 
-  return { status: 'online', tokenHash: sha256(input.token), hostId, message: 'deployed' };
+  return {
+    status: 'online',
+    tokenHash: sha256(input.token),
+    hostId,
+    message: 'deployed',
+    ...(input.skillRoots ? { skillRoots: input.skillRoots } : {}),
+  };
 }
 
 // Re-exported so callers persisting the token hash can reuse the same digest.

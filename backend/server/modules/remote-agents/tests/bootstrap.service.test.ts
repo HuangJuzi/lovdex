@@ -301,3 +301,42 @@ test('apiKey is written to the env file when provided', async () => {
   assert.ok(envCmd!.includes('sk-ant-secret'), 'env file embeds the api key');
   assert.ok(envCmd!.includes('.env'), 'env write targets the .env path');
 });
+
+test('bootstrap omits skillRoots when the caller does not provide one', async () => {
+  const { runner, calls } = fakeRunner();
+  const { push } = fakePush();
+
+  const result = await runBootstrap(baseInput, { runner, push, installScriptPath: '/local/install.sh' });
+
+  assert.equal(result.status, 'online');
+  const configWrite = calls.find((argv) => argv.join(' ').includes('config.json'));
+  assert.ok(configWrite, 'expected a config.json write');
+  assert.doesNotMatch(configWrite.join(' '), /skillRoots/);
+  assert.equal(result.skillRoots, undefined);
+});
+
+test('bootstrap writes skillRoots into config.json when provided', async () => {
+  const { runner, calls } = fakeRunner();
+  const { push } = fakePush();
+
+  const result = await runBootstrap(
+    { ...baseInput, skillRoots: ['/srv/.claude/skills'] },
+    { runner, push, installScriptPath: '/local/install.sh' },
+  );
+
+  assert.equal(result.status, 'online');
+  const configWrite = calls.find((argv) => argv.join(' ').includes('config.json'));
+  assert.ok(configWrite, 'expected a config.json write');
+  assert.match(configWrite.join(' '), /skillRoots/);
+  assert.deepEqual(result.skillRoots, ['/srv/.claude/skills']);
+});
+
+test('bootstrap rejects an empty skillRoots array', async () => {
+  const { runner } = fakeRunner();
+  const result = await runBootstrap(
+    { ...baseInput, skillRoots: [] },
+    { runner, installScriptPath: '/local/install.sh' },
+  );
+  assert.equal(result.status, 'error');
+  assert.match(result.message ?? '', /skillRoots must be non-empty/);
+});
