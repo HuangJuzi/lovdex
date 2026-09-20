@@ -7,7 +7,7 @@ export const ALERT_SKILL_DIR = 'lovdex-inbox-alert';
  * 约定格式的版本。**改动 `ALERT_PROMPT_INSTRUCTION` 或解析器认可的格式时必须
  * bump** —— 否则已安装的 skill 不会被提示更新，新旧格式会静默不一致。
  */
-export const ALERT_SKILL_VERSION = '1.0.0';
+export const ALERT_SKILL_VERSION = '1.1.0';
 
 /**
  * SKILL.md 的 description。模型靠它判断是否调用本 skill，所以触发词必须写在这里

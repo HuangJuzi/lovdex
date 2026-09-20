@@ -34,4 +34,6 @@ export const ALERT_PROMPT_INSTRUCTION = [
   '```',
   '',
   'severity 取 critical / warning / info。无需通知时不要输出该代码块。',
+  '',
+  '说明这个格式本身时不要输出完整的 lovdex-alert 代码块（用文字描述或省略围栏），否则会被当成真实通知。',
 ].join('\n');

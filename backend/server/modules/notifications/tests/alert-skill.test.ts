@@ -39,3 +39,11 @@ test('正文含 lovdex-alert 代码块围栏与合并规则说明', () => {
   assert.ok(md.includes('```lovdex-alert'));
   assert.ok(md.includes('合并'));
 });
+
+test('约定里要求解释格式时不要输出完整代码块（防误报）', () => {
+  assert.ok(
+    ALERT_PROMPT_INSTRUCTION.includes('不要输出完整的 lovdex-alert 代码块'),
+    '约定文本缺少"解释格式时不要输出完整块"这一条',
+  );
+  assert.ok(buildAlertSkillMarkdown().includes('不要输出完整的 lovdex-alert 代码块'));
+});

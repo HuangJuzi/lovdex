@@ -63,6 +63,28 @@ test('多个标记逐个 emit', () => {
   assert.equal(emitted.length, 2);
 });
 
+test('中间消息里的示例块不触发通知（上线首日实测的误报）', () => {
+  const { scanner, emitted } = harness();
+  scanner.scanCompletedRun({
+    appSessionId: 's1',
+    events: [
+      text(`lovdex-alert 的格式是这样：\n${ALERT_BLOCK}`),
+      text('已完成开发并提交，无异常。'),
+    ],
+  });
+  assert.equal(emitted.length, 0);
+});
+
+test('最后一条 assistant 文本里的标记仍然触发通知', () => {
+  const { scanner, emitted } = harness();
+  scanner.scanCompletedRun({
+    appSessionId: 's1',
+    events: [text('中间过程说明……'), text(`巡检完成\n${ALERT_BLOCK}`)],
+  });
+  assert.equal(emitted.length, 1);
+  assert.equal(emitted[0].title, '磁盘满');
+});
+
 test('依赖抛错时吞掉不外抛（不影响会话生命周期）', () => {
   const scanner = createSessionAlertScanner({
     getSessionById: () => { throw new Error('boom'); },
