@@ -15,6 +15,7 @@ import SidebarProjectList, { type SidebarProjectListProps } from './SidebarProje
 import SidebarRecentSessions from './SidebarRecentSessions';
 import SidebarResizeHandle from './SidebarResizeHandle';
 import SidebarScheduledEntry from './SidebarScheduledEntry';
+import SidebarInboxEntry from './SidebarInboxEntry';
 
 function HighlightedSnippet({ snippet, highlights }: { snippet: string; highlights: { start: number; end: number }[] }) {
   const parts: ReactNode[] = [];
@@ -302,6 +303,8 @@ export default function SidebarContent({
       <SidebarRecentSessions projects={projects} onRecentSessionSelect={onRecentSessionSelect} />
 
       <SidebarScheduledEntry />
+
+      <SidebarInboxEntry />
 
       <SidebarFooter
         updateAvailable={updateAvailable}
