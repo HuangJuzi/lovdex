@@ -25,7 +25,7 @@ unset TSX_TSCONFIG_PATH   # 仓库全局导出了该变量，会让 tsx 读错 t
 |---|---|
 | `text-[…px]` 任意字号 | 153 处 / 52 文件 |
 | `rounded-[…]` 任意圆角 | 3 处（`[3px]` ×2、`[inherit]` ×1） |
-| `index.css` 硬编码 `border-radius` | 5 处 |
+| `index.css` 硬编码 `border-radius` | **6 处**（`index.css` 5 + `editorStyles.ts` 1） |
 | 5 种重复 3D 阴影配方（内联） | 27 处 / 13 文件 |
 | `npm run typecheck` | 0 error |
 | `npm run lint` | 0 error / 225 warning |
@@ -86,7 +86,7 @@ npx tsx --test $(find src -name "*.test.ts" -o -name "*.test.tsx" | tr '\n' ' ')
 |---|---|---|
 | `tailwind.config.js` | 三个刻度的唯一定义处 | 改 `borderRadius`，新增 `fontSize` 与 `boxShadow` |
 | `src/design/scaleGuard.test.ts` | 守卫：禁止任意值 | 新建 |
-| `src/index.css` | 5 处硬编码 `border-radius` | 改为 token |
+| `src/index.css` + `editorStyles.ts` | 6 处硬编码 `border-radius` | 改为 token 表达式 |
 | `src/**/*.tsx` | 消费方 | 按映射表替换类名 |
 
 ---
@@ -217,7 +217,7 @@ Expected: **4 个测试全挂**，计数如下（已实测）：
 |---|---|
 | no arbitrary font sizes | 153 |
 | no arbitrary radius values | 2 |
-| no hardcoded border-radius in CSS | 5 |
+| no hardcoded border-radius in CSS | 6 |
 | recurring 3D shadow recipes inlined | 27 |
 
 若数字与上表不符，**停下来报告**，不要调整断言。
@@ -326,11 +326,12 @@ git commit -m "feat(design): define radius, font-size and shadow scales"
 
 ---
 
-## Task 3: 迁移圆角（7 处）
+## Task 3: 迁移圆角（8 处）
 
 **Files:**
 - Modify: `src/components/chat/tools/components/ContentRenderers/QuestionAnswerContent.tsx:140,172`
 - Modify: `src/index.css:377,395,414,875,1020`
+- Modify: `src/components/code-editor/utils/editorStyles.ts:61`
 
 - [ ] **Step 1: 迁移任意值圆角**
 
@@ -354,25 +355,28 @@ grep -nE 'rounded(-[a-z]+)*-\[[^]]+\]' src --include=*.tsx
 
 Expected: 只剩 `ScrollArea.tsx:13` 的 `rounded-[inherit]`。
 
-- [ ] **Step 3: 迁移 `index.css` 的 5 处硬编码 `border-radius`**
+- [ ] **Step 3: 迁移 6 处硬编码 `border-radius`**
 
-先看每处上下文：
+**注意是 6 处不是 5 处**——守卫的基线口径包含 `.ts` 文件，因为 `editorStyles.ts` 用模板字符串注入了 CSS，纯 `--include=*.css` 的 grep 看不见它。
 
 ```bash
-grep -nB4 -E 'border-radius:\s*[0-9]' src/index.css
+grep -rnB3 -E 'border-radius:\s*[0-9]' src --include=*.css --include=*.ts --include=*.tsx | grep -v '\.test\.'
 ```
 
 按渲染值对应到刻度：
 
-| 行 | 当前值 | 改为 |
+| 文件:行 | 当前值 | 改为 |
 |---|---|---|
-| 377 | `3px` | `calc(var(--radius) - 5px)`（= `rounded-xs`） |
-| 395 | `3px` | 同上 |
-| 414 | `4px` | `calc(var(--radius) - 4px)`（= `rounded-sm`） |
-| 875 | `3px` | 同上 `xs` |
-| 1020 | `8px` | `var(--radius)`（= `rounded-lg`） |
+| `src/index.css:377` | `3px` | `calc(var(--radius) - 5px)`（= `rounded-xs`） |
+| `src/index.css:395` | `3px` | 同上 |
+| `src/index.css:414` | `4px` | `calc(var(--radius) - 4px)`（= `rounded-sm`） |
+| `src/index.css:875` | `3px` | 同上 `xs` |
+| `src/index.css:1020` | `8px` | `var(--radius)`（= `rounded-lg`） |
+| `src/components/code-editor/utils/editorStyles.ts:61` | `4px` | `calc(var(--radius) - 4px)`（= `rounded-sm`） |
 
-**用 `calc()`/`var()` 而非 `var(--radius-xs)`**——本项目未定义 `--radius-xs` 这类独立变量，刻度的派生表达式写在 `tailwind.config.js` 里；`index.css` 里直接写等价表达式，并在每行上方加注释注明它对应哪个档位（例如 `/* = rounded-xs */`），避免下次有人改 `--radius` 时漏掉。
+`editorStyles.ts:61` 位于 CodeMirror 的 `.cm-diff-nav-btn, .cm-toolbar-btn` 规则内。该文件是**注入的 CSS 模板字符串**，写法与 `index.css` 相同（都是 CSS 声明），但注意里面的 `var(--…)` 必须包在 `hsl()` 里才合法——那是颜色 token 的规则，**本条是 `border-radius`，直接用 `calc()`/`var()` 即可，不要包 `hsl()`**。
+
+**用 `calc()`/`var()` 而非 `var(--radius-xs)`**——本项目未定义 `--radius-xs` 这类独立变量，刻度的派生表达式写在 `tailwind.config.js` 里；CSS 里直接写等价表达式，并在每行上方加注释注明它对应哪个档位（例如 `/* = rounded-xs */`），避免下次有人改 `--radius` 时漏掉。
 
 - [ ] **Step 4: 验证**
 

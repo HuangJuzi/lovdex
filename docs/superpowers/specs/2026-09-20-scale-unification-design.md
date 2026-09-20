@@ -42,7 +42,9 @@ borderRadius: {
 | `rounded-[3px]` | 2 | 3px（任意值） |
 | 带尺寸的方向性（`rounded-r-lg` 等） | 12 | — |
 
-另有 `src/index.css` 内 5 处硬编码 `border-radius`（3px ×3、4px ×1、8px ×1）。
+另有 6 处硬编码 `border-radius`：`src/index.css` 内 5 处（3px ×3、4px ×1、8px ×1），以及 `src/components/code-editor/utils/editorStyles.ts:61` 的 1 处（4px，CodeMirror 工具栏按钮）。
+
+> 最后这处是**守卫先行发现的**：最初统计基线时用 `--include=*.css` 只扫了 CSS 文件，而 `editorStyles.ts` 用模板字符串注入 CSS，扫不到。守卫扫 `.ts`，所以它是对的、基线数字是错的。
 
 ### 1.2 字号：10 种取值，其中 153 处是硬编码像素
 
