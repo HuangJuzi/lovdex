@@ -43,13 +43,13 @@ const THEME_TOKENS = [
   '--warning', '--warning-foreground',
   '--info', '--info-foreground',
   '--border', '--input', '--ring',
+  '--chart-1', '--chart-2', '--chart-3', '--chart-4', '--chart-5',
+  '--chart-6', '--chart-7', '--chart-8', '--chart-9', '--chart-10',
 ];
 
 /** Tokens that are mode-independent and live only in `:root`. */
 const ROOT_ONLY_TOKENS = [
   '--radius',
-  '--chart-1', '--chart-2', '--chart-3', '--chart-4', '--chart-5',
-  '--chart-6', '--chart-7', '--chart-8', '--chart-9', '--chart-10',
 ];
 
 function stripComments(source: string): string {
@@ -86,6 +86,45 @@ function matches(pattern: RegExp): string[] {
 function report(found: string[]): string {
   const sample = found.slice(0, 10).join('\n  ');
   return `${found.length} occurrences, first 10:\n  ${sample}`;
+}
+
+function hslToRgb(value: string): [number, number, number] | null {
+  const m = value.match(/^([\d.]+)\s+([\d.]+)%\s+([\d.]+)%/);
+  if (!m) return null;
+  const h = Number(m[1]);
+  const s = Number(m[2]) / 100;
+  const l = Number(m[3]) / 100;
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const hp = h / 60;
+  const x = c * (1 - Math.abs((hp % 2) - 1));
+  const base = l - c / 2;
+  let rgb: [number, number, number];
+  if (hp < 1) rgb = [c, x, 0];
+  else if (hp < 2) rgb = [x, c, 0];
+  else if (hp < 3) rgb = [0, c, x];
+  else if (hp < 4) rgb = [0, x, c];
+  else if (hp < 5) rgb = [x, 0, c];
+  else rgb = [c, 0, x];
+  return rgb.map((v) => Math.round((v + base) * 255)) as [number, number, number];
+}
+
+function relativeLuminance([r, g, b]: [number, number, number]): number {
+  const channel = (v: number) => {
+    const s = v / 255;
+    return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+  };
+  return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
+}
+
+function contrastRatio(a: [number, number, number], b: [number, number, number]): number {
+  const [hi, lo] = [relativeLuminance(a), relativeLuminance(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+function tokenMap(block: string): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const m of block.matchAll(/(--[\w-]+):\s*([^;]+);/g)) out.set(m[1], m[2].trim());
+  return out;
 }
 
 test('no raw Tailwind palette classes outside exempt dirs', () => {
@@ -129,4 +168,50 @@ test('index.css defines every required token', () => {
     if (!light.includes(`${token}:`)) missing.push(`${token} (root)`);
   }
   assert.deepEqual(missing, [], `missing tokens: ${missing.join(', ')}`);
+});
+
+/** Text-form semantic colors need 4.5:1; chart colors are graphical objects needing 3:1 (WCAG 1.4.11). */
+const CONTRAST_TEXT_TOKENS = ['--success', '--warning', '--info', '--destructive'];
+const CONTRAST_GRAPHIC_TOKENS = [
+  '--chart-1', '--chart-2', '--chart-3', '--chart-4', '--chart-5',
+  '--chart-6', '--chart-7', '--chart-8', '--chart-9', '--chart-10',
+];
+
+test('semantic and chart tokens meet WCAG contrast in both modes', () => {
+  const css = readFileSync(join('src', 'index.css'), 'utf8');
+  const darkStart = css.search(/\.dark\s*\{/);
+  assert.ok(darkStart > 0, '.dark block not found in index.css');
+  const modes = [
+    { name: 'light', tokens: tokenMap(css.slice(0, darkStart)) },
+    { name: 'dark', tokens: tokenMap(css.slice(darkStart)) },
+  ];
+
+  const failures: string[] = [];
+  for (const { name: mode, tokens } of modes) {
+    const surfaces = ['--background', '--card'].map((token) => {
+      const rgb = hslToRgb(tokens.get(token) ?? '');
+      if (!rgb) failures.push(`${mode}: cannot parse ${token}`);
+      return { token, rgb };
+    });
+
+    const verify = (token: string, min: number) => {
+      const rgb = hslToRgb(tokens.get(token) ?? '');
+      if (!rgb) {
+        failures.push(`${mode}: ${token} missing or unparseable`);
+        return;
+      }
+      for (const surface of surfaces) {
+        if (!surface.rgb) continue;
+        const ratio = contrastRatio(rgb, surface.rgb);
+        if (ratio < min) {
+          failures.push(`${mode}: ${token} on ${surface.token} = ${ratio.toFixed(2)}:1 (needs ${min}:1)`);
+        }
+      }
+    };
+
+    for (const token of CONTRAST_TEXT_TOKENS) verify(token, 4.5);
+    for (const token of CONTRAST_GRAPHIC_TOKENS) verify(token, 3);
+  }
+
+  assert.deepEqual(failures, [], `contrast failures:\n  ${failures.join('\n  ')}`);
 });
