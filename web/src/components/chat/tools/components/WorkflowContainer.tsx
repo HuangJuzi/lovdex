@@ -48,8 +48,7 @@ function formatUsage(usage: WorkflowUsage | undefined): string | null {
 }
 
 const BUTTON_BASE =
-  'rounded border border-gray-300 px-2 py-1 text-[11px] text-gray-700 hover:bg-gray-100 ' +
-  'dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700';
+  'rounded border border-border px-2 py-1 text-[11px] text-foreground hover:bg-muted';
 const BUTTON_DISABLED = ' disabled:opacity-40 disabled:cursor-not-allowed';
 
 export const WorkflowContainer: React.FC<WorkflowContainerProps> = ({
@@ -105,14 +104,14 @@ export const WorkflowContainer: React.FC<WorkflowContainerProps> = ({
   const renderAgentUsage = (agent: WorkflowAgentNode) => {
     const usageText = formatUsage(agent.usage);
     if (!usageText) return null;
-    return <span className="text-gray-500 dark:text-gray-400">· {usageText}</span>;
+    return <span className="text-muted-foreground">· {usageText}</span>;
   };
 
   return (
     <div className="space-y-2">
       {/* Header: workflow name + status */}
       <div className="flex items-center justify-between gap-2">
-        <span className="text-xs font-medium text-gray-900 dark:text-gray-100">
+        <span className="text-xs font-medium text-foreground">
           Workflow · {name}
         </span>
         <ToolStatusBadge status={status} />
@@ -122,18 +121,18 @@ export const WorkflowContainer: React.FC<WorkflowContainerProps> = ({
       {agents.length > 0 && (
         <div className="space-y-1.5">
           {agents.map((agent) => (
-            <div key={agent.taskId} className="border-l-2 border-blue-500 pl-2 dark:border-blue-400">
+            <div key={agent.taskId} className="border-l-2 border-primary pl-2">
               <div className="flex flex-wrap items-center gap-1.5 text-xs">
-                <span className="font-medium text-gray-900 dark:text-gray-100">
+                <span className="font-medium text-foreground">
                   agent: {agent.subagentType || agent.description}
                 </span>
                 {agent.lastToolName && (
-                  <span className="text-gray-500 dark:text-gray-400">· {agent.lastToolName}</span>
+                  <span className="text-muted-foreground">· {agent.lastToolName}</span>
                 )}
                 {renderAgentUsage(agent)}
               </div>
               {agent.tools.length > 0 && (
-                <div className="mt-0.5 space-y-0.5 pl-2 text-[11px] text-gray-500 dark:text-gray-400">
+                <div className="mt-0.5 space-y-0.5 pl-2 text-[11px] text-muted-foreground">
                   {agent.tools.map((tool) => (
                     <div key={tool.toolUseId}>
                       {tool.toolName} · {tool.elapsedTimeSeconds}s
@@ -148,10 +147,10 @@ export const WorkflowContainer: React.FC<WorkflowContainerProps> = ({
 
       {/* Terminal summary */}
       {notificationSummary && (
-        <div className="flex flex-wrap items-center gap-1.5 text-xs text-gray-700 dark:text-gray-300">
+        <div className="flex flex-wrap items-center gap-1.5 text-xs text-foreground">
           <span>{notificationSummary}</span>
           {notificationUsageText && (
-            <span className="text-gray-500 dark:text-gray-400">· {notificationUsageText}</span>
+            <span className="text-muted-foreground">· {notificationUsageText}</span>
           )}
         </div>
       )}

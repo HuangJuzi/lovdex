@@ -58,7 +58,7 @@ export const SubagentContainer: React.FC<SubagentContainerProps> = ({
   const title = `Subagent / ${subagentType}: ${description}`;
 
   return (
-    <div className="my-1 border-l-2 border-l-purple-500 py-0.5 pl-3 dark:border-l-purple-400">
+    <div className="my-1 border-l-2 border-l-chart-6 py-0.5 pl-3">
       <CollapsibleSection
         title={title}
         toolName="Task"
@@ -74,7 +74,7 @@ export const SubagentContainer: React.FC<SubagentContainerProps> = ({
         {/* Current tool indicator (while running) */}
         {currentTool && !isComplete && (
           <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">
-            <span className="h-1.5 w-1.5 flex-shrink-0 animate-pulse rounded-full bg-purple-500 dark:bg-purple-400" />
+            <span className="h-1.5 w-1.5 flex-shrink-0 animate-pulse rounded-full bg-chart-6" />
             <span className="text-muted-foreground/60">Currently:</span>
             <span className="font-medium text-foreground">{currentTool.toolName}</span>
             {getCompactToolDisplay(currentTool.toolName, currentTool.toolInput) && (
@@ -90,7 +90,7 @@ export const SubagentContainer: React.FC<SubagentContainerProps> = ({
 
         {/* Completion status */}
         {isComplete && (
-          <div className="mt-1 flex items-center gap-1.5 text-xs text-green-600 dark:text-green-400">
+          <div className="mt-1 flex items-center gap-1.5 text-xs text-success">
             <svg className="h-3 w-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
             </svg>
@@ -124,7 +124,7 @@ export const SubagentContainer: React.FC<SubagentContainerProps> = ({
                       </span>
                     )}
                     {child.toolResult?.isError && (
-                      <span className="flex-shrink-0 text-red-500">(error)</span>
+                      <span className="flex-shrink-0 text-destructive">(error)</span>
                     )}
                   </div>
                 ))}

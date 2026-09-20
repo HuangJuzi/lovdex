@@ -41,10 +41,10 @@ type ParsedResult = {
 
 function Badge({ tone, children }: { tone: 'green' | 'red' | 'gray' | 'amber'; children: React.ReactNode }) {
   const cls = {
-    green: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
-    red: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
-    gray: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300',
-    amber: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
+    green: 'bg-success/10 text-success',
+    red: 'bg-destructive/10 text-destructive',
+    gray: 'bg-muted text-muted-foreground',
+    amber: 'bg-warning/10 text-warning',
   }[tone];
   return <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${cls}`}>{children}</span>;
 }
@@ -101,7 +101,7 @@ export const SkillExecResult: React.FC<Props> = memo(({ content }) => {
     <div
       className={`mt-2 rounded border p-2.5 ${
         denied
-          ? 'border-red-200/60 bg-red-50/50 dark:border-red-800/40 dark:bg-red-950/10'
+          ? 'border-destructive/20 bg-destructive/10'
           : 'border-border bg-card'
       }`}
     >
@@ -117,10 +117,10 @@ export const SkillExecResult: React.FC<Props> = memo(({ content }) => {
       </div>
 
       {parsed.error && (
-        <div className="mt-1.5 text-xs text-red-700 dark:text-red-300">{parsed.error}</div>
+        <div className="mt-1.5 text-xs text-destructive">{parsed.error}</div>
       )}
       {parsed.hint && (
-        <div className="mt-1 text-xs text-amber-700 dark:text-amber-300">💡 {parsed.hint}</div>
+        <div className="mt-1 text-xs text-warning">💡 {parsed.hint}</div>
       )}
 
       {/* workbench payloads */}
