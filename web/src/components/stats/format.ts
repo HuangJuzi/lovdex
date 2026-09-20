@@ -216,8 +216,16 @@ export function formatAxisTickParts(
  * 避免筛选后颜色跳变。
  */
 const MODEL_COLORS = [
-  '#0ea5e9', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444',
-  '#14b8a6', '#ec4899', '#84cc16', '#6366f1', '#f97316',
+  'hsl(var(--chart-1))',  // sky    → chart-1
+  'hsl(var(--chart-2))',  // emerald → chart-2
+  'hsl(var(--chart-9))',  // amber  → chart-9 (gold, closest hue)
+  'hsl(var(--chart-6))',  // violet → chart-6
+  'hsl(var(--chart-8))',  // red    → chart-8
+  'hsl(var(--chart-3))',  // teal   → chart-3
+  'hsl(var(--chart-7))',  // pink   → chart-7
+  'hsl(var(--chart-5))',  // lime   → chart-5
+  'hsl(var(--chart-4))',  // indigo → chart-4
+  'hsl(var(--chart-10))', // orange → chart-10
 ];
 
 export function colorForModel(model: string, allModels: string[]): string {
@@ -277,10 +285,10 @@ export function addComponents(a: TokenComponents, b: TokenComponents): TokenComp
 export function componentShares(components: TokenComponents): { key: keyof TokenComponents; label: string; share: number; color: string }[] {
   const total = metricValue(components, 'all');
   const rows: { key: keyof TokenComponents; label: string; color: string }[] = [
-    { key: 'input', label: '输入', color: '#0ea5e9' },
-    { key: 'output', label: '输出', color: '#10b981' },
-    { key: 'cacheRead', label: '缓存读取', color: '#f59e0b' },
-    { key: 'cacheCreation', label: '缓存写入', color: '#8b5cf6' },
+    { key: 'input', label: '输入', color: 'hsl(var(--chart-1))' },
+    { key: 'output', label: '输出', color: 'hsl(var(--chart-2))' },
+    { key: 'cacheRead', label: '缓存读取', color: 'hsl(var(--chart-9))' },
+    { key: 'cacheCreation', label: '缓存写入', color: 'hsl(var(--chart-6))' },
   ];
   return rows.map((row) => ({ ...row, share: total > 0 ? components[row.key] / total : 0 }));
 }
