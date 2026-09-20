@@ -72,9 +72,11 @@ borderRadius: {
 |---|---|
 | `0 2px 0 hsl(var(--foreground)/0.10), 0 4px 10px hsl(var(--foreground)/0.06)` | 9 |
 | `0 3px 0 hsl(var(--foreground)/0.07), 0 12px 26px hsl(var(--foreground)/0.07)` | 6 |
-| `0 2px 0 hsl(var(--foreground))` | 5 |
+| `0 2px 0 hsl(var(--primary))` | 5 |
 | `0 2px 0 hsl(var(--foreground)/0.08)` | 4 |
 | `0 3px 0 hsl(var(--foreground)/0.08), 0 6px 16px hsl(var(--foreground)/0.07)` | 3 |
+
+> 另有 13 处一次性配方。其中 2 处（`0 3px 0 hsl(var(--foreground)/0.08), 0 24px 60px hsl(var(--foreground)/0.28)` 与 `0 3px 0 hsl(var(--foreground)/0.07), 0 8px 18px hsl(var(--foreground)/0.05)`）**与上面的配方共享 `0 3px 0` 前缀但不是同一个值**——守卫必须精确匹配完整配方串，不能用前缀模式，否则这两处永远无法通过。
 
 ### 1.4 间距：健康，不在本期范围
 
@@ -208,7 +210,7 @@ boxShadow: {
   "raised-sm": "0 2px 0 hsl(var(--foreground) / 0.10), 0 4px 10px hsl(var(--foreground) / 0.06)",
   "raised-md": "0 3px 0 hsl(var(--foreground) / 0.08), 0 6px 16px hsl(var(--foreground) / 0.07)",
   raised:      "0 3px 0 hsl(var(--foreground) / 0.07), 0 12px 26px hsl(var(--foreground) / 0.07)",
-  pressed:     "0 2px 0 hsl(var(--foreground))",
+  pressed:     "0 2px 0 hsl(var(--primary))",
 }
 ```
 
