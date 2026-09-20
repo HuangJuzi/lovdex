@@ -677,6 +677,8 @@ grep -rnoE 'rgba?\([0-9][^)]*\)' src/components/tasks
 
 任务状态色是重点，必须收敛到语义色：进行中→`warning`、成功→`success`、失败→`destructive`。`TaskCard.tsx` / `TaskDetail.tsx` 里的 `#1c3fa8`、`#1a2d5c` 品牌蓝改为 `hsl(var(--primary))`。
 
+**动态颜色引用（守卫看不见，必须手工处理）**：`src/components/tasks/taskStatus.ts` 导出的 `STATUS_META[status].color` 是一组**字符串形式的颜色值**，被 `MainContent.tsx:150` 以 `style={{ color: ... }}` 动态消费。守卫只匹配字面量 hex/rgb，**完全看不到这类间接引用**。本任务必须把这些值改成 token 引用（如 `hsl(var(--warning))`），并同步检查所有消费方（`MainContent.tsx`、`TaskCard.tsx`、`TaskBoard.tsx`）。**这是守卫无法兜底的地方，漏了不会报错。**
+
 - [ ] **Step 3: 验证**
 
 ```bash
