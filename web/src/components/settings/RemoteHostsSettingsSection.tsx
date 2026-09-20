@@ -42,20 +42,20 @@ function deriveHostState(host: RemoteHost): {
   hintTone: 'muted' | 'warn';
 } {
   if (host.online) {
-    return { label: '在线', dotClass: 'bg-green-500', hintTone: 'muted' };
+    return { label: '在线', dotClass: 'bg-success', hintTone: 'muted' };
   }
   switch (host.status) {
     case 'deploying':
       return {
         label: '部署中',
-        dotClass: 'bg-amber-400 animate-pulse',
+        dotClass: 'bg-warning animate-pulse',
         hint: '正在推送 lite 到目标机，请等待…',
         hintTone: 'muted',
       };
     case 'online':
       return {
         label: '未连接',
-        dotClass: 'bg-amber-500',
+        dotClass: 'bg-warning',
         hint: '部署命令已完成，但 lite 尚未连回主站。等待几秒后若无变化：确认 LOVDEX_PUBLIC_WS_URL'
           + '指向本机对目标机可达的地址，或为本机启用下方「SSH 隧道」后重新部署。',
         hintTone: 'warn',
@@ -63,7 +63,7 @@ function deriveHostState(host: RemoteHost): {
     case 'error':
       return {
         label: '错误',
-        dotClass: 'bg-red-500',
+        dotClass: 'bg-destructive',
         hint: host.last_error ?? '部署失败',
         hintTone: 'warn',
       };
@@ -71,7 +71,7 @@ function deriveHostState(host: RemoteHost): {
     default:
       return {
         label: '离线',
-        dotClass: 'bg-gray-400',
+        dotClass: 'bg-muted-foreground',
         hint: '尚未部署或未在线，点「部署」上线',
         hintTone: 'muted',
       };
@@ -357,7 +357,7 @@ export function RemoteHostsSettingsSection() {
           </Button>
         </div>
 
-        {actionError && <p className="text-xs text-red-500">{actionError}</p>}
+        {actionError && <p className="text-xs text-destructive">{actionError}</p>}
 
         {hosts.length === 0 ? (
           <div className="rounded-lg border border-dashed border-border py-8 text-center text-sm text-muted-foreground">
@@ -384,7 +384,7 @@ export function RemoteHostsSettingsSection() {
                       <span
                         className={
                           state.hintTone === 'warn'
-                            ? 'text-xs font-medium text-amber-600'
+                            ? 'text-xs font-medium text-warning'
                             : 'text-xs text-muted-foreground'
                         }
                       >
@@ -399,12 +399,12 @@ export function RemoteHostsSettingsSection() {
                       {host.os ? ` · ${host.os}` : ''}
                     </div>
                     {deployNotes[host.host_id] && (
-                      <div className="mt-1 text-xs text-emerald-600">{deployNotes[host.host_id]}</div>
+                      <div className="mt-1 text-xs text-success">{deployNotes[host.host_id]}</div>
                     )}
                     {state.hint && (
                       <div
                         className={`mt-1 text-xs ${
-                          state.hintTone === 'warn' ? 'text-amber-600' : 'text-muted-foreground'
+                          state.hintTone === 'warn' ? 'text-warning' : 'text-muted-foreground'
                         }`}
                         title={state.hint}
                       >
@@ -415,7 +415,7 @@ export function RemoteHostsSettingsSection() {
                       <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
                         <span
                           className={
-                            host.tunnel_running ? 'text-emerald-600' : 'text-amber-600'
+                            host.tunnel_running ? 'text-success' : 'text-warning'
                           }
                         >
                           SSH 隧道：127.0.0.1:{host.tunnel_port}
@@ -477,7 +477,7 @@ export function RemoteHostsSettingsSection() {
                       disabled={isDeploying}
                       title="删除"
                     >
-                      <Trash2 className="h-4 w-4 text-red-500" />
+                      <Trash2 className="h-4 w-4 text-destructive" />
                     </Button>
                   </div>
                 </div>

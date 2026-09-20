@@ -99,7 +99,7 @@ export default function ConfirmActionModal({ action, onCancel, onConfirm }: Conf
           </button>
           <button
             onClick={onConfirm}
-            className={`flex items-center space-x-2 rounded-lg px-4 py-2 text-sm text-white transition-colors ${CONFIRMATION_BUTTON_CLASSES[action.type]}`}
+            className={`flex items-center space-x-2 rounded-lg px-4 py-2 text-sm transition-colors ${CONFIRMATION_BUTTON_CLASSES[action.type]}`}
           >
             {renderConfirmActionIcon(action.type)}
             <span>{CONFIRMATION_ACTION_LABELS[action.type]}</span>

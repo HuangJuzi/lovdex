@@ -90,13 +90,13 @@ function WorktreeRow({ worktree, isMobile, isBusy, onOpen, onMerge, onRemove }: 
         <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
           <span className="shrink-0 font-mono">{shortWorktreePath(worktree.path)}</span>
           {worktree.ahead > 0 && (
-            <span className="shrink-0 text-green-600 dark:text-green-400">↑{worktree.ahead}</span>
+            <span className="shrink-0 text-success">↑{worktree.ahead}</span>
           )}
           {worktree.behind > 0 && (
             <span className="shrink-0 text-primary">↓{worktree.behind}</span>
           )}
           {worktree.changedFileCount > 0 && (
-            <span className="shrink-0 text-amber-600 dark:text-amber-400">
+            <span className="shrink-0 text-warning">
               ● {worktree.changedFileCount} change{worktree.changedFileCount === 1 ? '' : 's'}
             </span>
           )}

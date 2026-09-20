@@ -75,7 +75,7 @@ function Toggle({
         }`}
       >
         <span
-          className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+          className={`inline-block h-4 w-4 transform rounded-full bg-card shadow transition-transform ${
             checked ? 'translate-x-4' : 'translate-x-0.5'
           }`}
         />
@@ -333,9 +333,9 @@ export function OperatorSettingsForm() {
           {saving ? '保存中…' : '保存'}
         </Button>
         {savedAt && !saveError && (
-          <span className="text-xs text-green-600 dark:text-green-400">已保存</span>
+          <span className="text-xs text-success">已保存</span>
         )}
-        {saveError && <span className="text-xs text-red-500">{saveError}</span>}
+        {saveError && <span className="text-xs text-destructive">{saveError}</span>}
       </div>
     </div>
   );

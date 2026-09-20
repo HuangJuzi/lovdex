@@ -101,9 +101,9 @@ export function DatabaseSettingsForm() {
           {saving ? '保存中…' : '保存'}
         </Button>
         {savedMsg && !saveError && (
-          <span className="text-xs text-green-600 dark:text-green-400">{savedMsg}</span>
+          <span className="text-xs text-success">{savedMsg}</span>
         )}
-        {saveError && <span className="text-xs text-red-500">{saveError}</span>}
+        {saveError && <span className="text-xs text-destructive">{saveError}</span>}
       </div>
     </div>
   );

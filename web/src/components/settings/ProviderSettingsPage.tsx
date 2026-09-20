@@ -91,13 +91,13 @@ function AuthStatus({ provider }: { provider: ProviderKey }) {
   if (status.authenticated) {
     const detail = status.method || status.email;
     return (
-      <span className="text-xs text-green-600 dark:text-green-400">
+      <span className="text-xs text-success">
         已认证{detail ? `（${detail}）` : ''}
       </span>
     );
   }
   return (
-    <span className="text-xs text-amber-600 dark:text-amber-400">
+    <span className="text-xs text-warning">
       {status.error ?? '未认证'}
     </span>
   );
@@ -424,9 +424,9 @@ export function ProviderSettingsForm() {
           {saving ? '保存中…' : '保存'}
         </Button>
         {savedMsg && !saveError && (
-          <span className="text-xs text-green-600 dark:text-green-400">{savedMsg}</span>
+          <span className="text-xs text-success">{savedMsg}</span>
         )}
-        {saveError && <span className="text-xs text-red-500">{saveError}</span>}
+        {saveError && <span className="text-xs text-destructive">{saveError}</span>}
       </div>
     </div>
   );

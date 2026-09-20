@@ -19,9 +19,9 @@ export const FILE_STATUS_LABELS: Record<FileStatusCode, string> = {
 };
 
 export const FILE_STATUS_BADGE_CLASSES: Record<FileStatusCode, string> = {
-  M: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300 border-yellow-200 dark:border-yellow-800/50',
-  A: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300 border-green-200 dark:border-green-800/50',
-  D: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300 border-red-200 dark:border-red-800/50',
+  M: 'bg-warning/10 text-warning border-warning/30',
+  A: 'bg-success/10 text-success border-success/30',
+  D: 'bg-destructive/10 text-destructive border-destructive/30',
   U: 'bg-muted text-muted-foreground border-border',
 };
 
@@ -48,34 +48,34 @@ export const CONFIRMATION_ACTION_LABELS: Record<ConfirmActionType, string> = {
 };
 
 export const CONFIRMATION_BUTTON_CLASSES: Record<ConfirmActionType, string> = {
-  discard: 'bg-red-600 hover:bg-red-700',
-  delete: 'bg-red-600 hover:bg-red-700',
-  commit: 'bg-primary hover:bg-primary/90',
-  pull: 'bg-green-600 hover:bg-green-700',
-  push: 'bg-orange-600 hover:bg-orange-700',
-  publish: 'bg-purple-600 hover:bg-purple-700',
-  revertLocalCommit: 'bg-yellow-600 hover:bg-yellow-700',
-  deleteBranch: 'bg-red-600 hover:bg-red-700',
+  discard: 'bg-destructive text-destructive-foreground hover:bg-destructive/90',
+  delete: 'bg-destructive text-destructive-foreground hover:bg-destructive/90',
+  commit: 'bg-primary text-primary-foreground hover:bg-primary/90',
+  pull: 'bg-success text-success-foreground hover:bg-success/90',
+  push: 'bg-warning text-warning-foreground hover:bg-warning/90',
+  publish: 'bg-primary text-primary-foreground hover:bg-primary/90',
+  revertLocalCommit: 'bg-warning text-warning-foreground hover:bg-warning/90',
+  deleteBranch: 'bg-destructive text-destructive-foreground hover:bg-destructive/90',
 };
 
 export const CONFIRMATION_ICON_CONTAINER_CLASSES: Record<ConfirmActionType, string> = {
-  discard: 'bg-red-100 dark:bg-red-900/30',
-  delete: 'bg-red-100 dark:bg-red-900/30',
-  commit: 'bg-yellow-100 dark:bg-yellow-900/30',
-  pull: 'bg-yellow-100 dark:bg-yellow-900/30',
-  push: 'bg-yellow-100 dark:bg-yellow-900/30',
-  publish: 'bg-yellow-100 dark:bg-yellow-900/30',
-  revertLocalCommit: 'bg-yellow-100 dark:bg-yellow-900/30',
-  deleteBranch: 'bg-red-100 dark:bg-red-900/30',
+  discard: 'bg-destructive/10',
+  delete: 'bg-destructive/10',
+  commit: 'bg-warning/10',
+  pull: 'bg-warning/10',
+  push: 'bg-warning/10',
+  publish: 'bg-warning/10',
+  revertLocalCommit: 'bg-warning/10',
+  deleteBranch: 'bg-destructive/10',
 };
 
 export const CONFIRMATION_ICON_CLASSES: Record<ConfirmActionType, string> = {
-  discard: 'text-red-600 dark:text-red-400',
-  delete: 'text-red-600 dark:text-red-400',
-  commit: 'text-yellow-600 dark:text-yellow-400',
-  pull: 'text-yellow-600 dark:text-yellow-400',
-  push: 'text-yellow-600 dark:text-yellow-400',
-  publish: 'text-yellow-600 dark:text-yellow-400',
-  revertLocalCommit: 'text-yellow-600 dark:text-yellow-400',
-  deleteBranch: 'text-red-600 dark:text-red-400',
+  discard: 'text-destructive',
+  delete: 'text-destructive',
+  commit: 'text-warning',
+  pull: 'text-warning',
+  push: 'text-warning',
+  publish: 'text-warning',
+  revertLocalCommit: 'text-warning',
+  deleteBranch: 'text-destructive',
 };

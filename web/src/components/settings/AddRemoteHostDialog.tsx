@@ -374,7 +374,7 @@ export function AddRemoteHostDialog({ open, onClose, onAdded }: AddRemoteHostDia
             </div>
           )}
 
-          {error && <p className="text-xs text-red-500">{error}</p>}
+          {error && <p className="text-xs text-destructive">{error}</p>}
 
           <div className="mt-2 flex items-center justify-end gap-2">
             <Button variant="ghost" size="sm" onClick={onClose} disabled={running}>

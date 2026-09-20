@@ -146,7 +146,7 @@ function AllowlistSection() {
         写操作只允许落在写前缀内。白名单外的调用一律拒绝并记审计。
       </p>
       {envOverrideActive && (
-        <div className="mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-200">
+        <div className="mb-3 rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">
           环境变量白名单覆盖生效中（LOVDEX_OPERATOR_ALLOWLIST_JSON / _PATH），此处保存不会生效。
         </div>
       )}
@@ -182,7 +182,7 @@ function AllowlistSection() {
             </Button>
             {message && (
               <span
-                className={`text-xs ${message.kind === 'ok' ? 'text-green-600 dark:text-green-400' : 'text-red-500'}`}
+                className={`text-xs ${message.kind === 'ok' ? 'text-success' : 'text-destructive'}`}
               >
                 {message.text}
               </span>
@@ -213,8 +213,8 @@ function FieldBadge({ label, present }: { label: string; present: boolean }) {
     <span
       className={`rounded-full px-2 py-0.5 text-[11px] ${
         present
-          ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
-          : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'
+          ? 'bg-success/10 text-success'
+          : 'bg-destructive/10 text-destructive'
       }`}
     >
       {label} {present ? '✓' : '✗'}
@@ -322,7 +322,7 @@ function CredentialsSection() {
           <FieldBadge label="目标rid(可选)" present={status.fields.targetRid} />
           <FieldBadge label="目标群名(可选)" present={status.fields.targetGroupName} />
           {status.fileExists && status.fileMode && status.fileMode !== '600' && (
-            <span className="text-amber-600 dark:text-amber-400">
+            <span className="text-warning">
               凭证文件权限 {status.fileMode} 过宽，建议 600
             </span>
           )}
@@ -394,7 +394,7 @@ function CredentialsSection() {
         </Button>
         {message && (
           <span
-            className={`text-xs ${message.kind === 'ok' ? 'text-green-600 dark:text-green-400' : 'text-red-500'}`}
+            className={`text-xs ${message.kind === 'ok' ? 'text-success' : 'text-destructive'}`}
           >
             {message.text}
           </span>
@@ -510,8 +510,8 @@ function AuditSection() {
                     <span
                       className={`rounded-full px-2 py-0.5 text-[11px] ${
                         row.decision === 'allow'
-                          ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
-                          : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'
+                          ? 'bg-success/10 text-success'
+                          : 'bg-destructive/10 text-destructive'
                       }`}
                     >
                       {row.decision}

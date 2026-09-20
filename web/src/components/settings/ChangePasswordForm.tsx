@@ -117,7 +117,7 @@ export default function ChangePasswordForm() {
       </div>
       {error && <p className="text-sm text-destructive">{error}</p>}
       {success && (
-        <p className="text-sm text-emerald-600 dark:text-emerald-400">
+        <p className="text-sm text-success">
           {t('changePassword.success')}
         </p>
       )}

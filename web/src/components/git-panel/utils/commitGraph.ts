@@ -30,22 +30,19 @@ type GraphCommit = {
   parents?: string[];
 };
 
-// Colors cycle per lane, VSCode Git Graph style. Chosen to stay readable on
-// both light and dark backgrounds.
-const GRAPH_COLORS = [
-  '#0ea5e9', // sky
-  '#f97316', // orange
-  '#a855f7', // purple
-  '#22c55e', // green
-  '#ef4444', // red
-  '#eab308', // yellow
-  '#14b8a6', // teal
-  '#ec4899', // pink
-  '#6366f1', // indigo
-  '#84cc16', // lime
-];
+// Colors cycle per lane, VSCode Git Graph style. They are categorical (branch
+// identity), so they map to the design system's --chart-* tokens rather than
+// semantic success/destructive. Hue-matched to the original palette; the only
+// approximations are lane 3 (green → chart-2 emerald) and lane 5 (yellow →
+// chart-9 orange, since the chart palette has no yellow).
+const GRAPH_CHART_INDICES = [1, 10, 6, 2, 8, 9, 3, 7, 4, 5] as const;
 
-export const laneColor = (lane: number) => GRAPH_COLORS[lane % GRAPH_COLORS.length];
+export const laneColor = (lane: number): string =>
+  `hsl(var(--chart-${GRAPH_CHART_INDICES[lane % GRAPH_CHART_INDICES.length]}))`;
+
+/** Semi-transparent lane tint (was a `${hex}22` alpha suffix, which breaks on var()). */
+export const laneColorTint = (lane: number): string =>
+  `hsl(var(--chart-${GRAPH_CHART_INDICES[lane % GRAPH_CHART_INDICES.length]}) / 0.13)`;
 
 export function computeCommitGraph(commits: GraphCommit[]): CommitGraphRow[] {
   // Each slot holds the commit hash that lane is waiting to reach, or null

@@ -2,7 +2,7 @@ import { ChevronDown, ChevronRight, GitBranch, Tag } from 'lucide-react';
 import { useMemo } from 'react';
 import type { GitCommitSummary } from '../../types/types';
 import type { CommitGraphRow } from '../../utils/commitGraph';
-import { laneColor } from '../../utils/commitGraph';
+import { laneColor, laneColorTint } from '../../utils/commitGraph';
 import { getStatusBadgeClass, parseCommitFiles } from '../../utils/gitPanelUtils';
 import GitDiffViewer from '../shared/GitDiffViewer';
 import CommitGraphStrip from './CommitGraphStrip';
@@ -17,7 +17,7 @@ function formatDate(dateString: string): string {
 
 // One "HEAD -> main" / "origin/x" / "tag: v1" decoration pill next to the
 // commit message, tinted with the commit's graph lane color.
-function RefBadge({ refName, color }: { refName: string; color: string }) {
+function RefBadge({ refName, color, tint }: { refName: string; color: string; tint: string }) {
   const isTag = refName.startsWith('tag: ');
   const isHead = refName.startsWith('HEAD -> ');
   const label = isTag ? refName.slice(5) : isHead ? refName.slice(8) : refName;
@@ -28,7 +28,7 @@ function RefBadge({ refName, color }: { refName: string; color: string }) {
       style={{
         borderColor: color,
         color,
-        backgroundColor: isHead ? `${color}22` : 'transparent',
+        backgroundColor: isHead ? tint : 'transparent',
       }}
       title={refName}
     >
@@ -62,9 +62,12 @@ export default function CommitHistoryItem({
     return parseCommitFiles(diff);
   }, [diff]);
 
-  // Must stay a literal hex value: RefBadge derives its HEAD tint by
-  // appending an alpha byte (`${color}22`), which breaks for var() strings.
-  const badgeColor = graphRow ? laneColor(graphRow.nodeLane) : '#0ea5e9';
+  // Lane colors are chart tokens (categorical, not semantic); the HEAD pill
+  // tint uses a dedicated alpha variant since `hsl(var(--chart-N))` can't take
+  // a `${hex}22` suffix the way the old literal hex could.
+  const badgeLane = graphRow ? graphRow.nodeLane : 0;
+  const badgeColor = laneColor(badgeLane);
+  const badgeTint = laneColorTint(badgeLane);
 
   return (
     <div className="flex border-b border-border last:border-0">
@@ -85,7 +88,7 @@ export default function CommitHistoryItem({
               {commit.refs && commit.refs.length > 0 && (
                 <span className="mb-0.5 flex flex-wrap gap-1">
                   {commit.refs.map((refName) => (
-                    <RefBadge key={refName} refName={refName} color={badgeColor} />
+                    <RefBadge key={refName} refName={refName} color={badgeColor} tint={badgeTint} />
                   ))}
                 </span>
               )}
@@ -132,11 +135,11 @@ export default function CommitHistoryItem({
                 </div>
                 <div>
                   <div className="text-muted-foreground/60">Added</div>
-                  <div className="font-semibold text-green-600 dark:text-green-400">+{fileSummary.totalInsertions}</div>
+                  <div className="font-semibold text-success">+{fileSummary.totalInsertions}</div>
                 </div>
                 <div>
                   <div className="text-muted-foreground/60">Removed</div>
-                  <div className="font-semibold text-red-600 dark:text-red-400">-{fileSummary.totalDeletions}</div>
+                  <div className="font-semibold text-destructive">-{fileSummary.totalDeletions}</div>
                 </div>
               </div>
             )}
@@ -168,11 +171,11 @@ export default function CommitHistoryItem({
                       </span>
                       <span className="flex-shrink-0 font-mono text-muted-foreground/60">
                         {file.insertions > 0 && (
-                          <span className="text-green-600 dark:text-green-400">+{file.insertions}</span>
+                          <span className="text-success">+{file.insertions}</span>
                         )}
                         {file.insertions > 0 && file.deletions > 0 && '/'}
                         {file.deletions > 0 && (
-                          <span className="text-red-600 dark:text-red-400">-{file.deletions}</span>
+                          <span className="text-destructive">-{file.deletions}</span>
                         )}
                       </span>
                     </div>
