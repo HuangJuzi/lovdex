@@ -1348,7 +1348,7 @@ ${priorVerdictContext}
 调 write_task_summary 写入：summary（中文≤3句）、verdict（done|only_plan|needs_review|blocked）、reason（一句，说明判定依据，含验证结论与剩余事项性质）。`;
 
   try {
-    const sdkTools = buildOperatorSdkTools(resolvedDeps, { exclude: ['execute_skill', 'workbench', 'delete_task', 'delete_session'] });
+    const sdkTools = buildOperatorSdkTools(resolvedDeps, { exclude: ['execute_skill', 'workbench', 'delete_task', 'delete_session', 'list_notifications', 'mark_notification_read'] });
     const operatorServer = createSdkMcpServer({
       name: 'lovdex-operator',
       tools: sdkTools,
