@@ -193,7 +193,7 @@ const DialogContent = React.forwardRef<HTMLDivElement, DialogContentProps>(
           aria-modal="true"
           className={cn(
             'fixed left-1/2 top-1/2 z-50 w-full max-w-lg -translate-x-1/2 -translate-y-1/2',
-            'rounded-2xl border border-border/80 bg-popover text-popover-foreground shadow-[0_3px_0_rgba(30,27,50,0.08),0_24px_60px_rgba(20,17,12,0.28)]',
+            'rounded-2xl border border-border/80 bg-popover text-popover-foreground shadow-[0_3px_0_hsl(var(--foreground)/0.08),0_24px_60px_hsl(var(--foreground)/0.28)]',
             'animate-dialog-content-show',
             className
           )}
