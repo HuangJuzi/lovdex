@@ -270,11 +270,16 @@ git commit -m "test(design): guard radius, font-size and shadow against arbitrar
         "4xs": "9px",
         "3xs": "10px",
         "2xs": "11px",
-        xs: "12px",
-        sm: "14px",
-        base: "16px",
-        lg: "18px",
-        xl: "20px",
+        // These five are Tailwind's own defaults, written out so the scale is
+        // visible in one place. They MUST stay [size, lineHeight] tuples in
+        // rem: a bare string drops the line-height (elements fall back to
+        // html's 1.5, which shifted ~780 call sites), and px would stop them
+        // tracking the user's browser font-size preference.
+        xs: ["0.75rem", { lineHeight: "1rem" }],
+        sm: ["0.875rem", { lineHeight: "1.25rem" }],
+        base: ["1rem", { lineHeight: "1.5rem" }],
+        lg: ["1.125rem", { lineHeight: "1.75rem" }],
+        xl: ["1.25rem", { lineHeight: "1.75rem" }],
         // The one RELATIVE step: inline code inside Markdown prose must scale
         // with whatever it sits in (heading, list item, paragraph). Do not
         // "fix" this to px -- see the plan's note on text-[0.9em].
@@ -282,7 +287,7 @@ git commit -m "test(design): guard radius, font-size and shadow against arbitrar
       },
 ```
 
-显式写出 `xs`/`sm`/`base`/`lg`/`xl` 的 Tailwind 默认值，是为了让刻度表在一处可见。`inline-code` 是唯一的相对档位，理由见上。
+前五档写成元组与 `rem` 是**硬约束**，理由见 spec §5.1——裸字符串会丢行高（约 780 处受影响），`px` 会丢掉对用户浏览器字号偏好的跟随。新增档位保持裸字符串与 `px`（它们替换的任意值本就如此）。`inline-code` 是唯一的相对档位。
 
 - [ ] **Step 3: 新增 5 个 `boxShadow` 配方**
 
