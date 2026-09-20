@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { MAX_SKILL_FILE_BYTES, MAX_SKILL_TOTAL_BYTES, type SkillFileEntry } from '../skill-hash.js';
+
 /** Loopback port the lite's LLM HTTP forwarder listens on; main builds remote
  * `configEnv.ANTHROPIC_BASE_URL` against it. The lite forwarder listens on the
  * same constant — keep them in sync. */
@@ -10,6 +12,13 @@ export const LLM_FORWARDER_PORT = 18088;
  * through the forwarder ONLY when this capability is present, so an older lite
  * (no forwarder) keeps the direct upstream URL instead of a dead 18088. */
 export const LLM_FORWARD_CAPABILITY = 'llm/forward';
+
+/** Capability the lite advertises when it implements the directory-level
+ * `skills/*` RPCs. Main refuses to plan a sync against a host without it
+ * rather than silently falling back to per-file `fs/*` copies (which have no
+ * atomicity and cannot fingerprint the remote side). Bump to `skills/v2` if
+ * the wire shape ever changes incompatibly. */
+export const SKILLS_CAPABILITY = 'skills/v1';
 
 /**
  * Frame sent by the lite (remote) agent to the main process (lite → 主).
@@ -338,3 +347,114 @@ export function makeProvidersProbeParamsSchema() {
  * stderr, plus the process exit code.
  */
 export type GitExecResult = { stdout: string; stderr: string; exitCode: number };
+
+/** One skill directory as listed by `skills/manifest`. */
+export type SkillManifestEntry = {
+  /** Directory name — the skill's identity for sync purposes. */
+  name: string;
+  contentHash: string;
+  fileCount: number;
+  totalBytes: number;
+  /** Display only; NEVER part of the fingerprint. */
+  mtime: number;
+  description?: string;
+  version?: string;
+  /**
+   * Set when the directory could not be read (too large, unreadable, …).
+   * `contentHash` is then `''` and the entry is INERT: the listing survives so
+   * one bad skill cannot hide every other one, but the sync must refuse to
+   * touch it rather than treat an unreadable target as "absent".
+   */
+  error?: string;
+};
+
+/** `skills/manifest` result. `exists: false` means the root has never been
+ * created on that host — a normal state, not an error. */
+export type RemoteSkillManifest = {
+  root: string;
+  exists: boolean;
+  entries: SkillManifestEntry[];
+};
+
+/** `skills/bundle` result: every file of one skill, plus its fingerprint. */
+export type RemoteSkillBundle = {
+  name: string;
+  contentHash: string;
+  files: SkillFileEntry[];
+};
+
+/** `skills/apply` result. `skipped` means the target already had the desired
+ * contentHash, so nothing was written. */
+export type RemoteSkillApplyResult = {
+  action: 'created' | 'updated' | 'skipped';
+  backupPath?: string;
+  contentHash: string;
+};
+
+/**
+ * Rejects a skill-relative path that could escape the skill directory.
+ * POSIX and Windows separators are both rejected — a `a\..\evil.md` that slips
+ * through here would be joined on Windows and escape.
+ */
+function skillRelativePathSchema() {
+  return z
+    .string()
+    .min(1)
+    .refine(
+      (p) =>
+        !p.startsWith('/') &&
+        !p.startsWith('\\') &&
+        !p.includes('\\') &&
+        !p.split('/').some((seg) => seg === '' || seg === '.' || seg === '..'),
+      { message: 'relativePath must stay inside the skill directory' },
+    );
+}
+
+/** Zod schema for the `skills/manifest` `rpc_req` params. */
+export function makeSkillsManifestParamsSchema() {
+  return z.object({ root: z.string().min(1) });
+}
+
+/** Zod schema for the `skills/bundle` `rpc_req` params. */
+export function makeSkillsBundleParamsSchema() {
+  return z.object({ root: z.string().min(1), name: z.string().min(1) });
+}
+
+/**
+ * Zod schema for the `skills/apply` `rpc_req` params.
+ *
+ * `expectedTargetHash` is the fingerprint the caller SAW when it planned the
+ * sync; the lite re-hashes the live target and refuses when they differ (the
+ * target was modified after the preview). `force: true` overrides that check.
+ */
+export function makeSkillsApplyParamsSchema() {
+  return z.object({
+    root: z.string().min(1),
+    name: z.string().min(1),
+    contentHash: z.string().min(1),
+    files: z
+      .array(
+        z.object({
+          relativePath: skillRelativePathSchema(),
+          content: z.string(),
+          encoding: z.enum(['utf8', 'base64']).optional().default('utf8'),
+          executable: z.boolean().optional().default(false),
+          mtimeMs: z.number().optional(),
+        }),
+      )
+      .max(2000),
+    expectedTargetHash: z.string().nullable(),
+    force: z.boolean().optional().default(false),
+  });
+}
+
+/** Compile-time guard: the schema's file shape must stay assignable to the
+ * shared `SkillFileEntry` used by the fingerprint algorithm. */
+export type SkillsApplyFile = z.infer<
+  ReturnType<typeof makeSkillsApplyParamsSchema>
+>['files'][number];
+const _skillsApplyFileIsSkillFileEntry: SkillFileEntry = {} as SkillsApplyFile;
+void _skillsApplyFileIsSkillFileEntry;
+
+/** Caps re-exported so the lite can enforce them without a second import. */
+export { MAX_SKILL_FILE_BYTES, MAX_SKILL_TOTAL_BYTES };
