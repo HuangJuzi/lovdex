@@ -105,7 +105,7 @@ function MetricCard({
     tone === 'primary'
       ? 'border-primary/35 bg-primary/10 text-primary'
       : tone === 'success'
-        ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-300'
+        ? 'border-success/30 bg-success/10 text-success'
         : 'border-border/70 bg-background/75 text-muted-foreground';
 
   return (
@@ -483,18 +483,18 @@ function StatusContent({ data }: { data: StatusCommandData }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between rounded-3xl border border-emerald-500/25 bg-emerald-500/10 p-4">
+      <div className="flex items-center justify-between rounded-3xl border border-success/30 bg-success/10 p-4">
         <div className="flex items-center gap-3">
           <span className="relative flex h-3 w-3">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-            <span className="relative inline-flex h-3 w-3 rounded-full bg-emerald-500" />
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-success opacity-75" />
+            <span className="relative inline-flex h-3 w-3 rounded-full bg-success" />
           </span>
           <div>
             <p className="text-sm font-semibold text-foreground">Runtime online</p>
             <p className="text-xs text-muted-foreground">Process {data.pid ? `#${data.pid}` : 'status'} is responding.</p>
           </div>
         </div>
-        <Badge className="rounded-full bg-emerald-500 text-white hover:bg-emerald-500">Healthy</Badge>
+        <Badge className="rounded-full bg-success text-success-foreground hover:bg-success">Healthy</Badge>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

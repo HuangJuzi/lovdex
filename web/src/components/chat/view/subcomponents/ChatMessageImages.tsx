@@ -109,7 +109,7 @@ function ImageLightbox({ src, alt, onClose }: { src: string; alt: string; onClos
         type="button"
         onClick={onClose}
         aria-label="Close image preview"
-        className="absolute right-4 top-4 rounded-full bg-white/10 p-2 text-white transition-colors hover:bg-white/20"
+        className="absolute right-4 top-4 rounded-full bg-white/10 p-2 text-white/90 transition-colors hover:bg-white/20"
       >
         <X className="h-5 w-5" />
       </button>

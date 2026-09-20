@@ -479,11 +479,11 @@ export default function ChatComposer({
                 permissionMode === 'default'
                   ? 'border-border/60 bg-muted/50 text-muted-foreground hover:bg-muted'
                   : permissionMode === 'acceptEdits'
-                    ? 'border-green-300/60 bg-green-50 text-green-700 hover:bg-green-100 dark:border-green-600/40 dark:bg-green-900/15 dark:text-green-300 dark:hover:bg-green-900/25'
+                    ? 'border-success/30 bg-success/10 text-success hover:bg-success/20'
                     : permissionMode === 'auto'
-                      ? 'border-blue-300/60 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:border-blue-600/40 dark:bg-blue-900/15 dark:text-blue-300 dark:hover:bg-blue-900/25'
+                      ? 'border-primary/30 bg-primary/10 text-primary hover:bg-primary/20'
                       : permissionMode === 'bypassPermissions'
-                        ? 'border-orange-300/60 bg-orange-50 text-orange-700 hover:bg-orange-100 dark:border-orange-600/40 dark:bg-orange-900/15 dark:text-orange-300 dark:hover:bg-orange-900/25'
+                        ? 'border-warning/30 bg-warning/10 text-warning hover:bg-warning/20'
                         : 'border-primary/20 bg-primary/5 text-primary hover:bg-primary/10'
               }`}
               title={t('input.clickToChangeMode')}
@@ -498,11 +498,11 @@ export default function ChatComposer({
                     permissionMode === 'default'
                       ? 'bg-muted-foreground'
                       : permissionMode === 'acceptEdits'
-                        ? 'bg-green-500'
+                        ? 'bg-success'
                         : permissionMode === 'auto'
-                          ? 'bg-blue-500'
+                          ? 'bg-primary'
                           : permissionMode === 'bypassPermissions'
-                            ? 'bg-orange-500'
+                            ? 'bg-warning'
                             : 'bg-primary'
                   }`}
                 />

@@ -46,7 +46,7 @@ export function TurnPickerOverlay({
             {loading && (
               <div className="px-3 py-2 text-sm opacity-70">{t('session.resume.loading')}</div>
             )}
-            {error && <div className="px-3 py-2 text-sm text-red-500">{error}</div>}
+            {error && <div className="px-3 py-2 text-sm text-destructive">{error}</div>}
             {!loading && !error && turns.length === 0 && (
               <CommandEmpty>{emptyLabel}</CommandEmpty>
             )}

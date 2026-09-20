@@ -113,7 +113,7 @@ export function ResumeSessionOverlay({
             {loading && (
               <div className="px-3 py-2 text-sm opacity-70">{t('session.resume.loading')}</div>
             )}
-            {error && <div className="px-3 py-2 text-sm text-red-500">{error}</div>}
+            {error && <div className="px-3 py-2 text-sm text-destructive">{error}</div>}
             {!loading && !error && filtered.length === 0 && (
               <CommandEmpty>{t('session.resume.empty')}</CommandEmpty>
             )}

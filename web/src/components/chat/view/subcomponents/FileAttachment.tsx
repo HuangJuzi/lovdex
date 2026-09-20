@@ -23,12 +23,12 @@ const FileAttachment = ({ file, onRemove, uploadProgress, error }: FileAttachmen
     <span className="text-[10px] text-muted-foreground/70">{formatSize(file.size)}</span>
     {uploadProgress !== undefined && uploadProgress < 100 && (
       <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-black/50">
-        <div className="text-xs text-white">{uploadProgress}%</div>
+        <div className="text-xs text-white/90">{uploadProgress}%</div>
       </div>
     )}
     {error && (
       <div
-        className="absolute inset-0 flex items-center justify-center rounded-xl bg-red-500/60 p-1 text-center text-[10px] leading-tight text-white"
+        className="absolute inset-0 flex items-center justify-center rounded-xl bg-destructive/60 p-1 text-center text-[10px] leading-tight text-white/90"
         title={error}
       >
         {error}

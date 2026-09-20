@@ -45,7 +45,7 @@ export function ForkOverlay({ open, onClose, appId, summary, onSwitchToNewSessio
       <DialogContent className="flex max-w-md flex-col gap-3 p-4">
         <DialogTitle>{t('session.fork.title')}</DialogTitle>
         {busy && <div className="text-sm opacity-70">{t('session.fork.busy')}</div>}
-        {error && <div className="text-sm text-red-500">{error}</div>}
+        {error && <div className="text-sm text-destructive">{error}</div>}
       </DialogContent>
     </Dialog>
   );
