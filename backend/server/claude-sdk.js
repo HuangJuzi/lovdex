@@ -1404,11 +1404,20 @@ ${priorVerdictContext}
  * compacted transcript into a fixed-template context summary. `queryFn` is the
  * test seam (defaults to the SDK `query`).
  *
+ * The Claude CLI still writes a transcript JSONL for this headless run (cwd is
+ * the operator workspace), which the session synchronizer would index into the
+ * sidebar as a regular session — its first user message IS the one-shot prompt
+ * (verdict criteria / title instructions). So the stream's session_id is
+ * captured and marked `is_verdict` after the run, exactly like
+ * `runOperatorHeadless` does; the marker failure is logged, never propagated.
+ * `markVerdictSession` is the test seam (defaults to
+ * sessionsDb.markSessionAsVerdict(sid, cfg.workspace)).
+ *
  * Unlike `runOperatorHeadless` (which swallows + logs errors and resolves), a
  * run failure here rejects to the caller — so the compression job can
  * distinguish "no output" (`null`) from "run failed" (rejection).
  */
-export async function runOneShotClaudeText({ prompt, systemPrompt, model, queryFn } = {}) {
+export async function runOneShotClaudeText({ prompt, systemPrompt, model, queryFn, markVerdictSession } = {}) {
   const cfg = getOperatorConfig();
   const sdkOptions = {
     env: { ...process.env },
@@ -1426,9 +1435,14 @@ export async function runOneShotClaudeText({ prompt, systemPrompt, model, queryF
   // interactive path — see shouldDisableClaudeThinking).
   applyClaudeThinkingDisable(sdkOptions);
 
-  const queryInstance = (queryFn ?? query)({ prompt, options: sdkOptions });
+  const queryToUse = queryFn ?? query;
+  const queryInstance = queryToUse({ prompt, options: sdkOptions });
   const parts = [];
+  let capturedSessionId = null;
   for await (const message of queryInstance) {
+    if (!capturedSessionId && message?.session_id) {
+      capturedSessionId = message.session_id;
+    }
     if (message?.type !== 'assistant') continue;
     const content = message?.message?.content;
     if (!Array.isArray(content)) continue;
@@ -1436,6 +1450,14 @@ export async function runOneShotClaudeText({ prompt, systemPrompt, model, queryF
       if (block?.type === 'text' && typeof block.text === 'string') {
         parts.push(block.text);
       }
+    }
+  }
+  if (capturedSessionId) {
+    const mark = markVerdictSession ?? ((sid) => sessionsDb.markSessionAsVerdict(sid, cfg.workspace));
+    try {
+      mark(capturedSessionId, cfg.workspace);
+    } catch (e) {
+      console.error('[one-shot] mark verdict session failed', e);
     }
   }
   const text = parts.join('\n').trim();
