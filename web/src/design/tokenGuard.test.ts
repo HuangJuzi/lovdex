@@ -27,7 +27,9 @@ const RAW_CLASS = new RegExp(`\\b(?:${UTILS})-(?:${PALETTE})-${SHADE}\\b`, 'g');
 const DARK_PAIR = new RegExp(`dark:(?:${UTILS})-(?:${PALETTE})-${SHADE}`, 'g');
 const HARDCODED_HEX = /#[0-9a-fA-F]{6}\b|%23[0-9a-fA-F]{6}/g;
 const RGB_LITERAL = /\brgba?\(\s*[0-9]/g;
-const HARDCODED_HSL = /hsl\(\s*[0-9]/g;
+// Neutral black overlays (`hsl(0 0% 0% / <alpha>`) are masks/shadows, not theme
+// colors, so they are exempt from the hardcoded-hsl check.
+const HARDCODED_HSL = /hsl\(\s*(?!0\s+0%\s+0%)[0-9]/g;
 
 /** Tokens that must exist in both `:root` and `.dark`. */
 const THEME_TOKENS = [
@@ -55,7 +57,8 @@ const ROOT_ONLY_TOKENS = [
 function stripComments(source: string): string {
   return source
     .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, ' '))
-    .replace(/(^|[^:])\/\/.*$/gm, '$1');
+    .replace(/(^|[^:])\/\/.*$/gm, '$1')
+    .replace(/url\("data:image\/svg\+xml[^"]*"\)/g, 'url()');
 }
 
 function sourceFiles(dir: string, acc: string[] = []): string[] {
