@@ -372,3 +372,23 @@ ${NOTIFICATIONS_TABLE_SCHEMA_SQL}
 CREATE INDEX IF NOT EXISTS idx_notifications_unread ON notifications(read_at, created_at);
 CREATE INDEX IF NOT EXISTS idx_notifications_dedupe ON notifications(dedupe_key, read_at);
 `;
+
+export const SKILL_SYNC_AUDIT_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS skill_sync_audit (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
+    actor             TEXT NOT NULL CHECK (actor IN ('user','operator','system')),
+    from_node         TEXT NOT NULL,
+    to_node           TEXT NOT NULL,
+    scope             TEXT NOT NULL CHECK (scope IN ('user','project')),
+    project_id        INTEGER,
+    target_project_id INTEGER,
+    skill_name        TEXT NOT NULL,
+    action            TEXT NOT NULL,
+    content_hash      TEXT,
+    backup_path       TEXT,
+    status            TEXT NOT NULL CHECK (status IN ('ok','failed')),
+    error             TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_skill_sync_audit_created ON skill_sync_audit(created_at DESC);
+`;

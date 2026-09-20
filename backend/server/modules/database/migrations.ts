@@ -9,6 +9,7 @@ import {
   PUSH_SUBSCRIPTIONS_TABLE_SCHEMA_SQL,
   REMOTE_HOSTS_TABLE_SCHEMA_SQL,
   SESSIONS_TABLE_SCHEMA_SQL,
+  SKILL_SYNC_AUDIT_TABLE_SCHEMA_SQL,
   TASKS_TABLE_SCHEMA_SQL,
   USER_NOTIFICATION_PREFERENCES_TABLE_SCHEMA_SQL,
   VAPID_KEYS_TABLE_SCHEMA_SQL,
@@ -713,6 +714,15 @@ export function migrateRemoteHostsTable(db: Database): void {
 }
 
 /**
+ * Skill-sync audit table. The repository also execs this DDL on construction
+ * (idempotent), but running it here keeps a fresh install's table set
+ * complete before any repository is built.
+ */
+export function migrateSkillSyncAuditTable(db: Database): void {
+  db.exec(SKILL_SYNC_AUDIT_TABLE_SCHEMA_SQL);
+}
+
+/**
  * One-time canonicalization of stored project paths.
  *
  * Walks every `projects` row and re-keys it to its real (symlink-resolved)
@@ -832,6 +842,7 @@ export const runMigrations = (db: Database) => {
     ensureProjectsForSessionPaths(db);
     migrateProjectsExplicitColumn(db);
     migrateRemoteHostsTable(db);
+    migrateSkillSyncAuditTable(db);
     canonicalizeProjectPathsMigration(db);
 
     migrateTasksTable(db);
