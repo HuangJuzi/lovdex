@@ -68,7 +68,7 @@ export default function InboxPage() {
                 {grouped[severity].map((it) => (
                   <li
                     key={it.notification_id}
-                    className={`rounded-md border p-3 ${it.read_at ? 'opacity-60' : 'bg-muted/40'} ${(it.task_id || it.session_id) ? 'cursor-pointer hover:bg-muted' : ''}`}
+                    className={`rounded-md border p-3 ${it.read_at ? 'opacity-60' : 'bg-muted/40'} ${(it.task_id || it.session_id || it.code === 'skill_update') ? 'cursor-pointer hover:bg-muted' : ''}`}
                     onClick={() => openTarget(it)}
                   >
                     <div className="flex items-center justify-between">

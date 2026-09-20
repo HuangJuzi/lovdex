@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 
-import { Button, Card, CardContent, CardDescription, CardHeader, CardTitle } from '../../shared/view/ui';
+import { Button } from '../../shared/view/ui';
 import { api } from '../../utils/api';
 import { describeSkillStatus, type AlertSkillStatus } from './inboxSkillStatus';
 
@@ -43,25 +43,25 @@ export function InboxSkillSettings() {
 
   if (!status) {
     return (
-      <Card>
-        <CardHeader><CardTitle>收件箱技能</CardTitle></CardHeader>
-        <CardContent className="text-sm text-muted-foreground">{error ?? '加载中…'}</CardContent>
-      </Card>
+      <section className="rounded-lg border border-border bg-card p-4">
+        <h2 className="mb-1 text-sm font-semibold text-foreground">收件箱技能</h2>
+        <div className="py-2 text-sm text-muted-foreground">{error ?? '加载中…'}</div>
+      </section>
     );
   }
 
   const view = describeSkillStatus(status);
 
+  // 样式对齐相邻的 OperatorSkillExecSettings（同页同 tab），不用 Card 原语 ——
+  // 设置页只有它一个区块用 Card 会显得突兀。
   return (
-    <Card className={view.highlight ? 'border-warning' : undefined}>
-      <CardHeader>
-        <CardTitle>收件箱技能</CardTitle>
-        <CardDescription>
-          把 <code>lovdex-alert</code> 上报约定装进系统 skill 目录（<code>~/.claude/skills</code>）。
-          装好后，任务描述里写「有问题放到收件箱」即可自动触发通知，不用再手抄格式。
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-3">
+    <section className={`rounded-lg border bg-card p-4 ${view.highlight ? 'border-warning' : 'border-border'}`}>
+      <h2 className="mb-1 text-sm font-semibold text-foreground">收件箱技能</h2>
+      <p className="mb-2 text-xs text-muted-foreground">
+        把 <code>lovdex-alert</code> 上报约定装进系统 skill 目录（<code>~/.claude/skills</code>）。
+        装好后，任务描述里写「有问题放到收件箱」即可自动触发通知，不用再手抄格式。
+      </p>
+      <div className="space-y-2">
         <div className="text-sm text-muted-foreground">{view.versionLine}</div>
         <div className="break-all text-xs text-muted-foreground">{status.skillPath}</div>
         {error ? <div className="text-sm text-destructive">{error}</div> : null}
@@ -75,8 +75,8 @@ export function InboxSkillSettings() {
             </Button>
           ) : null}
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </section>
   );
 }
 
