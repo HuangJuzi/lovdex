@@ -659,6 +659,9 @@ initOperatorHeadless({
         unreadCount: () => notificationsService.unreadCount(),
         markRead: (id) => notificationsService.markRead(id),
         markAllRead: () => notificationsService.markAllRead(),
+        // send_notification 工具走这条。同样必须惰性：模块顶层求值时
+        // notificationsService 还没被 startServer() 赋值。
+        emit: (input) => notificationsService.emit(input),
     },
     // Session transfer: move a task + session between registered projects.
     moveSessionToProject: sessionTransferService.moveSessionToProject,
