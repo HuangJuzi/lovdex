@@ -92,14 +92,15 @@ export default {
         "4xs": "9px",
         "3xs": "10px",
         "2xs": "11px",
-        // These five existed in Tailwind's default scale as [size, lineHeight]
-        // tuples. Keeping the tuples preserves the line-heights; a bare string
-        // would drop them and every element would inherit html's line-height.
-        xs: ["12px", { lineHeight: "16px" }],
-        sm: ["14px", { lineHeight: "20px" }],
-        base: ["16px", { lineHeight: "24px" }],
-        lg: ["18px", { lineHeight: "28px" }],
-        xl: ["20px", { lineHeight: "28px" }],
+        // These five are Tailwind's own defaults, written out so the scale is
+        // visible in one place. Keep them in rem with their original
+        // line-heights: rem tracks the user's browser font-size preference,
+        // and px would silently drop that.
+        xs: ["0.75rem", { lineHeight: "1rem" }],
+        sm: ["0.875rem", { lineHeight: "1.25rem" }],
+        base: ["1rem", { lineHeight: "1.5rem" }],
+        lg: ["1.125rem", { lineHeight: "1.75rem" }],
+        xl: ["1.25rem", { lineHeight: "1.75rem" }],
         // The one RELATIVE step: inline code inside Markdown prose must scale
         // with whatever it sits in (heading, list item, paragraph). Do not
         // "fix" this to px.
