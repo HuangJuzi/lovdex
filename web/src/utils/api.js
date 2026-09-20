@@ -383,6 +383,20 @@ export const api = {
     disable: (scheduleId) => authenticatedFetch(`/api/scheduled-tasks/${encodeURIComponent(scheduleId)}/disable`, { method: 'POST' }),
   },
 
+  notifications: {
+    list: (params = {}) => {
+      const qs = new URLSearchParams();
+      if (params.unread) qs.set('unread', 'true');
+      if (params.limit != null) qs.set('limit', String(params.limit));
+      if (params.offset != null) qs.set('offset', String(params.offset));
+      const s = qs.toString();
+      return authenticatedFetch(`/api/notifications${s ? `?${s}` : ''}`);
+    },
+    unreadCount: () => authenticatedFetch('/api/notifications/unread-count'),
+    markRead: (id) => authenticatedFetch(`/api/notifications/${encodeURIComponent(id)}/read`, { method: 'POST' }),
+    markAllRead: () => authenticatedFetch('/api/notifications/read-all', { method: 'POST' }),
+  },
+
   // Operator Agent configuration (auto-verdict, auto-move, model, concurrency).
   operator: {
     settings: () => authenticatedFetch('/api/operator/settings'),
