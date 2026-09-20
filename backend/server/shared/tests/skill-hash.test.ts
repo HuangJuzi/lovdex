@@ -9,8 +9,15 @@ import {
   computeSkillHash,
   detectEncoding,
   isIgnoredSkillEntry,
+  MAX_SKILL_FILE_BYTES,
+  MAX_SKILL_TOTAL_BYTES,
   type SkillFileEntry,
 } from '../skill-hash.js';
+
+/** The two NUL-free, non-UTF-8 byte sequences that used to collapse onto the
+ * same string (and therefore the same fingerprint) under a NUL-scan heuristic. */
+const NON_UTF8_A = Buffer.from('636166e9206e61ef76650a', 'hex');
+const NON_UTF8_B = Buffer.from('636166ee206e61f576650a', 'hex');
 
 const f = (relativePath: string, content: string, executable = false): SkillFileEntry => ({
   relativePath,
@@ -74,6 +81,98 @@ test('isIgnoredSkillEntry skips dotfiles, dot-dirs and node_modules', () => {
 test('detectEncoding picks base64 for binary content', () => {
   assert.equal(detectEncoding(Buffer.from('hello', 'utf8')), 'utf8');
   assert.equal(detectEncoding(Buffer.from([0x00, 0x01, 0x02])), 'base64');
+});
+
+test('detectEncoding is round-trip based, not NUL based', () => {
+  assert.equal(detectEncoding(Buffer.from([0x00, 0x01])), 'base64');
+  assert.equal(detectEncoding(Buffer.from('hi', 'utf8')), 'utf8');
+  // UTF-8 permits U+0000, so a NUL is not proof of non-text; such a file is
+  // carried as base64 anyway (lossless either way, and it is the binary fast
+  // path). What matters is that it never round-trips lossily.
+  assert.equal(detectEncoding(Buffer.from([0x61, 0x00, 0x62])), 'base64');
+  // NUL-free but NOT valid UTF-8 — the case a NUL scan got wrong.
+  assert.equal(detectEncoding(NON_UTF8_A), 'base64');
+  assert.equal(detectEncoding(NON_UTF8_B), 'base64');
+});
+
+test('non-UTF-8 NUL-free bytes survive collection losslessly', async () => {
+  const dir = await mkSkillDir();
+  await fsp.writeFile(path.join(dir, 'notes.txt'), NON_UTF8_A);
+
+  const files = await collectSkillDir(dir);
+  assert.equal(files.length, 1);
+  assert.equal(files[0].encoding, 'base64');
+  assert.deepEqual(Buffer.from(files[0].content, 'base64'), NON_UTF8_A);
+});
+
+test('two different NUL-free non-UTF-8 byte sequences do NOT collide', async () => {
+  // Under the old NUL heuristic both decoded to 'caf� na�ve\n', so
+  // both hashed the same and a real update would have been skipped as
+  // "already in sync".
+  assert.notDeepEqual(NON_UTF8_A, NON_UTF8_B);
+  const mangled = (buf: Buffer): string => Buffer.from(buf.toString('utf8'), 'utf8').toString('hex');
+  assert.equal(mangled(NON_UTF8_A), mangled(NON_UTF8_B)); // the old lossy path
+
+  const dirA = await mkSkillDir();
+  const dirB = await mkSkillDir();
+  await fsp.writeFile(path.join(dirA, 'notes.txt'), NON_UTF8_A);
+  await fsp.writeFile(path.join(dirB, 'notes.txt'), NON_UTF8_B);
+
+  assert.notEqual(
+    computeSkillHash(await collectSkillDir(dirA)),
+    computeSkillHash(await collectSkillDir(dirB)),
+  );
+});
+
+test('computeSkillHash rejects a duplicate relativePath', () => {
+  assert.throws(
+    () => computeSkillHash([f('SKILL.md', 'a'), f('SKILL.md', 'b')]),
+    /duplicate relativePath: SKILL\.md/,
+  );
+  // Same path AND same content is still a malformed manifest.
+  assert.throws(
+    () => computeSkillHash([f('SKILL.md', 'a'), f('SKILL.md', 'a')]),
+    /duplicate relativePath/,
+  );
+});
+
+test('collectSkillDir output is stable across a JSON wire round-trip', async () => {
+  const dir = await mkSkillDir();
+  await fsp.mkdir(path.join(dir, 'scripts'), { recursive: true });
+  await fsp.writeFile(path.join(dir, 'SKILL.md'), 'hello');
+  await fsp.writeFile(path.join(dir, 'scripts', 'run.sh'), 'echo hi');
+  await fsp.writeFile(path.join(dir, 'notes.txt'), NON_UTF8_A);
+
+  const files = await collectSkillDir(dir);
+  const overWire = JSON.parse(JSON.stringify(files)) as SkillFileEntry[];
+  assert.equal(computeSkillHash(overWire), computeSkillHash(files));
+});
+
+test('collectSkillDir enforces MAX_SKILL_TOTAL_BYTES', async () => {
+  const dir = await mkSkillDir();
+  // Each file sits just under the per-file cap, so only the running total can
+  // trip: the largest number of such files that still fits, plus one.
+  const perFile = MAX_SKILL_FILE_BYTES - 1;
+  const count = Math.floor(MAX_SKILL_TOTAL_BYTES / perFile) + 1;
+  const chunk = Buffer.alloc(perFile, 0x61);
+  for (let i = 0; i < count; i++) {
+    await fsp.writeFile(path.join(dir, `chunk-${i}.bin`), chunk);
+  }
+  await assert.rejects(() => collectSkillDir(dir), /skill too large/);
+});
+
+test('collectSkillDir never follows a symlink out of the skill root', async () => {
+  const dir = await mkSkillDir();
+  const outside = await fsp.mkdtemp(path.join(os.tmpdir(), 'skill-hash-outside-'));
+  const secret = 'PRIVATE-KEY-MATERIAL-DO-NOT-LEAK';
+  await fsp.writeFile(path.join(outside, 'id_rsa'), secret);
+  await fsp.writeFile(path.join(dir, 'SKILL.md'), 'hello');
+  await fsp.symlink(path.join(outside, 'id_rsa'), path.join(dir, 'leak.txt'));
+  await fsp.symlink(outside, path.join(dir, 'leakdir'));
+
+  const files = await collectSkillDir(dir);
+  assert.deepEqual(files.map((x) => x.relativePath), ['SKILL.md']);
+  assert.equal(JSON.stringify(files).includes(secret), false);
 });
 
 test('collectSkillDir walks recursively, skips ignored entries, POSIX-joins paths', async () => {
