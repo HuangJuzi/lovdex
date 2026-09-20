@@ -224,3 +224,15 @@ test('collectSkillDir output hashes deterministically across calls', async () =>
     computeSkillHash(await collectSkillDir(dir)),
   );
 });
+
+test('golden fingerprint is frozen across main and lite', () => {
+  // Must match backend/remote-agent/src/tests/skill-hash-parity.test.ts
+  const GOLDEN = '67235fa7090160e8df19fa7052a0f40e01bb127f0b38991880eee38da70b24f4';
+  assert.equal(
+    computeSkillHash([
+      { relativePath: 'SKILL.md', content: 'hello', encoding: 'utf8', executable: false },
+      { relativePath: 'scripts/run.sh', content: 'echo hi', encoding: 'utf8', executable: true },
+    ]),
+    GOLDEN,
+  );
+});
