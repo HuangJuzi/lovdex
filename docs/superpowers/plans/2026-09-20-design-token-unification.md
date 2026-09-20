@@ -25,8 +25,9 @@ unset TSX_TSCONFIG_PATH   # 仓库全局导出了该变量，会导致 tsx 读�
 |---|---|
 | 裸调色板类名 | 1717 处 |
 | `dark:` 裸色配对 | 579 |
-| `.ts`/`.tsx`/`.css` 硬编码 hex | 104 |
+| 硬编码 hex（含 `%23` 编码形式） | 108 |
 | `rgb()`/`rgba()` 字面量 | 85 |
+| 硬编码 `hsl()` 字面量 | 0 |
 | `npm run typecheck` | 0 error |
 | `npm run lint` | 0 error / 225 warning |
 | 测试 | 496 pass / 0 fail（~2.9s） |
@@ -232,15 +233,20 @@ unset TSX_TSCONFIG_PATH
 npx tsx --test src/design/tokenGuard.test.ts
 ```
 
-Expected: **FAIL**，5 个测试全挂（此代码已实测验证过，数字可直接对照）：
+Expected: **FAIL**，6 个测试中 5 红 1 绿（此代码已实测验证过，数字可直接对照）：
 
 | 测试 | 期望失败数 |
 |---|---|
 | no raw Tailwind palette classes | 1717 |
 | no dark: overrides | 579 |
-| no hardcoded hex | 104 |
+| no hardcoded hex | 108 |
 | no rgb()/rgba() literals | 85 |
-| index.css defines every required token | 缺失 `--success*`、`--warning*`、`--info*`、`--chart-1..10` |
+| no hardcoded hsl() literals | 0（**PASS**，见下） |
+| index.css defines every required token | 缺失 21 个 token |
+
+> **本任务的守卫在代码审查后做过修订**（commit `2682514`），最终版本比上面代码块多三处：① 文件遍历放宽到 `.js`/`.jsx`（否则 `src/contexts/ThemeContext.jsx` 的两个硬编码主题色永远不被发现）；② hex 正则增加 `%23[0-9a-fA-F]{6}`（否则 `index.css:911/922` 的 SVG 描边色 `%239CA3AF`/`%236B7280` 会静默漏过）；③ 新增 hardcoded `hsl()` 检查 + 失败报告带行号。**以 `2682514` 的文件内容为准。**
+>
+> 第 5 项初始为绿是正常的——当前代码树没有硬编码 `hsl()`（唯一命中在注释里，会被剥离）。它的价值在于堵住后续迁移中"把 `#fff` 改成 `hsl(0 0% 100%)` 冒充 token"这条捷径。
 
 - [ ] **Step 3: 提交**
 
@@ -456,6 +462,7 @@ grep -nE 'rgba?\([0-9]' src/index.css
 3. **触屏 hover 抑制规则**里的 `.hover\:bg-gray-50:hover` 等选择器——组件迁移后这些类名消失，从选择器列表中删除该行；若整个选择器列表因此为空，删除整条规则。
 4. **`@apply accent-blue-600`**（约 393 行）——改为 `@apply accent-primary`。
 5. **遮罩类 `rgba(...)`**——一律转成 `hsl()`，因为守卫测试把 `rgb(`/`rgba(` 字面量一律视为硬编码。中性遮罩用 `hsl(0 0% 0% / 0.1)`；带色相的（如 `rgba(35,33,41,0.08)`）用 `hsl(var(--foreground) / 0.08)`。
+6. **URL 编码的 hex（约 911 / 922 行）**——`url("data:image/svg+xml,...")` 里的下拉箭头描边写成了 `stroke='%239CA3AF'`（gray-400）和 `stroke='%236B7280'`（gray-500）。这是两个硬编码灰，需替换为 token。SVG data URI 内不能直接用 `hsl(var(--x))`，改用 `currentColor` 并让宿主元素设色，或直接内联一个与新灰阶一致的十六进制值**并在注释里注明它对应哪个 token**（这是守卫的豁免例外，需在该行加 `/* token-exempt */` 说明）。
 
 - [ ] **Step 3: 验证**
 
@@ -545,10 +552,13 @@ git commit -m "refactor(design): migrate shared UI primitives to semantic tokens
 
 ---
 
-## Task 6: 小目录试点（file-preview / main-content / operators）
+## Task 6: 小目录试点（file-preview / main-content / operators / contexts）
 
 **Files:**
 - Modify: `src/components/file-preview/`（8 处）、`src/components/main-content/`（9 处）、`src/components/operators/`（1 处）
+- Modify: `src/contexts/ThemeContext.jsx`（2 处 hex）
+
+**`ThemeContext.jsx` 是代码审查发现的漏网文件**：它把 `<meta name="theme-color">` 硬编码为 `#141414`（暗）与 `#f6f4ef`（亮），旁边的注释写着 `hsl(0 0% 8%)` 和 `warm cream`——正是旧 token 的镜像。不改的话，迁移后**浏览器地址栏主题色仍是暖调，与应用脱节**。改为读取 token 值（该文件是 `.jsx`，可用 `getComputedStyle(document.documentElement).getPropertyValue('--background')`，或直接写入新的 `hsl()` 字面量并注释对应 token）。
 
 - [ ] **Step 1: 列出违规并迁移**
 
@@ -557,6 +567,7 @@ cd /mnt/b/workdir/github/lovdex/web
 UT='bg|text|border|from|to|via|ring|fill|stroke|decoration|divide|outline|shadow|accent|caret'
 PA='slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose'
 grep -rnoE "\\b($UT)-($PA)-[0-9]{2,3}\\b" src/components/file-preview src/components/main-content src/components/operators
+grep -nE '#[0-9a-fA-F]{6}' src/contexts/ThemeContext.jsx
 ```
 
 按全局映射表替换。
@@ -574,7 +585,7 @@ Expected: 全 PASS。
 - [ ] **Step 3: 提交**
 
 ```bash
-git add src/components/file-preview src/components/main-content src/components/operators
+git add src/components/file-preview src/components/main-content src/components/operators src/contexts/ThemeContext.jsx
 git commit -m "refactor(design): migrate file-preview, main-content, operators to tokens"
 ```
 
