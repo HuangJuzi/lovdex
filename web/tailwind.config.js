@@ -92,11 +92,14 @@ export default {
         "4xs": "9px",
         "3xs": "10px",
         "2xs": "11px",
-        xs: "12px",
-        sm: "14px",
-        base: "16px",
-        lg: "18px",
-        xl: "20px",
+        // These five existed in Tailwind's default scale as [size, lineHeight]
+        // tuples. Keeping the tuples preserves the line-heights; a bare string
+        // would drop them and every element would inherit html's line-height.
+        xs: ["12px", { lineHeight: "16px" }],
+        sm: ["14px", { lineHeight: "20px" }],
+        base: ["16px", { lineHeight: "24px" }],
+        lg: ["18px", { lineHeight: "28px" }],
+        xl: ["20px", { lineHeight: "28px" }],
         // The one RELATIVE step: inline code inside Markdown prose must scale
         // with whatever it sits in (heading, list item, paragraph). Do not
         // "fix" this to px.
