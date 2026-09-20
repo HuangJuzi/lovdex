@@ -58,7 +58,8 @@ export const getEditorStyles = () => {
       background: transparent;
       border: none;
       cursor: pointer;
-      border-radius: 4px;
+      /* = rounded-sm */
+      border-radius: calc(var(--radius) - 4px);
       display: inline-flex;
       align-items: center;
       justify-content: center;

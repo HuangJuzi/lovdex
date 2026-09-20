@@ -137,7 +137,7 @@ export const QuestionAnswerContent: React.FC<QuestionAnswerContentProps> = ({
                             : 'text-muted-foreground'
                         }`}
                       >
-                        <div className={`mt-0.5 h-3.5 w-3.5 flex-shrink-0 ${q.multiSelect ? 'rounded-[3px]' : 'rounded-full'} flex items-center justify-center border-[1.5px] ${
+                        <div className={`mt-0.5 h-3.5 w-3.5 flex-shrink-0 ${q.multiSelect ? 'rounded-xs' : 'rounded-full'} flex items-center justify-center border-[1.5px] ${
                           wasSelected
                             ? 'border-primary bg-primary'
                             : 'border-muted-foreground/50'
@@ -169,7 +169,7 @@ export const QuestionAnswerContent: React.FC<QuestionAnswerContentProps> = ({
                       key={lbl}
                       className="flex items-start gap-2 rounded-lg border border-primary/30 bg-primary/10 px-2.5 py-1.5 text-[12px]"
                     >
-                      <div className={`mt-0.5 h-3.5 w-3.5 flex-shrink-0 ${q.multiSelect ? 'rounded-[3px]' : 'rounded-full'} flex items-center justify-center border-[1.5px] border-primary bg-primary`}>
+                      <div className={`mt-0.5 h-3.5 w-3.5 flex-shrink-0 ${q.multiSelect ? 'rounded-xs' : 'rounded-full'} flex items-center justify-center border-[1.5px] border-primary bg-primary`}>
                         <svg className="h-2 w-2 text-primary-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={3}>
                           <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                         </svg>

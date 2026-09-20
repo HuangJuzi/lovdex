@@ -374,7 +374,8 @@
   
   .scrollbar-thin::-webkit-scrollbar-thumb {
     background-color: hsl(var(--muted-foreground));
-    border-radius: 3px;
+    /* = rounded-xs */
+    border-radius: calc(var(--radius) - 5px);
   }
   
   .scrollbar-thin::-webkit-scrollbar-thumb:hover {
@@ -392,7 +393,8 @@
 
   .dark .scrollbar-thin::-webkit-scrollbar-thumb {
     background-color: hsl(var(--muted-foreground) / 0.5);
-    border-radius: 3px;
+    /* = rounded-xs */
+    border-radius: calc(var(--radius) - 5px);
   }
 
   .dark .scrollbar-thin::-webkit-scrollbar-thumb:hover {
@@ -411,7 +413,8 @@
 
   .dark::-webkit-scrollbar-thumb {
     background-color: hsl(var(--muted-foreground) / 0.5);
-    border-radius: 4px;
+    /* = rounded-sm */
+    border-radius: calc(var(--radius) - 4px);
   }
 
   .dark::-webkit-scrollbar-thumb:hover {
@@ -872,7 +875,8 @@
 
   .chat-input-placeholder::-webkit-scrollbar-thumb {
     background-color: hsl(var(--muted-foreground) / 0.3);
-    border-radius: 3px;
+    /* = rounded-xs */
+    border-radius: calc(var(--radius) - 5px);
     transition: background-color 0.2s;
   }
 
@@ -1017,7 +1021,8 @@
     0%, 50% {
       outline: 3px solid hsl(var(--primary));
       outline-offset: 4px;
-      border-radius: 8px;
+      /* = rounded-lg */
+      border-radius: var(--radius);
       background-color: hsl(var(--primary) / 0.06);
     }
     100% {
