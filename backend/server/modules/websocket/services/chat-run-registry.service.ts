@@ -171,6 +171,20 @@ export function getTaskLinkage(): TaskLinkage | null {
 }
 
 /**
+ * 会话结束时的告警扫描器，注入（而非 import）以保持 registry 不依赖 notifications
+ * 与 tasks 模块。见 modules/notifications/session-alert-scanner.ts。
+ */
+type SessionAlertScannerLike = {
+  scanCompletedRun: (input: { appSessionId: string; events: readonly NormalizedMessage[] }) => void;
+};
+
+let sessionAlertScanner: SessionAlertScannerLike | null = null;
+
+export function setSessionAlertScanner(scanner: SessionAlertScannerLike | null): void {
+  sessionAlertScanner = scanner;
+}
+
+/**
  * Maps a pending permission requestId back to the app session that owns it, so
  * the `chat.permission-response` handler can clear the task approval marker.
  * Entries are added when `permission_request` flows through the registry and
@@ -279,6 +293,10 @@ function decorateAndRecordEvent(run: ChatRun, message: NormalizedMessage): Norma
       completedAt: run.completedAt,
     });
     taskLinkage?.onSessionStatus(run.appSessionId, state);
+    // 告警扫描：读本轮内存缓冲里的 assistant 文本，提取 lovdex-alert 标记。
+    // 此刻 run.events 已含本轮 assistant 文本（complete 自身在下面才入队，不影响）。
+    // 三类会话（助手 / 任务 / 普通交互）都经过这里。
+    sessionAlertScanner?.scanCompletedRun({ appSessionId: run.appSessionId, events: run.events });
     // The run is over: a still-pending tool-approval can never be answered, so
     // drop its "等你批准" marker and forget the request mapping. This covers the
     // abort path and the crash safety-net, which only emit a synthetic
