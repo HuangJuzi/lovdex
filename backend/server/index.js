@@ -468,13 +468,12 @@ const broadcastTask = (event) => {
         if (client.readyState === WS_OPEN_STATE) client.send(JSON.stringify(event));
     });
 };
-// 通知中心：emit 走与 broadcastTask 同款全客户端 fan-out（notification_created /
-// notification_updated），扫描消费者挂在 onTaskCompleted（见下）。
-const notificationsDb = createNotificationsDb();
-const notificationsService = createNotificationsService(notificationsDb, {
-    broadcast: (event) => broadcastTask(event),
-    maxRows: 500,
-});
+// 通知中心服务。notifications 表随本模块新加入 schema，而建表发生在
+// startServer() 的 await initializeDatabase() 里；createNotificationsDb() 在
+// prepare 阶段就会校验表存在，若在模块顶层调用会在 schema 应用前抛
+// "no such table"，导致后端启动即崩。所以这里只声明占位，实例化统一放到
+// startServer() 的 initializeDatabase() 之后（见下）。
+let notificationsService;
 // 标题为空时用 LLM（默认 DeepSeek Flash，可在 Operator 设置里换）从 description
 // 提炼一个短名。走与任务上下文压缩同一条 headless 一次性调用路径；失败/超时一律
 // 返回 null，调用方据此降级到需求首行兜底 —— 取名失败绝不能导致建任务/存定时任务
@@ -694,7 +693,6 @@ app.use('/api/tasks', authenticateToken, buildTasksRouter(tasksService, {
     createSession: createAppSession,
 }));
 app.use('/api/scheduled-tasks', authenticateToken, buildSchedulerRouter(schedulerService));
-app.use('/api/notifications', authenticateToken, buildNotificationsRouter(notificationsService));
 
 // Token 用量统计 API（protected）— 见 docs/superpowers/specs/2026-09-17-token-usage-stats-design.md
 const tokenUsageIngest = createTokenUsageIngestService();
@@ -2170,6 +2168,16 @@ async function startServer() {
     try {
         // Initialize authentication database
         await initializeDatabase();
+
+        // 通知中心服务必须等 notifications 表落库后再实例化（上面的
+        // initializeDatabase() 已经建表，createNotificationsDb 的 prepare 才能过）。
+        // emit 走与 broadcastTask 同款全客户端 fan-out；扫描消费者挂在 onTaskCompleted。
+        const notificationsDb = createNotificationsDb();
+        notificationsService = createNotificationsService(notificationsDb, {
+            broadcast: (event) => broadcastTask(event),
+            maxRows: 500,
+        });
+        app.use('/api/notifications', authenticateToken, buildNotificationsRouter(notificationsService));
 
         // Prime the remote-projects routing index AFTER the DB is ready (it is a
         // projection of the projects table); project create/delete refresh it.
