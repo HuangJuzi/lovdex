@@ -1,3 +1,4 @@
+import { isAlertSeverity } from '@/modules/notifications/alert-format.js';
 import { isAiVerdict, type AiVerdict, isTaskPriority, type TaskPriority } from '@/shared/task-status.js';
 import { compactTranscriptToText } from '@/shared/session-transcript.js';
 import type { TaskEngine } from '@/shared/types.js';
@@ -120,7 +121,19 @@ export type OperatorToolDeps = {
     unreadCount: () => number;
     markRead: (id: string) => unknown;
     markAllRead: () => void;
+    emit: (input: {
+      severity: 'critical' | 'warning' | 'info';
+      title: string;
+      body?: string | null;
+      code?: string | null;
+      sessionId?: string | null;
+    }) => unknown;
   };
+  /**
+   * 当前助手会话 id。注入后 send_notification 发出的通知会带 session_id，
+   * 用户在 /inbox 点击可跳回这次对话。
+   */
+  contextSessionId?: string | null;
   /**
    * Session-transfer primitive (move a task + its session to another project).
    * Injected from index.js as `sessionTransferService.moveSessionToProject`. The
@@ -640,6 +653,39 @@ export function buildOperatorTools(deps: OperatorToolDeps) {
           throw new Error(`notification not found: ${i.notificationId}`);
         }
         return { success: true, notification: row, unreadCount: deps.notifications.unreadCount() };
+      },
+    },
+    send_notification: {
+      description:
+        'Send a notification to the user\'s Lovdex 收件箱 (inbox). The user sees it as a browser toast (critical/warning only), a sidebar unread badge, and a row in /inbox. Use this whenever the user asks you to notify them, send something to the inbox, or report an alert. severity: critical|warning|info (info lands in the inbox only — no toast, no badge). code: a stable category id so repeats merge into one row with a ×N counter instead of spamming.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          severity: { type: 'string', enum: ['critical', 'warning', 'info'] },
+          title: { type: 'string', description: 'One-line summary shown as the row title' },
+          body: { type: 'string', description: 'Optional detail shown under the title' },
+          code: { type: 'string', description: 'Optional stable category id used for merge/dedupe' },
+        },
+        required: ['severity', 'title'],
+      },
+      handler: async (i: { severity?: string; title?: string; body?: string; code?: string }) => {
+        if (!deps.notifications) {
+          throw new Error('notifications is not wired (missing notifications dep)');
+        }
+        if (!isAlertSeverity(i.severity)) {
+          throw new Error(`invalid severity: ${String(i.severity)}`);
+        }
+        if (typeof i.title !== 'string' || !i.title.trim()) {
+          throw new Error('title is required');
+        }
+        const row = deps.notifications.emit({
+          severity: i.severity,
+          title: i.title.trim(),
+          body: typeof i.body === 'string' && i.body.trim() ? i.body.trim() : null,
+          code: typeof i.code === 'string' && i.code.trim() ? i.code.trim() : null,
+          sessionId: deps.contextSessionId ?? null,
+        });
+        return { success: true, notification: row };
       },
     },
   };

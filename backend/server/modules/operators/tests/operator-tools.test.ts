@@ -448,6 +448,7 @@ test('list_notifications forwards unreadOnly + clamps limit, and reports unreadC
       unreadCount: () => 3,
       markRead: () => null,
       markAllRead: () => {},
+      emit: () => null,
     },
   });
 
@@ -488,6 +489,7 @@ test('mark_notification_read marks a single notification by id', async () => {
         return { notification_id: id, read_at: 'now' };
       },
       markAllRead: () => {},
+      emit: () => null,
     },
   });
 
@@ -511,6 +513,7 @@ test('mark_notification_read all=1 marks every unread notification', async () =>
       markAllRead: () => {
         allCalled = true;
       },
+      emit: () => null,
     },
   });
 
@@ -527,9 +530,60 @@ test('mark_notification_read rejects unknown id and missing args', async () => {
       unreadCount: () => 0,
       markRead: () => null, // simulates "not found"
       markAllRead: () => {},
+      emit: () => null,
     },
   });
 
   await assert.rejects(() => tools.mark_notification_read.handler({}), /notificationId is required/);
   await assert.rejects(() => tools.mark_notification_read.handler({ notificationId: 'nope' }), /not found/);
+});
+
+test('send_notification 转发到 emit 并带上会话 id', async () => {
+  const emitted: Array<Record<string, unknown>> = [];
+  const tools = buildOperatorTools({
+    tasks: {} as never,
+    contextSessionId: 'sess-1',
+    notifications: {
+      list: () => [],
+      unreadCount: () => 0,
+      markRead: () => null,
+      markAllRead: () => {},
+      emit: (i: Record<string, unknown>) => { emitted.push(i); return { notification_id: 'n1' }; },
+    },
+  });
+
+  const res = (await tools.send_notification.handler({
+    severity: 'warning', title: '磁盘满', body: '97%', code: 'disk_full',
+  })) as { success: boolean };
+
+  assert.equal(res.success, true);
+  assert.equal(emitted.length, 1);
+  assert.equal(emitted[0].severity, 'warning');
+  assert.equal(emitted[0].title, '磁盘满');
+  assert.equal(emitted[0].body, '97%');
+  assert.equal(emitted[0].code, 'disk_full');
+  assert.equal(emitted[0].sessionId, 'sess-1');
+});
+
+test('send_notification 拒绝非法 severity 与空 title', async () => {
+  const tools = buildOperatorTools({
+    tasks: {} as never,
+    notifications: {
+      list: () => [], unreadCount: () => 0, markRead: () => null, markAllRead: () => {},
+      emit: () => ({ notification_id: 'n1' }),
+    },
+  });
+
+  await assert.rejects(() => tools.send_notification.handler({ severity: 'fatal', title: 'x' }), /invalid severity/);
+  await assert.rejects(() => tools.send_notification.handler({ severity: 'info', title: '   ' }), /title is required/);
+});
+
+test('send_notification 未接线时报错', async () => {
+  const tools = buildOperatorTools({ tasks: {} as never });
+  await assert.rejects(() => tools.send_notification.handler({ severity: 'info', title: 'x' }), /not wired/);
+});
+
+test('send_notification schema 要求 severity + title', () => {
+  const tools = buildOperatorTools({ tasks: {} as never });
+  assert.deepEqual(tools.send_notification.inputSchema.required, ['severity', 'title']);
 });
