@@ -13,6 +13,11 @@ export type OperatorCleanupResult = {
  * 这些行是 is_operator 列迁移前的历史遗留；工作区是助手专用，项目列表隐藏后
  * 它们不再有 UI 入口，属于孤儿数据。幂等：只作用于当前工作区路径。
  *
+ * 例外：仍挂在未结算（in_progress）任务上的会话不删。后端重启会把正在跑的
+ * run 打成孤儿，但任务 status 仍停在 in_progress 列，若硬删会连带删掉
+ * transcript，任务卡在 in_progress + sub_status=failed + session_deleted。
+ * 这类会话留给启动时的 reconcileFailedTasks 标 failed，保留历史供追溯。
+ *
  * 破坏性操作——删除后不可恢复。
  */
 export async function cleanOperatorWorkspaceLegacySessions(): Promise<OperatorCleanupResult> {
@@ -32,6 +37,18 @@ export async function cleanOperatorWorkspaceLegacySessions(): Promise<OperatorCl
       // 任务的会话。按需求仍然删除，但必须先打出醒目提醒，便于事后追溯。
       const linkedTask = tasksDb.getTaskBySessionId(session.session_id);
       if (linkedTask) {
+        if (linkedTask.status === 'in_progress') {
+          console.warn(
+            '[operator-cleanup] SKIP: session linked to an in_progress task — keep transcript for review',
+            {
+              sessionId: session.session_id,
+              taskId: linkedTask.task_id,
+              taskTitle: linkedTask.title,
+              taskStatus: linkedTask.status,
+            },
+          );
+          continue;
+        }
         console.warn(
           '[operator-cleanup] WARNING: 即将删除的会话仍挂在任务上，删除后该任务将无法再读取会话记录',
           {

@@ -7,6 +7,7 @@ import test from 'node:test';
 import { closeConnection } from '@/modules/database/connection.js';
 import { initializeDatabase } from '@/modules/database/init-db.js';
 import { sessionsDb } from '@/modules/database/repositories/sessions.db.js';
+import { tasksDb } from '@/modules/database/repositories/tasks.db.js';
 import { cleanOperatorWorkspaceLegacySessions } from '@/modules/operators/operator-cleanup.service.js';
 
 async function withTempWorkspace(run: (workspace: string) => Promise<void>): Promise<void> {
@@ -53,5 +54,28 @@ test('cleanOperatorWorkspaceLegacySessions deletes only non-operator sessions in
     assert.ok(sessionsDb.getSessionById('outside-1'));
     // transcript 文件也被删除
     await assert.rejects(stat(orphanFile));
+  });
+});
+
+test('cleanOperatorWorkspaceLegacySessions keeps a session linked to an in_progress task', async () => {
+  await withTempWorkspace(async (workspace) => {
+    // 运行中任务关联的会话：重启清理必须跳过，否则任务会丢 transcript。
+    const runningFile = path.join(workspace, 'running.jsonl');
+    await writeFile(runningFile, '{}');
+    sessionsDb.createSession('running-provider-1', 'claude', workspace, 'Running', undefined, undefined, runningFile);
+    tasksDb.createTask({
+      projectPath: workspace,
+      title: 'in-flight diagnostic task',
+      executorProvider: 'claude',
+      status: 'in_progress',
+      sessionId: 'running-provider-1',
+    });
+
+    const result = await cleanOperatorWorkspaceLegacySessions();
+
+    assert.equal(result.removed, 0);
+    assert.deepEqual(result.sessionIds, []);
+    assert.ok(sessionsDb.getSessionById('running-provider-1'));
+    await stat(runningFile); // transcript 文件仍在，不抛 ENOENT
   });
 });
