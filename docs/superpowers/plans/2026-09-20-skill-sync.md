@@ -4737,7 +4737,32 @@ git commit -m "docs(skill-sync): record remote e2e results"
 
 ## 执行记录
 
-**状态（2026-09-21）**：Task 1-18 全部实现并提交（19 文件 / +2588 行，commit `f96fa38`..`bcbaf72`）。**Task 19 未执行**（需要真机 + 重启后端 + 浏览器，需用户授权）。
+**状态（2026-09-21）**：Task 1-18 全部实现并提交（19 文件 / +2588 行，commit `f96fa38`..`bcbaf72`）。**Task 19 部分执行**：main 侧链路已在真实后端上端到端验证通过（见下），远程真机传输与 UI 未验证。
+
+### 冒烟测试结果（真实后端，只读，未写入任何数据）
+
+| 检查 | 结果 |
+|---|---|
+| `GET /api/skills/nodes`（无 token） | **401** ✓ 路由已挂载且在鉴权之后 |
+| `skill_sync_audit` 表 | 建表成功，14 列 + `idx_skill_sync_audit_created` 索引齐全，0 行 ✓ |
+| `GET /api/skills/nodes`（带 token） | 返回 4 个节点：`local` + 3 台远程主机 ✓ |
+| `GET /api/skills/manifest?node=local&scope=user` | 正确列出 `lovdex-inbox-alert`，contentHash / fileCount / totalBytes 正确，frontmatter 解析出 description 与 version `1.1.0` ✓ |
+| `POST /sync/plan` local→local | 全链路通，正确判定 `same`，两侧 hash 一致 ✓ |
+| `POST /sync/plan` local→离线主机 | **HTTP 400** `远程主机 … 不在线` ✓ |
+| `POST /sync/plan` local→在线但未升级的 lite | **HTTP 400** `目标主机 lite 版本过旧（缺少 skills/v1），请先 deploy 升级` ✓ |
+| `GET /manifest` 同上 | 同样的 400 与文案 ✓ |
+
+### 冒烟测试抓出的两个真缺陷（已修，commit `9457e20`）
+
+1. **节点列表读的是数据库 `remote_hosts.status` 列（陈旧值），不是实时连接状态。** UI 会把 lite 尚未重连的主机显示为"在线"，点下去才失败。已改为 `remoteAgentsRegistry.isOnline(hostId)`，并在 reason 里写明「离线（lite 未连接）」。
+2. **可操作的错误被全局错误处理器吞成 `Internal server error`（500）。** capability 门控和离线检查存在的全部意义就是给出可执行的提示，却被压成通用 500。已改为抛 `AppError(statusCode 400)`，并给路由测试换上**镜像生产行为的错误中间件**（只有 `AppError` 保留自己的状态码，裸 `Error` 仍是 500）—— 否则测试自身会把一切都变 400，证明不了生产行为。新增 3 条回归守卫。
+
+### 仍未验证
+
+- **任何真实的远程传输**（local→remote / remote→local / remote→remote）—— 需要先把新 lite deploy 到远程主机
+- **Web UI 渲染** —— 设置页「技能」tab 的区块、源/目标下拉、差异表都没在浏览器里看过
+- **operator 工具**（`skill_sync_plan` / `skill_sync_apply`）的真实调用
+- **老 `config.json` 缺 `skillRoots` 的免 deploy 兼容性** —— 单测覆盖了 zod default，真机未验
 
 ### 验收结果
 
