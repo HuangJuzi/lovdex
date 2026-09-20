@@ -41,8 +41,8 @@
     --destructive-foreground: 0 0% 100%;
     --success: 142 72% 29%;
     --success-foreground: 0 0% 100%;
-    --warning: 32 95% 44%;
-    --warning-foreground: 32 95% 8%;
+    --warning: 26 90% 37%;
+    --warning-foreground: 0 0% 100%;
     --info: 201 96% 32%;
     --info-foreground: 0 0% 100%;
     --border: 220 16% 91%;
@@ -51,16 +51,16 @@
     --radius: 0.5rem;
 
     /* Categorical chart palette — content colors, see spec §6.1 */
-    --chart-1: 199 89% 48%;
-    --chart-2: 160 84% 39%;
-    --chart-3: 173 80% 40%;
+    --chart-1: 199 89% 40%;
+    --chart-2: 160 84% 33%;
+    --chart-3: 173 80% 33%;
     --chart-4: 239 84% 67%;
-    --chart-5: 84 81% 44%;
+    --chart-5: 84 81% 34%;
     --chart-6: 258 90% 66%;
     --chart-7: 330 81% 60%;
     --chart-8: 0 84% 60%;
-    --chart-9: 38 92% 50%;
-    --chart-10: 25 95% 53%;
+    --chart-9: 26 90% 37%;
+    --chart-10: 25 95% 45%;
 
     /* Nav design tokens */
     --nav-glass-bg: 220 20% 98% / 0.7;
@@ -117,17 +117,29 @@
     --muted-foreground: 220 12% 62%;
     --accent: 222 20% 15%;
     --accent-foreground: 220 20% 94%;
-    --destructive: 0 72% 51%;
-    --destructive-foreground: 0 0% 100%;
-    --success: 142 72% 29%;
-    --success-foreground: 0 0% 100%;
-    --warning: 32 95% 44%;
-    --warning-foreground: 32 95% 8%;
-    --info: 201 96% 32%;
-    --info-foreground: 0 0% 100%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 84% 10%;
+    --success: 142 76% 42%;
+    --success-foreground: 142 76% 10%;
+    --warning: 43 96% 56%;
+    --warning-foreground: 43 96% 10%;
+    --info: 199 89% 48%;
+    --info-foreground: 199 89% 10%;
     --border: 222 18% 21%;
     --input: 222 18% 21%;
     --ring: 217 91% 60%;
+
+    /* Categorical chart palette — content colors, see spec §6.1 */
+    --chart-1: 199 89% 62%;
+    --chart-2: 160 84% 55%;
+    --chart-3: 173 80% 52%;
+    --chart-4: 239 84% 74%;
+    --chart-5: 84 81% 60%;
+    --chart-6: 258 90% 76%;
+    --chart-7: 330 81% 70%;
+    --chart-8: 0 84% 68%;
+    --chart-9: 43 96% 62%;
+    --chart-10: 25 95% 63%;
 
     /* Nav design tokens — dark overrides */
     --nav-glass-bg: 222 22% 11% / 0.55;
