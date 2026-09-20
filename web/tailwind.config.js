@@ -78,9 +78,39 @@ export default {
         },
       },
       borderRadius: {
-        lg: "var(--radius)",
-        md: "calc(var(--radius) - 2px)",
+        DEFAULT: "calc(var(--radius) - 4px)",
+        xs: "calc(var(--radius) - 5px)",
         sm: "calc(var(--radius) - 4px)",
+        md: "calc(var(--radius) - 2px)",
+        lg: "var(--radius)",
+        xl: "calc(var(--radius) + 4px)",
+        "2xl": "calc(var(--radius) * 2)",
+        "3xl": "calc(var(--radius) * 3)",
+        full: "9999px",
+      },
+      fontSize: {
+        "4xs": "9px",
+        "3xs": "10px",
+        "2xs": "11px",
+        xs: "12px",
+        sm: "14px",
+        base: "16px",
+        lg: "18px",
+        xl: "20px",
+        // The one RELATIVE step: inline code inside Markdown prose must scale
+        // with whatever it sits in (heading, list item, paragraph). Do not
+        // "fix" this to px.
+        "inline-code": "0.9em",
+      },
+      boxShadow: {
+        "raised-xs": "0 2px 0 hsl(var(--foreground) / 0.08)",
+        "raised-sm":
+          "0 2px 0 hsl(var(--foreground) / 0.10), 0 4px 10px hsl(var(--foreground) / 0.06)",
+        "raised-md":
+          "0 3px 0 hsl(var(--foreground) / 0.08), 0 6px 16px hsl(var(--foreground) / 0.07)",
+        raised:
+          "0 3px 0 hsl(var(--foreground) / 0.07), 0 12px 26px hsl(var(--foreground) / 0.07)",
+        pressed: "0 2px 0 hsl(var(--primary))",
       },
       spacing: {
         'safe-area-inset-bottom': 'env(safe-area-inset-bottom)',
