@@ -29,6 +29,34 @@ test('bundle params require root and name', () => {
   assert.throws(() => schema.parse({ root: '/srv/.claude/skills' }));
 });
 
+test('both schemas reject a name that is not a single directory segment', () => {
+  const bundle = makeSkillsBundleParamsSchema();
+  const apply = makeSkillsApplyParamsSchema();
+  const applyBase = { contentHash: 'abc', expectedTargetHash: null, files: [] };
+  for (const bad of ['..', '.', 'a/b', '/etc', 'a\\..\\b', '../.ssh', '']) {
+    assert.throws(
+      () => bundle.parse({ root: '/srv/.claude/skills', name: bad }),
+      (error: unknown) => error instanceof Error,
+      `expected bundle name ${JSON.stringify(bad)} to be rejected`,
+    );
+    assert.throws(
+      () => apply.parse({ root: '/srv/.claude/skills', name: bad, ...applyBase }),
+      (error: unknown) => error instanceof Error,
+      `expected apply name ${JSON.stringify(bad)} to be rejected`,
+    );
+  }
+});
+
+test('both schemas accept a normal skill name', () => {
+  const bundle = makeSkillsBundleParamsSchema();
+  const apply = makeSkillsApplyParamsSchema();
+  const applyBase = { contentHash: 'abc', expectedTargetHash: null, files: [] };
+  for (const good of ['demo', 'my-skill.v2']) {
+    assert.equal(bundle.parse({ root: '/srv/.claude/skills', name: good }).name, good);
+    assert.equal(apply.parse({ root: '/srv/.claude/skills', name: good, ...applyBase }).name, good);
+  }
+});
+
 test('apply params accept a null expectedTargetHash and default force to false', () => {
   const parsed = makeSkillsApplyParamsSchema().parse({
     root: '/srv/.claude/skills',

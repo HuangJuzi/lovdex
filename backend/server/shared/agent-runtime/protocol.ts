@@ -410,6 +410,23 @@ function skillRelativePathSchema() {
     );
 }
 
+/**
+ * A skill name is exactly ONE directory-name segment.
+ *
+ * `root` is gated by the host's skillRoots allowlist, but `name` is joined onto
+ * it — without this, `name: '../.ssh'` walks straight out of the allowed root
+ * and the `relativePath` guard below never runs.
+ */
+function skillNameSchema() {
+  return z
+    .string()
+    .min(1)
+    .max(255)
+    .refine((n) => n !== '.' && n !== '..' && !n.includes('/') && !n.includes('\\') && !n.includes('\0'), {
+      message: 'name must be a single directory-name segment',
+    });
+}
+
 /** Zod schema for the `skills/manifest` `rpc_req` params. */
 export function makeSkillsManifestParamsSchema() {
   return z.object({ root: z.string().min(1) });
@@ -417,7 +434,7 @@ export function makeSkillsManifestParamsSchema() {
 
 /** Zod schema for the `skills/bundle` `rpc_req` params. */
 export function makeSkillsBundleParamsSchema() {
-  return z.object({ root: z.string().min(1), name: z.string().min(1) });
+  return z.object({ root: z.string().min(1), name: skillNameSchema() });
 }
 
 /**
@@ -430,13 +447,15 @@ export function makeSkillsBundleParamsSchema() {
 export function makeSkillsApplyParamsSchema() {
   return z.object({
     root: z.string().min(1),
-    name: z.string().min(1),
+    name: skillNameSchema(),
     contentHash: z.string().min(1),
     files: z
       .array(
         z.object({
           relativePath: skillRelativePathSchema(),
-          content: z.string(),
+          // Coarse wire bound; the apply path re-checks the DECODED byte length against
+          // MAX_SKILL_FILE_BYTES / MAX_SKILL_TOTAL_BYTES.
+          content: z.string().max(MAX_SKILL_TOTAL_BYTES),
           encoding: z.enum(['utf8', 'base64']).optional().default('utf8'),
           executable: z.boolean().optional().default(false),
           mtimeMs: z.number().optional(),
