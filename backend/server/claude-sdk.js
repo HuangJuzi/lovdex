@@ -1407,11 +1407,14 @@ ${priorVerdictContext}
  * The Claude CLI still writes a transcript JSONL for this headless run (cwd is
  * the operator workspace), which the session synchronizer would index into the
  * sidebar as a regular session — its first user message IS the one-shot prompt
- * (verdict criteria / title instructions). So the stream's session_id is
- * captured and marked `is_verdict` after the run, exactly like
- * `runOperatorHeadless` does; the marker failure is logged, never propagated.
- * `markVerdictSession` is the test seam (defaults to
- * sessionsDb.markSessionAsVerdict(sid, cfg.workspace)).
+ * (verdict criteria / title instructions). So the first session_id in the
+ * stream is marked `is_verdict` IMMEDIATELY (inside the loop, exactly like
+ * `runOperatorHeadless` does): a stream that fails or is abandoned mid-run has
+ * already produced the transcript, so mark-on-completion would leak it into the
+ * sidebar. The marker failure is logged, never propagated — marking is
+ * best-effort and must not sink the text run. The seam must be synchronous
+ * (the default is better-sqlite3); `markVerdictSession` is the test seam
+ * (defaults to sessionsDb.markSessionAsVerdict(sid, cfg.workspace)).
  *
  * Unlike `runOperatorHeadless` (which swallows + logs errors and resolves), a
  * run failure here rejects to the caller — so the compression job can
@@ -1438,10 +1441,19 @@ export async function runOneShotClaudeText({ prompt, systemPrompt, model, queryF
   const queryToUse = queryFn ?? query;
   const queryInstance = queryToUse({ prompt, options: sdkOptions });
   const parts = [];
-  let capturedSessionId = null;
+  const mark = markVerdictSession ?? ((sid) => sessionsDb.markSessionAsVerdict(sid, cfg.workspace));
+  let markedSessionId = null;
   for await (const message of queryInstance) {
-    if (!capturedSessionId && message?.session_id) {
-      capturedSessionId = message.session_id;
+    if (!markedSessionId && message?.session_id) {
+      // Mark on FIRST sight of the session id, inside the loop: the transcript
+      // JSONL already exists on disk at this point, so a stream that later
+      // fails/aborts must still be excluded from the sidebar.
+      markedSessionId = message.session_id;
+      try {
+        mark(markedSessionId, cfg.workspace);
+      } catch (e) {
+        console.error('[one-shot] mark verdict session failed', e);
+      }
     }
     if (message?.type !== 'assistant') continue;
     const content = message?.message?.content;
@@ -1450,14 +1462,6 @@ export async function runOneShotClaudeText({ prompt, systemPrompt, model, queryF
       if (block?.type === 'text' && typeof block.text === 'string') {
         parts.push(block.text);
       }
-    }
-  }
-  if (capturedSessionId) {
-    const mark = markVerdictSession ?? ((sid) => sessionsDb.markSessionAsVerdict(sid, cfg.workspace));
-    try {
-      mark(capturedSessionId, cfg.workspace);
-    } catch (e) {
-      console.error('[one-shot] mark verdict session failed', e);
     }
   }
   const text = parts.join('\n').trim();

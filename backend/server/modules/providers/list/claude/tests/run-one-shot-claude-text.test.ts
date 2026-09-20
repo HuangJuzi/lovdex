@@ -9,7 +9,7 @@ import { runOneShotClaudeText } from '@/claude-sdk.js';
 // DATABASE_PATH 指向空临时库（node:test 下 connection.ts 只认这条 env seam），
 // app_config 表查不到 operator_config，env 覆盖即生效 —— 隔离手法同
 // sessions-provider-mapping.test.ts。
-process.env.DATABASE_PATH = '/tmp/one-shot-claude-text-empty.db';
+process.env.DATABASE_PATH = `/tmp/one-shot-claude-text-${process.pid}.db`;
 process.env.LOVDEX_OPERATOR_WORKSPACE = '/op-workspace';
 
 const FAKE_RESULT = [
@@ -117,4 +117,22 @@ test('runOneShotClaudeText swallows marker failures', async () => {
     markVerdictSession: () => { throw new Error('db down'); },
   });
   assert.equal(text, 'still ok');
+});
+test('runOneShotClaudeText still marks when the stream fails after the session id', async () => {
+  const queryFn = async function* () {
+    yield { type: 'assistant', session_id: 'shot-3', message: { content: [{ type: 'text', text: 'partial' }] } };
+    throw new Error('stream closed');
+  };
+  const marks: Array<[string, string]> = [];
+  await assert.rejects(
+    runOneShotClaudeText({
+      prompt: 'p',
+      systemPrompt: 's',
+      queryFn,
+      markVerdictSession: (sessionId: string, workspace: string) => marks.push([sessionId, workspace]),
+    }),
+    /stream closed/,
+  );
+  // 打标发生在流内首次见到 session_id 时：流中途挂掉，transcript 已落盘，照样要排除出侧栏。
+  assert.deepEqual(marks, [['shot-3', '/op-workspace']]);
 });
