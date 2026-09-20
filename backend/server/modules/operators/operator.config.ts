@@ -45,6 +45,12 @@ export type OperatorConfig = {
    */
   verdict_llm_prompt_override: string | null;
   interactive_chat_enabled: boolean;
+  /**
+   * Allow the operator to WRITE skills to other machines via skill_sync_apply.
+   * Default off: this pushes files onto remote hosts, so it must be an explicit
+   * opt-in. `skill_sync_plan` is read-only and always available.
+   */
+  allow_skill_sync: boolean;
 };
 
 const opCfg = appConfig().get().operator;
@@ -59,6 +65,7 @@ export const DEFAULT_OPERATOR_CONFIG: OperatorConfig = {
   verdict_prompt_override: null,
   verdict_llm_prompt_override: null,
   interactive_chat_enabled: true,
+  allow_skill_sync: false,
 };
 
 const KEY = 'operator_config';

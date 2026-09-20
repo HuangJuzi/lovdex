@@ -3,6 +3,9 @@ import { isAiVerdict, type AiVerdict, isTaskPriority, type TaskPriority } from '
 import { compactTranscriptToText } from '@/shared/session-transcript.js';
 import type { TaskEngine } from '@/shared/types.js';
 
+import type { SkillSyncService } from '@/modules/skill-sync/skill-sync.service.js';
+import { createSkillSyncOperatorTools } from './operator-skill-sync.tools.js';
+
 /**
  * Dependencies injected into the operator tool set so handlers are testable
  * without touching the real services/databases. T8 (SDK wiring) will inject
@@ -161,6 +164,14 @@ export type OperatorToolDeps = {
    * audit policy lives in operator-exec.service.ts.
    */
   skillExec?: (input: { skillName: string; args?: string; timeoutMs?: number }) => Promise<unknown>;
+  /**
+   * Skill sync. Wired by the server; `allowApply` comes from
+   * getOperatorConfig().allow_skill_sync.
+   */
+  skillSync?: {
+    service: Pick<SkillSyncService, 'plan' | 'apply'>;
+    allowApply: boolean;
+  };
   /**
    * In-place workbench (list/read/copy/run-script). Writes are confined to
    * the allowlisted prefixes (Operator Home + skills root by default);
@@ -599,6 +610,48 @@ export function buildOperatorTools(deps: OperatorToolDeps) {
           throw new Error('workbench is not wired (missing workbench dep)');
         }
         return deps.workbench(i);
+      },
+    },
+    skill_sync_plan: {
+      description:
+        'Preview a skill sync between two nodes WITHOUT writing anything. from/to are node labels: "local" for the machine running Lovdex, or "remote:<hostId>" for a registered remote host. scope=user syncs ~/.claude/skills; scope=project syncs <project>/.claude/skills and then requires projectId + targetProjectId. Returns a planId plus a per-skill action list (create/update/same/onlyTarget). Pass the planId to skill_sync_apply to actually transfer — the preview is single-use and expires in 10 minutes.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          from: { type: 'string', description: 'Source node label, e.g. "local" or "remote:h1"' },
+          to: { type: 'string', description: 'Target node label' },
+          scope: { type: 'string', enum: ['user', 'project'] },
+          projectId: { type: 'number', description: 'Source project id (project scope only)' },
+          targetProjectId: { type: 'number', description: 'Target project id (project scope only)' },
+        },
+        required: ['from', 'to', 'scope'],
+      },
+      handler: async (i: {
+        from: string;
+        to: string;
+        scope: string;
+        projectId?: number;
+        targetProjectId?: number;
+      }) => {
+        if (!deps.skillSync) throw new Error('skill_sync_plan is not wired (missing skillSync dep)');
+        return createSkillSyncOperatorTools(deps.skillSync).skill_sync_plan(i);
+      },
+    },
+    skill_sync_apply: {
+      description:
+        'Execute a skill sync previously previewed by skill_sync_plan. planId is REQUIRED and single-use. names optionally narrows the transfer to a subset of the plan entries. Refuses any skill whose source or target changed since the preview (report those back to the user instead of forcing); set force=true only when the user explicitly asks to overwrite a modified target. Backups of overwritten skills are kept under .skill-sync-backup/ on the target. Requires the user to have enabled "allow skill sync" in operator settings — otherwise this returns a message telling them how to turn it on.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          planId: { type: 'string', description: 'planId returned by skill_sync_plan' },
+          names: { type: 'array', items: { type: 'string' }, description: 'Optional subset of skill names' },
+          force: { type: 'boolean', description: 'Overwrite a target that changed since the preview (default false)' },
+        },
+        required: ['planId'],
+      },
+      handler: async (i: { planId: string; names?: string[]; force?: boolean }) => {
+        if (!deps.skillSync) throw new Error('skill_sync_apply is not wired (missing skillSync dep)');
+        return createSkillSyncOperatorTools(deps.skillSync).skill_sync_apply(i);
       },
     },
     list_notifications: {

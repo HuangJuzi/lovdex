@@ -699,6 +699,13 @@ initOperatorHeadless({
     // In-place execution: allowlisted skills + workspace workbench.
     skillExec: operatorExecService.executeSkill,
     workbench: operatorExecService.workbench,
+    // 技能同步。allow_skill_sync 在进程启动时读取一次 —— 在设置里打开后需重启后端
+    // 才对助手生效（与下面 contextProjectPath 读 workspace 的时机一致）。预览
+    // skill_sync_plan 只读，不受该开关影响。
+    skillSync: {
+        service: skillSyncService,
+        allowApply: getOperatorConfig().allow_skill_sync,
+    },
     // The assistant's context is the Lovdex助手 workspace: create_task without
     // an explicit projectPath falls back here and lands as an is_operator task.
     contextProjectPath: getOperatorConfig().workspace,
