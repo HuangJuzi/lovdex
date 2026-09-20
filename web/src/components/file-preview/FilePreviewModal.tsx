@@ -47,7 +47,7 @@ export function FilePreviewModal({ open, onOpenChange, projectId, filePath, line
             <div className="flex h-full items-center justify-center text-sm text-muted-foreground">...</div>
           ) : state.error ? (
             <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
-              <p className="text-sm text-red-600 dark:text-red-400">{t('filePreview.loadFailed')}</p>
+              <p className="text-sm text-destructive">{t('filePreview.loadFailed')}</p>
               <p className="break-all text-xs text-muted-foreground">{filePath}</p>
             </div>
           ) : filePath ? (

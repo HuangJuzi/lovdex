@@ -66,7 +66,7 @@ export function AssistantPanel() {
   if (error) {
     return (
       <div className="flex h-dvh flex-col items-center justify-center gap-3 bg-background">
-        <div className="text-sm text-red-500">{error}</div>
+        <div className="text-sm text-destructive">{error}</div>
         <Button variant="chunky" size="sm" onClick={() => navigate('/tasks')}>
           返回任务面板
         </Button>
