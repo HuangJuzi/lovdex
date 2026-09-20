@@ -1,8 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
+import os from 'node:os';
+import path from 'node:path';
 
 import { loadConfig, loadConfigFile } from '../config.js';
 
@@ -96,4 +98,37 @@ test('loadConfigFile reads and parses a temp JSON file', () => {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('loadConfig defaults skillRoots to the host home .claude/skills', () => {
+  const cfg = loadConfig({
+    serverUrl: 'ws://localhost:3188/api/remote-agents/ws',
+    token: 'a'.repeat(8),
+    hostId: 'h1',
+    roots: ['/srv/projects'],
+  });
+  assert.deepEqual(cfg.skillRoots, [path.join(os.homedir(), '.claude/skills')]);
+});
+
+test('loadConfig keeps an explicit skillRoots', () => {
+  const cfg = loadConfig({
+    serverUrl: 'ws://localhost:3188/api/remote-agents/ws',
+    token: 'a'.repeat(8),
+    hostId: 'h1',
+    roots: ['/srv/projects'],
+    skillRoots: ['/srv/shared-skills'],
+  });
+  assert.deepEqual(cfg.skillRoots, ['/srv/shared-skills']);
+});
+
+test('loadConfig rejects an empty skillRoots array', () => {
+  assert.throws(() =>
+    loadConfig({
+      serverUrl: 'ws://localhost:3188/api/remote-agents/ws',
+      token: 'a'.repeat(8),
+      hostId: 'h1',
+      roots: ['/srv/projects'],
+      skillRoots: [],
+    }),
+  );
 });

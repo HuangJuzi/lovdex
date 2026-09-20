@@ -9,6 +9,7 @@ const cfg: RemoteAgentConfig = {
   token: 'a-long-enough-token',
   hostId: 'host-1',
   roots: ['/'],
+  skillRoots: ['/home/lite/.claude/skills'],
   agentVersion: '0.1.0',
 };
 
