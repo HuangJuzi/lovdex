@@ -233,20 +233,21 @@ unset TSX_TSCONFIG_PATH
 npx tsx --test src/design/tokenGuard.test.ts
 ```
 
-Expected: **FAIL**，6 个测试中 5 红 1 绿（此代码已实测验证过，数字可直接对照）：
+Expected: **FAIL**，7 个测试中 3 绿 4 红（此代码已实测验证过）：
 
-| 测试 | 期望失败数 |
+| 测试 | 期望结果 |
 |---|---|
-| no raw Tailwind palette classes | 1717 |
-| no dark: overrides | 579 |
-| no hardcoded hex | 108 |
-| no rgb()/rgba() literals | 85 |
-| no hardcoded hsl() literals | 0（**PASS**，见下） |
-| index.css defines every required token | 缺失 21 个 token |
+| no raw Tailwind palette classes | ❌ 1717 |
+| no dark: overrides | ❌ 579 |
+| no hardcoded hex | ❌ 108 |
+| no rgb()/rgba() literals | ❌ 85 |
+| no hardcoded hsl() literals | ✅ 0 |
+| index.css defines every required token | ❌ 缺失 21 个 token |
+| semantic and chart tokens meet WCAG contrast | ✅ 0 失败 |
 
-> **本任务的守卫在代码审查后做过修订**（commit `2682514`），最终版本比上面代码块多三处：① 文件遍历放宽到 `.js`/`.jsx`（否则 `src/contexts/ThemeContext.jsx` 的两个硬编码主题色永远不被发现）；② hex 正则增加 `%23[0-9a-fA-F]{6}`（否则 `index.css:911/922` 的 SVG 描边色 `%239CA3AF`/`%236B7280` 会静默漏过）；③ 新增 hardcoded `hsl()` 检查 + 失败报告带行号。**以 `2682514` 的文件内容为准。**
+> **本任务的守卫在代码审查后做过两轮修订**（commits `2682514`、`b0aedf9`）。最终版本比上面代码块多：① 文件遍历放宽到 `.js`/`.jsx`；② hex 正则增加 `%23[0-9a-fA-F]{6}`；③ 新增 hardcoded `hsl()` 检查；④ 失败报告带行号；⑤ 新增**对比度实算断言**（解析 token → HSL→sRGB → WCAG 相对亮度 → 对比度）。**以 `b0aedf9` 的文件内容为准。**
 >
-> 第 5 项初始为绿是正常的——当前代码树没有硬编码 `hsl()`（唯一命中在注释里，会被剥离）。它的价值在于堵住后续迁移中"把 `#fff` 改成 `hsl(0 0% 100%)` 冒充 token"这条捷径。
+> 第 7 项是本任务最有价值的一条：它把"对比度"从人工声称变成算术强制。该断言经过**变异测试验证**——把 `--success` 改成浅色后，测试精确报出 `light: --success on --background = 1.34:1 (needs 4.5:1)`，还原后恢复通过，证明它并非空转。
 
 - [ ] **Step 3: 提交**
 
@@ -285,8 +286,8 @@ git commit -m "test(design): add guard against raw palette and hardcoded colors"
     --destructive-foreground: 0 0% 100%;
     --success: 142 72% 29%;
     --success-foreground: 0 0% 100%;
-    --warning: 32 95% 44%;
-    --warning-foreground: 32 95% 8%;
+    --warning: 26 90% 37%;
+    --warning-foreground: 0 0% 100%;
     --info: 201 96% 32%;
     --info-foreground: 0 0% 100%;
     --border: 220 16% 91%;
@@ -295,16 +296,16 @@ git commit -m "test(design): add guard against raw palette and hardcoded colors"
     --radius: 0.5rem;
 
     /* Categorical chart palette — content colors, see spec §6.1 */
-    --chart-1: 199 89% 48%;
-    --chart-2: 160 84% 39%;
-    --chart-3: 173 80% 40%;
+    --chart-1: 199 89% 40%;
+    --chart-2: 160 84% 33%;
+    --chart-3: 173 80% 33%;
     --chart-4: 239 84% 67%;
-    --chart-5: 84 81% 44%;
+    --chart-5: 84 81% 34%;
     --chart-6: 258 90% 66%;
     --chart-7: 330 81% 60%;
     --chart-8: 0 84% 60%;
-    --chart-9: 38 92% 50%;
-    --chart-10: 25 95% 53%;
+    --chart-9: 26 90% 37%;
+    --chart-10: 25 95% 45%;
 
     /* Nav design tokens */
     --nav-glass-bg: 220 20% 98% / 0.7;
@@ -338,17 +339,29 @@ git commit -m "test(design): add guard against raw palette and hardcoded colors"
     --muted-foreground: 220 12% 62%;
     --accent: 222 20% 15%;
     --accent-foreground: 220 20% 94%;
-    --destructive: 0 72% 51%;
-    --destructive-foreground: 0 0% 100%;
-    --success: 142 72% 29%;
-    --success-foreground: 0 0% 100%;
-    --warning: 32 95% 44%;
-    --warning-foreground: 32 95% 8%;
-    --info: 201 96% 32%;
-    --info-foreground: 0 0% 100%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 84% 10%;
+    --success: 142 76% 42%;
+    --success-foreground: 142 76% 10%;
+    --warning: 43 96% 56%;
+    --warning-foreground: 43 96% 10%;
+    --info: 199 89% 48%;
+    --info-foreground: 199 89% 10%;
     --border: 222 18% 21%;
     --input: 222 18% 21%;
     --ring: 217 91% 60%;
+
+    /* 图表色暗色态取值，见 spec §6.1 */
+    --chart-1: 199 89% 62%;
+    --chart-2: 160 84% 55%;
+    --chart-3: 173 80% 52%;
+    --chart-4: 239 84% 74%;
+    --chart-5: 84 81% 60%;
+    --chart-6: 258 90% 76%;
+    --chart-7: 330 81% 70%;
+    --chart-8: 0 84% 68%;
+    --chart-9: 43 96% 62%;
+    --chart-10: 25 95% 63%;
 
     /* Nav design tokens — dark overrides */
     --nav-glass-bg: 222 22% 11% / 0.55;
@@ -363,7 +376,7 @@ git commit -m "test(design): add guard against raw palette and hardcoded colors"
     --nav-input-focus-ring: 217 91% 60% / 0.25;
 ```
 
-`--chart-*` 与 `--radius` 只定义在 `:root`，暗色态共用。
+`--radius` 只定义在 `:root`。`--chart-*` 在**两态都要定义**（亮暗取值不同，见 §6.1）。
 
 - [ ] **Step 3: 跑 token 定义测试**
 
