@@ -291,7 +291,7 @@ export default function SidebarAssistant({ activeSessionId = null, onOpenSession
                 buttonVariants({ variant: 'ghost' }),
                 'relative h-auto w-full justify-start rounded-md border bg-card p-2 text-left font-normal transition-all duration-150 hover:bg-muted',
                 isSelected
-                  ? 'border-primary/50 bg-card font-medium text-card-foreground shadow-[0_3px_0_hsl(var(--foreground)/0.08),0_6px_16px_hsl(var(--foreground)/0.07)]'
+                  ? 'border-primary/50 bg-card font-medium text-card-foreground shadow-raised-md'
                   : sessionIsActive
                     ? 'border-success/30 bg-success/5 hover:bg-success/10'
                     : '',

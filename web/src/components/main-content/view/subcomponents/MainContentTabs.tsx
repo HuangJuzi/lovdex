@@ -34,7 +34,7 @@ function MainContentTabs({ activeTab, onSelect, className }: Props) {
             className={cn(
               'flex flex-1 items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-xs font-normal transition-all',
               isActive
-                ? 'bg-card text-card-foreground shadow-[0_2px_0_hsl(var(--foreground)/0.10),0_4px_10px_hsl(var(--foreground)/0.06)]'
+                ? 'bg-card text-card-foreground shadow-raised-sm'
                 : 'text-muted-foreground hover:text-foreground',
             )}
           >

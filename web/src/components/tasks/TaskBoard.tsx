@@ -300,7 +300,7 @@ export function TaskBoardPage() {
             className={cn(
               'flex items-center justify-center gap-2 rounded-lg px-2.5 py-2 text-sm font-normal transition-all',
               effectiveView === 'board'
-                ? 'bg-card text-card-foreground shadow-[0_2px_0_hsl(var(--foreground)/0.10),0_4px_10px_hsl(var(--foreground)/0.06)]'
+                ? 'bg-card text-card-foreground shadow-raised-sm'
                 : 'text-muted-foreground hover:text-foreground',
             )}
           >
@@ -317,7 +317,7 @@ export function TaskBoardPage() {
               // 表格在手机上体验差，整个按钮只在 sm+ 出现。
               'hidden items-center justify-center gap-2 rounded-lg px-2.5 py-2 text-sm font-normal transition-all sm:flex',
               effectiveView === 'table'
-                ? 'bg-card text-card-foreground shadow-[0_2px_0_hsl(var(--foreground)/0.10),0_4px_10px_hsl(var(--foreground)/0.06)]'
+                ? 'bg-card text-card-foreground shadow-raised-sm'
                 : 'text-muted-foreground hover:text-foreground',
             )}
           >
@@ -332,7 +332,7 @@ export function TaskBoardPage() {
             className={cn(
               'flex items-center justify-center gap-2 rounded-lg px-2.5 py-2 text-sm font-normal transition-all',
               effectiveView === 'scheduled'
-                ? 'bg-card text-card-foreground shadow-[0_2px_0_hsl(var(--foreground)/0.10),0_4px_10px_hsl(var(--foreground)/0.06)]'
+                ? 'bg-card text-card-foreground shadow-raised-sm'
                 : 'text-muted-foreground hover:text-foreground',
             )}
           >
@@ -359,7 +359,7 @@ export function TaskBoardPage() {
               className={cn(
                 'relative flex items-center justify-center gap-2 rounded-lg px-2.5 py-2 text-sm font-normal transition-all',
                 filtersOpen
-                  ? 'bg-card text-card-foreground shadow-[0_2px_0_hsl(var(--foreground)/0.10),0_4px_10px_hsl(var(--foreground)/0.06)]'
+                  ? 'bg-card text-card-foreground shadow-raised-sm'
                   : 'text-muted-foreground hover:text-foreground',
               )}
             >
@@ -489,7 +489,7 @@ export function TaskBoardPage() {
               {renderableStatuses.map((status) => (
                 <div
                   key={status}
-                  className="flex w-full flex-col rounded-2xl border border-border/70 bg-muted/30 shadow-[0_3px_0_hsl(var(--foreground)/0.07),0_12px_26px_hsl(var(--foreground)/0.07)] sm:min-w-64 sm:flex-1"
+                  className="flex w-full flex-col rounded-2xl border border-border/70 bg-muted/30 shadow-raised sm:min-w-64 sm:flex-1"
                 >
                   <div className="flex items-center gap-2 px-3 py-2.5">
                     <span

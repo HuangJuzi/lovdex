@@ -348,7 +348,7 @@ export default function SidebarProjectItem({
           className={cn(
             'hidden md:flex w-full justify-between p-2 h-auto font-normal hover:bg-muted',
             isSelected &&
-              'bg-card font-medium text-card-foreground shadow-[0_3px_0_hsl(var(--foreground)/0.08),0_6px_16px_hsl(var(--foreground)/0.07)]',
+              'bg-card font-medium text-card-foreground shadow-raised-md',
             isStarred &&
               !isSelected &&
               'bg-warning/10 hover:bg-warning/20',

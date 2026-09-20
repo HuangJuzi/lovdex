@@ -32,7 +32,7 @@ export function ViewSwitcher({ active, className }: { active: View; className?: 
       label: t('navigation.chat'),
       icon: MessageSquare,
       to: '/',
-      activeClass: 'bg-card text-card-foreground shadow-[0_2px_0_hsl(var(--foreground)/0.10),0_4px_10px_hsl(var(--foreground)/0.06)]',
+      activeClass: 'bg-card text-card-foreground shadow-raised-sm',
       iconClass: 'text-info',
     },
     {
@@ -40,7 +40,7 @@ export function ViewSwitcher({ active, className }: { active: View; className?: 
       label: t('navigation.tasks'),
       icon: ClipboardList,
       to: '/tasks',
-      activeClass: 'bg-card text-card-foreground shadow-[0_2px_0_hsl(var(--foreground)/0.10),0_4px_10px_hsl(var(--foreground)/0.06)]',
+      activeClass: 'bg-card text-card-foreground shadow-raised-sm',
       iconClass: 'text-success',
     },
   ];

@@ -143,7 +143,7 @@ export function TaskTableView({
   const hasVisibleRows = visibleStatuses.some((s) => groups[s].length > 0);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col rounded-2xl border border-border/70 bg-card text-card-foreground shadow-[0_3px_0_hsl(var(--foreground)/0.07),0_12px_26px_hsl(var(--foreground)/0.07)]">
+    <div className="flex min-h-0 flex-1 flex-col rounded-2xl border border-border/70 bg-card text-card-foreground shadow-raised">
       {/* 状态筛选行：固定，不随表格横向滚动。折叠筛选区时整行不渲染（筛选本身仍生效）。 */}
       {showStatusFilter && (
         <div

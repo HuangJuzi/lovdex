@@ -186,7 +186,7 @@ export const TaskCard = memo(function TaskCard({
               e.stopPropagation();
               onStart();
             }}
-            className="min-h-9 min-w-0 flex-1 rounded-lg bg-primary py-1.5 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90 sm:min-h-0 shadow-[0_2px_0_hsl(var(--primary))]"
+            className="min-h-9 min-w-0 flex-1 rounded-lg bg-primary py-1.5 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90 sm:min-h-0 shadow-pressed"
           >
             ▶ 开始执行
           </button>
@@ -197,7 +197,7 @@ export const TaskCard = memo(function TaskCard({
               e.stopPropagation();
               onStart();
             }}
-            className="min-h-9 min-w-0 flex-1 rounded-lg bg-primary py-1.5 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90 sm:min-h-0 shadow-[0_2px_0_hsl(var(--primary))]"
+            className="min-h-9 min-w-0 flex-1 rounded-lg bg-primary py-1.5 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90 sm:min-h-0 shadow-pressed"
           >
             ↻ 重试
           </button>
@@ -208,7 +208,7 @@ export const TaskCard = memo(function TaskCard({
               e.stopPropagation();
               onStatusChange?.('done');
             }}
-            className="min-h-9 min-w-0 flex-1 rounded-lg bg-success/10 py-1.5 text-xs font-semibold text-success transition-colors hover:bg-success/20 sm:min-h-0 shadow-[0_2px_0_hsl(var(--foreground)/0.08)]"
+            className="min-h-9 min-w-0 flex-1 rounded-lg bg-success/10 py-1.5 text-xs font-semibold text-success transition-colors hover:bg-success/20 sm:min-h-0 shadow-raised-xs"
           >
             ✓ 标记完成
           </button>
@@ -219,7 +219,7 @@ export const TaskCard = memo(function TaskCard({
               e.stopPropagation();
               onStatusChange?.('archived');
             }}
-            className="min-h-9 min-w-0 flex-1 rounded-lg bg-muted/50 py-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:bg-muted sm:min-h-0 shadow-[0_2px_0_hsl(var(--foreground)/0.08)]"
+            className="min-h-9 min-w-0 flex-1 rounded-lg bg-muted/50 py-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:bg-muted sm:min-h-0 shadow-raised-xs"
           >
             🗄 归档
           </button>
@@ -230,7 +230,7 @@ export const TaskCard = memo(function TaskCard({
               e.stopPropagation();
               onStatusChange?.('done');
             }}
-            className="min-h-9 min-w-0 flex-1 rounded-lg bg-muted/50 py-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:bg-muted sm:min-h-0 shadow-[0_2px_0_hsl(var(--foreground)/0.08)]"
+            className="min-h-9 min-w-0 flex-1 rounded-lg bg-muted/50 py-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:bg-muted sm:min-h-0 shadow-raised-xs"
           >
             ↩ 取消归档
           </button>
@@ -250,7 +250,7 @@ export const TaskCard = memo(function TaskCard({
                 e.stopPropagation();
                 onOpenSession();
               }}
-              className="min-h-9 min-w-0 flex-1 rounded-lg bg-primary/10 py-1.5 text-xs font-semibold text-primary transition-colors hover:bg-primary/20 sm:min-h-0 shadow-[0_2px_0_hsl(var(--foreground)/0.08)]"
+              className="min-h-9 min-w-0 flex-1 rounded-lg bg-primary/10 py-1.5 text-xs font-semibold text-primary transition-colors hover:bg-primary/20 sm:min-h-0 shadow-raised-xs"
             >
               打开会话
             </button>
