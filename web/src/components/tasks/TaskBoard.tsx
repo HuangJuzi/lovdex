@@ -426,6 +426,7 @@ export function TaskBoardPage() {
               tasks={tasks}
               tab={scheduledTab}
               onTabChange={setScheduledTab}
+              onRunsDeleted={(ids) => ids.forEach(remove)}
             />
           ) : (
           <>

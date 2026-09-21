@@ -63,7 +63,13 @@ const projectOptions = [{ value: '/proj', label: 'proj' }];
 function render(runs: Task[], schedules: ScheduledTask[] = [baseSchedule], scheduleLookup?: ScheduleLookup) {
   return renderToStaticMarkup(
     <StaticRouter location="/tasks?view=scheduled&tab=runs">
-      <ScheduledRunHistoryView runs={runs} schedules={schedules} scheduleLookup={scheduleLookup} projectOptions={projectOptions} />
+      <ScheduledRunHistoryView
+        runs={runs}
+        schedules={schedules}
+        scheduleLookup={scheduleLookup}
+        projectOptions={projectOptions}
+        onDelete={async () => ({ deleted: [], failed: [] })}
+      />
     </StaticRouter>,
   );
 }
@@ -155,4 +161,24 @@ test('按触发时间倒序渲染', () => {
   const newer = { ...baseTask, task_id: 'new', created_at: '2026-08-15 09:00:00' };
   const html = render([older, newer]);
   assert.ok(html.indexOf('/task/new') < html.indexOf('/task/old'));
+});
+
+test('运行中的行不给勾选框', () => {
+  const html = render([
+    { ...baseTask, task_id: 'done-1', status: 'done' },
+    { ...baseTask, task_id: 'run-1', status: 'in_progress' },
+    { ...baseTask, task_id: 'done-2', status: 'done' },
+  ]);
+  // 每行在桌面表格与移动卡片各渲染一次勾选框，所以是「可选行数 × 2」
+  assert.equal((html.match(/aria-label="选择运行"/g) ?? []).length, 4);
+});
+
+test('运行中的行删除按钮置灰并说明原因', () => {
+  const html = render([{ ...baseTask, status: 'in_progress' }]);
+  assert.match(html, /disabled="" title="运行中，先停止再删除"/);
+});
+
+test('没有可选行时全选框置灰', () => {
+  const html = render([{ ...baseTask, status: 'in_progress' }]);
+  assert.match(html, /aria-label="全选" disabled=""/);
 });

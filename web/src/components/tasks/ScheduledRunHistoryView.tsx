@@ -1,8 +1,11 @@
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { X } from 'lucide-react';
 
 import type { ScheduledTask, Task } from '../../types/app';
 
 import { projectLabel } from './projectLabel';
+import { deleteOutcomeMessage, selectableRuns, toggleSelectAll, type DeleteOutcome } from './runHistoryDelete';
 import { canOpenSession } from './taskActions';
 import type { TaskProjectOption } from './TaskCard';
 import { STATUS_META } from './taskStatus';
@@ -17,6 +20,8 @@ export type ScheduledRunHistoryViewProps = {
   /** 调度列表的就绪状态。未就绪时「所属调度」列显示状态占位而不是「已删除的调度」。 */
   scheduleLookup?: ScheduleLookup;
   projectOptions: TaskProjectOption[];
+  /** 删除指定的运行。返回逐条结果，供结果条展示。 */
+  onDelete: (taskIds: string[]) => Promise<DeleteOutcome>;
 };
 
 const DELETED_SCHEDULE_LABEL = '已删除的调度';
@@ -63,7 +68,17 @@ function StatusCell({ task }: { task: Task }) {
   );
 }
 
-function OpenActions({ task }: { task: Task }) {
+function RowActions({
+  task,
+  canDelete,
+  deleting,
+  onDelete,
+}: {
+  task: Task;
+  canDelete: boolean;
+  deleting: boolean;
+  onDelete: (taskIds: string[]) => void;
+}) {
   return (
     <div className="inline-flex items-center gap-1">
       <Link
@@ -80,15 +95,52 @@ function OpenActions({ task }: { task: Task }) {
           打开会话
         </Link>
       )}
+      <button
+        type="button"
+        disabled={!canDelete || deleting}
+        title={canDelete ? '删除' : '运行中，先停止再删除'}
+        aria-label="删除"
+        onClick={() => onDelete([task.task_id])}
+        className="whitespace-nowrap rounded-lg px-2.5 py-1 text-2xs font-semibold text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        删除
+      </button>
     </div>
   );
 }
 
 /**
- * 定时任务的运行记录：这个调度跑出来的那些任务。只读查看 + 跳转，不做排序 / 多选 /
- * 批量删除，也不套用任务页的筛选栏（定时视图本来就没有筛选栏）。
+ * 定时任务的运行记录：这个调度跑出来的那些任务。可勾选批量删除，也可逐条删除；
+ * 不做排序，也不套用任务页的筛选栏（定时视图本来就没有筛选栏）。
+ *
+ * 删除走 `onDelete` 回调而不是自己发请求 —— 视图保持展示层，请求与刷新留给面板，
+ * 这样它仍能被 `renderToStaticMarkup` 静态测试。
  */
-export function ScheduledRunHistoryView({ runs, schedules, scheduleLookup = 'ready', projectOptions }: ScheduledRunHistoryViewProps) {
+export function ScheduledRunHistoryView({
+  runs,
+  schedules,
+  scheduleLookup = 'ready',
+  projectOptions,
+  onDelete,
+}: ScheduledRunHistoryViewProps) {
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [deleting, setDeleting] = useState(false);
+  const [outcome, setOutcome] = useState<DeleteOutcome | null>(null);
+
+  // 已删/已被别处删掉的 id 从选择里剪掉，避免幽灵勾选（对齐 TaskBoard 的做法）。
+  useEffect(() => {
+    const ids = new Set(runs.map((t) => t.task_id));
+    setSelected((prev) => {
+      let changed = false;
+      const next = new Set<string>();
+      for (const id of prev) {
+        if (ids.has(id)) next.add(id);
+        else changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [runs]);
+
   if (runs.length === 0) {
     return (
       <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4">
@@ -98,57 +150,164 @@ export function ScheduledRunHistoryView({ runs, schedules, scheduleLookup = 'rea
   }
 
   const ordered = sortRunsByTriggeredDesc(runs);
+  const selectableIds = selectableRuns(runs).map((t) => t.task_id);
+  const allSelected = selectableIds.length > 0 && selectableIds.every((id) => selected.has(id));
+  const outcomeText = outcome ? deleteOutcomeMessage(outcome) : null;
+
+  async function runDelete(taskIds: string[]) {
+    if (taskIds.length === 0 || deleting) return;
+    const ok = window.confirm(
+      taskIds.length === 1
+        ? '确定删除该运行记录？其关联会话也会一并删除，此操作不可恢复。'
+        : `确定删除选中的 ${taskIds.length} 条运行记录？其关联会话也会一并删除，此操作不可恢复。`,
+    );
+    if (!ok) return;
+    setDeleting(true);
+    try {
+      const result = await onDelete(taskIds);
+      setOutcome(result);
+      // 全失败时保留选中集，让用户能直接重试；有成功的就清空。
+      if (result.deleted.length > 0) setSelected(new Set());
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  function toggleOne(taskId: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(taskId)) next.delete(taskId);
+      else next.add(taskId);
+      return next;
+    });
+  }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      {/* 结果条在上、操作条在下：前者说「上次删了什么」，后者说「现在选了什么」。 */}
+      {outcomeText && (
+        <div className="flex flex-shrink-0 items-center gap-3 border-b border-border/60 bg-muted/40 px-3 py-2 sm:px-4">
+          <span className="min-w-0 flex-1 truncate text-sm text-foreground">{outcomeText}</span>
+          <button
+            type="button"
+            aria-label="关闭提示"
+            onClick={() => setOutcome(null)}
+            className="shrink-0 text-muted-foreground hover:text-foreground"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+      {selected.size > 0 && (
+        <div className="flex flex-shrink-0 items-center gap-3 border-b border-border/60 bg-muted/40 px-3 py-2 sm:px-4">
+          <span className="text-sm font-medium">已选 {selected.size} 项</span>
+          <button
+            type="button"
+            onClick={() => setSelected(new Set())}
+            className="text-sm text-muted-foreground hover:text-foreground"
+          >
+            取消选择
+          </button>
+          <button
+            type="button"
+            disabled={deleting}
+            onClick={() => void runDelete([...selected])}
+            className="ml-auto rounded-lg bg-destructive/10 px-3 py-1.5 text-sm font-semibold text-destructive hover:bg-destructive/20 disabled:opacity-50"
+          >
+            {deleting ? '删除中…' : '删除'}
+          </button>
+        </div>
+      )}
+
       {/* Desktop table (≥1024px)；移动/平板用下方卡片。 */}
       <div className="hidden min-h-0 flex-1 overflow-x-auto px-2 pb-4 sm:px-4 lg:block">
         <table className="w-full min-w-[900px] border-separate text-sm" style={{ borderSpacing: '0 7px' }}>
           <thead>
             <tr>
+              <th className="px-2 pb-1">
+                <input
+                  type="checkbox"
+                  aria-label="全选"
+                  checked={allSelected}
+                  disabled={selectableIds.length === 0}
+                  onChange={() => setSelected((prev) => toggleSelectAll(prev, selectableIds))}
+                  className="h-4 w-4 cursor-pointer accent-primary disabled:cursor-not-allowed"
+                />
+              </th>
               {['标题', '所属调度', '项目', '状态', '触发时间', '操作'].map((h) => (
                 <th key={h} className="whitespace-nowrap px-4 pb-1 text-left text-xs font-semibold text-muted-foreground">{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {ordered.map((task) => (
-              <tr key={task.task_id} className="bg-card shadow-sm">
-                <td className="rounded-l-lg px-4 py-3 font-semibold text-card-foreground [overflow-wrap:anywhere]">{task.title}</td>
-                {/* 调度名与项目名都可能是不可断的长 token（项目名会回退成完整路径），
-                    截断 + title 兜底，避免把表推出横向滚动（沿用 ScheduledTasksView 的同类处理）。 */}
-                <td className="px-4 py-3 text-xs text-muted-foreground">
-                  <span className="block max-w-40 truncate" title={scheduleTitleOf(task.source_schedule_id, schedules, scheduleLookup)}>
-                    {scheduleTitleOf(task.source_schedule_id, schedules, scheduleLookup)}
-                  </span>
-                </td>
-                <td className="px-4 py-3 text-xs text-muted-foreground">
-                  <span className="block max-w-40 truncate" title={projectLabel(task, projectOptions)}>
-                    {projectLabel(task, projectOptions)}
-                  </span>
-                </td>
-                <td className="px-4 py-3"><StatusCell task={task} /></td>
-                <td className="px-4 py-3 font-mono text-2xs text-muted-foreground">{formatAbsoluteTime(task.created_at)}</td>
-                <td className="whitespace-nowrap rounded-r-lg px-4 py-3 text-right"><OpenActions task={task} /></td>
-              </tr>
-            ))}
+            {ordered.map((task) => {
+              // 运行中的删不掉（后端 409），勾选框与删除按钮都从源头挡住。
+              const canDelete = task.status !== 'in_progress';
+              return (
+                <tr key={task.task_id} className="bg-card shadow-sm">
+                  <td className="rounded-l-lg bg-card px-2 py-3">
+                    {canDelete && (
+                      <input
+                        type="checkbox"
+                        aria-label="选择运行"
+                        checked={selected.has(task.task_id)}
+                        onChange={() => toggleOne(task.task_id)}
+                        className="h-4 w-4 cursor-pointer accent-primary"
+                      />
+                    )}
+                  </td>
+                  <td className="px-4 py-3 font-semibold text-card-foreground [overflow-wrap:anywhere]">{task.title}</td>
+                  {/* 调度名与项目名都可能是不可断的长 token（项目名会回退成完整路径），
+                      截断 + title 兜底，避免把表推出横向滚动（沿用 ScheduledTasksView 的同类处理）。 */}
+                  <td className="px-4 py-3 text-xs text-muted-foreground">
+                    <span className="block max-w-40 truncate" title={scheduleTitleOf(task.source_schedule_id, schedules, scheduleLookup)}>
+                      {scheduleTitleOf(task.source_schedule_id, schedules, scheduleLookup)}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-xs text-muted-foreground">
+                    <span className="block max-w-40 truncate" title={projectLabel(task, projectOptions)}>
+                      {projectLabel(task, projectOptions)}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3"><StatusCell task={task} /></td>
+                  <td className="px-4 py-3 font-mono text-2xs text-muted-foreground">{formatAbsoluteTime(task.created_at)}</td>
+                  <td className="whitespace-nowrap rounded-r-lg px-4 py-3 text-right">
+                    <RowActions task={task} canDelete={canDelete} deleting={deleting} onDelete={(ids) => void runDelete(ids)} />
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
 
       {/* Mobile/tablet cards (<1024px) */}
       <div className="grid min-h-0 w-full flex-1 auto-rows-min grid-cols-1 gap-3 overflow-y-auto px-3 pb-4 sm:grid-cols-2 sm:px-4 lg:hidden">
-        {ordered.map((task) => (
-          <div key={task.task_id} className="flex flex-col gap-1.5 rounded-lg border border-border bg-card p-3 shadow-sm">
-            <span className="line-clamp-2 overflow-hidden text-sm font-semibold text-card-foreground">{task.title}</span>
-            <span className="truncate text-xs text-muted-foreground">{scheduleTitleOf(task.source_schedule_id, schedules, scheduleLookup)}</span>
-            <div className="self-start"><StatusCell task={task} /></div>
-            <span className="font-mono text-2xs text-muted-foreground">{formatAbsoluteTime(task.created_at)}</span>
-            <div className="mt-1 flex items-center justify-end gap-1 border-t border-border pt-1.5">
-              <OpenActions task={task} />
+        {ordered.map((task) => {
+          const canDelete = task.status !== 'in_progress';
+          return (
+            <div key={task.task_id} className="flex flex-col gap-1.5 rounded-lg border border-border bg-card p-3 shadow-sm">
+              <div className="flex items-start gap-2">
+                {canDelete && (
+                  <input
+                    type="checkbox"
+                    aria-label="选择运行"
+                    checked={selected.has(task.task_id)}
+                    onChange={() => toggleOne(task.task_id)}
+                    className="mt-0.5 h-4 w-4 flex-shrink-0 cursor-pointer accent-primary"
+                  />
+                )}
+                <span className="line-clamp-2 overflow-hidden text-sm font-semibold text-card-foreground">{task.title}</span>
+              </div>
+              <span className="truncate text-xs text-muted-foreground">{scheduleTitleOf(task.source_schedule_id, schedules, scheduleLookup)}</span>
+              <div className="self-start"><StatusCell task={task} /></div>
+              <span className="font-mono text-2xs text-muted-foreground">{formatAbsoluteTime(task.created_at)}</span>
+              <div className="mt-1 flex items-center justify-end gap-1 border-t border-border pt-1.5">
+                <RowActions task={task} canDelete={canDelete} deleting={deleting} onDelete={(ids) => void runDelete(ids)} />
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
