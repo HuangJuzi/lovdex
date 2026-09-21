@@ -89,16 +89,32 @@ const DialogTrigger = React.forwardRef<HTMLButtonElement, React.ButtonHTMLAttrib
 );
 DialogTrigger.displayName = 'DialogTrigger';
 
+/**
+ * DialogContent 的定位变体：
+ * - `center`：屏幕居中弹窗（默认，现有行为不变）
+ * - `sheet`：移动端底部全宽 sheet，只保留顶部圆角
+ *
+ * 定位类抽成常量是为了可测 —— DialogContent 走 createPortal，SSR 下渲染不了。
+ */
+export const DIALOG_CONTENT_VARIANT_CLASS = {
+  center: 'left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 max-w-lg rounded-2xl',
+  sheet: 'inset-x-0 bottom-0 max-h-[85dvh] rounded-t-2xl rounded-b-none',
+} as const;
+
+export type DialogContentVariant = keyof typeof DIALOG_CONTENT_VARIANT_CLASS;
+
 interface DialogContentProps extends React.HTMLAttributes<HTMLDivElement> {
   onEscapeKeyDown?: () => void;
   onPointerDownOutside?: () => void;
   wrapperClassName?: string;
+  /** 定位变体，默认 `center`。 */
+  variant?: DialogContentVariant;
 }
 
 const FOCUSABLE_SELECTOR = 'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 const DialogContent = React.forwardRef<HTMLDivElement, DialogContentProps>(
-  ({ className, children, onEscapeKeyDown, onPointerDownOutside, wrapperClassName, ...props }, ref) => {
+  ({ className, children, onEscapeKeyDown, onPointerDownOutside, wrapperClassName, variant = 'center', ...props }, ref) => {
     const { open, onOpenChange, triggerRef } = useDialog();
     const contentRef = React.useRef<HTMLDivElement | null>(null);
     const previousFocusRef = React.useRef<HTMLElement | null>(null);
@@ -192,9 +208,10 @@ const DialogContent = React.forwardRef<HTMLDivElement, DialogContentProps>(
           role="dialog"
           aria-modal="true"
           className={cn(
-            'fixed left-1/2 top-1/2 z-50 w-full max-w-lg -translate-x-1/2 -translate-y-1/2',
-            'rounded-2xl border border-border/80 bg-popover text-popover-foreground shadow-[0_3px_0_hsl(var(--foreground)/0.08),0_24px_60px_hsl(var(--foreground)/0.28)]',
+            'fixed z-50 w-full border border-border/80 bg-popover text-popover-foreground',
+            'shadow-[0_3px_0_hsl(var(--foreground)/0.08),0_24px_60px_hsl(var(--foreground)/0.28)]',
             'animate-dialog-content-show',
+            DIALOG_CONTENT_VARIANT_CLASS[variant],
             className
           )}
           {...props}
