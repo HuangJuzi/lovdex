@@ -26,3 +26,21 @@ test('sheet 变体不带任何居中位移（否则会飘到屏幕中间）', ()
   assert.ok(!cls.includes('top-1/2'), '不应含 top-1/2');
   assert.ok(!cls.includes('max-w-lg'), '不应含 max-w-lg');
 });
+
+test('center 与 sheet 各自绑定自己的入场动画', () => {
+  assert.ok(
+    DIALOG_CONTENT_VARIANT_CLASS.center.includes('animate-dialog-content-show'),
+    'center 应使用居中动画',
+  );
+  assert.ok(
+    DIALOG_CONTENT_VARIANT_CLASS.sheet.includes('animate-dialog-sheet-show'),
+    'sheet 应使用底部滑入动画',
+  );
+});
+
+test('sheet 不得沿用居中动画（其 keyframes 会强行注入 translate(-50%,-50%)）', () => {
+  assert.ok(
+    !DIALOG_CONTENT_VARIANT_CLASS.sheet.includes('animate-dialog-content-show'),
+    'sheet 不能带 animate-dialog-content-show',
+  );
+});

@@ -97,8 +97,8 @@ DialogTrigger.displayName = 'DialogTrigger';
  * 定位类抽成常量是为了可测 —— DialogContent 走 createPortal，SSR 下渲染不了。
  */
 export const DIALOG_CONTENT_VARIANT_CLASS = {
-  center: 'left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 max-w-lg rounded-2xl',
-  sheet: 'inset-x-0 bottom-0 max-h-[85dvh] rounded-t-2xl rounded-b-none',
+  center: 'left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 max-w-lg rounded-2xl animate-dialog-content-show',
+  sheet: 'inset-x-0 bottom-0 max-h-[85dvh] rounded-t-2xl rounded-b-none animate-dialog-sheet-show',
 } as const;
 
 export type DialogContentVariant = keyof typeof DIALOG_CONTENT_VARIANT_CLASS;
@@ -210,7 +210,6 @@ const DialogContent = React.forwardRef<HTMLDivElement, DialogContentProps>(
           className={cn(
             'fixed z-50 w-full border border-border/80 bg-popover text-popover-foreground',
             'shadow-[0_3px_0_hsl(var(--foreground)/0.08),0_24px_60px_hsl(var(--foreground)/0.28)]',
-            'animate-dialog-content-show',
             DIALOG_CONTENT_VARIANT_CLASS[variant],
             className
           )}
