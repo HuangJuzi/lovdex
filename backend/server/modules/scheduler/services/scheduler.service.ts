@@ -91,6 +91,16 @@ export function createSchedulerService(deps: SchedulerDeps) {
   let ticking = false;
 
   /**
+   * 派发途中的 schedule_id。
+   *
+   * 状态判据读的是**落库的** last_task_id，而它要到 dispatch 的最后一步才写
+   * （见 dispatch 里的 updates）。两次挨得很近的触发会都读到旧值、双双放行 ——
+   * 前端那道 ref 闸门只管得住同一个组件实例，跨标签页管不到。调度器是单进程，
+   * 一个进程内集合就够，且覆盖整个 dispatch（含 last_task_id 的写入）。
+   */
+  const inFlight = new Set<string>();
+
+  /**
    * Background write-back for a template title that arrived after the blocking
    * window.
    *
@@ -403,6 +413,14 @@ export function createSchedulerService(deps: SchedulerDeps) {
     async runNow(scheduleId: string): Promise<unknown> {
       const schedule = deps.scheduledTasksDb.getScheduledTask(scheduleId);
       if (!schedule) return null;
+      // 同一 tick 里的第二次点击 / 另一个标签页的并发请求 —— 状态判据这时还没看到
+      // 第一次的 last_task_id，只有这道闸门能挡。
+      if (inFlight.has(scheduleId)) {
+        throw new AppError(
+          `schedule ${scheduleId} is still dispatching; wait for it to settle`,
+          { code: 'SCHEDULE_RUNNING', statusCode: 409 },
+        );
+      }
       // 上一轮还在跑就拒绝：dispatch 每次都会新建任务并起一个 agent，同一个提示词
       // 会在同一个项目里跑起第二个 agent。
       const blocking = blockingRunOf(schedule);
@@ -412,9 +430,14 @@ export function createSchedulerService(deps: SchedulerDeps) {
           { code: 'SCHEDULE_RUNNING', statusCode: 409, details: { taskId: blocking.task_id } },
         );
       }
-      // Awaited: createTask may block on title generation, and a dispatch failure
-      // must surface to the route instead of becoming an unhandled rejection.
-      await dispatch(schedule);
+      inFlight.add(scheduleId);
+      try {
+        // Awaited: createTask may block on title generation, and a dispatch failure
+        // must surface to the route instead of becoming an unhandled rejection.
+        await dispatch(schedule);
+      } finally {
+        inFlight.delete(scheduleId);
+      }
       return { ok: true };
     },
     reconcileMissedRuns,

@@ -675,3 +675,37 @@ test('runNow 对不存在的调度返回 null（路由据此 404）', async () =
   const { svc } = makeService('2026-08-13T12:00:00.000Z');
   assert.equal(await svc.runNow('nope'), null);
 });
+
+test('runNow 在派发途中拒绝第二次触发，结束后释放闸门', async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const { svc, rows, createdTasks } = makeService('2026-08-13T12:00:00.000Z', {
+    tasksService: {
+      createTask: async (input: CreateTaskInput) => {
+        createdTasks.push(input);
+        await gate; // 卡住 dispatch，模拟「第一次触发还在派发中」
+        return { task_id: 'task-1' } as unknown as ReturnType<TasksService['createTask']>;
+      },
+      startExecution: () => ({ sessionId: 'sess-1' }),
+      getTask: () => null,
+    },
+  });
+  rows.set('s1', mkRow({ schedule_id: 's1' }));
+
+  const first = svc.runNow('s1');
+  // 第一次的 dispatch 还挂在 createTask 上：last_task_id 尚未落库，靠状态判据挡不住，
+  // 只有在途闸门能挡 —— 这正是「连点两次」的真实形态。
+  await assert.rejects(
+    () => svc.runNow('s1'),
+    (err: unknown) => (err as { code?: string }).code === 'SCHEDULE_RUNNING',
+  );
+  assert.equal(createdTasks.length, 1, '第二次触发不许建任务');
+
+  release();
+  await first;
+  assert.equal(rows.get('s1')?.last_task_id, 'task-1', '第一次正常派发完成');
+
+  // 闸门已释放：下一次触发照常
+  await svc.runNow('s1');
+  assert.equal(createdTasks.length, 2);
+});
