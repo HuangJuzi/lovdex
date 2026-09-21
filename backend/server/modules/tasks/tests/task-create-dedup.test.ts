@@ -55,6 +55,29 @@ test('taskCreateDedupKey 对内容不同的请求给出不同的 key', () => {
   assert.notEqual(taskCreateDedupKey(base), taskCreateDedupKey({ ...base, sourceSessionId: 's2' }));
   assert.notEqual(taskCreateDedupKey(base), taskCreateDedupKey({ ...base, contextMode: 'raw' }));
   assert.notEqual(taskCreateDedupKey(base), taskCreateDedupKey({ ...base, sourceScheduleId: 'sch-1' }));
+  assert.notEqual(taskCreateDedupKey(base), taskCreateDedupKey({ ...base, autoApprove: true }));
+});
+
+test('taskCreateDedupKey 区分 autoApprove：改了开关就是另一份意图', () => {
+  // 回归点：用户建完发现忘了勾「自动审批」，立刻再建一次 —— 两次提交只差这一个
+  // 开关。若指纹不区分，第二次会被去重吞掉，用户静默拿到没勾的那条任务。
+  const base = { projectPath: '/p', title: '', description: '把看板筛选做出来' };
+  const on = taskCreateDedupKey({ ...base, autoApprove: true });
+  const off = taskCreateDedupKey({ ...base, autoApprove: false });
+
+  assert.notEqual(on, off);
+  assert.notEqual(on, taskCreateDedupKey(base), 'true 与缺省必须不同');
+});
+
+test('taskCreateDedupKey 对同样勾了 autoApprove 的重复提交给出同一个 key', () => {
+  // 双击 / 两个标签页都勾了开关时，去重仍要生效（不能因为多了一个字段就漏掉）。
+  const base = { projectPath: '/p', title: '', description: '把看板筛选做出来', autoApprove: true };
+  assert.equal(taskCreateDedupKey(base), taskCreateDedupKey({ ...base }));
+  // false 与缺省都落库为 0，属同一份意图。
+  assert.equal(
+    taskCreateDedupKey({ ...base, autoApprove: false }),
+    taskCreateDedupKey({ projectPath: '/p', title: '', description: '把看板筛选做出来' }),
+  );
 });
 
 // --- 闸门 ---
