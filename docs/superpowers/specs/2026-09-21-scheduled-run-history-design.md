@@ -213,9 +213,11 @@ web 测试跑 `node:test` + `renderToStaticMarkup`，**无 DOM、effect 与交�
 
 | 检查 | 结果 |
 |---|---|
-| `npm run typecheck` | **0 错误** |
+| `npm run typecheck` | **0 错误**（我改动的文件；见下方「共享工作区」说明） |
 | eslint 逐文件 | TaskBoard 0 / Panel 1 / View 2 / TaskDetail 8 —— 与改动前基线**逐项相同，零新增** |
-| web 单测（8 个文件） | **98 pass / 0 fail**（projectLabel 6、ScheduledTabBar 3、ScheduledRunHistoryView 12、ScheduledTasksView 7、TaskCard 13、TaskTableView 18、TaskFilterBar 4、taskFilter 35） |
+| web 单测（8 个文件） | **98 pass / 0 fail**（projectLabel 6、ScheduledTabBar 4、ScheduledRunHistoryView 12、ScheduledTasksView 7、TaskCard 13、TaskTableView 18、TaskFilterBar 4、taskFilter 35） |
+
+> 口径补充：**新增文件**另有 3 条 `react-refresh/only-export-components` 警告（`ScheduledRunHistoryView.tsx`，来自「从组件文件导出纯函数以便无 DOM 测试」这一设计），以及 `ScheduledTabBar` / `ScheduledRunHistoryView` 的 `.test.tsx` 各 0 条。这 3 条不是「新增的回归」——`ScheduledTaskForm.tsx`（5 条）、`CreateTaskDialog.tsx` 早就是同一个模式的既有代价，但上一版表格只列了 4 个被改文件的基线，账面上漏了它们，特此更正。
 
 **浏览器 E2E**（puppeteer-core + 缓存 chromium 连 `:5188`，断言走 DOM / computed style，不依赖截图）：**19/19 通过**。
 
@@ -223,13 +225,19 @@ web 测试跑 `node:test` + `renderToStaticMarkup`，**无 DOM、effect 与交�
 
 覆盖到的点：默认落「调度」；切到「运行记录」后列头含「所属调度」「触发时间」、行数 6；刷新后记住子标签；`?tab=runs` 覆盖已存的 `schedules`；定时来源任务**仍在看板里**（不回归）；窄屏（900px）桌面表格 `display:none`、卡片网格 `display:grid` 且 6 个卡片、卡片里带调度名与「打开任务」；「运行记录」下点 header「新建任务」弹的仍是定时任务表单；详情页「⏰ 定时」徽标落到 `/tasks?view=scheduled&tab=runs`。
 
-**过程中修掉的两个真问题**（都由审查发现、非计划预见）：
+**过程中修掉的三个真问题**（都由审查发现、非计划预见）：
 
 1. **冷启动谎报「已删除的调度」**（Important）：面板挂载时 `useScheduledTasks` 请求刚发出（`loading=true`、`schedules=[]`），而「运行记录」刻意不等它 —— 于是每一行都显示「已删除的调度」。加载中会闪几百毫秒；若调度请求失败而任务请求成功，则是**永久**的假信息，且重试按钮在另一个子标签里。修法：新增 `ScheduleLookup = 'loading' | 'error' | 'ready'`，只有 `ready` 才允许断言「已删除」。见提交 `eb15d26`。
 2. **组件的排序没有测试钉住**：`const ordered = sortRunsByTriggeredDesc(runs)` 被删掉后 9 个测试照样全绿。补了一条断言渲染顺序的测试，并用「临时改实现确认它变红」验证过它真的咬得住。
+3. **`ScheduledTabBar` 的断言钉不住「哪个标签是激活态」**（终审发现）：原测试只数「1 个 `aria-pressed="true"` + 1 个 `"false"`」、只看「两串样式类都出现」—— 把 `aria-pressed` 取反、或把两串样式对调，3 条测试全部照绿。补了一条把「激活态落在当前 tab 上 + 样式方向不反向」钉死的断言，同样用变异验证过（取反 `aria-pressed` 后新断言变红、原 3 条仍绿）。见提交 `b2269c0`。
 
 **已知遗留**（非阻塞，记录备查）：
 
 - `loadError` 为真但内存里仍有有效调度名时（加载成功后的某次刷新失败），「所属调度」会翻成「调度列表不可用」。属**少说**而非谎说，且下一次成功刷新即自愈，故本次未处理。
+- **运行记录子标签下调度请求失败时没有自救入口**：重试按钮只在「调度」分支里，用户在运行记录里只能看到「调度列表不可用」而无法就地重试。文案本身是诚实信号，但 UX 缺口成立，记录备查。
 - `?tab=runs` 深链会先渲染一帧「调度」再切过去（`useLocalStorage` 初值来自 localStorage，URL 播种在 `useEffect` 里）。这是沿用 `?view=scheduled` 既有的播种方式，不是本次引入。
+- **`tab` 这个 query key 被两套深链共用**：工作区深链是 `?project=&tab=chat|files|git`，本次是 `?view=scheduled&tab=runs`。今天靠 `AppContent` → `useProjectsState.ts:361` 的 `isValidTab`（白名单 `{chat, files, git}` + `plugin:` 前缀）互不干扰，但没有结构性护栏。已在 `TaskBoard.tsx` 的挂载 effect 上方加注释说明；将来工作区若新增叫 `runs` 的 tab，应把这里改名成 `subtab`。
 - 控制台每次加载都有一条 `WebSocket error: [object Event]`。已在**未改动的**路由 `/` 上复现，确认与本次改动无关，未追查。
+- 面板的三态接线（`ScheduledTasksPanel.tsx` 里 `loading ? 'loading' : loadError ? 'error' : 'ready'`）本身无单测覆盖（面板依赖 `useWebSocket` context，静态渲染不起来），E2E 也只走通了 `ready` 分支。三态的**判定逻辑**已被 `scheduleTitleOf` 的单测钉住，未覆盖的只是「面板把 hook 状态映射成三态」那一行。
+
+**共享工作区说明**：本次全程在 `main` 上与另一个 session 并发提交。上面「typecheck 0 错误」是**本次改动完成时**的实测值；此后对方开始做 auto-approve 功能，其未提交的 `ScheduledTaskForm.tsx` / `ScheduledTaskForm.test.tsx` / `types/app.ts` 会让全仓 typecheck 出现 2 个 `autoApprove` 相关错误 —— 与本功能无关，本功能涉及的文件不受影响。

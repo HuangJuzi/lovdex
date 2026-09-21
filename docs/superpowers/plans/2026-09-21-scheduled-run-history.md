@@ -958,4 +958,4 @@ git add docs/superpowers/specs/2026-09-21-scheduled-run-history-design.md && git
 | `/tasks?view=scheduled` | 定时页 · **调度**（默认子标签） |
 | `/tasks?view=scheduled&tab=runs` | 定时页 · **运行记录** |
 
-侧边栏「定时任务」入口（`SidebarScheduledEntry.tsx:18`）不变，仍落「调度」。
+侧边栏「定时任务」入口（`SidebarScheduledEntry.tsx:18`）不带 tab 参数，所以落在**上次记住的子标签**（首访是「调度」）—— 子标签与 `viewMode` 一样持久化，这正是设计意图。
