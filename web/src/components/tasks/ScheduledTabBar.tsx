@@ -11,8 +11,8 @@ const TABS: { value: ScheduledTab; label: string }[] = [
  * 定时任务页的子标签。视觉对齐任务页 header 的视图切换器（TaskBoard.tsx 的
  * 「看板 / 表格 / ⏰ 定时」）：同一个分段控件外壳 + 选中态实色胶囊。
  *
- * 它占的是 ScheduledTasksView 原来那行静态标题「⏰ 定时任务」的位置 —— 那行标题
- * 已被删掉，避免和子标签条叠成两行 chrome。
+ * 它取代 `ScheduledTasksView` 里那行静态标题「⏰ 定时任务」—— 两者叠加会多占一行
+ * chrome，所以那行标题由接线时删掉。
  */
 export function ScheduledTabBar({ tab, onChange }: { tab: ScheduledTab; onChange: (next: ScheduledTab) => void }) {
   return (

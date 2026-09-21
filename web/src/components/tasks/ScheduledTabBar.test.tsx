@@ -4,9 +4,11 @@ import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
-import { ScheduledTabBar } from './ScheduledTabBar';
+import { ScheduledTabBar, type ScheduledTab } from './ScheduledTabBar';
 
-function render(tab: 'schedules' | 'runs') {
+// 用导出的类型而不是内联联合：顺带钉住「ScheduledTab 是对外契约」这件事
+// （TaskBoard / ScheduledTasksPanel 都要 import 它）。
+function render(tab: ScheduledTab) {
   return renderToStaticMarkup(<ScheduledTabBar tab={tab} onChange={() => {}} />);
 }
 
