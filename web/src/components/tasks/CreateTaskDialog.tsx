@@ -5,19 +5,15 @@ import { ArrowUp, Loader2, RotateCcw } from 'lucide-react';
 import { useDeviceSettings } from '../../hooks/useDeviceSettings';
 import { cn } from '../../lib/utils';
 import { Button, Dialog, DialogContent, DialogTitle, Input } from '../../shared/view/ui';
-import type { Project, ProviderModelOption, Task, TaskEngine, TaskLabel, TaskPriority } from '../../types/app';
-import { api, authenticatedFetch } from '../../utils/api';
+import type { Project, Task, TaskEngine, TaskLabel, TaskPriority } from '../../types/app';
+import { api } from '../../utils/api';
 import { resolveSessionTitle } from '../../utils/sessionTitle';
 import { ASSISTANT_OPTION_VALUE, projectPathOf, taskFormProjects, taskProjectLabel } from './projectOptions';
+import { modelOptionsFor, useProviderModels } from './useProviderModels';
 import { useTaskEngineAvailability } from './useTaskEngineAvailability';
 import { LABEL_META, LABEL_ORDER, PRIORITY_META, PRIORITY_ORDER } from './taskStatus';
 import { AnchorPopover } from './AnchorPopover';
 import { ChipSelect, type ChipSelectOption } from './ChipSelect';
-
-type ProviderModelsApiResponse = {
-  success?: boolean;
-  data?: { models?: { OPTIONS?: ProviderModelOption[]; DEFAULT?: string } };
-};
 
 /** 「更多…」角标：名称/上下文来源/备注 中已填的数量。 */
 export function moreSetCount(name: string, sourceSessionId: string, remark: string): number {
@@ -57,13 +53,11 @@ export function CreateTaskDialog({
   const [sourceSessionId, setSourceSessionId] = useState('');
   const [contextMode, setContextMode] = useState<'summary' | 'raw'>('summary');
   const [projects, setProjects] = useState<Project[]>([]);
-  const [models, setModels] = useState<ProviderModelOption[]>([]);
   const [model, setModel] = useState('');
   const [error, setError] = useState('');
   // 创建在途（后端取名期间）。state 只驱动按钮的禁用/转圈，拦截靠下面那个 ref。
   const [submitting, setSubmitting] = useState(false);
   const submittingRef = useRef(false);
-  const modelsRequestRef = useRef(0);
 
   const isAssistant = projectPath === ASSISTANT_OPTION_VALUE || !projectPath;
 
@@ -121,31 +115,13 @@ export function CreateTaskDialog({
     return () => { cancelled = true; };
   }, []);
 
-  // 模型随引擎重载（沿用 TaskBoard 的 stale-response 守卫）。
+  const { models, loadedEngine } = useProviderModels(engine, open);
+
+  // 列表到达后回到第一项：每次打开、每次切引擎都重置（与重构前的行为一致）。
   useEffect(() => {
-    if (!open) return;
-    const requestId = modelsRequestRef.current + 1;
-    modelsRequestRef.current = requestId;
-    const eng = engine;
-    authenticatedFetch(`/api/providers/${eng}/models`)
-      .then(async (res) => {
-        if (!res.ok) return [] as ProviderModelOption[];
-        const body = (await res.json()) as ProviderModelsApiResponse;
-        const options = body.success ? body.data?.models?.OPTIONS : undefined;
-        return Array.isArray(options) ? options : [];
-      })
-      .then((list) => {
-        if (modelsRequestRef.current !== requestId) return;
-        setModels(list);
-        setModel(list.length > 0 ? list[0].value : '');
-      })
-      .catch((err) => {
-        if (modelsRequestRef.current !== requestId) return;
-        console.error('load models for task create failed', err);
-        setModels([]);
-        setModel('');
-      });
-  }, [open, engine]);
+    if (loadedEngine !== engine) return;
+    setModel(models.length > 0 ? models[0].value : '');
+  }, [loadedEngine, engine, models]);
 
   function reset() {
     setPrompt('');
@@ -227,9 +203,7 @@ export function CreateTaskDialog({
   const engineOptions: ChipSelectOption[] = newEngineAvailability.status === 'ready'
     ? newEngineAvailability.options.map((e) => ({ value: e, label: e }))
     : [];
-  const modelOptions: ChipSelectOption[] = models.length === 0
-    ? [{ value: '', label: '默认模型' }]
-    : models.map((m) => ({ value: m.value, label: m.label || m.value }));
+  const modelOptions: ChipSelectOption[] = modelOptionsFor(models, model);
   const sourceOptions: ChipSelectOption[] = [
     { value: '', label: '（无）白纸开始' },
     ...sourceSessionOptions.map((s) => ({ value: s.id ?? '', label: resolveSessionTitle(s) || (s.id ?? '').slice(0, 8) })),
