@@ -4,7 +4,7 @@ import { isScheduleType } from '@/modules/database/repositories/scheduled-tasks.
 import { resolveGeneratedTitle } from '@/modules/tasks/services/task-title.js';
 import type { TasksService } from '@/modules/tasks/services/tasks.service.js';
 import { AppError } from '@/shared/utils.js';
-import type { ScheduledTaskRow, TaskEngine } from '@/shared/types.js';
+import type { ScheduledTaskRow, TaskEngine, TaskRow } from '@/shared/types.js';
 import type { ScheduledTaskDbLike } from './scheduled-task-db-like.js';
 
 export type SchedulerDeps = {
@@ -64,6 +64,20 @@ export function initialNextRun(
     default:
       return now.toISOString();
   }
+}
+
+/**
+ * 「上一轮还没结束」：任务停在 in_progress 列、且没有 failed 标签。
+ *
+ * 入参必须是 decorate() 之后的行 —— sub_status 那时才是计算后的有效值：跑着的是
+ * running、等你回答/计划是 waiting_*、跑挂的仍停在 in_progress 槽位但标 failed。
+ * 所以「运行中 + 等人工都挡、跑挂的放行」就是 `!== 'failed'` 这一条，不用枚举标签。
+ *
+ * 注意这条判据只看任务行，看不见「会话是否真的还在流式输出」—— 人工把在跑的任务
+ * 标成 done 时 status 会骗人，那一段由调用方的 isSessionRunning 兜（见 blockingRunOf）。
+ */
+export function isRunActive(task: Pick<TaskRow, 'status' | 'sub_status'> | null): boolean {
+  return task !== null && task.status === 'in_progress' && task.sub_status !== 'failed';
 }
 
 export function createSchedulerService(deps: SchedulerDeps) {

@@ -1,7 +1,7 @@
 // server/modules/scheduler/tests/scheduler.service.test.ts
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { computeNext, createSchedulerService, type SchedulerDeps } from '@/modules/scheduler/services/scheduler.service.js';
+import { computeNext, createSchedulerService, isRunActive, type SchedulerDeps } from '@/modules/scheduler/services/scheduler.service.js';
 import type { ScheduledTaskDbLike } from '@/modules/scheduler/services/scheduled-task-db-like.js';
 import type { TasksService } from '@/modules/tasks/services/tasks.service.js';
 import type { ScheduledTaskRow } from '@/shared/types.js';
@@ -42,6 +42,22 @@ test('computeNext: once returns run_at; interval preserves phase; cron advances'
   // timezone='local'（默认）按服务器本地时区：结果 = 本地挂钟 09:00 的 UTC 表示，与机器时区无关。
   const localCron = computeNext(mkRow({ schedule_type: 'cron', cron_expr: '0 9 * * *' }), now, now);
   assert.equal(localCron, new Date(2026, 7, 14, 9, 0, 0).toISOString());
+});
+
+test('isRunActive: 只把「进行中且没跑挂」当作上一轮没结束', () => {
+  // 跑着 / 等你回答 / 等你确认计划 / 等你批准 / 以及各种还没走完的持久标签 —— 都挡
+  for (const sub of ['running', 'waiting_answer', 'waiting_plan', 'waiting_approval', 'blocked', 'only_plan', 'needs_review'] as const) {
+    assert.equal(isRunActive({ status: 'in_progress', sub_status: sub }), true, `in_progress + ${sub} 必须挡`);
+  }
+  // decorate() 对「在跑但没标签」的行给的就是 null
+  assert.equal(isRunActive({ status: 'in_progress', sub_status: null }), true, 'in_progress + null 必须挡');
+  // failed 是唯一明确的「上一轮已经终止、可以重来」
+  assert.equal(isRunActive({ status: 'in_progress', sub_status: 'failed' }), false, '跑挂的必须放行');
+  // 不在进行中列的一律不挡
+  for (const status of ['todo', 'in_review', 'done', 'archived'] as const) {
+    assert.equal(isRunActive({ status, sub_status: null }), false, `${status} 不该挡`);
+  }
+  assert.equal(isRunActive(null), false, '查不到上一轮任务时不挡');
 });
 
 function makeService(nowIso: string, extra: Partial<SchedulerDeps> = {}) {
