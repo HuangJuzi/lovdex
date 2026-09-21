@@ -43,6 +43,8 @@
 
 **设计系统约束**（`web/src/design/scaleGuard.test.ts` / `tokenGuard.test.ts`）：字号与圆角只能用 `tailwind.config.js` 里的具名档位，禁止 `text-[13px]` / `rounded-[10px]`；颜色只能用语义 token，禁止 `bg-gray-800` / `#abcdef` / `rgb(…)`；整块阴影里那 5 个「复现配方」必须用具名 `shadow-raised-*`。
 
+**透明度修饰符只能是 5 的倍数**（2026-09-21 实测）：Tailwind 3.4 对非 arbitrary 的透明度修饰符要求 `theme.opacity` 里有该键，而默认刻度是 5 的倍数。`bg-destructive/12`、`bg-popover/78` 这类值会被**静默丢弃、不产出任何 CSS**（不是报错，是元素直接没有背景）。要非 5 倍数的透明度必须写 arbitrary 形式 `bg-destructive/[0.12]`。本设计的取值一律落在 5 的倍数上。
+
 ## 3. 弹窗改版（方案 5：毛玻璃轻量化）
 
 核心判断：**「突兀」主要不是位置问题，是「没有过渡 + 太实」**。位置不动，只改材质和动效。
@@ -52,10 +54,10 @@
 | 维度 | 现在 | 改为 |
 |---|---|---|
 | 定位 | `fixed right-4 top-4` | **不变** |
-| 底/边框 | 整块 `bg-destructive/10` + `border-destructive/50` | `bg-popover/78` + `backdrop-blur-xl` + `border-border/70` |
+| 底/边框 | 整块 `bg-destructive/10` + `border-destructive/50` | `bg-popover/80` + `backdrop-blur-xl` + `border-border/70` |
 | 圆角 | `rounded-md`（6px） | `rounded-2xl`（16px） |
 | 阴影 | `shadow-lg`（Tailwind 默认） | `shadow-raised-md`（具名档位） |
-| 严重度表达 | 整块染色 | 只落在 **28px 图标块**：`bg-destructive/12` + `text-destructive`；warning / info 同理换 token |
+| 严重度表达 | 整块染色 | 只落在 **28px 图标块**：`bg-destructive/10` + `text-destructive`；warning / info 同理换 token |
 | 入场 | 无 | `opacity 0→1` + `scale .94→1`，260ms `cubic-bezier(.2,0,0,1)` |
 | 退场 | 无（直接卸载） | 反向 180ms，动画结束再移除节点 |
 | 停留 | 6s | 6s，**新增悬停暂停** |
@@ -182,7 +184,9 @@ export function inboxTargetPath(it: InboxNotification): string | null {
 - `web/src/components/inbox/inboxTarget.ts` —— 跳转目标派生（§3.3）
 - `web/src/components/inbox/InboxList.tsx` —— 左栏列表
 - `web/src/components/inbox/InboxDetail.tsx` —— 右栏详情（桌面右栏与移动 sheet 共用）
-- `web/src/components/inbox/inboxTime.ts` —— 相对时间格式化
+- `web/src/components/app/inboxRouteMatch.ts` —— `/inbox` 路径判定（容忍尾斜杠）
+
+**不新增**时间格式化文件 —— `formatRelativeTime` / `formatAbsoluteTime` 在 `web/src/components/tasks/taskTimestamp.ts` 里已存在且有测试，直接复用。
 
 **修改**
 

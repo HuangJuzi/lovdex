@@ -41,6 +41,23 @@ env -u TSX_TSCONFIG_PATH npx tsx --test src/components/inbox/inboxTarget.test.ts
 字号档位：`4xs` 9px / `3xs` 10px / `2xs` 11px / `xs` 12px / `sm` 14px / `base` 16px / `lg` 18px / `xl` 20px
 圆角档位：`xs` 3px / `sm` 4px / `md` 6px / `lg` 8px / `xl` 12px / `2xl` 16px / `3xl` 24px
 
+### 透明度修饰符只能是 5 的倍数（2026-09-21 实测）
+
+Tailwind 3.4 对非 arbitrary 的透明度修饰符（`bg-x/NN`）要求 `tailwind.config.js` 的 `theme.opacity` 里有 `NN` 这个键，而默认刻度只有 **5 的倍数**。写 `/12`、`/78` 这类值会被**静默丢弃、不产出任何 CSS** —— 不报错，元素直接没有背景，是那种上线后才发现「怎么没颜色」的坑。
+
+实测（在 `web/` 下 `npx tailwindcss -i src/index.css -o /tmp/out.css`，探针文件放 `src/`）：
+
+| 类 | 产出规则数 |
+|---|---|
+| `bg-destructive/10` | 1 ✅ |
+| `bg-destructive/15` | 1 ✅ |
+| `bg-popover/80` | 1 ✅ |
+| `bg-destructive/12` | **0 ❌ 被丢弃** |
+| `bg-destructive/8` | **0 ❌** |
+| `bg-popover/78` | **0 ❌** |
+
+**本计划所有取值已落在 5 的倍数上。** 需要别的小数时唯一写法是 arbitrary 形式 `bg-destructive/[0.12]`。
+
 ### 基线（改动前实测）
 
 - `npm run typecheck`（在 `web/`）→ **0 错误**
@@ -831,8 +848,8 @@ const SEVERITY_ICON: Record<InboxSeverity, React.ReactNode> = {
 };
 
 const SEVERITY_ICON_CLASS: Record<InboxSeverity, string> = {
-  critical: 'bg-destructive/12 text-destructive',
-  warning: 'bg-warning/12 text-warning',
+  critical: 'bg-destructive/10 text-destructive',
+  warning: 'bg-warning/10 text-warning',
   info: 'bg-muted text-muted-foreground',
 };
 
@@ -1042,8 +1059,8 @@ const SEVERITY_ICON: Record<InboxSeverity, React.ReactNode> = {
 };
 
 const SEVERITY_ICON_CLASS: Record<InboxSeverity, string> = {
-  critical: 'bg-destructive/12 text-destructive',
-  warning: 'bg-warning/12 text-warning',
+  critical: 'bg-destructive/10 text-destructive',
+  warning: 'bg-warning/10 text-warning',
   info: 'bg-muted text-muted-foreground',
 };
 
@@ -1430,8 +1447,8 @@ test('卡片本体不按严重度染色（整块染色是「太突兀」的主�
 });
 
 test('严重度只体现在图标块的配色上', () => {
-  assert.ok(SEVERITY_STYLE.critical.iconClass.includes('bg-destructive/12'));
-  assert.ok(SEVERITY_STYLE.warning.iconClass.includes('bg-warning/12'));
+  assert.ok(SEVERITY_STYLE.critical.iconClass.includes('bg-destructive/10'));
+  assert.ok(SEVERITY_STYLE.warning.iconClass.includes('bg-warning/10'));
   assert.ok(SEVERITY_STYLE.info.iconClass.includes('bg-muted'));
 });
 
@@ -1496,11 +1513,11 @@ export type ToastItem = {
 export const SEVERITY_STYLE: Record<ToastSeverity, { icon: React.ReactNode; iconClass: string }> = {
   critical: {
     icon: <AlertCircle className="h-4 w-4" />,
-    iconClass: 'bg-destructive/12 text-destructive',
+    iconClass: 'bg-destructive/10 text-destructive',
   },
   warning: {
     icon: <AlertTriangle className="h-4 w-4" />,
-    iconClass: 'bg-warning/12 text-warning',
+    iconClass: 'bg-warning/10 text-warning',
   },
   info: {
     icon: <Info className="h-4 w-4" />,
