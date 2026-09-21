@@ -302,7 +302,7 @@ function AppContentInner() {
 
       <div className="flex min-w-0 flex-1 flex-col">
         {isInboxRoute ? (
-          <InboxPage />
+          <InboxPage onOpenSidebar={() => setSidebarOpen(true)} />
         ) : (
           <MainContent
             selectedProject={selectedProject}
