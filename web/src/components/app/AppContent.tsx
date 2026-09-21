@@ -252,16 +252,15 @@ function AppContentInner() {
   // 表现就是"收件箱有、没弹窗"。
   useEffect(() => {
     const announce = () => {
-      const important = claimUnannouncedImportant();
-      // 已经在收件箱页时不弹汇总 —— 用户正盯着那个列表，糊一层弹窗纯属打扰。
-      // 但**仍要 claim 掉**（上面这行的副作用），否则他离开收件箱时会把刚看过
-      // 的内容又补弹一次。
-      if (isInboxRoute) return;
-      if (important.length > 0) setSummaryOpen(true);
+      // **不要**在这里按路由抑制：曾经加过「已经在收件箱页就不弹」，结果是
+      // 弹窗在用户最可能在的地方（收件箱）永远不出现，而且 claim 的副作用
+      // 已经把这条记账消费掉，离开收件箱也不会补弹 —— 表现就是「收件箱里有、
+      // 就是不给弹窗」。列表是就地更新的，弹窗正是那个「有新东西」的信号。
+      if (claimUnannouncedImportant().length > 0) setSummaryOpen(true);
     };
     announce();
     return subscribeInbox(announce);
-  }, [isInboxRoute]);
+  }, []);
 
   // 全局实时 toast：新告警（created 且非 info）到达即右上角弹一条，点击跳转。
   useEffect(() => subscribe((event) => {
@@ -423,7 +422,7 @@ function AppContentInner() {
             <Button variant="outline" size="sm" onClick={() => { markAllReadLocal(); setSummaryOpen(false); }}>
               全部已读
             </Button>
-            <Button size="sm" onClick={() => { setSummaryOpen(false); navigate('/inbox'); }}>去收件箱</Button>
+            <Button size="sm" onClick={() => { setSummaryOpen(false); if (!isInboxRoute) navigate('/inbox'); }}>去收件箱</Button>
           </div>
         </DialogContent>
       </Dialog>
