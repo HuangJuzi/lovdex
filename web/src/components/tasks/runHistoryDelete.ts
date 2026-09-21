@@ -34,6 +34,24 @@ export function toggleSelectAll(prev: Set<string>, selectableIds: string[]): Set
 }
 
 /**
+ * 删除结束后该保留哪些选中项：**只留失败的**，让用户能直接重试。成功的那批已经
+ * 被删掉、不必再选（剪枝 effect 本来也会把它们摘掉）。
+ */
+export function selectionAfterOutcome(outcome: DeleteOutcome): Set<string> {
+  return new Set(outcome.failed.map((f) => f.taskId));
+}
+
+/**
+ * 删除确认弹窗文案。单条与批量同一套承诺：**关联会话也会一并删除**，必须写明。
+ * 抽出来是为了让这句安全承诺能被测试钉住（它是「删运行会毁掉对话记录」的唯一告知点）。
+ */
+export function deleteConfirmMessage(count: number): string {
+  return count === 1
+    ? '确定删除该运行记录？其关联会话也会一并删除，此操作不可恢复。'
+    : `确定删除选中的 ${count} 条运行记录？其关联会话也会一并删除，此操作不可恢复。`;
+}
+
+/**
  * 结果条文案；`null` 表示没有结果条要显示。
  *
  * 三段各自计数后按序拼：已删除 → 因运行中失败 → 其它失败。唯一例外是一条都没删掉、

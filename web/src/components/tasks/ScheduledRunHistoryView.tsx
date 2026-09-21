@@ -5,7 +5,7 @@ import { X } from 'lucide-react';
 import type { ScheduledTask, Task } from '../../types/app';
 
 import { projectLabel } from './projectLabel';
-import { deleteOutcomeMessage, selectableRuns, toggleSelectAll, type DeleteOutcome } from './runHistoryDelete';
+import { deleteConfirmMessage, deleteOutcomeMessage, selectableRuns, selectionAfterOutcome, toggleSelectAll, type DeleteOutcome } from './runHistoryDelete';
 import { canOpenSession } from './taskActions';
 import type { TaskProjectOption } from './TaskCard';
 import { STATUS_META } from './taskStatus';
@@ -127,9 +127,11 @@ export function ScheduledRunHistoryView({
   const [deleting, setDeleting] = useState(false);
   const [outcome, setOutcome] = useState<DeleteOutcome | null>(null);
 
-  // 已删/已被别处删掉的 id 从选择里剪掉，避免幽灵勾选（对齐 TaskBoard 的做法）。
+  // 已删/已被别处删掉、以及**已经不可删**（运行中被 WS 事件改成 in_progress）的 id
+  // 从选择里剪掉，避免幽灵勾选：这种行的勾选框已经不渲染，留着只会让「已选 N 项」虚高
+  // 且删不掉（必然 409）。剪完 `selected ⊆ selectableRuns(runs)` 成立（对齐 TaskBoard 的做法）。
   useEffect(() => {
-    const ids = new Set(runs.map((t) => t.task_id));
+    const ids = new Set(selectableRuns(runs).map((t) => t.task_id));
     setSelected((prev) => {
       let changed = false;
       const next = new Set<string>();
@@ -156,18 +158,17 @@ export function ScheduledRunHistoryView({
 
   async function runDelete(taskIds: string[]) {
     if (taskIds.length === 0 || deleting) return;
-    const ok = window.confirm(
-      taskIds.length === 1
-        ? '确定删除该运行记录？其关联会话也会一并删除，此操作不可恢复。'
-        : `确定删除选中的 ${taskIds.length} 条运行记录？其关联会话也会一并删除，此操作不可恢复。`,
-    );
-    if (!ok) return;
+    if (!window.confirm(deleteConfirmMessage(taskIds.length))) return;
     setDeleting(true);
     try {
       const result = await onDelete(taskIds);
       setOutcome(result);
-      // 全失败时保留选中集，让用户能直接重试；有成功的就清空。
-      if (result.deleted.length > 0) setSelected(new Set());
+      setSelected(selectionAfterOutcome(result));
+    } catch (e) {
+      // onDelete 的契约是「逐条收集」，理论上不会 reject；万一将来换成会抛的实现，
+      // 也别让一次删除变成静默的 unhandled rejection。
+      const reason = e instanceof Error ? e.message : '网络错误';
+      setOutcome({ deleted: [], failed: taskIds.map((taskId) => ({ taskId, reason, running: false })) });
     } finally {
       setDeleting(false);
     }

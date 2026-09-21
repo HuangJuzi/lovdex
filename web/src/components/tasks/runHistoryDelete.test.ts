@@ -4,8 +4,10 @@ import assert from 'node:assert/strict';
 import type { Task } from '../../types/app';
 
 import {
+  deleteConfirmMessage,
   deleteOutcomeMessage,
   selectableRuns,
+  selectionAfterOutcome,
   toggleSelectAll,
   type DeleteOutcome,
 } from './runHistoryDelete';
@@ -129,4 +131,22 @@ test('deleteOutcomeMessage：没删掉 + 运行中与其它失败混合', () => 
 
 test('deleteOutcomeMessage：没删掉 + 只有其它失败', () => {
   assert.equal(deleteOutcomeMessage({ deleted: [], failed: [failedOther('a')] }), '1 条删除失败');
+});
+
+test('selectionAfterOutcome 只保留失败的 id', () => {
+  assert.deepEqual([...selectionAfterOutcome({ deleted: ['a'], failed: [failedRun('b')] })], ['b']);
+});
+
+test('selectionAfterOutcome 全失败时保留全部失败项', () => {
+  const kept = selectionAfterOutcome({ deleted: [], failed: [failedOther('a'), failedRun('b')] });
+  assert.deepEqual([...kept].sort(), ['a', 'b']);
+});
+
+test('selectionAfterOutcome 全成功时清空', () => {
+  assert.equal(selectionAfterOutcome({ deleted: ['a'], failed: [] }).size, 0);
+});
+
+test('deleteConfirmMessage 单条与批量的文案', () => {
+  assert.equal(deleteConfirmMessage(1), '确定删除该运行记录？其关联会话也会一并删除，此操作不可恢复。');
+  assert.equal(deleteConfirmMessage(3), '确定删除选中的 3 条运行记录？其关联会话也会一并删除，此操作不可恢复。');
 });
