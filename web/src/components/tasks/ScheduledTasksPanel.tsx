@@ -1,9 +1,11 @@
-import { forwardRef, useCallback, useImperativeHandle, useRef, useState } from 'react';
+import { forwardRef, useCallback, useImperativeHandle, useMemo, useRef, useState } from 'react';
 
 import { useWebSocket } from '../../contexts/WebSocketContext';
 import { useScheduledTasks } from '../../hooks/useScheduledTasks';
-import type { ScheduledTask } from '../../types/app';
+import type { ScheduledTask, Task } from '../../types/app';
 import { api } from '../../utils/api';
+import { ScheduledRunHistoryView, runsOf } from './ScheduledRunHistoryView';
+import { ScheduledTabBar, type ScheduledTab } from './ScheduledTabBar';
 import { ScheduledTaskForm, toApiBody, type ScheduledTaskDraft } from './ScheduledTaskForm';
 import { ScheduledTasksView } from './ScheduledTasksView';
 import type { TaskProjectOption } from './TaskCard';
@@ -12,10 +14,20 @@ export type ScheduledTasksPanelHandle = {
   openNew: () => void;
 };
 
-export const ScheduledTasksPanel = forwardRef<ScheduledTasksPanelHandle, { projectOptions: TaskProjectOption[] }>(
-  function ScheduledTasksPanel({ projectOptions }, ref) {
+export type ScheduledTasksPanelProps = {
+  projectOptions: TaskProjectOption[];
+  /** 任务页的全量任务列表（TaskBoard 的 useTasks），运行记录从这里过滤出来。 */
+  tasks: Task[];
+  tab: ScheduledTab;
+  onTabChange: (next: ScheduledTab) => void;
+};
+
+export const ScheduledTasksPanel = forwardRef<ScheduledTasksPanelHandle, ScheduledTasksPanelProps>(
+  function ScheduledTasksPanel({ projectOptions, tasks, tab, onTabChange }, ref) {
   const { subscribe } = useWebSocket();
-  const { tasks, loading, loadError, refresh } = useScheduledTasks({}, subscribe);
+  // 注意改名：hook 解构出来的字段本来就叫 `tasks`，但那是**调度**列表
+  // （ScheduledTask[]），跟 props 里传进来的**任务**列表（Task[]）同名。
+  const { tasks: schedules, loading, loadError, refresh } = useScheduledTasks({}, subscribe);
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<ScheduledTask | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -25,6 +37,8 @@ export const ScheduledTasksPanel = forwardRef<ScheduledTasksPanelHandle, { proje
   // 同一 tick 里（双击、Enter 连击）的第二次调用读到的还是旧值。标题留空时后端要等
   // 模型取名（最长 3s），这个窗口期足够双击两次。
   const submittingRef = useRef(false);
+
+  const runs = useMemo(() => runsOf(tasks), [tasks]);
 
   const openNew = useCallback(() => { setEditing(null); setError(null); setFormKey((k) => k + 1); setFormOpen(true); }, []);
   // 供全局「新建任务」按钮在定时视图下直接唤起新建定时任务表单。
@@ -74,19 +88,37 @@ export const ScheduledTasksPanel = forwardRef<ScheduledTasksPanelHandle, { proje
     if (res.ok) void refresh();
   }
 
-  if (loading) return <div className="px-3 text-sm text-muted-foreground sm:px-6">加载中…</div>;
-  if (loadError) {
-    return (
+  // 加载与失败只挡「调度」子标签：运行记录不依赖调度请求，调度列表还在路上时它
+  // 照样能看，只是「所属调度」列暂时全部回退成占位文案。
+  let body;
+  if (tab === 'runs') {
+    body = <ScheduledRunHistoryView runs={runs} schedules={schedules} projectOptions={projectOptions} />;
+  } else if (loading) {
+    body = <div className="px-3 text-sm text-muted-foreground sm:px-6">加载中…</div>;
+  } else if (loadError) {
+    body = (
       <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3">
         <div className="text-sm text-muted-foreground">加载定时任务失败</div>
         <button className="rounded-md bg-primary px-3 py-1.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90" onClick={() => void refresh()}>重试</button>
       </div>
     );
+  } else {
+    body = (
+      <ScheduledTasksView
+        tasks={schedules}
+        projectOptions={projectOptions}
+        onEdit={openEdit}
+        onDelete={(t) => void remove(t)}
+        onToggle={(t) => void toggle(t)}
+        onRunNow={(t) => void runNow(t)}
+      />
+    );
   }
 
   return (
     <>
-      <ScheduledTasksView tasks={tasks} projectOptions={projectOptions} onEdit={openEdit} onDelete={(t) => void remove(t)} onToggle={(t) => void toggle(t)} onRunNow={(t) => void runNow(t)} />
+      <ScheduledTabBar tab={tab} onChange={onTabChange} />
+      {body}
       <ScheduledTaskForm key={formKey} open={formOpen} initial={editing} projectOptions={projectOptions} submitting={submitting} error={error} onClose={() => { if (!submittingRef.current) setFormOpen(false); }} onSubmit={(d) => void submit(d)} />
     </>
   );

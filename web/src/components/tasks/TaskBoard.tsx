@@ -22,6 +22,7 @@ import { projectPathOf, taskFormProjects, toProjectOption } from './projectOptio
 import { STATUS_META, STATUS_ORDER, groupByStatus } from './taskStatus';
 import { TaskFilterBar } from './TaskFilterBar';
 import { ScheduledTasksPanel, type ScheduledTasksPanelHandle } from './ScheduledTasksPanel';
+import type { ScheduledTab } from './ScheduledTabBar';
 import { TaskTableView } from './TaskTableView';
 import { TaskInboxPanel } from './TaskInboxPanel';
 import { CreateTaskDialog } from './CreateTaskDialog';
@@ -34,6 +35,9 @@ export function TaskBoardPage() {
   const [storedFilter, setFilter] = useLocalStorage<unknown>('taskFilter', EMPTY_TASK_FILTER);
   const filter = useMemo(() => normalizeTaskFilter(storedFilter), [storedFilter]);
   const [viewMode, setViewMode] = useLocalStorage<'board' | 'table' | 'scheduled'>('taskViewMode', 'board');
+  // 定时页的子标签（调度 / 运行记录）。与 viewMode 一样持久化；URL 上的
+  // `?tab=runs` 优先，见下面的挂载 effect。
+  const [scheduledTab, setScheduledTab] = useLocalStorage<ScheduledTab>('scheduledViewTab', 'schedules');
   // 筛选区折叠：两条筛选行（TaskFilterBar + 表格内的状态 pill 行）常驻时纵向占用过大，
   // 默认收起。由 header 的「筛选」按钮统一控制。
   const [filtersOpen, setFiltersOpen] = useLocalStorage<boolean>('taskFiltersOpen', false);
@@ -44,10 +48,14 @@ export function TaskBoardPage() {
     'taskTableStatusFilter',
     [...STATUS_ORDER],
   );
-  // 侧边栏「定时任务」入口带 ?view=scheduled 进来时，启动选中定时视图；仅在挂载时读一次。
+  // 侧边栏「定时任务」入口带 ?view=scheduled 进来时，启动选中定时视图；带上
+  // ?tab=runs 时再落到运行记录子标签。URL 优先于 localStorage，但仅在挂载时读一次。
   const [searchParams] = useSearchParams();
   useEffect(() => {
-    if (searchParams.get('view') === 'scheduled') setViewMode('scheduled');
+    if (searchParams.get('view') === 'scheduled') {
+      setViewMode('scheduled');
+      if (searchParams.get('tab') === 'runs') setScheduledTab('runs');
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   // 移动端强制看板：表格在手机上体验差，且「表格」按钮已隐藏（hidden sm:inline-flex）。
@@ -408,7 +416,13 @@ export function TaskBoardPage() {
       ) : (
         <div className="flex min-h-0 flex-1 flex-col">
           {effectiveView === 'scheduled' ? (
-            <ScheduledTasksPanel ref={scheduledPanelRef} projectOptions={projectOptions} />
+            <ScheduledTasksPanel
+              ref={scheduledPanelRef}
+              projectOptions={projectOptions}
+              tasks={tasks}
+              tab={scheduledTab}
+              onTabChange={setScheduledTab}
+            />
           ) : (
           <>
           <TaskFilterBar projectOptions={projectOptions} filter={filter} onChange={setFilter} open={filtersOpen} />

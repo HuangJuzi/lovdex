@@ -83,10 +83,6 @@ export function ScheduledTasksView({ tasks, projectOptions, onEdit, onDelete, on
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex flex-shrink-0 items-center justify-between px-3 py-2 sm:px-4">
-        <span className="text-sm font-semibold text-foreground">⏰ 定时任务</span>
-      </div>
-
       {/* Desktop table (≥1024px)；移动/平板用下方卡片。 */}
       <div className="hidden min-h-0 flex-1 overflow-x-auto px-2 pb-4 sm:px-4 lg:block">
         <table className="w-full min-w-[900px] border-separate text-sm" style={{ borderSpacing: '0 7px' }}>
