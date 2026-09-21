@@ -254,7 +254,9 @@ export function createSchedulerService(deps: SchedulerDeps) {
         priority: typeof input.priority === 'string' ? input.priority : undefined,
         label: typeof input.label === 'string' ? input.label : undefined,
         autoRun: input.autoRun !== 0,
-        autoApprove: input.autoApprove === true,
+        // 与仓储声明的入参口径一致（boolean | 0 | 1）：只放行显式 true / 1，
+        // 不用真值判断 —— 否则 'false' 之类的杂值会把无人值守审批打开。
+        autoApprove: input.autoApprove === true || input.autoApprove === 1,
         scheduleType: input.scheduleType as never,
         cronExpr: typeof input.cronExpr === 'string' ? input.cronExpr : null,
         intervalSeconds: typeof input.intervalSeconds === 'number' ? input.intervalSeconds : null,

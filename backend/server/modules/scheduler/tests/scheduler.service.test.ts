@@ -529,6 +529,33 @@ test('create defaults auto_approve to false and honours an explicit true', async
   assert.equal(flagged.auto_approve, 1);
 });
 
+/**
+ * 仓储声明的入参是 `boolean | 0 | 1`，服务层若只认 `=== true`，走数字惯例的调用方
+ * 会静默落成 0 —— 用户勾了框、定时任务存下了，却什么都没自动放行，而这是无人值守
+ * 审批的开关，静默失效是最坏的结果。数字形态单独钉住。
+ */
+test('create accepts the numeric autoApprove form the repository declares', async () => {
+  const { svc } = makeService('2026-08-13T12:00:00.000Z');
+
+  const numeric = await svc.create({
+    title: 'a', scheduleType: 'cron', cronExpr: '0 9 * * *', autoApprove: 1,
+  }) as ScheduledTaskRow;
+  assert.equal(numeric.auto_approve, 1);
+
+  const zero = await svc.create({
+    title: 'b', scheduleType: 'cron', cronExpr: '0 9 * * *', autoApprove: 0,
+  }) as ScheduledTaskRow;
+  assert.equal(zero.auto_approve, 0);
+
+  // 放行数字形态不等于放水：杂值绝不能打开无人值守审批。
+  for (const junk of ['false', 'true', 2, {}]) {
+    const row = await svc.create({
+      title: 'c', scheduleType: 'cron', cronExpr: '0 9 * * *', autoApprove: junk,
+    }) as ScheduledTaskRow;
+    assert.equal(row.auto_approve, 0, `expected auto_approve=0 for ${JSON.stringify(junk)}`);
+  }
+});
+
 test('update accepts autoApprove and maps it to the auto_approve column', async () => {
   const { svc } = makeService('2026-08-13T12:00:00.000Z');
   const row = await svc.create({ title: 'a', scheduleType: 'cron', cronExpr: '0 9 * * *' }) as ScheduledTaskRow;
