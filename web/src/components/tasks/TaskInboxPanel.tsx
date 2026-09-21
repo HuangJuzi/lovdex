@@ -84,6 +84,11 @@ export function TaskInboxPanel({
                 <span className="min-w-0 truncate">{item.task.title}</span>
                 <span className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-foreground">
                   <span className="max-w-40 truncate">{info.label}</span>
+                  {item.task.source_schedule_id && (
+                    <span className="rounded-full bg-warning/10 px-1.5 py-0.5 text-3xs font-semibold text-warning">
+                      ⏰ 定时
+                    </span>
+                  )}
                   {info.remoteHost && (
                     <span className="rounded-full bg-muted px-1.5 py-0.5 text-3xs font-semibold text-muted-foreground">
                       🌐 {info.remoteHost}

@@ -188,3 +188,35 @@ test('renders collapsible header in expanded state', () => {
   );
   assert.match(html, /aria-expanded="true"/);
 });
+
+test('定时任务跑出来的条目带「⏰ 定时」标记', () => {
+  const html = renderToStaticMarkup(
+    React.createElement(TaskInboxPanel, {
+      tasks: [
+        mkTask({
+          task_id: 'r1',
+          title: '定时跑出来的任务',
+          status: 'in_progress',
+          sub_status: 'failed',
+          source_schedule_id: 's1',
+        }),
+      ],
+      now: NOW,
+    }),
+  );
+  assert.match(html, /定时跑出来的任务/);
+  assert.match(html, /⏰ 定时/);
+});
+
+test('手动建的条目不渲染「⏰ 定时」标记', () => {
+  const html = renderToStaticMarkup(
+    React.createElement(TaskInboxPanel, {
+      tasks: [
+        mkTask({ task_id: 'm1', title: '手动建的任务', status: 'in_progress', sub_status: 'failed' }),
+      ],
+      now: NOW,
+    }),
+  );
+  assert.match(html, /手动建的任务/);
+  assert.doesNotMatch(html, /⏰ 定时/);
+});
