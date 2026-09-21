@@ -691,6 +691,14 @@ const migrateTasksTable = (db: Database): void => {
   // via TASKS_TABLE_SCHEMA_SQL. DEFAULT 0 is load-bearing: pre-existing tasks,
   // assistant-created tasks and session-converted tasks must keep asking for
   // approval exactly as they did before this column existed.
+  //
+  // INVARIANT for anyone adding a rebuild gate above: those gates rename the
+  // table away, recreate it, and copy rows back with an explicit column list.
+  // This ALTER only fires when the column is absent, so a gate that runs on a
+  // table which ALREADY has auto_approve would silently reset every user's
+  // auto_approve=1 back to 0. No gate does today (they all target shapes older
+  // than this column), but a new one must either carry auto_approve through the
+  // copy or add itself below this line.
   addColumnToTableIfNotExists(db, 'tasks', getTableInfo(db, 'tasks').map((column) => column.name), 'auto_approve', 'INTEGER DEFAULT 0');
 };
 
