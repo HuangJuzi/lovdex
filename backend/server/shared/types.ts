@@ -943,6 +943,8 @@ export type TaskRow = {
   session_id: string | null;
   /** 定时任务来源:关联的 scheduled_tasks.schedule_id(由定时任务创建的任务才有值)。 */
   source_schedule_id: string | null;
+  /** 无人值守执行时是否自动审批工具权限（0 = 保持询问，1 = 自动决定）。 */
+  auto_approve: number; // 0 | 1
   started_at: string | null;
   completed_at: string | null;
   created_at: string;
@@ -1018,6 +1020,7 @@ export type ScheduledTaskRow = {
   label: string;
   is_operator: number; // 0 | 1 — project_path 为 NULL 时 1
   auto_run: number;    // 0 | 1
+  auto_approve: number; // 0 | 1 — 派发时镜像到任务的同名字段
   schedule_type: ScheduledTaskScheduleType;
   cron_expr: string | null;
   interval_seconds: number | null;

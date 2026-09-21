@@ -684,6 +684,14 @@ const migrateTasksTable = (db: Database): void => {
   addColumnToTableIfNotExists(db, 'tasks', contextTaskColumns, 'context_mode', "TEXT NOT NULL DEFAULT 'none' CHECK (context_mode IN ('none','summary','raw'))");
   addColumnToTableIfNotExists(db, 'tasks', contextTaskColumns, 'context_status', "TEXT CHECK (context_status IS NULL OR context_status IN ('pending','ready','failed'))");
   addColumnToTableIfNotExists(db, 'tasks', contextTaskColumns, 'context_raw', 'TEXT');
+
+  // Unattended auto-approval flag (spec 2026-09-21): per-task opt-in. Added in
+  // place via ALTER at the very end, like the context columns above, so it
+  // survives regardless of which rebuild gate ran; a fresh DB already has it
+  // via TASKS_TABLE_SCHEMA_SQL. DEFAULT 0 is load-bearing: pre-existing tasks,
+  // assistant-created tasks and session-converted tasks must keep asking for
+  // approval exactly as they did before this column existed.
+  addColumnToTableIfNotExists(db, 'tasks', getTableInfo(db, 'tasks').map((column) => column.name), 'auto_approve', 'INTEGER DEFAULT 0');
 };
 
 /**
@@ -857,6 +865,12 @@ export const runMigrations = (db: Database) => {
     const scheduledTasksExists = tableExists(db, 'scheduled_tasks');
     if (scheduledTasksExists) {
       db.prepare(`UPDATE scheduled_tasks SET executor_provider='opencode' WHERE executor_provider='sophcode'`).run();
+      // Unattended auto-approval flag (spec 2026-09-21): per-schedule opt-in the
+      // scheduler mirrors onto the task it dispatches. Guarded on table
+      // existence like the rename above — getTableInfo returns [] for a missing
+      // table, which would make the ALTER below throw. Upgraded installs get it
+      // in place here; fresh DBs already have it via SCHEDULED_TASKS_TABLE_SCHEMA_SQL.
+      addColumnToTableIfNotExists(db, 'scheduled_tasks', getTableInfo(db, 'scheduled_tasks').map((column) => column.name), 'auto_approve', 'INTEGER DEFAULT 0');
     }
 
     db.exec('CREATE INDEX IF NOT EXISTS idx_session_ids_lookup ON sessions(session_id)');
