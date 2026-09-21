@@ -26,6 +26,7 @@ import { AnchorPopover } from './AnchorPopover';
 import { ChipSelect, type ChipSelectOption } from './ChipSelect';
 import { ASSISTANT_OPTION_VALUE } from './projectOptions';
 import type { TaskProjectOption } from './TaskCard';
+import { modelOptionsFor, nextModelOnLoad, useProviderModels } from './useProviderModels';
 import { ENGINE_NAMES, useTaskEngineAvailability } from './useTaskEngineAvailability';
 
 export type ScheduledTaskDraft = {
@@ -247,6 +248,11 @@ export function ScheduledTaskForm({
   const [draft, setDraft] = useState<ScheduledTaskDraft>(() => toDraft(initial));
   const [localError, setLocalError] = useState<string | null>(null);
   const { isMobile } = useDeviceSettings({ mobileBreakpoint: 640 });
+  const { models, loadedEngine } = useProviderModels(draft.executorProvider, open);
+  // 挂载时的引擎。表单每次打开都会因 ScheduledTasksPanel 的 key={formKey} 重新挂载
+  // （见 ScheduledTasksPanel.tsx:29/32/90），所以这两个 ref 天然是「每次打开」的作用域。
+  const initialEngineRef = useRef(draft.executorProvider);
+  const modelPickedRef = useRef(false);
 
   const set = <K extends keyof ScheduledTaskDraft>(key: K, value: ScheduledTaskDraft[K]) =>
     setDraft((d) => ({ ...d, [key]: value }));
@@ -267,6 +273,23 @@ export function ScheduledTaskForm({
       set('executorProvider', engineAvailability.options[0]);
     }
   }, [engineAvailability, draft.executorProvider]);
+
+  // 模型列表到达后决定选中哪一项。策略在 nextModelOnLoad 里，这里只负责调用时机：
+  //   - loadedEngine !== 当前引擎 → 列表还没跟上，等；
+  //   - 用户手动选过且没切引擎 → 不覆盖他的选择；
+  //   - 自动纠正引擎（上面那个 effect）也算「切过」——engineSwitched 为真，模型跟着重置。
+  useEffect(() => {
+    if (loadedEngine !== draft.executorProvider) return;
+    const engineSwitched = loadedEngine !== initialEngineRef.current;
+    if (modelPickedRef.current && !engineSwitched) return;
+    const next = nextModelOnLoad({
+      mode: initial ? 'edit' : 'create',
+      engineSwitched,
+      models,
+      current: draft.executorModel,
+    });
+    if (next !== draft.executorModel) set('executorModel', next);
+  }, [loadedEngine, models, draft.executorProvider, draft.executorModel, initial]);
 
   const submit = () => {
     setLocalError(null);
@@ -352,7 +375,22 @@ export function ScheduledTaskForm({
                 value={draft.executorProvider}
                 disabled={engineAvailability.status !== 'ready'}
                 isMobile={isMobile}
-                onChange={(v) => set('executorProvider', v as TaskEngine)}
+                onChange={(v) => {
+                  modelPickedRef.current = false;
+                  set('executorProvider', v as TaskEngine);
+                }}
+              />
+              <ChipSelect
+                ariaLabel="模型"
+                label="模型"
+                options={modelOptionsFor(models, draft.executorModel)}
+                value={draft.executorModel}
+                disabled={models.length === 0}
+                isMobile={isMobile}
+                onChange={(v) => {
+                  modelPickedRef.current = true;
+                  set('executorModel', v);
+                }}
               />
               <button
                 type="button"

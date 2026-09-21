@@ -270,3 +270,32 @@ test('toDraft maps a NULL executor_model to the empty value', () => {
   const d = toDraft(mkScheduledTask({ executor_model: null }) as never);
   assert.equal(d.executorModel, '');
 });
+
+test('drops the priority and label chips', () => {
+  const html = renderWithOptions([]);
+  assert.equal(html.includes('aria-label="优先级"'), false);
+  assert.equal(html.includes('aria-label="标签"'), false);
+});
+
+test('renders a model chip', () => {
+  const html = renderWithOptions([]);
+  assert.ok(/<button[^>]*aria-label="模型"/.test(html), 'model chip must render');
+});
+
+// 引擎还不可用时（列表未到）模型 chip 置灰，但**必须仍在 DOM 里**，
+// 否则用户看不到「这里有模型可选」，芯片行会随加载状态抖动。
+test('model chip renders disabled before the model list arrives', () => {
+  const html = renderWithOptions([]);
+  const modelChip = /<button[^>]*aria-label="模型"[^>]*>/.exec(html)?.[0] ?? '';
+  assert.ok(modelChip.length > 0, 'model chip must render');
+  // 不能用 modelChip.includes('disabled')：ChipSelect 的 className 恒有
+  // disabled:cursor-not-allowed / disabled:opacity-50 字面量，子串匹配在启用态也成立。
+  // 见上面引擎芯片那个测试的注释。
+  assert.ok(/ disabled=""/.test(modelChip), 'model chip must be disabled before the list arrives');
+});
+
+// 兜底项：列表没到（或拉取失败）时显示「默认模型」，而不是空白芯片。
+test('model chip shows the 默认模型 fallback before the list arrives', () => {
+  const html = renderWithOptions([]);
+  assert.ok(html.includes('默认模型'));
+});
