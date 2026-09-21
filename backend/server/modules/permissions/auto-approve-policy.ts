@@ -44,7 +44,8 @@ export const UNATTENDED_INTERACTION_DENY_REASON =
 /**
  * Split a shell command into argument vectors on separators, so a dangerous
  * command hiding behind `cd /tmp && rm -rf /` is still seen. Pipelines are NOT
- * split here — the pipe-to-shell rule matches against the raw string instead.
+ * split here — the pipe-to-shell rule does its own stage split, because it
+ * needs to know the head of each stage rather than just the token vectors.
  */
 function commandSegments(command: string): string[][] {
   return command
@@ -81,32 +82,55 @@ function hasDestructiveRm(command: string): boolean {
   });
 }
 
-type CommandRule = { id: string; reason: string; matches: (command: string) => boolean };
+/** Pipeline / separator split, used only by the pipe-to-shell rule. */
+const PIPE_STAGE_SPLIT = /&&|\|\||;|\n|\|&?/;
+
+/**
+ * `curl … | sh` — fetch-and-execute. Split into stages and deny when a shell is
+ * the head of one stage and curl/wget heads an earlier one.
+ *
+ * Matching stage heads (rather than the raw string) is what keeps a command that
+ * merely *quotes* the pattern allowed — `grep -rn "curl | bash" docs/` is a
+ * search, not an execution — and it also catches a pipe that passes through an
+ * intermediary: `curl https://x | tee /tmp/a.sh | sh`.
+ */
+function hasPipeToShell(command: string): boolean {
+  let fetchedEarlier = false;
+  for (const stage of command.split(PIPE_STAGE_SPLIT)) {
+    const tokens = stage.trim().split(/\s+/).filter(Boolean);
+    if (tokens.length === 0) continue;
+    // `| sudo sh` counts as piping into a shell.
+    const head = tokens[0] === 'sudo' ? tokens[1] : tokens[0];
+    if (head === 'sh' || head === 'bash' || head === 'zsh' || head === 'dash') {
+      if (fetchedEarlier) return true;
+      continue;
+    }
+    if (head === 'curl' || head === 'wget') fetchedEarlier = true;
+  }
+  return false;
+}
+
+type CommandRule = { reason: string; matches: (command: string) => boolean };
 
 const COMMAND_RULES: readonly CommandRule[] = [
   {
-    id: 'rm-destructive-target',
     reason: '拒绝：不允许删除根目录或家目录',
     matches: hasDestructiveRm,
   },
   {
-    id: 'sudo',
     reason: '拒绝：不允许在无人值守时提权执行',
     matches: (command) => commandSegments(command).some((tokens) => tokens[0] === 'sudo'),
   },
   {
-    id: 'git-push',
     reason: '拒绝：不允许在无人值守时推送远端（不可逆的外发操作）',
     matches: (command) => commandSegments(command).some((tokens) => tokens[0] === 'git' && tokens[1] === 'push'),
   },
   {
-    id: 'git-reset-hard',
     reason: '拒绝：git reset --hard 会丢弃未提交的改动',
     matches: (command) =>
       commandSegments(command).some((tokens) => tokens[0] === 'git' && tokens[1] === 'reset' && tokens.includes('--hard')),
   },
   {
-    id: 'git-clean-force',
     reason: '拒绝：git clean 带 -f 会丢弃未跟踪文件',
     matches: (command) =>
       commandSegments(command).some(
@@ -115,7 +139,7 @@ const COMMAND_RULES: readonly CommandRule[] = [
           tokens[1] === 'clean' &&
           tokens.slice(2).some((arg) => {
             // 长写法 `--force` 与 `-f` 等价，必须一起拒。只有以短横线开头的参数才算旗标，
-            // 否则 `git clean -d src` 里的普通路径参数会被误判成 force。`--dry-run`(-n)
+            // 否则 `git clean -d foo` 里的普通路径参数会被误判成 force。`--dry-run`(-n)
             // 是空跑预览，bare 含 `-` 走不到规则里，保持放行。
             if (!arg.startsWith('-')) return false;
             const bare = arg.replace(/^--?/, '');
@@ -124,19 +148,20 @@ const COMMAND_RULES: readonly CommandRule[] = [
       ),
   },
   {
-    id: 'pipe-to-shell',
     reason: '拒绝：不允许把远端脚本直接管道进 shell 执行',
-    matches: (command) => /\b(curl|wget)\b[^|]*\|\s*(sudo\s+)?(bash|sh|zsh|dash)\b/.test(command),
+    matches: hasPipeToShell,
   },
   {
-    id: 'disk-destroy',
     reason: '拒绝：不允许写裸设备或格式化文件系统',
     matches: (command) =>
-      commandSegments(command).some((tokens) => tokens[0] === 'mkfs' || tokens[0].startsWith('mkfs.')) ||
-      commandSegments(command).some((tokens) => tokens[0] === 'dd' && tokens.some((arg) => arg.startsWith('of=/dev/'))),
+      commandSegments(command).some(
+        (tokens) =>
+          tokens[0] === 'mkfs' ||
+          tokens[0].startsWith('mkfs.') ||
+          (tokens[0] === 'dd' && tokens.some((arg) => arg.startsWith('of=/dev/'))),
+      ),
   },
   {
-    id: 'power',
     reason: '拒绝：不允许关机或重启',
     matches: (command) =>
       commandSegments(command).some((tokens) =>
@@ -144,7 +169,6 @@ const COMMAND_RULES: readonly CommandRule[] = [
       ),
   },
   {
-    id: 'publish',
     reason: '拒绝：不允许发布包到远端仓库（不可逆的外发操作）',
     matches: (command) =>
       commandSegments(command).some(
