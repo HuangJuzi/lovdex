@@ -2198,3 +2198,28 @@ cd /mnt/b/workdir/github/lovdex && git add -A && git commit -m "fix(auto-approve
 - [ ] 三个 UI 入口都可设置：定时任务表单（新建 + 编辑）、新建任务弹窗、任务详情。
 - [ ] 定时任务列表对开启的任务显示徽标。
 - [ ] backend typecheck / lint 与 web typecheck 均为**零新增**错误。
+
+---
+
+## 实施状态（2026-09-21 收尾）
+
+**Task 1–12 全部完成并提交**（19 个功能提交 + 3 个计划修正提交）。测试：后端 1210/1210、前端 634/634；后端 typecheck 15 个错误 = 改动前基线（零新增），前端 typecheck 0。
+
+**Task 13（端到端验证）未执行** —— 用户选择暂不重启后端。因此：
+
+- 四条 E2E 用例**一条都没跑过**，功能在真实运行环境中**尚未被验证**。
+- 生产库 `~/.lovdex/data/new-auth.db` **还没有 `auto_approve` 列**；迁移会在下次后端启动时自动补上。在那之前该功能**完全不生效**（不是「部分生效」）。
+- 下次重启后应当补跑 Task 13 的全部步骤，尤其是 Step 6（`AskUserQuestion` 用例）——改动前它会让任务永远卡在 `in_progress`，这是本功能最有价值的回归点。
+
+### 实施中修正的计划缺陷（照原样重跑会踩到）
+
+| 位置 | 缺陷 | 实际处理 |
+|---|---|---|
+| Task 1 Step 3 | `git-clean-force` 正则漏长写法 `--force` | 见 Task 1 顶部实施记录 |
+| Task 1 Step 3 | `pipe-to-shell` 匹配原始字符串，双向出错 | 同上 |
+| Task 4 | `create()` 用 `=== true` 收窄，把仓储声明的 `1` 挡在外面 | commit `c3ea145` |
+| Task 12 Step 1 | `shouldPersist` 是取反列表，照抄会丢弃帧 | 见该节顶部实施记录 |
+| Task 2 审查 | 重建门会静默重置 `auto_approve`（对未来的门） | 已在 `migrations.ts` 写不变式注释 |
+| Task 3 实现 | 去重指纹缺 `autoApprove`，重复提交被静默吞掉 | commit `e2bda7d` |
+
+另外计划未列出、但实施时必须改的文件：`scheduled-task-db-like.ts`（接口）、`task-create-dedup.ts`、`useSessionStore.ts` 的 `NormalizedMessage` 接口、以及后端 4 个 + 前端 13 个测试 fixture（`auto_approve` 成为必填字段所致，均只加默认值 0，未改断言）。
