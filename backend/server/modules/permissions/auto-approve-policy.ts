@@ -44,8 +44,8 @@ export const UNATTENDED_INTERACTION_DENY_REASON =
 /**
  * Split a shell command into argument vectors on separators, so a dangerous
  * command hiding behind `cd /tmp && rm -rf /` is still seen. Pipelines are NOT
- * split here — the pipe-to-shell rule does its own stage split, because it
- * needs to know the head of each stage rather than just the token vectors.
+ * split here — the pipe-to-shell rule does its own two-level split, because it
+ * has to tell pipeline stages apart from command chains inside a stage.
  */
 function commandSegments(command: string): string[][] {
   return command
@@ -82,30 +82,37 @@ function hasDestructiveRm(command: string): boolean {
   });
 }
 
-/** Pipeline / separator split, used only by the pipe-to-shell rule. */
-const PIPE_STAGE_SPLIT = /&&|\|\||;|\n|\|&?/;
-
 /**
- * `curl … | sh` — fetch-and-execute. Split into stages and deny when a shell is
- * the head of one stage and curl/wget heads an earlier one.
+ * `curl … | sh` — fetch-and-execute. Deny when a shell heads one pipeline stage
+ * and curl/wget heads a command in an earlier stage.
  *
- * Matching stage heads (rather than the raw string) is what keeps a command that
- * merely *quotes* the pattern allowed — `grep -rn "curl | bash" docs/` is a
- * search, not an execution — and it also catches a pipe that passes through an
- * intermediary: `curl https://x | tee /tmp/a.sh | sh`.
+ * Two levels on purpose. Stages come from *pipes only*: `&&`/`;` are not
+ * pipelines, and treating them as such denied
+ * `curl -s localhost:3000/health && sh -c 'echo ok'`, which pipes nothing. But
+ * a single stage can chain commands (`cd /tmp && curl x | sh`), so each stage is
+ * then split on `&&`/`;` and every command head inspected.
+ *
+ * Matching command heads (rather than the raw string) is what keeps a command
+ * that merely *quotes* the pattern allowed — `grep -rn "curl | bash" docs/` is a
+ * search, not an execution.
  */
 function hasPipeToShell(command: string): boolean {
   let fetchedEarlier = false;
-  for (const stage of command.split(PIPE_STAGE_SPLIT)) {
-    const tokens = stage.trim().split(/\s+/).filter(Boolean);
-    if (tokens.length === 0) continue;
-    // `| sudo sh` counts as piping into a shell.
-    const head = tokens[0] === 'sudo' ? tokens[1] : tokens[0];
-    if (head === 'sh' || head === 'bash' || head === 'zsh' || head === 'dash') {
-      if (fetchedEarlier) return true;
-      continue;
+  for (const stage of command.split(/\|&?/)) {
+    const commands = stage
+      .split(/&&|\|\||;|\n/)
+      .map((part) => part.trim().split(/\s+/).filter(Boolean))
+      .filter((tokens) => tokens.length > 0);
+    if (commands.length === 0) continue;
+
+    const last = commands[commands.length - 1];
+    const head = last[0] === 'sudo' ? last[1] : last[0];
+    if ((head === 'sh' || head === 'bash' || head === 'zsh' || head === 'dash') && fetchedEarlier) {
+      return true;
     }
-    if (head === 'curl' || head === 'wget') fetchedEarlier = true;
+    if (commands.some((tokens) => tokens[0] === 'curl' || tokens[0] === 'wget')) {
+      fetchedEarlier = true;
+    }
   }
   return false;
 }
