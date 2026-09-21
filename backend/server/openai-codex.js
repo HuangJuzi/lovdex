@@ -331,7 +331,11 @@ export async function queryCodex(command, options = {}, ws) {
   );
 
   const workingDirectory = cwd || projectPath || process.cwd();
-  const { sandboxMode, approvalPolicy } = mapPermissionModeToCodexOptions(permissionMode);
+  const { sandboxMode, approvalPolicy: permissionApprovalPolicy } = mapPermissionModeToCodexOptions(permissionMode);
+  // 任务开了自动审批就直接 never；codex 没有逐工具的审批回调，
+  // approvalPolicy 是它唯一的粒度。保留用户显式设的 'never'
+  // （acceptEdits / bypassPermissions）不被降级。
+  const approvalPolicy = options.autoApprove === true ? 'never' : permissionApprovalPolicy;
   const catalog = (await providerModelsService.getProviderModels('codex')).models;
   const selectedModel = catalog.OPTIONS.find((option) => option.value === resolvedModel) || null;
   const allowedEfforts = selectedModel?.effort?.values?.map((value) => value.value) || [];

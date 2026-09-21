@@ -22,6 +22,7 @@ import { spawn } from 'cross-spawn';
 import { normalizeImageDescriptors } from './shared/image-attachments.js';
 import { notifyRunFailed, notifyRunStopped } from './services/notification-orchestrator.js';
 import { appConfig } from './modules/config/config.js';
+import { decideAutoApproval } from './modules/permissions/auto-approve-policy.js';
 import { providerAuthService } from './modules/providers/services/provider-auth.service.js';
 import { QoderSessionsProvider } from './modules/providers/list/qoder/qoder-sessions.provider.js';
 import { createCompleteMessage, createNormalizedMessage, flattenPromptForWindowsShell } from './shared/utils.js';
@@ -475,6 +476,33 @@ export async function queryQoder(command, options = {}, ws) {
           const parsed = parseQoderControlRequest(response);
           if (parsed) {
             const sid = capturedSessionId || sessionId || null;
+
+            // 无人值守自动审批：直接回一条 control_response，不经过人类。
+            // 走的是与人工审批同一个 buildQoderControlResponse，协议形状一致；
+            // 刻意不调 registerQoderApproval —— 那会留下一个永远等不到人的
+            // pending 条目，和它 60s 后必然触发的 onExpire deny。
+            if (options.autoApprove === true) {
+              const decision = decideAutoApproval(parsed.toolName, parsed.input);
+              const denied = decision.behavior === 'deny';
+              sendMessage(ws, createNormalizedMessage({
+                kind: 'permission_auto',
+                toolName: parsed.toolName,
+                autoApproveBehavior: decision.behavior,
+                autoApproveReason: denied ? decision.reason : undefined,
+                sessionId: sid,
+                provider: 'qoder',
+              }));
+              if (denied) {
+                console.warn(`[qoder-runner] auto-denied ${parsed.toolName} during an unattended run: ${decision.reason}`);
+              }
+              writeNdjson(buildQoderControlResponse(parsed.requestId, {
+                allow: !denied,
+                message: denied ? decision.reason : undefined,
+                updatedInput: parsed.input,
+              }));
+              return; // control frames are protocol, not chat messages
+            }
+
             sendMessage(ws, createNormalizedMessage({
               kind: 'permission_request',
               requestId: parsed.requestId,
