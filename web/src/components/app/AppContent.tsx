@@ -416,7 +416,11 @@ function AppContentInner() {
           </div>
 
           <div className="mt-4 flex justify-end gap-2">
-            <Button variant="ghost" size="sm" onClick={() => { markAllReadLocal(); setSummaryOpen(false); }}>
+            {/* 「知道了」是纯关闭：不改任何已读状态。少了它，用户想原样关掉弹窗
+                就只能去点「全部已读」（有副作用）或跳走 —— 三选一里必须有一个
+                无副作用的出口。 */}
+            <Button variant="ghost" size="sm" onClick={() => setSummaryOpen(false)}>知道了</Button>
+            <Button variant="outline" size="sm" onClick={() => { markAllReadLocal(); setSummaryOpen(false); }}>
               全部已读
             </Button>
             <Button size="sm" onClick={() => { setSummaryOpen(false); navigate('/inbox'); }}>去收件箱</Button>
