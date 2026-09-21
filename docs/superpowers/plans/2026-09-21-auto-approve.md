@@ -2223,3 +2223,23 @@ cd /mnt/b/workdir/github/lovdex && git add -A && git commit -m "fix(auto-approve
 | Task 3 实现 | 去重指纹缺 `autoApprove`，重复提交被静默吞掉 | commit `e2bda7d` |
 
 另外计划未列出、但实施时必须改的文件：`scheduled-task-db-like.ts`（接口）、`task-create-dedup.ts`、`useSessionStore.ts` 的 `NormalizedMessage` 接口、以及后端 4 个 + 前端 13 个测试 fixture（`auto_approve` 成为必填字段所致，均只加默认值 0，未改断言）。
+
+### Task 13 实际执行结果（2026-09-21 晚，重启后）
+
+后端已重启，迁移已跑（两张表的 `auto_approve` 列就位）。用临时项目 + `run-now` 跑了真实 agent 任务。
+
+**已证实：**
+
+| 用例 | 结果 | 证据 |
+|---|---|---|
+| 危险操作被拒 | ✅ | `git push` 的 tool_result 是错误，内容为策略模块独有的理由字符串；后端日志同时打出 `[claude-sdk] auto-denied Bash during an unattended run: 拒绝：不允许在无人值守时推送远端（不可逆的外发操作）` |
+| 提问工具不再挂死 | ✅ | `AskUserQuestion` 的 tool_result 是错误「无人值守执行中，无人可应答…」，agent 照做继续并结束回合；日志有对应 auto-denied。**改动前这里会永远卡住** |
+| 判定系统正常 | ✅ | 该任务拿到 verdict（"属等待用户输入而非任务闭环"）→ `needs_review` → 按既有逻辑退回 in_progress 列。这是设计行为（`tasks.service.ts:871-874`），不是 bug |
+
+**未证实 / 结论不成立：**
+
+- **放行路径没能验证。** 原计划的「`auto_approve=1` → 普通工具自动放行」无法用本次实验证明：同样的命令（`ls -la`、`git status`）在 **`auto_approve=0` 时也是秒过**，说明它们**根本没走到 `canUseTool`**，被 SDK 自身的规则提前放行了。所以「成功执行」不能归因于本功能。
+- 因此 **`auto_approve=0` 行为不变这一条也不成立**（实验不具判别力）。
+- 想真正验证放行路径，需要一个**在 `auto_approve=0` 时确实会触发权限询问**的命令作为探针。选命令前先确认它不被 SDK 的设置文件规则放行——否则整个实验是空的。
+
+用户的任务已按要求置为 `auto_approve=1`（`enabled` 仍为 0，未动）。
