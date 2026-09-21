@@ -179,6 +179,12 @@ type ProviderModelsApiResponse = {
  * 只负责「拉取」，**不管选中值**：两个调用方的选中策略不同（新建任务弹窗每次打开
  * 都重置到第一项，定时任务编辑老数据时要保持 NULL），把策略塞进来就需要一个回调
  * 参数，反而更绕。选中策略见 `nextModelOnLoad`，由调用方自己调。
+ *
+ * **调用方契约**：`loadedEngine` 是 `models` 的「适用引擎」，不是「当前引擎」。引擎
+ * 切换后、新响应落地前，`models` 仍是**上一个引擎**的列表、`loadedEngine` 仍是上一个
+ * 引擎名（不会清回 null）。所以消费 `models` 前必须先比对 `loadedEngine === engine`，
+ * 否则会拿旧引擎的模型列表去渲染或设选中值，而且错得很安静。
+ * 拉取失败时同样会把 `loadedEngine` 标成当前引擎，配合空列表兜底项使用。
  */
 export function useProviderModels(
   engine: TaskEngine,
@@ -189,9 +195,11 @@ export function useProviderModels(
   const requestRef = useRef(0);
 
   useEffect(() => {
+    // 每次 effect run 都作废在途请求——**放在早退之前**，否则弹窗关闭时在途的
+    // 那次响应仍持有有效 id，会在重新打开时先于新响应把旧列表写进 state。
+    // 同 useTaskEngineAvailability。
+    const requestId = ++requestRef.current;
     if (!active) return;
-    const requestId = requestRef.current + 1;
-    requestRef.current = requestId;
     authenticatedFetch(`/api/providers/${engine}/models`)
       .then(async (res) => {
         if (!res.ok) return [] as ProviderModelOption[];
@@ -200,7 +208,9 @@ export function useProviderModels(
         return Array.isArray(options) ? options : [];
       })
       .catch((err) => {
-        console.error(`load models for ${engine} failed`, err);
+        // 只给日志加守卫，**不要** early return：下面那个 .then 还要把 loadedEngine
+        // 标上，失败路径也必须走到那里（否则调用方永远停在「加载中」）。
+        if (requestRef.current === requestId) console.error(`load models for ${engine} failed`, err);
         return [] as ProviderModelOption[];
       })
       .then((list) => {
