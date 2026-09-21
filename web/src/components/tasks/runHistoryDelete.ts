@@ -34,11 +34,14 @@ export function toggleSelectAll(prev: Set<string>, selectableIds: string[]): Set
 }
 
 /**
- * 删除结束后该保留哪些选中项：**只留失败的**，让用户能直接重试。成功的那批已经
- * 被删掉、不必再选（剪枝 effect 本来也会把它们摘掉）。
+ * 删除结束后该保留哪些选中项：**从原选中集里摘掉这次成功删掉的**。
+ *
+ * 失败的原样留着 → 用户能直接重试；成功的不必再选。这个规则对行级删除也对：
+ * 点某一行的删除不会误伤用户已经勾上的其它行。
  */
-export function selectionAfterOutcome(outcome: DeleteOutcome): Set<string> {
-  return new Set(outcome.failed.map((f) => f.taskId));
+export function selectionAfterOutcome(prev: Set<string>, outcome: DeleteOutcome): Set<string> {
+  const deleted = new Set(outcome.deleted);
+  return new Set([...prev].filter((id) => !deleted.has(id)));
 }
 
 /**

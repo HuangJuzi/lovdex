@@ -133,17 +133,29 @@ test('deleteOutcomeMessage：没删掉 + 只有其它失败', () => {
   assert.equal(deleteOutcomeMessage({ deleted: [], failed: [failedOther('a')] }), '1 条删除失败');
 });
 
-test('selectionAfterOutcome 只保留失败的 id', () => {
-  assert.deepEqual([...selectionAfterOutcome({ deleted: ['a'], failed: [failedRun('b')] })], ['b']);
+test('selectionAfterOutcome 摘掉成功删掉的，留下失败的', () => {
+  const prev = new Set(['a', 'b', 'c']);
+  assert.deepEqual([...selectionAfterOutcome(prev, { deleted: ['a', 'b'], failed: [failedRun('c')] })], ['c']);
 });
 
-test('selectionAfterOutcome 全失败时保留全部失败项', () => {
-  const kept = selectionAfterOutcome({ deleted: [], failed: [failedOther('a'), failedRun('b')] });
-  assert.deepEqual([...kept].sort(), ['a', 'b']);
+test('selectionAfterOutcome 全失败时原样保留', () => {
+  const prev = new Set(['a', 'b']);
+  assert.deepEqual([...selectionAfterOutcome(prev, { deleted: [], failed: [failedOther('a'), failedRun('b')] })].sort(), ['a', 'b']);
 });
 
 test('selectionAfterOutcome 全成功时清空', () => {
-  assert.equal(selectionAfterOutcome({ deleted: ['a'], failed: [] }).size, 0);
+  assert.equal(selectionAfterOutcome(new Set(['a']), { deleted: ['a'], failed: [] }).size, 0);
+});
+
+// 行级删除不该误伤用户已有的其它勾选
+test('selectionAfterOutcome 行级删除成功不动其它勾选', () => {
+  const prev = new Set(['a', 'b']);
+  assert.deepEqual([...selectionAfterOutcome(prev, { deleted: ['c'], failed: [] })], ['a', 'b']);
+});
+
+test('selectionAfterOutcome 行级删除失败也不动其它勾选', () => {
+  const prev = new Set(['a', 'b']);
+  assert.deepEqual([...selectionAfterOutcome(prev, { deleted: [], failed: [failedRun('c')] })], ['a', 'b']);
 });
 
 test('deleteConfirmMessage 单条与批量的文案', () => {

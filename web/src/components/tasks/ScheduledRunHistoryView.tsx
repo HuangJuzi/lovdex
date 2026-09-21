@@ -127,9 +127,8 @@ export function ScheduledRunHistoryView({
   const [deleting, setDeleting] = useState(false);
   const [outcome, setOutcome] = useState<DeleteOutcome | null>(null);
 
-  // 已删/已被别处删掉、以及**已经不可删**（运行中被 WS 事件改成 in_progress）的 id
-  // 从选择里剪掉，避免幽灵勾选：这种行的勾选框已经不渲染，留着只会让「已选 N 项」虚高
-  // 且删不掉（必然 409）。剪完 `selected ⊆ selectableRuns(runs)` 成立（对齐 TaskBoard 的做法）。
+  // 已删、以及「选完之后被 WS 改成 in_progress」的 id 都从选择里剪掉，避免幽灵勾选。
+  // （删除刚结束的那一帧 selectionAfterOutcome 可能短暂放回不可选的 id，随后这里会再剪一次。）
   useEffect(() => {
     const ids = new Set(selectableRuns(runs).map((t) => t.task_id));
     setSelected((prev) => {
@@ -163,10 +162,11 @@ export function ScheduledRunHistoryView({
     try {
       const result = await onDelete(taskIds);
       setOutcome(result);
-      setSelected(selectionAfterOutcome(result));
+      setSelected((prev) => selectionAfterOutcome(prev, result));
     } catch (e) {
       // onDelete 的契约是「逐条收集」，理论上不会 reject；万一将来换成会抛的实现，
       // 也别让一次删除变成静默的 unhandled rejection。
+      console.error('delete runs failed', e);
       const reason = e instanceof Error ? e.message : '网络错误';
       setOutcome({ deleted: [], failed: taskIds.map((taskId) => ({ taskId, reason, running: false })) });
     } finally {
