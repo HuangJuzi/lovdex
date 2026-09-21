@@ -133,6 +133,14 @@ export default {
           from: { opacity: '0', transform: 'translate(-50%, -48%) scale(0.96)' },
           to: { opacity: '1', transform: 'translate(-50%, -50%) scale(1)' },
         },
+        'toast-in': {
+          from: { opacity: '0', transform: 'scale(0.94)' },
+          to: { opacity: '1', transform: 'scale(1)' },
+        },
+        'toast-out': {
+          from: { opacity: '1', transform: 'scale(1)' },
+          to: { opacity: '0', transform: 'scale(0.96)' },
+        },
         'dialog-sheet-show': {
           from: { opacity: '0', transform: 'translateY(100%)' },
           to: { opacity: '1', transform: 'translateY(0)' },
@@ -142,6 +150,8 @@ export default {
         shimmer: 'shimmer 2s linear infinite',
         'dialog-overlay-show': 'dialog-overlay-show 150ms ease-out',
         'dialog-content-show': 'dialog-content-show 150ms ease-out',
+        'toast-in': 'toast-in 260ms cubic-bezier(0.2, 0, 0, 1)',
+        'toast-out': 'toast-out 180ms cubic-bezier(0.4, 0, 1, 1) forwards',
         'dialog-sheet-show': 'dialog-sheet-show 240ms cubic-bezier(0.2, 0, 0, 1)',
       },
     },

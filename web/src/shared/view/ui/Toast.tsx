@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { useEffect, useState, useCallback } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AlertTriangle, AlertCircle, Info, X } from 'lucide-react';
 
@@ -15,37 +15,92 @@ export type ToastItem = {
   onClick?: () => void;
 };
 
-const SEVERITY_STYLE: Record<ToastSeverity, { ring: string; icon: React.ReactNode }> = {
-  critical: { ring: 'border-destructive/50 bg-destructive/10', icon: <AlertCircle className="h-4 w-4 text-destructive" /> },
-  warning: { ring: 'border-warning/50 bg-warning/10', icon: <AlertTriangle className="h-4 w-4 text-warning" /> },
-  info: { ring: 'border-border bg-muted', icon: <Info className="h-4 w-4 text-muted-foreground" /> },
+/**
+ * 严重度只落在图标块上，卡片本体一律毛玻璃底 —— 整块染色是「突兀」的主因。
+ * 导出供测试断言，避免有人日后把染色加回卡片本体。
+ */
+export const SEVERITY_STYLE: Record<ToastSeverity, { icon: React.ReactNode; iconClass: string }> = {
+  critical: {
+    icon: <AlertCircle className="h-4 w-4" />,
+    iconClass: 'bg-destructive/10 text-destructive',
+  },
+  warning: {
+    icon: <AlertTriangle className="h-4 w-4" />,
+    iconClass: 'bg-warning/10 text-warning',
+  },
+  info: {
+    icon: <Info className="h-4 w-4" />,
+    iconClass: 'bg-muted text-muted-foreground',
+  },
 };
 
-const AUTO_DISMISS_MS = 6000;
+export const AUTO_DISMISS_MS = 6000;
 
-/** 单条 toast：挂载后 AUTO_DISMISS_MS 自动淡出。 */
-function ToastCard({ item, onDismiss }: { item: ToastItem; onDismiss: (id: string) => void }) {
+/** 单条 toast：入场淡入缩放，AUTO_DISMISS_MS 后播放退场动画再卸载。 */
+export function ToastCard({ item, onDismiss }: { item: ToastItem; onDismiss: (id: string) => void }) {
+  const [closing, setClosing] = useState(false);
+  // 用 deadline 时间戳而不是剩余毫秒数：暂停/恢复反复切换不会累积漂移。
+  const deadlineRef = useRef(0);
+  const remainingRef = useRef(AUTO_DISMISS_MS);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearTimer = useCallback(() => {
+    if (timerRef.current !== null) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  }, []);
+
+  const schedule = useCallback((ms: number) => {
+    clearTimer();
+    remainingRef.current = ms;
+    deadlineRef.current = Date.now() + ms;
+    timerRef.current = setTimeout(() => setClosing(true), ms);
+  }, [clearTimer]);
+
   useEffect(() => {
-    const t = setTimeout(() => onDismiss(item.id), AUTO_DISMISS_MS);
-    return () => clearTimeout(t);
-  }, [item.id, onDismiss]);
+    schedule(AUTO_DISMISS_MS);
+    return clearTimer;
+  }, [schedule, clearTimer, item.id]);
+
+  // 悬停暂停：记下剩余时间并清掉定时器；移出后按剩余时间续跑。
+  const handleMouseEnter = useCallback(() => {
+    clearTimer();
+    remainingRef.current = Math.max(0, deadlineRef.current - Date.now());
+  }, [clearTimer]);
+
+  const handleMouseLeave = useCallback(() => {
+    if (closing) return;
+    schedule(remainingRef.current);
+  }, [closing, schedule]);
 
   const style = SEVERITY_STYLE[item.severity];
+
   return (
     <div
-      className={cn('pointer-events-auto w-80 rounded-md border p-3 shadow-lg', style.ring, item.onClick && 'cursor-pointer')}
+      className={cn(
+        'pointer-events-auto w-80 rounded-2xl border border-border/70 bg-popover/80 p-3 shadow-raised-md backdrop-blur-xl',
+        item.onClick && 'cursor-pointer',
+        closing ? 'animate-toast-out' : 'animate-toast-in',
+      )}
       onClick={item.onClick}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+      // 入场动画结束时不做事；只有退场动画结束才真正移除节点。
+      onAnimationEnd={() => { if (closing) onDismiss(item.id); }}
       role="alert"
     >
-      <div className="flex items-start gap-2">
-        {style.icon}
+      <div className="flex items-start gap-2.5">
+        <span className={cn('flex h-7 w-7 shrink-0 items-center justify-center rounded-lg', style.iconClass)}>
+          {style.icon}
+        </span>
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-semibold">{item.title}</div>
           {item.body ? <div className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">{item.body}</div> : null}
         </div>
         <button
           className="text-muted-foreground hover:text-foreground"
-          onClick={(e) => { e.stopPropagation(); onDismiss(item.id); }}
+          onClick={(e) => { e.stopPropagation(); setClosing(true); }}
           aria-label="关闭"
         >
           <X className="h-3.5 w-3.5" />
