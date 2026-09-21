@@ -404,8 +404,12 @@ test('runNow 在派发途中拒绝第二次触发，结束后释放闸门', asyn
     tasksService: {
       createTask: async (input: CreateTaskInput) => {
         createdTasks.push(input);
-        await gate; // 卡住 dispatch，模拟「第一次触发还在派发中」
-        return { task_id: 'task-1' } as unknown as ReturnType<TasksService['createTask']>;
+        // 只卡第一次：闸门若被移除，第二次 createTask 立即 resolve，assert.rejects
+        // 干净地报 Missing expected rejection；两次都卡会让 node:test 在事件循环
+        // 清空后把测试标成 cancelledByParent（# fail 0），诊断指不到闸门上，
+        // 而且挂起会取消测试 —— 这条测试一旦不再是文件最后一条，后面的会被静默跳过。
+        if (createdTasks.length === 1) await gate;
+        return { task_id: `task-${createdTasks.length}` } as unknown as ReturnType<TasksService['createTask']>;
       },
       startExecution: () => ({ sessionId: 'sess-1' }),
       getTask: () => null,
@@ -434,7 +438,9 @@ test('runNow 在派发途中拒绝第二次触发，结束后释放闸门', asyn
 
 - [ ] **Step 2: 跑测试，确认它失败**
 
-同上命令。Expected: FAIL —— `Missing expected rejection`（现在两次都会派发，`createdTasks.length` 变成 2）。
+同上命令。Expected: FAIL —— `Missing expected rejection`（没有闸门时第二次 `runNow` 照常派发，`assert.rejects` 等不到 rejection）。
+
+**为什么 fake 要「只卡第一次」**：如果两次 `createTask` 都卡在同一个 gate 上，没有闸门时第二次的 `assert.rejects` 会永远等不到 settle，测试挂起、被 node:test 标成 `cancelledByParent`（`# fail 0` / `# cancelled 1`）——诊断信息完全指不到闸门上，而且挂起会取消测试，这条测试一旦不再是文件最后一条，它后面的测试会被静默跳过。异步闸门类守卫的 TDD，「无实现时测试怎么死」要在写测试时就推演清楚。
 
 - [ ] **Step 3: 实现**
 
@@ -448,6 +454,7 @@ test('runNow 在派发途中拒绝第二次触发，结束后释放闸门', asyn
    * （见 dispatch 里的 updates）。两次挨得很近的触发会都读到旧值、双双放行 ——
    * 前端那道 ref 闸门只管得住同一个组件实例，跨标签页管不到。调度器是单进程，
    * 一个进程内集合就够，且覆盖整个 dispatch（含 last_task_id 的写入）。
+   * tick 不经过 runNow，闸门**有意**不覆盖到点补跑（见设计 §7）。
    */
   const inFlight = new Set<string>();
 ```
