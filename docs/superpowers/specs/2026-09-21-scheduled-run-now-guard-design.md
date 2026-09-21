@@ -206,6 +206,10 @@ async function runNow(t: ScheduledTask) {
       console.error('runNow failed', body ?? res.status);
     }
     void refresh();
+  } catch (e) {
+    // 请求根本没发出去（断网 / 后端没起来）：没有 status 可用，直接说清。
+    setRunNowError(`「${t.title}」立即触发失败：无法连接后端`);
+    console.error('runNow failed', e);
   } finally {
     pendingRunNowRef.current.delete(id);
     setPendingRunNow(new Set(pendingRunNowRef.current));
