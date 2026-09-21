@@ -13,6 +13,8 @@ test('renders role=switch with aria-checked=true and success track when checked'
   assert.match(html, /aria-label="示例开关"/);
   assert.match(html, /bg-success/);
   assert.doesNotMatch(html, /bg-muted/);
+  assert.match(html, /translate-x-\[18px\]/);
+  assert.match(html, /type="button"/);
 });
 
 test('renders aria-checked=false and muted track when unchecked', () => {
@@ -20,4 +22,6 @@ test('renders aria-checked=false and muted track when unchecked', () => {
   assert.match(html, /aria-checked="false"/);
   assert.match(html, /bg-muted/);
   assert.doesNotMatch(html, /bg-success/);
+  assert.match(html, /translate-x-\[2px\]/);
+  assert.doesNotMatch(html, /translate-x-\[18px\]/);
 });

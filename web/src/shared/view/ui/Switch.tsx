@@ -10,6 +10,7 @@ type SwitchProps = {
  * 受控开关：状态与操作二合一（当前用于定时任务启用/停用）。
  * 视觉参考 DarkModeToggle，尺寸缩小以适配表格行高；开=bg-success，关=bg-muted。
  * mobile-touch-target + -my-2：保证 44px 触控面积的同时不撑高所在行/卡片。
+ * 注意：外层按钮实际占位 44px+，-my-2 使其上下各溢出约 8px 的透明点击区；消费方需保证上下 ≥8px 留白，且祖先容器不要 overflow-hidden 裁切。
  */
 function Switch({ checked, onToggle, ariaLabel }: SwitchProps) {
   return (
@@ -19,7 +20,7 @@ function Switch({ checked, onToggle, ariaLabel }: SwitchProps) {
       aria-checked={checked}
       aria-label={ariaLabel}
       onClick={onToggle}
-      className="mobile-touch-target -my-2 inline-flex flex-shrink-0 items-center rounded-full p-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+      className="mobile-touch-target -my-2 inline-flex flex-shrink-0 items-center rounded-full p-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
     >
       <span
         className={cn(
