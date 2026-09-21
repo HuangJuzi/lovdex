@@ -14,5 +14,5 @@ export function projectLabel(
 ): string {
   if (item.is_operator === 1 || !item.project_path) return '🤖 Lovdex助手';
   const opt = projectOptions.find((o) => o.value === item.project_path);
-  return opt?.label ?? item.project_path;
+  return opt?.label || item.project_path;
 }

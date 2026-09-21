@@ -20,3 +20,7 @@ test('命中 projectOptions 时用 label', () => {
 test('未命中 projectOptions 时回退完整路径', () => {
   assert.equal(projectLabel({ is_operator: 0, project_path: '/other' }, options), '/other');
 });
+
+test('project_path 为空串时也归一成助手标签', () => {
+  assert.equal(projectLabel({ is_operator: 0, project_path: '' }, options), '🤖 Lovdex助手');
+});
