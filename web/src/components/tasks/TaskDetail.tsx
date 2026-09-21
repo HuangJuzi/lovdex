@@ -61,6 +61,7 @@ export function TaskDetailPage() {
   const [remark, setRemark] = useState('');
   const [engine, setEngine] = useState<TaskEngine>('claude');
   const [model, setModel] = useState('');
+  const [autoApprove, setAutoApprove] = useState(false);
   const [models, setModels] = useState<ProviderModelOption[]>([]);
   const modelsRequestRef = useRef(0);
 
@@ -86,6 +87,7 @@ export function TaskDetailPage() {
       setRemark(data.remark ?? '');
       setEngine(data.executor_provider);
       setModel(data.executor_model ?? '');
+      setAutoApprove(data.auto_approve === 1);
       setLoadError(false);
     } catch (err) {
       console.error('load task failed', err);
@@ -332,6 +334,16 @@ export function TaskDetailPage() {
       if (!res.ok) { const err = await res.json().catch(() => null); console.error('save model failed', err?.error?.message ?? res.status); return; }
       setTask(await res.json());
     } catch (err) { console.error('save model failed', err); }
+  }
+
+  async function saveAutoApprove(next: boolean) {
+    if (!task || next === (task.auto_approve === 1)) return;
+    setAutoApprove(next);
+    try {
+      const res = await api.tasks.update(task.task_id, { autoApprove: next });
+      if (!res.ok) { const err = await res.json().catch(() => null); console.error('save autoApprove failed', err?.error?.message ?? res.status); return; }
+      setTask(await res.json());
+    } catch (err) { console.error('save autoApprove failed', err); }
   }
 
   async function updateStatus(status: TaskStatus) {
@@ -731,6 +743,24 @@ export function TaskDetailPage() {
                       </option>
                     ))}
                   </select>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="w-20 shrink-0 text-xs text-muted-foreground">自动审批</span>
+                  {/* 本文件没有 cn，按已有属性的写法用模板串拼 className。 */}
+                  <button
+                    type="button"
+                    aria-label="自动审批"
+                    aria-pressed={autoApprove}
+                    onClick={() => void saveAutoApprove(!autoApprove)}
+                    className={`flex h-8 items-center rounded-full border px-3 text-xs transition-colors ${
+                      autoApprove
+                        ? 'border-primary/60 bg-primary/10 text-primary'
+                        : 'border-border/80 bg-card text-muted-foreground'
+                    }`}
+                  >
+                    {autoApprove ? '已开启' : '已关闭'}
+                  </button>
+                  <span className="text-2xs text-muted-foreground">无人值守时自动放行工具调用（危险操作仍会拒绝）</span>
                 </div>
                 <div className="flex items-center gap-3">
                   <span className="w-20 shrink-0 text-xs text-muted-foreground">优先级</span>

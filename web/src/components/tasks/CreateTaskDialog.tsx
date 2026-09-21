@@ -54,6 +54,7 @@ export function CreateTaskDialog({
   const [contextMode, setContextMode] = useState<'summary' | 'raw'>('summary');
   const [projects, setProjects] = useState<Project[]>([]);
   const [model, setModel] = useState('');
+  const [autoApprove, setAutoApprove] = useState(false);
   const [error, setError] = useState('');
   // 创建在途（后端取名期间）。state 只驱动按钮的禁用/转圈，拦截靠下面那个 ref。
   const [submitting, setSubmitting] = useState(false);
@@ -132,6 +133,7 @@ export function CreateTaskDialog({
     setRemark('');
     setSourceSessionId('');
     setContextMode('summary');
+    setAutoApprove(false);
     setError('');
   }
 
@@ -168,6 +170,8 @@ export function CreateTaskDialog({
         priority,
         deadline: deadline || null,
         isOperator: isAssistant,
+        // 助手任务也照常带上：这是人在 UI 上做的决定，不随 executor 一起被忽略。
+        autoApprove,
         label,
         remark: remark.trim() || null,
         sourceSessionId: sourceSessionId || undefined,
@@ -287,6 +291,21 @@ export function CreateTaskDialog({
                 isMobile={isMobile}
                 onChange={(v) => setModel(v)}
               />
+              <button
+                type="button"
+                aria-label="自动审批"
+                aria-pressed={autoApprove}
+                onClick={() => setAutoApprove((v) => !v)}
+                className={cn(
+                  'flex h-9 items-center rounded-full border px-3 text-sm transition-colors',
+                  autoApprove
+                    ? 'border-primary/60 bg-primary/10 text-primary'
+                    : 'border-border/80 bg-card text-muted-foreground',
+                )}
+              >
+                自动审批
+              </button>
+              <span className="text-xs text-muted-foreground">无人值守时自动放行工具调用（危险操作仍会拒绝）</span>
               <MoreChip
                 moreCount={moreCount}
                 isMobile={isMobile}
