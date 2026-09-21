@@ -50,6 +50,10 @@ export function TaskBoardPage() {
   );
   // 侧边栏「定时任务」入口带 ?view=scheduled 进来时，启动选中定时视图；带上
   // ?tab=runs 时再落到运行记录子标签。URL 优先于 localStorage，但仅在挂载时读一次。
+  //
+  // 注意 `tab` 这个 query key 与工作区深链（?project=&tab=chat|files|git）共用 ——
+  // 今天靠 AppContent 的 isValidTab 白名单互不干扰（'runs' 不在名单里，会被忽略）。
+  // 将来工作区若新增一个叫 runs 的 tab，两套深链会互相劫持，届时应把这里改成 subtab。
   const [searchParams] = useSearchParams();
   useEffect(() => {
     if (searchParams.get('view') === 'scheduled') {

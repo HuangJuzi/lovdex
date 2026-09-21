@@ -33,3 +33,19 @@ test('激活态与未激活态用不同的样式类', () => {
   assert.match(html, /bg-card text-card-foreground shadow-raised-sm/);
   assert.match(html, /text-muted-foreground hover:text-foreground/);
 });
+
+/**
+ * 上面两条只数了「1 个 true + 1 个 false」、只看了「两串类都在」——把 `aria-pressed`
+ * 取反、或把两串样式对调，它们照样全绿。这条把「哪个标签是激活态」钉死：
+ * 断言 `aria-pressed="true"` 的那个按钮后面跟的是当前 tab 的文案，且它带激活样式。
+ * （React 静态标记里属性顺序是 JSX 里的书写顺序：type → aria-pressed → class，故可正则匹配。）
+ */
+test('激活态落在当前 tab 上，样式方向也不反向', () => {
+  const schedules = render('schedules');
+  assert.match(schedules, /aria-pressed="true" class="[^"]*bg-card text-card-foreground shadow-raised-sm[^"]*">调度</);
+  assert.match(schedules, /aria-pressed="false" class="[^"]*text-muted-foreground hover:text-foreground[^"]*">运行记录</);
+
+  const runs = render('runs');
+  assert.match(runs, /aria-pressed="true" class="[^"]*bg-card text-card-foreground shadow-raised-sm[^"]*">运行记录</);
+  assert.match(runs, /aria-pressed="false" class="[^"]*text-muted-foreground hover:text-foreground[^"]*">调度</);
+});

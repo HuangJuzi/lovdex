@@ -12,6 +12,7 @@ import {
   runsOf,
   scheduleTitleOf,
   sortRunsByTriggeredDesc,
+  type ScheduleLookup,
 } from './ScheduledRunHistoryView';
 
 const baseTask: Task = {
@@ -56,7 +57,9 @@ const baseSchedule: ScheduledTask = {
 
 const projectOptions = [{ value: '/proj', label: 'proj' }];
 
-function render(runs: Task[], schedules: ScheduledTask[] = [baseSchedule], scheduleLookup?: 'loading' | 'error' | 'ready') {
+// 用导出的 ScheduleLookup 而不是内联联合，和 ScheduledTabBar.test.tsx 一个路子：
+// 顺带钉住「它是对外契约」。
+function render(runs: Task[], schedules: ScheduledTask[] = [baseSchedule], scheduleLookup?: ScheduleLookup) {
   return renderToStaticMarkup(
     <StaticRouter location="/tasks?view=scheduled&tab=runs">
       <ScheduledRunHistoryView runs={runs} schedules={schedules} scheduleLookup={scheduleLookup} projectOptions={projectOptions} />
