@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Inbox } from 'lucide-react';
 
 import { Button } from '../../../../shared/view/ui';
@@ -12,12 +12,19 @@ import { subscribeInbox, getUnreadCount } from '../../../../stores/inboxStore';
  */
 export default function SidebarInboxEntry() {
   const navigate = useNavigate();
+  const { pathname } = useLocation();
   const unread = useSyncExternalStore(subscribeInbox, getUnreadCount, () => 0);
+  const active = pathname === '/inbox';
   return (
     <div className="flex-shrink-0 px-2 pt-1.5 md:px-1.5">
       <Button
         variant="ghost"
-        className={cn('flex w-full justify-between p-2 h-auto font-normal hover:bg-muted', unread > 0 && 'bg-primary/5')}
+        data-active={active ? 'true' : 'false'}
+        className={cn(
+          'flex w-full justify-between p-2 h-auto font-normal hover:bg-muted',
+          unread > 0 && 'bg-primary/5',
+          active && 'bg-primary/10',
+        )}
         onClick={() => navigate('/inbox')}
         title="收件箱"
       >
