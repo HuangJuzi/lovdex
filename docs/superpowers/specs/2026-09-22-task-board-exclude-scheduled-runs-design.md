@@ -130,3 +130,37 @@ web 测试是 `node:test` + `renderToStaticMarkup`，**无 DOM、不跑 effect�
 > **第 6 步为什么必须用合成数据**：实测当前库里 26 条定时来源任务的 `sub_status` 只有 `NULL`(6) 或 `'done'`(20)，而 `'done'` 不在 `taskInbox.ts` 的 `SUB_SIGNAL_TONE` 里；它们也没有 `deadline`（不触发 overdue）。也就是说**今天没有任何定时来源任务会产生收件箱条目** —— 这个标记在当前真实数据下根本看不到，只有将来定时任务失败/等批准时才会出现。所以这一步用一条合成任务验证（只插入我自己创建、跑完即删的那一行，不碰真实记录）。
 
 > E2E 对**真实数据只读**。上一轮删除功能的 E2E 因为脚本选择器写错误删了一条真实任务（见 `2026-09-21-scheduled-run-history-delete-design.md` §8 的事故记录）；本次除第 6 步那条自建自删的合成行外不写库。
+
+## 6. 实现与验收结果（2026-09-22）
+
+**实现**：4 个提交，**后端零改动**（逐个提交核对 `git show --stat` 无 `backend/` 文件）。
+
+| 提交 | 内容 |
+|---|---|
+| `2f7dcfd` | `manualTasksOf` + 3 条单测 + TaskBoard 接线（看板 `groups` 与表格改用 `boardTasks`） |
+| `7bab9c7` | 加固互补性护栏：fixture 覆盖满 5 个 `TaskStatus`（原 fixture 除 `task_id`/`source_schedule_id` 外完全相同，护栏形同虚设） |
+| `b2a5f43` | 再补 `sub_status` 轴（一对 failed 行）+ 给 `TaskCard` 那条已不可达的「⏰ 定时」徽标加保留说明 |
+| `c114073` | 收件箱「⏰ 定时」标记 + 2 条静态标记测试 |
+
+**自动化检查**（全绿）：
+
+| 检查 | 结果 |
+|---|---|
+| `npm run typecheck` | **0 错误** |
+| eslint | 本次涉及的 5 个文件全 **0 problems**；`TaskCard.tsx` 仍是 7 problems（**既有**，逐行比对 HEAD 版本确认非本次引入） |
+| web 单测（10 个文件） | **146 pass / 0 fail**（taskFilter 38、TaskInboxPanel 14，其余与改动前一致） |
+
+**浏览器 E2E**（puppeteer-core + 缓存 chromium 连 `:5188`）：**15/15 通过**。
+
+实测数据：272 条任务，其中 28 条定时来源、138 条非归档手动任务。覆盖到的点：看板与表格里**都查不到**定时来源任务的标题、**都还能查到**手动任务的标题；**表格行数 138 == API 实时算出的非归档手动任务数 138**（证明排除真的作用在数据上，而不只是某一行碰巧没渲染）；该定时来源任务**仍在运行记录里**，从运行记录能点开它的详情页且详情页仍带「⏰ 定时」徽标；合成一条 `sub_status='failed'` 的定时来源任务后，它**出现在收件箱且带「⏰ 定时」标记**，同时**收件箱之外的出现次数为 0**（即看板/表格里没有它）；合成数据跑完清理干净（残留 0）。
+
+**过程中的三处修正**（都是测试方法或护栏本身的问题，不是产品缺陷）：
+
+1. **护栏原本咬不住**（spec 计划阶段就埋下的）：`taskFilter.test.ts` 的 fixture 除 `task_id`/`source_schedule_id` 外完全相同，所以任何基于其它字段的判据漂移都测不出来 —— 审查在 `/tmp` 复制文件做了三个漂移变体，**全部 38/38 照绿**。修法是让 fixture 覆盖满 5 个 `TaskStatus`（`7bab9c7`）并再补一对 `sub_status: 'failed'`（`b2a5f43`），现在 `&& status !== 'archived'` / `&& status !== 'done'` / `&& is_operator !== 1` / `|| status === 'archived'` / `&& sub_status !== 'failed'` 等变体**逐个都会把护栏打红**（每条都用变异测试实证过）。顺带发现审查最初建议的变体里 `status: 'failed'` 根本编译不过 —— `failed` 是 `SubStatus` 不是 `TaskStatus`。
+2. **计划里的 E2E 断言不可实现**：计划写「表格实际行数 == 状态 pill 上『全部』的计数」，但 `TaskTableView.tsx:153-171` 的状态 pill **根本不渲染计数**。改成与 API 实时算出的期望行数比对（并允许重读一次以吸收调度持续建任务带来的数据漂移）。
+3. **E2E 两处方法错误**（都不是产品问题，已修正后重跑）：(a) 断言详情页标题时用 `document.body.innerText`，但标题渲染在可编辑 `input/textarea` 的 **value** 里，`innerText` 拿不到 —— 改用 URL + 徽标 + 表单值三者联合断言；(b) 检查 4 访问过 `?view=scheduled` 后，`taskViewMode` 被**持久化**成 `'scheduled'`，导致后续 `goto('/tasks')` 落回定时页、收件箱根本不渲染 —— 属于用例间的状态泄漏，进检查 5 前先清掉该 key。
+
+**已知遗留**（非阻塞，记录备查）：
+
+- `runsOf` 与 `manualTasksOf` 这对互补谓词分居两个模块（`ScheduledRunHistoryView.tsx` / `taskFilter.ts`），靠 `taskFilter.test.ts` 的互补性护栏防漂移。审查建议把 `runsOf` 移进 `taskFilter.ts` 比邻（互补关系在模块层可见），并顺带消掉「纯逻辑测试文件 import 带 JSX 的视图模块」这一依赖。本次未做（超出计划范围），记此备查。
+- `TaskBoard.tsx` 里 `groups` 与 `<TaskTableView tasks={…}>` 这两处接线**没有测试钉住**（该组件依赖 `useWebSocket` context，仓库无其组件测试），只靠注释与 E2E 兜底。
