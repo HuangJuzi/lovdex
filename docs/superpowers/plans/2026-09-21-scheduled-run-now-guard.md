@@ -70,14 +70,15 @@ test('isRunActive: 只把「进行中且没跑挂」当作上一轮没结束', (
   for (const sub of ['running', 'waiting_answer', 'waiting_plan', 'waiting_approval', 'blocked', 'only_plan', 'needs_review'] as const) {
     assert.equal(isRunActive({ status: 'in_progress', sub_status: sub }), true, `in_progress + ${sub} 必须挡`);
   }
-  // decorate() 对「在跑但没标签」的行给的就是 null
+  // 无标签也算「没走完」：裸 DB 行是 null，decorate() 之后是 running，两种都要挡
   assert.equal(isRunActive({ status: 'in_progress', sub_status: null }), true, 'in_progress + null 必须挡');
   // failed 是唯一明确的「上一轮已经终止、可以重来」
   assert.equal(isRunActive({ status: 'in_progress', sub_status: 'failed' }), false, '跑挂的必须放行');
-  // 不在进行中列的一律不挡
+  // 不在进行中列的一律不挡（含 decorate 只会在 in_review 产出的标签）
   for (const status of ['todo', 'in_review', 'done', 'archived'] as const) {
     assert.equal(isRunActive({ status, sub_status: null }), false, `${status} 不该挡`);
   }
+  assert.equal(isRunActive({ status: 'in_review', sub_status: 'pending_acceptance' }), false, 'in_review 带标签也不挡');
   assert.equal(isRunActive(null), false, '查不到上一轮任务时不挡');
 });
 ```
@@ -624,7 +625,7 @@ const task = (over: Partial<Task> = {}): Task => ({
 test('blockingRunsBySchedule: 进行中且没跑挂的上一轮才算挡住', () => {
   const s = schedule({ last_task_id: 't1' });
 
-  // decorate() 对「在跑但没标签」的行给的就是 null
+  // 无标签也算「没走完」：裸 DB 行是 null，decorate() 之后是 running，两种都要挡
   assert.ok(blockingRunsBySchedule([s], [task({ sub_status: null })]).has('s1'), 'in_progress + null 必须挡');
   assert.ok(blockingRunsBySchedule([s], [task({ sub_status: 'running' })]).has('s1'));
   assert.ok(blockingRunsBySchedule([s], [task({ sub_status: 'waiting_answer' })]).has('s1'), '等你回答也要挡');
