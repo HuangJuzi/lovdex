@@ -5,7 +5,6 @@ import { useTranslation } from 'react-i18next';
 import Sidebar from '../sidebar/view/Sidebar';
 import MainContent from '../main-content/view/MainContent';
 import InboxPage from '../inbox/InboxPage';
-import { isInboxPath } from './inboxRouteMatch';
 import { Button, Dialog, DialogContent, DialogTitle, ToastStack, useToastStack } from '../../shared/view/ui';
 import { refreshInbox, applyInboxEvent, claimUnannouncedImportant, subscribeInbox, getInboxSnapshot, markReadLocal, markAllReadLocal } from '../../stores/inboxStore';
 import { inboxTargetPath } from '../inbox/inboxTarget';
@@ -16,6 +15,8 @@ import { useProjectsState } from '../../hooks/useProjectsState';
 import { useQueuedMessageAutoSend } from '../../hooks/useQueuedMessageAutoSend';
 import { useTerminalDrawer } from '../../hooks/useTerminalDrawer';
 import { api } from '../../utils/api';
+
+import { isInboxPath } from './inboxRouteMatch';
 
 type RunningSessionApiItem = {
   sessionId?: unknown;
