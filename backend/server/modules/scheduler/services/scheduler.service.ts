@@ -97,6 +97,7 @@ export function createSchedulerService(deps: SchedulerDeps) {
    * （见 dispatch 里的 updates）。两次挨得很近的触发会都读到旧值、双双放行 ——
    * 前端那道 ref 闸门只管得住同一个组件实例，跨标签页管不到。调度器是单进程，
    * 一个进程内集合就够，且覆盖整个 dispatch（含 last_task_id 的写入）。
+   * tick 不经过 runNow，闸门**有意**不覆盖到点补跑（见设计 §7）。
    */
   const inFlight = new Set<string>();
 

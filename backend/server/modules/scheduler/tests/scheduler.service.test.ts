@@ -683,8 +683,11 @@ test('runNow 在派发途中拒绝第二次触发，结束后释放闸门', asyn
     tasksService: {
       createTask: async (input: CreateTaskInput) => {
         createdTasks.push(input);
-        await gate; // 卡住 dispatch，模拟「第一次触发还在派发中」
-        return { task_id: 'task-1' } as unknown as ReturnType<TasksService['createTask']>;
+        // 只卡第一次：闸门若被移除，第二次 createTask 立即 resolve，assert.rejects
+        // 干净地报 Missing expected rejection；两次都卡会让 node:test 在事件循环
+        // 清空后把测试标成 cancelledByParent，诊断指不到闸门上。
+        if (createdTasks.length === 1) await gate;
+        return { task_id: `task-${createdTasks.length}` } as unknown as ReturnType<TasksService['createTask']>;
       },
       startExecution: () => ({ sessionId: 'sess-1' }),
       getTask: () => null,
