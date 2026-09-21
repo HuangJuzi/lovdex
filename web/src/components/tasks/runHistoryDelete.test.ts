@@ -79,6 +79,10 @@ test('toggleSelectAll 没有可选项时返回空集', () => {
   assert.equal(toggleSelectAll(new Set(['a']), []).size, 0);
 });
 
+test('toggleSelectAll 选中集里的陈旧 id 会被丢弃', () => {
+  assert.deepEqual([...toggleSelectAll(new Set(['a', 'stale']), ['a', 'b'])].sort(), ['a', 'b']);
+});
+
 // deleteOutcomeMessage：spec §3.1 真值表的八条分支
 test('deleteOutcomeMessage：什么都没发生 → null', () => {
   assert.equal(deleteOutcomeMessage({ deleted: [], failed: [] }), null);

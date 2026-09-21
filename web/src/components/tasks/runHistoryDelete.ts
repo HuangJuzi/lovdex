@@ -3,6 +3,10 @@ import type { Task } from '../../types/app';
 /**
  * 删除结果。`running` 单独标记「因运行中被拒」—— 后端 `deleteTask` 对运行中的任务
  * （或会话仍在流式输出的）抛 409 `SESSION_RUNNING`，结果文案要能把它与普通失败分开说。
+ *
+ * `reason` 只供 `console.error` 诊断，**不上结果条**（用户看的是「几条失败」，不是每条
+ * 的原始报错）。`deleted` 与 `failed` 假定各自无重复、且互不相交 —— 唯一的调用方是逐
+ * id 单请求、单桶归类，不合法输入进不来，所以这里不做运行时去重。
  */
 export type DeleteOutcome = {
   deleted: string[];
@@ -12,6 +16,9 @@ export type DeleteOutcome = {
 /**
  * 可删除的运行。运行中的删不掉（后端 409），从源头不给勾 —— 免得用户白选一轮再被拒。
  * 其余状态（含 archived）都能删：这是一份历史，要删的就是跑完的那些。
+ *
+ * 注意这只是**尽力预过滤**：前端拿不到「会话是否仍在流式输出」这个信号，所以即便是
+ * 这些行，删除时仍可能被 409 拒掉 —— 那条路径由 `DeleteOutcome.running` 兜住。
  */
 export function selectableRuns(runs: Task[]): Task[] {
   return runs.filter((t) => t.status !== 'in_progress');
