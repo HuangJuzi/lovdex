@@ -56,10 +56,10 @@ const baseSchedule: ScheduledTask = {
 
 const projectOptions = [{ value: '/proj', label: 'proj' }];
 
-function render(runs: Task[], schedules: ScheduledTask[] = [baseSchedule]) {
+function render(runs: Task[], schedules: ScheduledTask[] = [baseSchedule], scheduleLookup?: 'loading' | 'error' | 'ready') {
   return renderToStaticMarkup(
     <StaticRouter location="/tasks?view=scheduled&tab=runs">
-      <ScheduledRunHistoryView runs={runs} schedules={schedules} projectOptions={projectOptions} />
+      <ScheduledRunHistoryView runs={runs} schedules={schedules} scheduleLookup={scheduleLookup} projectOptions={projectOptions} />
     </StaticRouter>,
   );
 }
@@ -102,6 +102,27 @@ test('渲染桌面表格与移动卡片，含运行记录特有的列', () => {
 test('调度已删除时渲染占位文案', () => {
   const html = render([{ ...baseTask, source_schedule_id: 'gone' }]);
   assert.match(html, /已删除的调度/);
+});
+
+test('调度列表加载中时不把每行标成已删除', () => {
+  assert.equal(scheduleTitleOf('s1', [baseSchedule], 'loading'), '调度加载中');
+  assert.equal(scheduleTitleOf('gone', [baseSchedule], 'loading'), '调度加载中');
+  const html = render([baseTask], [], 'loading');
+  assert.match(html, /调度加载中/);
+  assert.doesNotMatch(html, /已删除的调度/);
+});
+
+test('调度列表加载失败时显示不可用而不是已删除', () => {
+  assert.equal(scheduleTitleOf('s1', [baseSchedule], 'error'), '调度列表不可用');
+  const html = render([baseTask], [], 'error');
+  assert.match(html, /调度列表不可用/);
+  assert.doesNotMatch(html, /已删除的调度/);
+});
+
+test('调度列表就绪后仍能区分已删除的调度', () => {
+  const html = render([{ ...baseTask, source_schedule_id: 'gone' }], [baseSchedule], 'ready');
+  assert.match(html, /已删除的调度/);
+  assert.doesNotMatch(html, /调度加载中/);
 });
 
 test('任务可跟进的会话才渲染「打开会话」', () => {

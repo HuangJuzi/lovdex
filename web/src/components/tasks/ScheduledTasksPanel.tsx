@@ -4,7 +4,7 @@ import { useWebSocket } from '../../contexts/WebSocketContext';
 import { useScheduledTasks } from '../../hooks/useScheduledTasks';
 import type { ScheduledTask, Task } from '../../types/app';
 import { api } from '../../utils/api';
-import { ScheduledRunHistoryView, runsOf } from './ScheduledRunHistoryView';
+import { ScheduledRunHistoryView, runsOf, type ScheduleLookup } from './ScheduledRunHistoryView';
 import { ScheduledTabBar, type ScheduledTab } from './ScheduledTabBar';
 import { ScheduledTaskForm, toApiBody, type ScheduledTaskDraft } from './ScheduledTaskForm';
 import { ScheduledTasksView } from './ScheduledTasksView';
@@ -88,11 +88,15 @@ export const ScheduledTasksPanel = forwardRef<ScheduledTasksPanelHandle, Schedul
     if (res.ok) void refresh();
   }
 
+  // 运行记录不依赖调度请求，所以它不等 loading —— 但必须把「列表还没到」这个事实
+  // 传下去，否则每行都会显示成「已删除的调度」。
+  const scheduleLookup: ScheduleLookup = loading ? 'loading' : loadError ? 'error' : 'ready';
+
   // 加载与失败只挡「调度」子标签：运行记录不依赖调度请求，调度列表还在路上时它
-  // 照样能看，只是「所属调度」列暂时全部回退成占位文案。
+  // 照样能看，「所属调度」列按 scheduleLookup 显示状态占位。
   let body;
   if (tab === 'runs') {
-    body = <ScheduledRunHistoryView runs={runs} schedules={schedules} projectOptions={projectOptions} />;
+    body = <ScheduledRunHistoryView runs={runs} schedules={schedules} scheduleLookup={scheduleLookup} projectOptions={projectOptions} />;
   } else if (loading) {
     body = <div className="px-3 text-sm text-muted-foreground sm:px-6">加载中…</div>;
   } else if (loadError) {

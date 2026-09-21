@@ -14,10 +14,17 @@ export type ScheduledRunHistoryViewProps = {
   runs: Task[];
   /** 调度列表，用于 `schedule_id → title` 映射。 */
   schedules: ScheduledTask[];
+  /** 调度列表的就绪状态。未就绪时「所属调度」列显示状态占位而不是「已删除的调度」。 */
+  scheduleLookup?: ScheduleLookup;
   projectOptions: TaskProjectOption[];
 };
 
 const DELETED_SCHEDULE_LABEL = '已删除的调度';
+const UNKNOWN_SCHEDULE_LABEL = '调度加载中';
+const SCHEDULE_LOOKUP_FAILED_LABEL = '调度列表不可用';
+
+/** 调度列表的就绪状态。未就绪时不能把每行都断言成「已删除」。 */
+export type ScheduleLookup = 'loading' | 'error' | 'ready';
 
 /** 定时来源过滤。删调度不会删它跑出来的任务，所以过滤条件只看任务自身的字段。 */
 export function runsOf(tasks: Task[]): Task[] {
@@ -25,7 +32,13 @@ export function runsOf(tasks: Task[]): Task[] {
 }
 
 /** 「所属调度」列：调度被删掉后任务行仍在，回退成占位文案。 */
-export function scheduleTitleOf(scheduleId: string | null, schedules: ScheduledTask[]): string {
+export function scheduleTitleOf(
+  scheduleId: string | null,
+  schedules: ScheduledTask[],
+  lookup: ScheduleLookup = 'ready',
+): string {
+  if (lookup === 'loading') return UNKNOWN_SCHEDULE_LABEL;
+  if (lookup === 'error') return SCHEDULE_LOOKUP_FAILED_LABEL;
   if (!scheduleId) return DELETED_SCHEDULE_LABEL;
   return schedules.find((s) => s.schedule_id === scheduleId)?.title ?? DELETED_SCHEDULE_LABEL;
 }
@@ -75,7 +88,7 @@ function OpenActions({ task }: { task: Task }) {
  * 定时任务的运行记录：这个调度跑出来的那些任务。只读查看 + 跳转，不做排序 / 多选 /
  * 批量删除，也不套用任务页的筛选栏（定时视图本来就没有筛选栏）。
  */
-export function ScheduledRunHistoryView({ runs, schedules, projectOptions }: ScheduledRunHistoryViewProps) {
+export function ScheduledRunHistoryView({ runs, schedules, scheduleLookup = 'ready', projectOptions }: ScheduledRunHistoryViewProps) {
   if (runs.length === 0) {
     return (
       <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-4">
@@ -105,8 +118,8 @@ export function ScheduledRunHistoryView({ runs, schedules, projectOptions }: Sch
                 {/* 调度名与项目名都可能是不可断的长 token（项目名会回退成完整路径），
                     截断 + title 兜底，避免把表推出横向滚动（沿用 ScheduledTasksView 的同类处理）。 */}
                 <td className="px-4 py-3 text-xs text-muted-foreground">
-                  <span className="block max-w-40 truncate" title={scheduleTitleOf(task.source_schedule_id, schedules)}>
-                    {scheduleTitleOf(task.source_schedule_id, schedules)}
+                  <span className="block max-w-40 truncate" title={scheduleTitleOf(task.source_schedule_id, schedules, scheduleLookup)}>
+                    {scheduleTitleOf(task.source_schedule_id, schedules, scheduleLookup)}
                   </span>
                 </td>
                 <td className="px-4 py-3 text-xs text-muted-foreground">
@@ -128,7 +141,7 @@ export function ScheduledRunHistoryView({ runs, schedules, projectOptions }: Sch
         {ordered.map((task) => (
           <div key={task.task_id} className="flex flex-col gap-1.5 rounded-lg border border-border bg-card p-3 shadow-sm">
             <span className="line-clamp-2 overflow-hidden text-sm font-semibold text-card-foreground">{task.title}</span>
-            <span className="truncate text-xs text-muted-foreground">{scheduleTitleOf(task.source_schedule_id, schedules)}</span>
+            <span className="truncate text-xs text-muted-foreground">{scheduleTitleOf(task.source_schedule_id, schedules, scheduleLookup)}</span>
             <div className="self-start"><StatusCell task={task} /></div>
             <span className="font-mono text-2xs text-muted-foreground">{formatAbsoluteTime(task.created_at)}</span>
             <div className="mt-1 flex items-center justify-end gap-1 border-t border-border pt-1.5">
