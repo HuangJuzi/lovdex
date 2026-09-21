@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ArrowUp, Loader2 } from 'lucide-react';
 
-import type { ScheduledTask, ScheduledTaskScheduleType, TaskEngine, TaskLabel, TaskPriority } from '../../types/app';
+import type { ScheduledTask, ScheduledTaskScheduleType, TaskEngine } from '../../types/app';
 import { useDeviceSettings } from '../../hooks/useDeviceSettings';
 import { cn } from '../../lib/utils';
 import { Button, Dialog, DialogContent, DialogTitle, Input } from '../../shared/view/ui';
@@ -25,7 +25,6 @@ import {
 import { AnchorPopover } from './AnchorPopover';
 import { ChipSelect, type ChipSelectOption } from './ChipSelect';
 import { ASSISTANT_OPTION_VALUE } from './projectOptions';
-import { LABEL_META, LABEL_ORDER, PRIORITY_META, PRIORITY_ORDER } from './taskStatus';
 import type { TaskProjectOption } from './TaskCard';
 import { ENGINE_NAMES, useTaskEngineAvailability } from './useTaskEngineAvailability';
 
@@ -34,8 +33,8 @@ export type ScheduledTaskDraft = {
   description: string;
   projectPath: string;
   executorProvider: TaskEngine;
-  priority: TaskPriority;
-  label: TaskLabel;
+  /** 空串 = 不指定，跑 provider 的默认模型槽位（后端见 null）。 */
+  executorModel: string;
   autoRun: boolean;
   scheduleType: ScheduledTaskScheduleType;
   cronExpr: string;
@@ -58,8 +57,7 @@ export const EMPTY_DRAFT: ScheduledTaskDraft = {
   description: '',
   projectPath: ASSISTANT_OPTION_VALUE,
   executorProvider: 'claude',
-  priority: 'P2',
-  label: 'other',
+  executorModel: '',
   autoRun: true,
   scheduleType: 'once',
   cronExpr: '',
@@ -107,8 +105,7 @@ export function toApiBody(d: ScheduledTaskDraft) {
     description: d.description || null,
     projectPath,
     executorProvider: d.executorProvider,
-    priority: d.priority,
-    label: d.label,
+    executorModel: d.executorModel || null,
     autoRun: d.autoRun ? 1 : 0,
     scheduleType: d.scheduleType,
     cronExpr: d.scheduleType === 'cron' ? resolveCronExpr(d) : null,
@@ -142,7 +139,7 @@ function toLocalDateTimeInput(iso: string): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-function toDraft(initial?: ScheduledTask | null): ScheduledTaskDraft {
+export function toDraft(initial?: ScheduledTask | null): ScheduledTaskDraft {
   if (!initial) return EMPTY_DRAFT;
   const runAt = initial.run_at ? toLocalDateTimeInput(initial.run_at) : '';
   // 非法值（null / NaN / < 1）兜底到 EMPTY_DRAFT 的默认间隔；能整除的最大单位由 decomposeInterval 决定。
@@ -159,8 +156,7 @@ function toDraft(initial?: ScheduledTask | null): ScheduledTaskDraft {
     description: initial.description ?? '',
     projectPath: initial.project_path ?? ASSISTANT_OPTION_VALUE,
     executorProvider: initial.executor_provider,
-    priority: initial.priority,
-    label: initial.label,
+    executorModel: initial.executor_model ?? '',
     autoRun: initial.auto_run === 1,
     scheduleType: initial.schedule_type,
     cronExpr: initial.cron_expr ?? '',
@@ -307,8 +303,6 @@ export function ScheduledTaskForm({
       : // 非 ready 时保留一项，芯片才显示得出当前引擎的中文名而不是裸的「引擎」二字。
         [{ value: draft.executorProvider, label: ENGINE_NAMES[draft.executorProvider] }];
   const engineHint = 'hint' in engineAvailability ? engineAvailability.hint : undefined;
-  const priorityOptions: ChipSelectOption[] = PRIORITY_ORDER.map((p) => ({ value: p, label: PRIORITY_META[p].label }));
-  const labelOptions: ChipSelectOption[] = LABEL_ORDER.map((l) => ({ value: l, label: LABEL_META[l].label }));
   const projectChipOptions = toProjectChipOptions(projectOptions);
   const canSubmit = canSubmitScheduledTask(draft.description, submitting);
 
@@ -359,22 +353,6 @@ export function ScheduledTaskForm({
                 disabled={engineAvailability.status !== 'ready'}
                 isMobile={isMobile}
                 onChange={(v) => set('executorProvider', v as TaskEngine)}
-              />
-              <ChipSelect
-                ariaLabel="优先级"
-                label="优先级"
-                options={priorityOptions}
-                value={draft.priority}
-                isMobile={isMobile}
-                onChange={(v) => set('priority', v as TaskPriority)}
-              />
-              <ChipSelect
-                ariaLabel="标签"
-                label="标签"
-                options={labelOptions}
-                value={draft.label}
-                isMobile={isMobile}
-                onChange={(v) => set('label', v as TaskLabel)}
               />
               <button
                 type="button"

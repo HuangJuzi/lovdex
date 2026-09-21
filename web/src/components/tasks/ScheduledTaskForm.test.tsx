@@ -18,10 +18,8 @@ reactDomCjs.createPortal = (children) => children;
 
 // Imported after the createPortal patch so ScheduledTaskForm's DialogContent
 // picks up the inline-rendering stub.
-const { ScheduledTaskForm, EMPTY_DRAFT, canSubmitScheduledTask, switchCronMode, toApiBody, toProjectChipOptions } = await import('./ScheduledTaskForm');
+const { ScheduledTaskForm, EMPTY_DRAFT, canSubmitScheduledTask, switchCronMode, toApiBody, toDraft, toProjectChipOptions } = await import('./ScheduledTaskForm');
 const { ASSISTANT_OPTION_VALUE } = await import('./projectOptions');
-
-void EMPTY_DRAFT;
 
 const onClose = () => {};
 const onSubmit = () => {};
@@ -244,4 +242,31 @@ test('an interval schedule renders a number box plus a unit chip', () => {
   assert.ok(numberBox.includes('value="90"'), 'the amount must be the decomposed value');
   assert.ok(/<button[^>]*aria-label="间隔单位"[^>]*>/.test(html), 'the unit chip must render');
   assert.ok(html.includes('分钟'), 'the unit chip must show the decomposed unit');
+});
+
+test('draft no longer carries priority or label', () => {
+  assert.equal('priority' in EMPTY_DRAFT, false);
+  assert.equal('label' in EMPTY_DRAFT, false);
+  assert.equal(EMPTY_DRAFT.executorModel, '');
+});
+
+test('toApiBody carries executorModel and drops priority/label', () => {
+  const body = toApiBody({ ...EMPTY_DRAFT, executorModel: 'opus' });
+  assert.equal(body.executorModel, 'opus');
+  assert.equal('priority' in body, false);
+  assert.equal('label' in body, false);
+});
+
+test('toApiBody maps an empty executorModel to null (provider default slot)', () => {
+  assert.equal(toApiBody({ ...EMPTY_DRAFT, executorModel: '' }).executorModel, null);
+});
+
+test('toDraft keeps a stored executor_model', () => {
+  const d = toDraft(mkScheduledTask({ executor_model: 'opus' }) as never);
+  assert.equal(d.executorModel, 'opus');
+});
+
+test('toDraft maps a NULL executor_model to the empty value', () => {
+  const d = toDraft(mkScheduledTask({ executor_model: null }) as never);
+  assert.equal(d.executorModel, '');
 });
