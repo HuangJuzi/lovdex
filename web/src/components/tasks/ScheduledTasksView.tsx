@@ -5,6 +5,7 @@ import { CalendarClock, Pencil, Play, Power, Trash2 } from 'lucide-react';
 import type { ScheduledTask } from '../../types/app';
 import { scheduleLabel } from '../../utils/scheduleLabel';
 import type { TaskProjectOption } from './TaskCard';
+import { projectLabel } from './projectLabel';
 import { formatAbsoluteTime } from './taskTimestamp';
 
 export type ScheduledTasksViewProps = {
@@ -17,12 +18,6 @@ export type ScheduledTasksViewProps = {
 };
 
 type ScheduledTaskCardProps = Omit<ScheduledTasksViewProps, 'tasks'> & { task: ScheduledTask };
-
-function projectLabel(task: ScheduledTask, projectOptions: TaskProjectOption[]): string {
-  if (task.is_operator === 1 || !task.project_path) return '🤖 Lovdex助手';
-  const opt = projectOptions.find((o) => o.value === task.project_path);
-  return opt?.label ?? task.project_path;
-}
 
 function statusBadge(task: ScheduledTask) {
   if (task.enabled === 0) {
