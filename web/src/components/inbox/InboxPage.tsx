@@ -3,7 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { CheckCheck, Inbox as InboxIcon } from 'lucide-react';
 
 import { Button, Dialog, DialogContent, DialogTitle } from '../../shared/view/ui';
+import { ResizeHandle } from '../../shared/view/ui/ResizeHandle';
 import { useDeviceSettings } from '../../hooks/useDeviceSettings';
+import { INBOX_LIST_WIDTH_MAX, INBOX_LIST_WIDTH_MIN, useInboxListWidth } from '../../hooks/useInboxListWidth';
 import MobileMenuButton from '../main-content/view/subcomponents/MobileMenuButton';
 import { subscribeInbox, getInboxSnapshot, markReadLocal, markAllReadLocal } from '../../stores/inboxStore';
 import type { InboxNotification, InboxSeverity } from '../../stores/inboxStore.pure';
@@ -38,6 +40,8 @@ export default function InboxPage({ onOpenSidebar, showMenuButton = false }: Inb
   const snapshot = useSyncExternalStore(subscribeInbox, getInboxSnapshot, getInboxSnapshot);
   // 断点与 Tailwind 的 lg（1024px）对齐：>=lg 两栏，<lg 单列 + 全屏 sheet。
   const { isMobile } = useDeviceSettings({ mobileBreakpoint: 1024 });
+  // 列表栏宽度。默认与侧边栏同宽（288），但独立存储、独立拖动。
+  const { width: listWidth, setWidth: setListWidth, resetWidth: resetListWidth } = useInboxListWidth();
 
   const [filter, setFilter] = useState<FilterKey>('all');
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -102,7 +106,7 @@ export default function InboxPage({ onOpenSidebar, showMenuButton = false }: Inb
   };
 
   return (
-    <div className="mx-auto flex h-full min-h-0 w-full max-w-7xl flex-col p-4">
+    <div className="flex h-full min-h-0 w-full flex-col p-4">
       <div className="mb-4 flex items-center gap-2">
         {showMenuButton ? <MobileMenuButton onMenuClick={() => onOpenSidebar?.()} /> : null}
         <InboxIcon className="h-5 w-5 text-primary" />
@@ -134,38 +138,55 @@ export default function InboxPage({ onOpenSidebar, showMenuButton = false }: Inb
         ))}
       </div>
 
-      <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-12">
-        <div className="min-h-0 overflow-y-auto lg:col-span-5">
-          {visible.length === 0 ? (
-            // 空态必须在这里兜住：分组分支在 visible 为空时会渲染出零个 section，
-            // 页面变成一片空白。
-            <InboxList items={[]} selectedId={null} now={now} onSelect={handleSelect} />
-          ) : grouped ? (
-            SEVERITY_ORDER.filter((s) => grouped[s].length > 0).map((severity) => (
-              <section key={severity} className="mb-4">
-                <div className="mb-1.5 text-2xs font-semibold uppercase text-muted-foreground">
-                  {severityLabel(severity)}
-                </div>
-                <InboxList
-                  items={grouped[severity]}
-                  selectedId={isMobile ? null : selectedId}
-                  now={now}
-                  onSelect={handleSelect}
-                />
-              </section>
-            ))
-          ) : (
-            <InboxList
-              items={visible}
-              selectedId={isMobile ? null : selectedId}
-              now={now}
-              onSelect={handleSelect}
+      <div className="flex min-h-0 flex-1 gap-4">
+        {/* 外层 relative 且**不滚动**：ResizeHandle 是 absolute inset-y-0 定位，
+            放进滚动容器会跟着内容一起滚走。滚动交给内层。 */}
+        <div
+          className="relative min-h-0 shrink-0"
+          style={isMobile ? undefined : { width: listWidth }}
+        >
+          <div className="h-full min-h-0 overflow-y-auto pr-1">
+            {visible.length === 0 ? (
+              // 空态必须在这里兜住：分组分支在 visible 为空时会渲染出零个 section，
+              // 页面变成一片空白。
+              <InboxList items={[]} selectedId={null} now={now} onSelect={handleSelect} />
+            ) : grouped ? (
+              SEVERITY_ORDER.filter((s) => grouped[s].length > 0).map((severity) => (
+                <section key={severity} className="mb-4">
+                  <div className="mb-1.5 text-2xs font-semibold uppercase text-muted-foreground">
+                    {severityLabel(severity)}
+                  </div>
+                  <InboxList
+                    items={grouped[severity]}
+                    selectedId={isMobile ? null : selectedId}
+                    now={now}
+                    onSelect={handleSelect}
+                  />
+                </section>
+              ))
+            ) : (
+              <InboxList
+                items={visible}
+                selectedId={isMobile ? null : selectedId}
+                now={now}
+                onSelect={handleSelect}
+              />
+            )}
+          </div>
+          {!isMobile ? (
+            <ResizeHandle
+              width={listWidth}
+              min={INBOX_LIST_WIDTH_MIN}
+              max={INBOX_LIST_WIDTH_MAX}
+              label="调整通知列表宽度"
+              onWidthChange={setListWidth}
+              onReset={resetListWidth}
             />
-          )}
+          ) : null}
         </div>
 
         {!isMobile ? (
-          <div className="min-h-0 rounded-xl border border-border bg-card p-4 lg:col-span-7">
+          <div className="min-h-0 min-w-0 flex-1 rounded-xl border border-border bg-card p-4">
             <InboxDetail
               item={selected}
               now={now}
