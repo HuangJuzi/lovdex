@@ -67,7 +67,7 @@ git add <file> && git commit -m "<msg>" -- <file>
 - Create: `web/src/components/tasks/useProviderModels.ts`
 - Test: `web/src/components/tasks/useProviderModels.test.ts`
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 创建 `web/src/components/tasks/useProviderModels.test.ts`：
 
@@ -156,7 +156,7 @@ test('nextModelOnLoad resets to the empty value when editing after a switch to a
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 cd /mnt/b/workdir/github/lovdex/web && unset TSX_TSCONFIG_PATH
@@ -165,7 +165,7 @@ npx tsx --test src/components/tasks/useProviderModels.test.ts
 
 Expected: FAIL —— `Cannot find module './useProviderModels'`。
 
-- [ ] **Step 3: 实现纯函数**
+- [x] **Step 3: 实现纯函数**
 
 创建 `web/src/components/tasks/useProviderModels.ts`：
 
@@ -285,7 +285,7 @@ export function nextModelOnLoad({
 }
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 ```bash
 cd /mnt/b/workdir/github/lovdex/web && unset TSX_TSCONFIG_PATH
@@ -294,7 +294,7 @@ npx tsx --test src/components/tasks/useProviderModels.test.ts
 
 Expected: `# pass 11` / `# fail 0`。
 
-- [ ] **Step 5: typecheck**
+- [x] **Step 5: typecheck**
 
 ```bash
 cd /mnt/b/workdir/github/lovdex/web && npm run typecheck
@@ -302,7 +302,7 @@ cd /mnt/b/workdir/github/lovdex/web && npm run typecheck
 
 Expected: 无输出（0 错误）。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 cd /mnt/b/workdir/github/lovdex
@@ -319,7 +319,7 @@ git commit -m "feat(tasks): add useProviderModels hook and model option helpers"
 **Files:**
 - Modify: `web/src/components/tasks/CreateTaskDialog.tsx`
 
-- [ ] **Step 1: 先记录回归基线**
+- [x] **Step 1: 先记录回归基线**
 
 ```bash
 cd /mnt/b/workdir/github/lovdex/web && unset TSX_TSCONFIG_PATH
@@ -328,7 +328,7 @@ npx tsx --test src/components/tasks/CreateTaskDialog.test.tsx
 
 Expected: `# pass 3` / `# fail 0`。重构后必须仍是这个数字。
 
-- [ ] **Step 2: 删掉内联的模型 state 与请求 ref**
+- [x] **Step 2: 删掉内联的模型 state 与请求 ref**
 
 `CreateTaskDialog.tsx` 里删这两行（60、65 行）：
 
@@ -341,7 +341,7 @@ Expected: `# pass 3` / `# fail 0`。重构后必须仍是这个数字。
 
 `useRef` 仍然被 `submittingRef` 使用，**不要**从 import 里删掉。
 
-- [ ] **Step 3: 删掉内联的拉取 effect**
+- [x] **Step 3: 删掉内联的拉取 effect**
 
 删掉 `CreateTaskDialog.tsx:125-148` 整段（注释 `// 模型随引擎重载（沿用 TaskBoard 的 stale-response 守卫）。` 起、到 `}, [open, engine]);` 止）：
 
@@ -385,7 +385,7 @@ Expected: `# pass 3` / `# fail 0`。重构后必须仍是这个数字。
   }, [loadedEngine, engine, models]);
 ```
 
-- [ ] **Step 4: 删掉搬走的本地类型与 import**
+- [x] **Step 4: 删掉搬走的本地类型与 import**
 
 删掉 `CreateTaskDialog.tsx:17-20` 的本地类型（已挪进 `useProviderModels.ts`）：
 
@@ -416,7 +416,7 @@ import { api } from '../../utils/api';
 
 > 计划初稿曾写「保留 `authenticatedFetch`」，那是错的——保留会留下 unused import，反而把 eslint 推高。执行时以实测为准。
 
-- [ ] **Step 5: 换用共用的选项函数**
+- [x] **Step 5: 换用共用的选项函数**
 
 `CreateTaskDialog.tsx:230-232`：
 
@@ -432,7 +432,7 @@ import { api } from '../../utils/api';
   const modelOptions: ChipSelectOption[] = modelOptionsFor(models, model);
 ```
 
-- [ ] **Step 6: 跑回归测试**
+- [x] **Step 6: 跑回归测试**
 
 ```bash
 cd /mnt/b/workdir/github/lovdex/web && unset TSX_TSCONFIG_PATH
@@ -441,7 +441,7 @@ npx tsx --test src/components/tasks/CreateTaskDialog.test.tsx
 
 Expected: `# pass 3` / `# fail 0`，与 Step 1 一致。
 
-- [ ] **Step 7: typecheck 与 lint 核对**
+- [x] **Step 7: typecheck 与 lint 核对**
 
 ```bash
 cd /mnt/b/workdir/github/lovdex/web && npm run typecheck
@@ -452,7 +452,7 @@ Expected: typecheck 无输出；eslint **4 problems**（与基线相同）。
 
 若 typecheck 报 `ProviderModelOption is declared but never used`，说明第 8 行的 import 没删干净。
 
-- [ ] **Step 8: 提交**
+- [x] **Step 8: 提交**
 
 ```bash
 cd /mnt/b/workdir/github/lovdex
@@ -468,7 +468,7 @@ git commit -m "refactor(tasks): share useProviderModels with CreateTaskDialog" -
 - Modify: `web/src/components/tasks/ScheduledTaskForm.tsx`
 - Test: `web/src/components/tasks/ScheduledTaskForm.test.tsx`
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 在 `ScheduledTaskForm.test.tsx` 末尾追加（文件已 import `EMPTY_DRAFT`、`toApiBody`，需在顶部那行动态 import 里补上 `toDraft`）：
 
@@ -509,7 +509,7 @@ test('toDraft maps a NULL executor_model to the empty value', () => {
 });
 ```
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 cd /mnt/b/workdir/github/lovdex/web && unset TSX_TSCONFIG_PATH
@@ -518,7 +518,7 @@ npx tsx --test src/components/tasks/ScheduledTaskForm.test.tsx
 
 Expected: FAIL —— `toDraft` 是 `undefined`（当前未 export），且 `EMPTY_DRAFT.executorModel` 断言失败。
 
-- [ ] **Step 3: 改 Draft 类型与默认值**
+- [x] **Step 3: 改 Draft 类型与默认值**
 
 `ScheduledTaskForm.tsx:32-54` 的类型里，把 `priority` / `label` 两行换成：
 
@@ -534,7 +534,7 @@ Expected: FAIL —— `toDraft` 是 `undefined`（当前未 export），且 `EMP
   executorModel: '',
 ```
 
-- [ ] **Step 4: 清理 import**
+- [x] **Step 4: 清理 import**
 
 第 4 行去掉 `TaskLabel, TaskPriority`：
 
@@ -548,7 +548,7 @@ import type { ScheduledTask, ScheduledTaskScheduleType, TaskEngine } from '../..
 import { LABEL_META, LABEL_ORDER, PRIORITY_META, PRIORITY_ORDER } from './taskStatus';
 ```
 
-- [ ] **Step 5: `toDraft` 导出并换字段**
+- [x] **Step 5: `toDraft` 导出并换字段**
 
 第 145 行加 `export`：
 
@@ -562,7 +562,7 @@ export function toDraft(initial?: ScheduledTask | null): ScheduledTaskDraft {
     executorModel: initial.executor_model ?? '',
 ```
 
-- [ ] **Step 6: `toApiBody` 换字段**
+- [x] **Step 6: `toApiBody` 换字段**
 
 `103-118` 行里，把 `priority: d.priority,`（110）与 `label: d.label,`（111）换成一行：
 
@@ -574,7 +574,7 @@ export function toDraft(initial?: ScheduledTask | null): ScheduledTaskDraft {
 
 不改 `priority`/`label` 这两个后端列——因为 PATCH 的 keyMap 匹配不到它们，**已有行的原值会保留**，不会被打回默认值。
 
-- [ ] **Step 7: 跑测试确认通过**
+- [x] **Step 7: 跑测试确认通过**
 
 ```bash
 cd /mnt/b/workdir/github/lovdex/web && unset TSX_TSCONFIG_PATH
@@ -583,7 +583,7 @@ npx tsx --test src/components/tasks/ScheduledTaskForm.test.tsx
 
 Expected: `# fail 0`，总数 = 原有用例数 + 5。
 
-- [ ] **Step 8: typecheck + lint**
+- [x] **Step 8: typecheck + lint**
 
 ```bash
 cd /mnt/b/workdir/github/lovdex/web && npm run typecheck
@@ -592,7 +592,7 @@ npx eslint src/components/tasks/ScheduledTaskForm.tsx 2>&1 | grep -E '^✖'
 
 Expected: typecheck 无输出；eslint **7 problems**（基线 6 + `toDraft` 加 `export` 引入的 1 条 `react-refresh` 警告，见「环境准备」的说明）。
 
-- [ ] **Step 9: 提交**
+- [x] **Step 9: 提交**
 
 ```bash
 cd /mnt/b/workdir/github/lovdex
@@ -608,7 +608,7 @@ git commit -m "feat(scheduled-tasks): carry executorModel in the draft, drop pri
 - Modify: `web/src/components/tasks/ScheduledTaskForm.tsx`
 - Test: `web/src/components/tasks/ScheduledTaskForm.test.tsx`
 
-- [ ] **Step 1: 写失败的测试**
+- [x] **Step 1: 写失败的测试**
 
 在 `ScheduledTaskForm.test.tsx` 末尾追加：
 
@@ -642,7 +642,7 @@ test('model chip shows the 默认模型 fallback before the list arrives', () =>
 
 注意：`ScheduledTaskForm.tsx:91` 的**注释**里有「列表标签」四个字，但 `renderToStaticMarkup` 不输出源码注释，所以用 `aria-label` 精确匹配（上面就是这么写的），不要退化成裸的 `html.includes('标签')`。
 
-- [ ] **Step 2: 跑测试确认失败**
+- [x] **Step 2: 跑测试确认失败**
 
 ```bash
 cd /mnt/b/workdir/github/lovdex/web && unset TSX_TSCONFIG_PATH
@@ -651,7 +651,7 @@ npx tsx --test src/components/tasks/ScheduledTaskForm.test.tsx
 
 Expected: FAIL —— 仍能找到 `aria-label="优先级"`，且找不到 `aria-label="模型"`。
 
-- [ ] **Step 3: 接入 hook 与两个 ref**
+- [x] **Step 3: 接入 hook 与两个 ref**
 
 在 `ScheduledTaskForm` 组件里，`const { isMobile } = useDeviceSettings(...)`（253 行）之后加：
 
@@ -663,7 +663,7 @@ Expected: FAIL —— 仍能找到 `aria-label="优先级"`，且找不到 `aria
   const modelPickedRef = useRef(false);
 ```
 
-- [ ] **Step 4: 加选中值策略 effect**
+- [x] **Step 4: 加选中值策略 effect**
 
 放在已有的「引擎可用性结算后纠正引擎」那个 effect（267-273 行）**之后**：
 
@@ -692,7 +692,7 @@ Expected: FAIL —— 仍能找到 `aria-label="优先级"`，且找不到 `aria
 import { modelOptionsFor, nextModelOnLoad, useProviderModels } from './useProviderModels';
 ```
 
-- [ ] **Step 5: 换掉 chip**
+- [x] **Step 5: 换掉 chip**
 
 `ScheduledTaskForm.tsx:363-378` 的优先级 chip 与标签 chip 整段删掉，原地换成：
 
@@ -713,7 +713,7 @@ import { modelOptionsFor, nextModelOnLoad, useProviderModels } from './useProvid
 
 同时删掉 `310-311` 行的 `priorityOptions` / `labelOptions` 两个常量（已无引用）。
 
-- [ ] **Step 6: 引擎 chip 切换时清掉「用户已选」标记**
+- [x] **Step 6: 引擎 chip 切换时清掉「用户已选」标记**
 
 `354-362` 行的引擎 chip，`onChange` 里加一句：
 
@@ -726,7 +726,7 @@ import { modelOptionsFor, nextModelOnLoad, useProviderModels } from './useProvid
 
 漏了这一步的症状：用户选了 Opus → 切到 codex → 模型仍是 Opus（而 Opus 不属于 codex），要等用户再手动改一次。
 
-- [ ] **Step 7: 跑测试确认通过**
+- [x] **Step 7: 跑测试确认通过**
 
 ```bash
 cd /mnt/b/workdir/github/lovdex/web && unset TSX_TSCONFIG_PATH
@@ -735,7 +735,7 @@ npx tsx --test src/components/tasks/ScheduledTaskForm.test.tsx
 
 Expected: `# fail 0`。
 
-- [ ] **Step 8: typecheck + lint + 全量回归**
+- [x] **Step 8: typecheck + lint + 全量回归**
 
 ```bash
 cd /mnt/b/workdir/github/lovdex/web && npm run typecheck
@@ -746,7 +746,7 @@ npx tsx --test src/components/tasks/ScheduledTasksView.test.tsx
 
 Expected: typecheck 无输出；eslint 仍是 **7 problems**；两个回归测试文件 `# fail 0`。
 
-- [ ] **Step 9: 提交**
+- [x] **Step 9: 提交**
 
 ```bash
 cd /mnt/b/workdir/github/lovdex
