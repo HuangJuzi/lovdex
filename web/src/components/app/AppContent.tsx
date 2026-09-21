@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import Sidebar from '../sidebar/view/Sidebar';
 import MainContent from '../main-content/view/MainContent';
 import InboxPage from '../inbox/InboxPage';
+import { isInboxPath } from './inboxRouteMatch';
 import { Button, Dialog, DialogContent, DialogTitle, ToastStack, useToastStack } from '../../shared/view/ui';
 import { refreshInbox, applyInboxEvent, claimUnannouncedImportant, subscribeInbox, getInboxSnapshot } from '../../stores/inboxStore';
 import { useWebSocket } from '../../contexts/WebSocketContext';
@@ -51,7 +52,7 @@ function AppContentInner() {
   // /inbox 复用本组件只为拿到侧边栏；主内容区换成收件箱页。
   // Router 已设 basename，useLocation().pathname 是剥掉 basename 的路径。
   const { pathname } = useLocation();
-  const isInboxRoute = pathname === '/inbox';
+  const isInboxRoute = isInboxPath(pathname);
   // 工作区深链：任务页「Chat/Files/源码管理」跳转用 `?project=<path>&tab=<tab>`。
   const [searchParams] = useSearchParams();
   const projectPathParam = searchParams.get('project') ?? undefined;
