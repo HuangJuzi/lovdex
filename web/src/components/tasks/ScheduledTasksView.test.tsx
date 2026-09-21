@@ -83,3 +83,30 @@ test('a scheduled task without the flag shows no auto-approval badge', () => {
   const html = render([{ ...baseTask, schedule_id: 's1', auto_approve: 0 }]);
   assert.equal(html.includes('自动审批'), false, 'the badge must not render when the flag is off');
 });
+
+test('renders 启用 switch column and 模式 header with aria-checked=true for enabled task', () => {
+  const html = render([baseTask]);
+  assert.match(html, /<th[^>]*>启用<\/th>/);
+  assert.match(html, /<th[^>]*>模式<\/th>/);
+  assert.match(html, /role="switch"/);
+  assert.match(html, /aria-checked="true"/);
+  assert.match(html, /每日站会：启用\/停用/);
+  // 旧 ⏻ Power 按钮（aria-label=启停）已由开关取代
+  assert.doesNotMatch(html, /aria-label="启停"/);
+});
+
+test('enabled task renders next_run_at time', () => {
+  const html = render([baseTask]);
+  assert.match(html, /2026-08-14/);
+});
+
+test('disabled task: aria-checked=false, dimmed, em-dash next run, desktop mode badge persists', () => {
+  const html = render([{ ...baseTask, enabled: 0 }]);
+  assert.match(html, /aria-checked="false"/);
+  assert.match(html, /opacity-60/);
+  assert.match(html, /已停用/);
+  // 卡片停用时徽标被「已停用」取代，此处的「自动执行」只能来自桌面「模式」列
+  assert.match(html, /自动执行/);
+  // 停用后不再渲染会误导的下次触发时间
+  assert.doesNotMatch(html, /2026-08-14/);
+});
