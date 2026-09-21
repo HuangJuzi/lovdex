@@ -1327,7 +1327,9 @@ export default function InboxPage({ onOpenSidebar }: InboxPageProps = {}) {
 
       {isMobile ? (
         <Dialog open={sheetOpen} onOpenChange={setSheetOpen}>
-          <DialogContent variant="sheet" className="p-4">
+          {/* h-[85dvh] 是必须的：只给 max-h 的话容器高度仍是 auto，
+              InboxDetail 里的 h-full 解析不出来，长正文会溢出圆角而不是滚动。 */}
+          <DialogContent variant="sheet" className="flex h-[85dvh] flex-col p-4">
             <DialogTitle>{selected?.title ?? '通知详情'}</DialogTitle>
             <InboxDetail
               item={selected}
@@ -1345,14 +1347,17 @@ export default function InboxPage({ onOpenSidebar }: InboxPageProps = {}) {
 
 **关于 `MobileMenuButton` 的接线**：`InboxPage` 拿不到 `AppContent` 的 `setSidebarOpen`，所以用 `onOpenSidebar` 回调把「开抽屉」这件事交给 `AppContent`（下一步接上）。**不要**用 `window.dispatchEvent` 自定义事件 —— 回调更直接、可类型检查、可测试。
 
-- [ ] **Step 2: AppContent 监听开侧边栏事件**
+- [ ] **Step 2: AppContent 把开抽屉的回调传下去**
 
-`web/src/components/app/AppContent.tsx` —— 把主内容区里那个 `<InboxPage />` 换成传入回调：
+`web/src/components/app/AppContent.tsx` —— 主内容区里那个 `<InboxPage />` 改成传回调（只改这一行，条件渲染的其余结构不动）：
 
 ```tsx
         {isInboxRoute ? (
           <InboxPage onOpenSidebar={() => setSidebarOpen(true)} />
         ) : (
+          <MainContent ... />
+        )}
+```
 
 - [ ] **Step 3: 更新导出**
 
