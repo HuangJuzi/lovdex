@@ -73,3 +73,13 @@ test('renders empty state', () => {
   const html = render([]);
   assert.match(html, /暂无定时任务/);
 });
+
+test('a scheduled task with auto_approve on shows an auto-approval badge', () => {
+  const html = render([{ ...baseTask, schedule_id: 's1', auto_approve: 1 }]);
+  assert.ok(html.includes('自动审批'), 'the badge must render for flagged schedules');
+});
+
+test('a scheduled task without the flag shows no auto-approval badge', () => {
+  const html = render([{ ...baseTask, schedule_id: 's1', auto_approve: 0 }]);
+  assert.equal(html.includes('自动审批'), false, 'the badge must not render when the flag is off');
+});

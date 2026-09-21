@@ -30,6 +30,17 @@ function statusBadge(task: ScheduledTask) {
   );
 }
 
+/**
+ * 只在开启时渲染。默认关是绝大多数情况，给它一个「已关闭」徽标只会让列表更吵，
+ * 而这个徽标的唯一作用是让人扫一眼看出哪些任务在无人值守时会自己批。
+ */
+function autoApproveBadge(task: ScheduledTask) {
+  if (task.auto_approve !== 1) return null;
+  return (
+    <span className="rounded-full bg-info/10 px-2 py-0.5 font-semibold text-info">⚡ 自动审批</span>
+  );
+}
+
 function FieldRow({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
@@ -52,7 +63,10 @@ function ScheduledTaskCard({ task, projectOptions, onEdit, onDelete, onToggle, o
     <div className={`flex flex-col gap-1.5 rounded-lg border border-border bg-card p-3 shadow-sm ${task.enabled === 0 ? 'opacity-60' : ''}`}>
       {/* 标题独占一行（长标题最多两行）；徽标另起一行，避免长标题挤坏徽标。 */}
       <span className="line-clamp-2 overflow-hidden text-sm font-semibold text-card-foreground">{task.title}</span>
-      <div className="self-start">{statusBadge(task)}</div>
+      <div className="flex flex-wrap items-center gap-1">
+        {statusBadge(task)}
+        {autoApproveBadge(task)}
+      </div>
       <FieldRow label="调度" value={<><CalendarClock className="mr-1 inline h-3 w-3" />{scheduleLabel(task)}</>} />
       <FieldRow label="项目" value={projectLabel(task, projectOptions)} />
       <FieldRow label="下次" value={<span className="font-mono text-2xs">{formatAbsoluteTime(task.next_run_at)}</span>} />
@@ -108,7 +122,13 @@ export function ScheduledTasksView({ tasks, projectOptions, onEdit, onDelete, on
                     {projectLabel(task, projectOptions)}
                   </span>
                 </td>
-                <td className="px-4 py-3 text-xs">{task.auto_run === 1 ? '✅ 自动执行' : '🔔 仅提醒'}</td>
+                {/* 自动审批与自动执行同属「运行方式」，共用一格省一列；flex-wrap 防止两个徽标把行撑高。 */}
+                <td className="px-4 py-3 text-xs">
+                  <div className="flex flex-wrap items-center gap-1">
+                    {task.auto_run === 1 ? '✅ 自动执行' : '🔔 仅提醒'}
+                    {autoApproveBadge(task)}
+                  </div>
+                </td>
                 <td className="px-4 py-3 font-mono text-2xs text-muted-foreground">{formatAbsoluteTime(task.next_run_at)}</td>
                 <td className="px-4 py-3 text-xs text-muted-foreground">
                   {task.last_task_id ? (
