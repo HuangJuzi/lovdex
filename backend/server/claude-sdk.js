@@ -40,6 +40,7 @@ import { isTaskStatus } from './modules/database/repositories/tasks.db.js';
 import { sessionsDb } from './modules/database/index.js';
 import { z } from 'zod';
 import { appConfig } from './modules/config/config.js';
+import { decideAutoApproval, TOOLS_REQUIRING_INTERACTION } from './modules/permissions/auto-approve-policy.js';
 
 const activeSessions = new Map();
 const pendingToolApprovals = new Map();
@@ -50,8 +51,6 @@ const abortedSessionIds = new Set();
 
 // Default is 60000 (config: providers.claude.toolApprovalTimeoutMs).
 const TOOL_APPROVAL_TIMEOUT_MS = appConfig().get().providers.claude.toolApprovalTimeoutMs;
-
-const TOOLS_REQUIRING_INTERACTION = new Set(['AskUserQuestion', 'ExitPlanMode']);
 
 /**
  * Operator 的「收件箱」认知段，拼在 operator system prompt 末尾。
@@ -808,6 +807,11 @@ async function queryClaudeSDK(command, options = {}, ws) {
     // auto-approves them and the model acts on a generated answer. Move these
     // tools to a PreToolUse hook (runs before the mode check) if we need them
     // to work in those modes.
+    // 无人值守自动审批。来源于 runtimeOptions，headless 与 chat.send 两条路
+    // 都已在服务端反查过任务行，客户端无法自授。刻意不放到 sdkOptions 上：
+    // sdkOptions 会交给 SDK 做 schema 校验，多一个未知键有被拒的风险。
+    const autoApprove = options.autoApprove === true;
+
     sdkOptions.canUseTool = async (toolName, input, context) => {
       const requiresInteraction = TOOLS_REQUIRING_INTERACTION.has(toolName);
 
@@ -829,6 +833,28 @@ async function queryClaudeSDK(command, options = {}, ws) {
         if (isAllowed) {
           return { behavior: 'allow', updatedInput: input };
         }
+      }
+
+      // 放在这里而不是函数最开头：上面的 disallowedTools 检查必须先跑完。
+      // 自动审批只替换「问人」这一步，不推翻用户在设置里显式的拉黑决定。
+      if (autoApprove) {
+        const decision = decideAutoApproval(toolName, input);
+        const behavior = decision.behavior;
+        // 留痕但不打扰：不建 requestId、不进 pendingToolApprovals、不发
+        // permission_request，所以既不会闪「等你批准」，也没有超时这回事。
+        ws.send(createNormalizedMessage({
+          kind: 'permission_auto',
+          toolName,
+          autoApproveBehavior: behavior,
+          autoApproveReason: behavior === 'deny' ? decision.reason : undefined,
+          sessionId: capturedSessionId || sessionId || null,
+          provider: 'claude',
+        }));
+        if (behavior === 'deny') {
+          console.warn(`[claude-sdk] auto-denied ${toolName} during an unattended run: ${decision.reason}`);
+          return { behavior: 'deny', message: decision.reason };
+        }
+        return { behavior: 'allow', updatedInput: input };
       }
 
       const requestId = createRequestId();

@@ -187,6 +187,7 @@ export type MessageKind =
   | 'status'
   | 'permission_request'
   | 'permission_cancelled'
+  | 'permission_auto'
   | 'session_created'
   | 'interactive_prompt'
   | 'task_notification'
@@ -257,6 +258,10 @@ export type NormalizedMessage = {
   isCompactSummary?: boolean;
   images?: unknown;
   toolName?: string;
+  /** 仅 permission_auto：自动审批给出的决定。 */
+  autoApproveBehavior?: 'allow' | 'deny';
+  /** 仅 permission_auto：拒绝时的理由，直接展示给用户。 */
+  autoApproveReason?: string;
   toolInput?: unknown;
   toolId?: string;
   toolResult?: {
