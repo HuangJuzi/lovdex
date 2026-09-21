@@ -7,7 +7,8 @@ import MainContent from '../main-content/view/MainContent';
 import InboxPage from '../inbox/InboxPage';
 import { isInboxPath } from './inboxRouteMatch';
 import { Button, Dialog, DialogContent, DialogTitle, ToastStack, useToastStack } from '../../shared/view/ui';
-import { refreshInbox, applyInboxEvent, claimUnannouncedImportant, subscribeInbox, getInboxSnapshot } from '../../stores/inboxStore';
+import { refreshInbox, applyInboxEvent, claimUnannouncedImportant, subscribeInbox, getInboxSnapshot, markReadLocal, markAllReadLocal } from '../../stores/inboxStore';
+import { inboxTargetPath } from '../inbox/inboxTarget';
 import { useWebSocket } from '../../contexts/WebSocketContext';
 import { useDeviceSettings } from '../../hooks/useDeviceSettings';
 import { useSessionProtection } from '../../hooks/useSessionProtection';
@@ -227,6 +228,14 @@ function AppContentInner() {
   // —— setSummaryOpen(true) 在已开时是 no-op，压根不会触发重渲染。
   const inbox = useSyncExternalStore(subscribeInbox, getInboxSnapshot, getInboxSnapshot);
 
+  // 候选集：未读且非 info。`info` 永不进汇总弹窗，这是既有约定（见
+  // docs/superpowers/specs/2026-09-20-inbox-notification-design.md §5），不要顺手改掉。
+  const summaryItems = inbox.items
+    .filter((it) => !it.read_at && it.severity !== 'info')
+    .slice(0, 8);
+  const summaryCritical = summaryItems.filter((it) => it.severity === 'critical');
+  const summaryWarning = summaryItems.filter((it) => it.severity === 'warning');
+
   // 首挂：拉取收件箱。
   useEffect(() => {
     void refreshInbox();
@@ -241,11 +250,16 @@ function AppContentInner() {
   // 表现就是"收件箱有、没弹窗"。
   useEffect(() => {
     const announce = () => {
-      if (claimUnannouncedImportant().length > 0) setSummaryOpen(true);
+      const important = claimUnannouncedImportant();
+      // 已经在收件箱页时不弹汇总 —— 用户正盯着那个列表，糊一层弹窗纯属打扰。
+      // 但**仍要 claim 掉**（上面这行的副作用），否则他离开收件箱时会把刚看过
+      // 的内容又补弹一次。
+      if (isInboxRoute) return;
+      if (important.length > 0) setSummaryOpen(true);
     };
     announce();
     return subscribeInbox(announce);
-  }, []);
+  }, [isInboxRoute]);
 
   // 全局实时 toast：新告警（created 且非 info）到达即右上角弹一条，点击跳转。
   useEffect(() => subscribe((event) => {
@@ -349,15 +363,57 @@ function AppContentInner() {
 
       <ToastStack items={toasts} onDismiss={dismissToast} />
       <Dialog open={summaryOpen} onOpenChange={setSummaryOpen}>
-        <DialogContent>
+        <DialogContent className="p-5">
+          {/* DialogTitle 默认 sr-only（a11y 用），可见标题得自己渲染 —— 这是
+              CommandResultModal 已经在用的模式。 */}
           <DialogTitle>你有未读通知</DialogTitle>
-          <div className="mt-2 space-y-1.5">
-            {inbox.items.filter((it) => !it.read_at && it.severity !== 'info').slice(0, 8).map((it) => (
-              <div key={it.notification_id} className="truncate text-sm">· {it.title}{it.occurrence_count > 1 ? ` ×${it.occurrence_count}` : ''}</div>
-            ))}
+          <h2 className="text-lg font-semibold">你有未读通知</h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">共 {summaryItems.length} 条需要你看一眼</p>
+
+          <div className="mt-3 space-y-3">
+            {[
+              { key: 'critical', label: '严重', items: summaryCritical },
+              { key: 'warning', label: '警告', items: summaryWarning },
+            ]
+              .filter((g) => g.items.length > 0)
+              .map((group) => (
+                <section key={group.key}>
+                  <div className="mb-1 text-2xs font-semibold uppercase text-muted-foreground">
+                    {group.label}
+                  </div>
+                  <ul className="space-y-1">
+                    {group.items.map((it) => {
+                      const target = inboxTargetPath(it);
+                      return (
+                        <li key={it.notification_id}>
+                          <button
+                            type="button"
+                            disabled={!target}
+                            onClick={() => {
+                              if (!target) return;
+                              setSummaryOpen(false);
+                              markReadLocal(it.notification_id);
+                              navigate(target);
+                            }}
+                            className="w-full truncate rounded-md px-2 py-1.5 text-left text-sm enabled:hover:bg-muted disabled:cursor-default"
+                          >
+                            {it.title}
+                            {it.occurrence_count > 1 ? (
+                              <span className="ml-1.5 text-2xs text-muted-foreground">×{it.occurrence_count}</span>
+                            ) : null}
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </section>
+              ))}
           </div>
+
           <div className="mt-4 flex justify-end gap-2">
-            <Button variant="ghost" size="sm" onClick={() => setSummaryOpen(false)}>知道了</Button>
+            <Button variant="ghost" size="sm" onClick={() => { markAllReadLocal(); setSummaryOpen(false); }}>
+              全部已读
+            </Button>
             <Button size="sm" onClick={() => { setSummaryOpen(false); navigate('/inbox'); }}>去收件箱</Button>
           </div>
         </DialogContent>
