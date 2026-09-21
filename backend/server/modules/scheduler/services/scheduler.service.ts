@@ -122,13 +122,17 @@ export function createSchedulerService(deps: SchedulerDeps) {
    * 这条调度「上一轮还没结束」的那个任务；null = 可以再触发。
    *
    * 两段判据缺一不可：
-   * - 任务行：in_progress 且没标 failed（见 isRunActive）。用 getTask 而非裸 DB 行，
-   *   因为 decorate() 才会把 sub_status 算成 running / waiting_*。
+   * - 任务行：in_progress 且没标 failed（见 isRunActive）。用 getTask 而不是裸 DB 行 ——
+   *   与其它守卫同一个查表口；且判据一旦从 `!== 'failed'` 改成按 running / waiting_*
+   *   枚举，decorate() 算出的有效值才是前提。
    * - 会话：status 会骗人 —— 任务页的「标记完成」在进行中也渲染，人工把正在跑的任务
    *   标成 done 之后 status 就不是 in_progress 了，但 agent 还在同一个项目里写文件。
    *   这一段与 deleteTask / session-transfer / operator-delete 是同一个判据。
    *
    * 上一轮的任务已被删（运行记录清理）时放行：查不到就不挡。
+   *
+   * 只由 runNow 调用；tick 的到点补跑**故意**不挡（见设计 §5/§7）——把守卫挪进
+   * dispatch 会让卡住的调度每 15s 被判到期却派不出去。
    */
   function blockingRunOf(schedule: ScheduledTaskRow): TaskRow | null {
     const lastId = schedule.last_task_id;
@@ -401,10 +405,11 @@ export function createSchedulerService(deps: SchedulerDeps) {
       if (!schedule) return null;
       // 上一轮还在跑就拒绝：dispatch 每次都会新建任务并起一个 agent，同一个提示词
       // 会在同一个项目里跑起第二个 agent。
-      if (blockingRunOf(schedule)) {
+      const blocking = blockingRunOf(schedule);
+      if (blocking) {
         throw new AppError(
           `schedule ${scheduleId} still has an unfinished run; settle or interrupt it first`,
-          { code: 'SCHEDULE_RUNNING', statusCode: 409 },
+          { code: 'SCHEDULE_RUNNING', statusCode: 409, details: { taskId: blocking.task_id } },
         );
       }
       // Awaited: createTask may block on title generation, and a dispatch failure

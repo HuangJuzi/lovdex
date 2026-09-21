@@ -608,7 +608,8 @@ test('runNow 拒绝在上一轮还没结束时再触发', async () => {
 
   await assert.rejects(
     () => svc.runNow('s1'),
-    (err: unknown) => (err as { code?: string }).code === 'SCHEDULE_RUNNING',
+    (err: unknown) => (err as { code?: string }).code === 'SCHEDULE_RUNNING'
+      && (err as { details?: { taskId?: string } }).details?.taskId === 'task-1',
   );
   assert.equal(createdTasks.length, 0, '被守卫挡下时不许建任务');
   assert.equal(rows.get('s1')?.last_task_id, 'task-1', '被挡下时不许动 last_task_id');
@@ -646,6 +647,21 @@ test('runNow 挡住「人工把在跑的任务标成 done」：status 骗人，�
   const { svc, rows, taskRows, runningSessions, createdTasks } = makeService('2026-08-13T12:00:00.000Z');
   rows.set('s1', mkRow({ schedule_id: 's1', last_task_id: 'task-1' }));
   taskRows.set('task-1', mkTaskRow({ task_id: 'task-1', status: 'done', sub_status: null, session_id: 'sess-live' }));
+  runningSessions.add('sess-live');
+
+  await assert.rejects(
+    () => svc.runNow('s1'),
+    (err: unknown) => (err as { code?: string }).code === 'SCHEDULE_RUNNING',
+  );
+  assert.equal(createdTasks.length, 0);
+});
+
+test('runNow 挡住「上一轮标了 failed 但会话仍在流式输出」', async () => {
+  // 第二段判据是安全网，不是 isRunActive 的附属：标了 failed 只说明任务行认为
+  // 上一轮终止了，agent 却可能还在同一个项目里写文件。
+  const { svc, rows, taskRows, runningSessions, createdTasks } = makeService('2026-08-13T12:00:00.000Z');
+  rows.set('s1', mkRow({ schedule_id: 's1', last_task_id: 'task-1' }));
+  taskRows.set('task-1', mkTaskRow({ task_id: 'task-1', status: 'in_progress', sub_status: 'failed', session_id: 'sess-live' }));
   runningSessions.add('sess-live');
 
   await assert.rejects(
