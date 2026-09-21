@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
 import Sidebar from '../sidebar/view/Sidebar';
 import MainContent from '../main-content/view/MainContent';
+import InboxPage from '../inbox/InboxPage';
 import { Button, Dialog, DialogContent, DialogTitle, ToastStack, useToastStack } from '../../shared/view/ui';
 import { refreshInbox, applyInboxEvent, claimUnannouncedImportant, subscribeInbox, getInboxSnapshot } from '../../stores/inboxStore';
 import { useWebSocket } from '../../contexts/WebSocketContext';
@@ -47,6 +48,10 @@ export default function AppContent() {
 function AppContentInner() {
   const navigate = useNavigate();
   const { sessionId } = useParams<{ sessionId?: string }>();
+  // /inbox 复用本组件只为拿到侧边栏；主内容区换成收件箱页。
+  // Router 已设 basename，useLocation().pathname 是剥掉 basename 的路径。
+  const { pathname } = useLocation();
+  const isInboxRoute = pathname === '/inbox';
   // 工作区深链：任务页「Chat/Files/源码管理」跳转用 `?project=<path>&tab=<tab>`。
   const [searchParams] = useSearchParams();
   const projectPathParam = searchParams.get('project') ?? undefined;
@@ -295,46 +300,50 @@ function AppContentInner() {
       )}
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <MainContent
-          selectedProject={selectedProject}
-          selectedSession={selectedSession}
-          activeTab={activeTab}
-          setActiveTab={setActiveTab}
-          onProjectSelect={handleProjectSelect}
-          onProjectsRefresh={refreshProjectsSilently}
-          ws={ws}
-          sendMessage={sendMessage}
-          isMobile={isMobile}
-          onMenuClick={() => setSidebarOpen(true)}
-          isLoading={isLoadingProjects}
-          onInputFocusChange={setIsInputFocused}
-          onSessionProcessing={markSessionProcessing}
-          onSessionIdle={markSessionIdle}
-          processingSessions={processingSessions}
-          onNavigateToSession={(targetSessionId: string, options) =>
-            navigate(`/session/${targetSessionId}`, { replace: Boolean(options?.replace) })
-          }
-          onSessionEstablished={(targetSessionId, context) =>
-            registerOptimisticSession({ sessionId: targetSessionId, ...context })
-          }
-          onShowSettings={openSettings}
-          onResumeSession={handleSessionSelect}
-          onSwitchToNewSession={(newSessionId, summary) => {
-            if (!selectedProject) return;
-            const provider =
-              (selectedSession?.provider ?? selectedSession?.__provider) as
-                | import('../../types/app').LLMProvider
-                | undefined;
-            registerOptimisticSession({
-              sessionId: newSessionId,
-              provider: provider ?? 'claude',
-              project: selectedProject,
-              summary,
-            });
-          }}
-          externalMessageUpdate={externalMessageUpdate}
-          newSessionTrigger={newSessionTrigger}
-        />
+        {isInboxRoute ? (
+          <InboxPage />
+        ) : (
+          <MainContent
+            selectedProject={selectedProject}
+            selectedSession={selectedSession}
+            activeTab={activeTab}
+            setActiveTab={setActiveTab}
+            onProjectSelect={handleProjectSelect}
+            onProjectsRefresh={refreshProjectsSilently}
+            ws={ws}
+            sendMessage={sendMessage}
+            isMobile={isMobile}
+            onMenuClick={() => setSidebarOpen(true)}
+            isLoading={isLoadingProjects}
+            onInputFocusChange={setIsInputFocused}
+            onSessionProcessing={markSessionProcessing}
+            onSessionIdle={markSessionIdle}
+            processingSessions={processingSessions}
+            onNavigateToSession={(targetSessionId: string, options) =>
+              navigate(`/session/${targetSessionId}`, { replace: Boolean(options?.replace) })
+            }
+            onSessionEstablished={(targetSessionId, context) =>
+              registerOptimisticSession({ sessionId: targetSessionId, ...context })
+            }
+            onShowSettings={openSettings}
+            onResumeSession={handleSessionSelect}
+            onSwitchToNewSession={(newSessionId, summary) => {
+              if (!selectedProject) return;
+              const provider =
+                (selectedSession?.provider ?? selectedSession?.__provider) as
+                  | import('../../types/app').LLMProvider
+                  | undefined;
+              registerOptimisticSession({
+                sessionId: newSessionId,
+                provider: provider ?? 'claude',
+                project: selectedProject,
+                summary,
+              });
+            }}
+            externalMessageUpdate={externalMessageUpdate}
+            newSessionTrigger={newSessionTrigger}
+          />
+        )}
       </div>
 
       <ToastStack items={toasts} onDismiss={dismissToast} />

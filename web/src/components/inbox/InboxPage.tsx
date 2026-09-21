@@ -44,7 +44,7 @@ export default function InboxPage() {
   };
 
   return (
-    <div className="mx-auto flex h-screen w-full max-w-3xl flex-col p-4">
+    <div className="mx-auto flex h-full min-h-0 w-full max-w-7xl flex-col p-4">
       <div className="mb-4 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Button variant="ghost" size="sm" onClick={() => navigate(-1)}><ArrowLeft className="h-4 w-4" /></Button>
