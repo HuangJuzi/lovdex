@@ -29,6 +29,12 @@ export type HeadlessTaskRunOptions = {
   content: string;
   /** Task executor model override, if any. */
   model?: string | null;
+  /**
+   * Answer this run's own permission requests instead of asking the human.
+   * Comes from the task row's `auto_approve`; the caller (startTaskRun) is
+   * responsible for reading it server-side — never from a client payload.
+   */
+  autoApprove?: boolean;
   /** Provider runtimes keyed by provider id (same map the WS server uses). */
   spawnFns: Record<LLMProvider, ProviderSpawnFn>;
 };
@@ -106,9 +112,12 @@ export function startHeadlessTaskRun(
   // the caller — same trust boundary as the interactive path.
   const runtimeOptions: Record<string, unknown> = {
     model: options.model || undefined,
-    // 'default' so permission prompts surface as the board's "等你批准" marker
-    // for the user to decide — identical to the manual "开始执行" button.
+    // 'default' so canUseTool keeps being consulted — that callback is where
+    // auto-approval short-circuits, and bypassPermissions would skip it
+    // entirely. Without autoApprove these prompts surface as the board's
+    // "等你批准" marker for the user to decide, identical to the manual button.
     permissionMode: 'default',
+    ...(options.autoApprove === true ? { autoApprove: true } : {}),
     toolsSettings: { allowedTools: [], disallowedTools: [], skipPermissions: false },
     skipPermissions: false,
     includePartialMessages: true,

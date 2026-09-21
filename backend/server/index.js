@@ -621,6 +621,9 @@ const startTaskRun = (taskId, sessionId) => {
     return startHeadlessTaskRun(sessionId, {
         content,
         model: task?.executor_model ?? null,
+        // 任务级开关，服务端直读 DB —— 两条启动路径（定时任务、助手
+        // start_task_execution）都经这里，签名不变。
+        autoApprove: task?.auto_approve === 1,
         spawnFns,
     });
 };

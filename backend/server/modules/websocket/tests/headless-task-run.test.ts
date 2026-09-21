@@ -159,3 +159,41 @@ test('a throwing spawnFn is swallowed and the safety net still runs', async () =
   await new Promise((r) => setImmediate(r));
   assert.equal(completeCalls, 1, 'finally must still complete the run after a runtime error');
 });
+
+test('carries autoApprove into runtimeOptions when the task opted in', async () => {
+  const captured: { options?: Record<string, unknown> } = {};
+  startHeadlessTaskRun(
+    'sess-auto',
+    {
+      content: 'unattended work',
+      autoApprove: true,
+      spawnFns: { claude: makeSpawnFn(captured as never) } as never,
+    },
+    {
+      getSessionById: () => ({ provider: 'claude', provider_session_id: null, project_path: '/p', is_operator: 0 }),
+      startRun: () => ({ writer: {} }),
+      completeRunIfCurrent: () => {},
+    },
+  );
+  await new Promise((r) => setImmediate(r));
+  assert.equal(captured.options?.autoApprove, true);
+  // 开关只替换「问人」这一步，权限模式本身必须保持 default —— 正是 default
+  // 才会调用 canUseTool，改成 bypassPermissions 会让 SDK 整个跳过审批回调。
+  assert.equal(captured.options?.permissionMode, 'default');
+});
+
+test('omits autoApprove entirely when the task did not opt in', async () => {
+  const captured: { options?: Record<string, unknown> } = {};
+  startHeadlessTaskRun(
+    'sess-plain',
+    { content: 'normal work', spawnFns: { claude: makeSpawnFn(captured as never) } as never },
+    {
+      getSessionById: () => ({ provider: 'claude', provider_session_id: null, project_path: '/p', is_operator: 0 }),
+      startRun: () => ({ writer: {} }),
+      completeRunIfCurrent: () => {},
+    },
+  );
+  await new Promise((r) => setImmediate(r));
+  assert.equal('autoApprove' in (captured.options ?? {}), false, 'the key must be absent, not merely falsy');
+  assert.equal(captured.options?.permissionMode, 'default');
+});
