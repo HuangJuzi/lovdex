@@ -37,23 +37,56 @@
 - **确认**：单条与批量都走 `window.confirm`（对齐本模块既有约定：`TaskDetail.tsx:366` 单条、`TaskBoard.tsx:115` 批量）。
   - 单条：`确定删除该运行记录？其关联会话也会一并删除，此操作不可恢复。`
   - 批量：`确定删除选中的 N 条运行记录？其关联会话也会一并删除，此操作不可恢复。`
-- **结果反馈**：删除完成后在列表上方显示一条内联结果条（**不引入 Toast** —— 本模块既有约定是 `console.error` + 内联提示条，见 `TaskBoard.tsx` 的「已选 N 项」与「任务已创建但被筛选隐藏」两条）。结果条可手动关闭；下一次发起删除时被替换。文案规则见 §3.4 的六分支表（`deleteOutcomeMessage`）。
+- **结果反馈**：删除完成后在列表上方显示一条内联结果条（**不引入 Toast** —— 本模块既有约定是 `console.error` + 内联提示条，见 `TaskBoard.tsx` 的「已选 N 项」与「任务已创建但被筛选隐藏」两条）。结果条可手动关闭；下一次发起删除时被替换。文案规则见 §3.1 的完整真值表（`deleteOutcomeMessage`）。
 
 ## 3. 组件改动
 
-### 3.1 `ScheduledRunHistoryView.tsx` —— 加选择与删除
+### 3.1 新模块 `runHistoryDelete.ts` —— 类型 + 纯函数
 
-**先定 `DeleteOutcome` 放哪。** 它同时被视图（prop 类型）、纯函数（`deleteOutcomeMessage` 入参）和面板（`deleteRuns` 返回值）需要，而面板已经 import 视图 —— 定义在面板里会让视图反过来 import 面板，**形成循环依赖**。所以定义在视图文件里并导出，面板 import 它（依赖方向与 `runsOf` / `ScheduleLookup` 一致）：
+**为什么单独成模块，而不是塞进 `ScheduledRunHistoryView.tsx`：**
+
+1. **依赖方向**：`DeleteOutcome` 同时被视图（prop 类型）、纯函数（`deleteOutcomeMessage` 入参）和面板（`deleteRuns` 返回值）需要，而面板已经 import 视图 —— 定义在面板里会让视图反过来 import 面板，**形成循环依赖**。独立模块两边都指向它，方向干净。
+2. **lint**：`ScheduledRunHistoryView.tsx` 现在带 3 条 `react-refresh/only-export-components`（该规则对「组件文件里同时导出普通函数」报警）。再往它里面加 3 个导出函数会变成 6 条。纯逻辑放无组件的 `.ts` 模块不触发这条规则。
+3. **仓库惯例**：纯逻辑本来就放同级 `.ts` 模块（`taskTable.ts` / `taskFilter.ts` / `taskStatus.ts` / `projectLabel.ts` / `taskDeadline.ts`）。
+
+新文件 `web/src/components/tasks/runHistoryDelete.ts`（web 测试是 `node:test` + `renderToStaticMarkup`，**无 DOM、不跑 effect、不触发事件**，所以逻辑必须离开组件才能测）：
 
 ```ts
-// ScheduledRunHistoryView.tsx
 export type DeleteOutcome = {
   deleted: string[];
   failed: { taskId: string; reason: string; running: boolean }[];
 };
+
+/** 可删除的运行：运行中的删不掉（后端 409），从源头不给勾。 */
+export function selectableRuns(runs: Task[]): Task[];
+
+/** 表头全选：只作用于可选行；全部已选则清空。 */
+export function toggleSelectAll(prev: Set<string>, selectableIds: string[]): Set<string>;
+
+/** 结果条文案。null 表示没有结果条要显示。 */
+export function deleteOutcomeMessage(outcome: DeleteOutcome): string | null;
 ```
 
-`running` 单独标记「因运行中被拒」，好让结果文案说人话（见 §3.4）。
+`running` 单独标记「因运行中被拒」，好让结果文案说人话。
+
+`deleteOutcomeMessage` 拼装规则：按「已删除」「因运行中失败」「其它失败」三段各自计数，**非零的段按此顺序用 `，` 连接**；唯一例外是「一条都没删掉、且失败全部因运行中」时，补一句可操作的原因。
+
+完整真值表（实现与测试都以此为准）：
+
+| `deleted` | `failed` | 返回 |
+|---|---|---|
+| 空 | 空 | `null`（没发生过删除，不显示结果条） |
+| N | 空 | `已删除 N 条` |
+| N | M 条全为 `running` | `已删除 N 条，M 条因运行中未能删除` |
+| 空 | M 条全为 `running` | `M 条未能删除：运行中的运行需先停止`（唯一带提示的例外） |
+| N | X 条 `running` + Y 条其它（X,Y>0） | `已删除 N 条，X 条因运行中未能删除，Y 条删除失败` |
+| N | 空 running + M 条其它 | `已删除 N 条，M 条删除失败` |
+| 空 | X 条 `running` + Y 条其它（X,Y>0） | `X 条因运行中未能删除，Y 条删除失败` |
+| 空 | 0 条 running + M 条其它 | `M 条删除失败` |
+
+即：**先按「运行中」与「其它失败」两类分别计数**，两类都非零时两条信息都要出现（`running` 是用户能自己去处理的，值得单说；其它失败用泛化文案兜底）。
+
+### 3.2 `ScheduledRunHistoryView.tsx` —— 加选择与删除 UI
 
 新增 prop：
 
@@ -77,7 +110,7 @@ UI（全部对齐 `TaskTableView` 的既有实现）：
 
 **选中集的清理**：运行被删或被别的会话删掉后，`runs` 里不再有那些 id，选中集要跟着剪掉，避免「幽灵勾选」（对齐 `TaskBoard.tsx:99-110` 的做法）。
 
-### 3.2 `ScheduledTasksPanel.tsx` —— 实现删除
+### 3.3 `ScheduledTasksPanel.tsx` —— 实现删除
 
 ```ts
 async function deleteRuns(taskIds: string[]): Promise<DeleteOutcome>
@@ -92,7 +125,7 @@ async function deleteRuns(taskIds: string[]): Promise<DeleteOutcome>
 
 新增 prop：`onRunsDeleted: (taskIds: string[]) => void`。
 
-### 3.3 `TaskBoard.tsx` —— 本地列表兜底清理
+### 3.4 `TaskBoard.tsx` —— 本地列表兜底清理
 
 ```tsx
 <ScheduledTasksPanel ... onRunsDeleted={(ids) => ids.forEach(remove)} />
@@ -102,34 +135,6 @@ async function deleteRuns(taskIds: string[]): Promise<DeleteOutcome>
 
 **这条不能省。** 正常路径下 `task_deleted` WS 事件会自己把行从 `useTasks` 里摘掉，但 E2E 里实测到控制台每次都报 `WebSocket error: [object Event]`（已在未改动路由 `/` 上复现，与本次功能无关）—— 只靠 WS 刷新不可靠，必须有本地兜底。
 
-### 3.4 抽出的纯函数（必须可测）
-
-web 测试是 `node:test` + `renderToStaticMarkup`，**无 DOM、不跑 effect、不触发事件**，所以逻辑必须离开组件才能测：
-
-```ts
-/** 可删除的运行：运行中的删不掉（后端 409），从源头不给勾。 */
-export function selectableRuns(runs: Task[]): Task[];
-
-/** 表头全选：只作用于可选行；全部已选则清空。 */
-export function toggleSelectAll(prev: Set<string>, selectableIds: string[]): Set<string>;
-
-/** 结果条文案。null 表示没有结果条要显示。 */
-export function deleteOutcomeMessage(outcome: DeleteOutcome): string | null;
-```
-
-`deleteOutcomeMessage` 的分支规则（用测试逐条钉死）：
-
-| `deleted` | `failed` | 返回 |
-|---|---|---|
-| 空 | 空 | `null`（没发生过删除，不显示结果条） |
-| N | 空 | `已删除 N 条` |
-| N | 全为 `running` | `已删除 N 条，M 条因运行中未能删除` |
-| 空 | 全为 `running` | `M 条未能删除：运行中的运行需先停止` |
-| N | 含非 `running` 的失败 | `已删除 N 条，M 条删除失败` |
-| 空 | 含非 `running` 的失败 | `M 条删除失败` |
-
-即：**先按「运行中」与「其它失败」两类分别计数**，两类都非零时两条信息都要出现；`running` 与普通失败混在一起时，优先说清「运行中」这一类（它是可操作的、用户能自己去停止），普通失败用泛化文案兜底。
-
 ## 4. 边界情况
 
 | 情况 | 行为 |
@@ -137,7 +142,7 @@ export function deleteOutcomeMessage(outcome: DeleteOutcome): string | null;
 | 选中项里混了运行中的 | 前端根本不会选中它们（勾选框不渲染、全选跳过） |
 | 删除时后端返回 409（会话仍在跑但 status 不是 in_progress） | 计入 `failed`，结果条报「因运行中未能删除」 |
 | 全部失败 | 结果条报错，**保留选中集**让用户能直接重试 |
-| 部分成功 | 成功的行消失，失败的行仍在列表里（选中集按 §3.1 剪掉已删的） |
+| 部分成功 | 成功的行消失，失败的行仍在列表里（选中集按 §3.2 剪掉已删的） |
 | 删除过程中用户切到「调度」子标签 | 请求照常完成；结果条状态随组件卸载丢弃（可接受，不额外持久化） |
 | 运行记录为空 | 保持现有空态「暂无运行记录」，不渲染操作条 |
 | 只有运行中的运行 | 表头全选框 `disabled`（没有可选项） |
@@ -153,10 +158,10 @@ export function deleteOutcomeMessage(outcome: DeleteOutcome): string | null;
 
 ## 6. 测试与验收
 
-**新增纯函数单测**（放 `ScheduledRunHistoryView.test.tsx` 或独立文件，跟随实现）：
+**新增 `web/src/components/tasks/runHistoryDelete.test.ts`**（纯函数跟模块走，与 `projectLabel.test.ts` 同惯例）：
 - `selectableRuns`：滤掉 `in_progress`；其余状态（todo / in_review / done / archived）都保留；空数组 → 空数组。
 - `toggleSelectAll`：未全选 → 全选；已全选 → 清空；只传可选 id 时不会把不可选的塞进去；`selectableIds` 为空 → 返回空集。
-- `deleteOutcomeMessage`：§3.4 表格里的**六条分支逐条断言**（含 `deleted`/`failed` 都为空 → `null`，以及 `running` 与普通失败混合的那两条）。
+- `deleteOutcomeMessage`：§3.1 真值表的**八条分支逐条断言**（含 `deleted`/`failed` 都为空 → `null`，以及 `running` 与普通失败混合的那两条）。
 
 **静态标记测试**（扩展 `ScheduledRunHistoryView.test.tsx`）：
 - 含 `in_progress` 行的列表里，`aria-label="选择任务"` 的 checkbox 数量 = 可选行数（即不包含运行中那行）。
