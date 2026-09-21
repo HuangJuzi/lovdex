@@ -146,7 +146,21 @@ export function blockingRunsBySchedule(schedules: ScheduledTask[], tasks: Task[]
 
 /** 禁用原因的 title 文案，按 sub_status 说人话。 */
 export function runNowBlockedReason(run: Task): string;
+
+/** 立即触发失败的提示条文案（409 与其它失败分开说）。 */
+export function runNowErrorMessage(title: string, status: number, body: unknown): string;
 ```
+
+`runNowErrorMessage` 抽出来的理由与 `deleteOutcomeMessage` 一样：web 测试是
+`node:test` + `renderToStaticMarkup`，**无 DOM、不跑 effect、不触发事件**，面板里的
+`async function` 根本测不到。把「读 `error.code` / 拼标题」这段唯一有分支的逻辑挪到纯函数里，
+面板就只剩接线（接线由 typecheck + E2E 兜）。
+
+| 输入 | 返回 |
+|---|---|
+| `body.error.code === 'SCHEDULE_RUNNING'` | `「<title>」上一轮还没结束，先处理或中断它再触发` |
+| 其它，`body.error.message` 是非空串 | `「<title>」<message>` |
+| 其它，读不到 message | `「<title>」立即触发失败 (<status>)` |
 
 `blockingRunsBySchedule` 用**全量任务列表**（panel 的 `tasks` prop）按 `task_id` 查，不复用
 `runsOf` 的 `source_schedule_id` 过滤：这里的判据是「`last_task_id` 指向的那一行」，与运行记录
@@ -187,12 +201,9 @@ async function runNow(t: ScheduledTask) {
   try {
     const res = await api.scheduledTasks.runNow(id);
     if (!res.ok) {
-      const err = await res.json().catch(() => null);
-      const reason = err?.error?.code === 'SCHEDULE_RUNNING'
-        ? '上一轮还没结束，先处理或中断它再触发'
-        : (err?.error?.message ?? `立即触发失败 (${res.status})`);
-      setRunNowError(`「${t.title}」${reason}`);
-      console.error('runNow failed', err ?? res.status);
+      const body = await res.json().catch(() => null);
+      setRunNowError(runNowErrorMessage(t.title, res.status, body));
+      console.error('runNow failed', body ?? res.status);
     }
     void refresh();
   } finally {
@@ -279,6 +290,8 @@ const title = blocked ? runNowBlockedReason(blocked) : pending ? '正在触发�
   `todo`/`in_review`/`done`/`archived` → 不在；`last_task_id` 为 `null` → 不在；`last_task_id`
   指向不在 `tasks` 里的 id → 不在；多条调度各归各的键；空 `schedules` → 空 map。
 - `runNowBlockedReason`：§3.1 表格四条分支逐条断言（含 `null` 走默认文案那条）。
+- `runNowErrorMessage`：§3.1 表格三条分支逐条断言（`SCHEDULE_RUNNING` 走专用文案；
+  有 message 时原样带出；`body` 为 `null` / 结构不对时走 `(status)` 兜底）。
 
 **`ScheduledTasksView.test.tsx`**（静态标记）：
 - blocked 行的 ▶ 带 `disabled` 且 `title` 含「上一轮」。
