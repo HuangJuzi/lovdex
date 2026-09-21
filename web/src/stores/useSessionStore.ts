@@ -29,6 +29,7 @@ export type MessageKind =
   | 'status'
   | 'permission_request'
   | 'permission_cancelled'
+  | 'permission_auto'
   | 'session_created'
   | 'interactive_prompt'
   | 'task_notification';
@@ -65,6 +66,8 @@ export interface NormalizedMessage {
   isCompactSummary?: boolean;
   images?: Array<{ path?: string; data?: string; name?: string }>;
   toolName?: string;
+  autoApproveBehavior?: 'allow' | 'deny';
+  autoApproveReason?: string;
   toolInput?: unknown;
   toolId?: string;
   toolResult?: { content: string; isError: boolean; toolUseResult?: unknown } | null;

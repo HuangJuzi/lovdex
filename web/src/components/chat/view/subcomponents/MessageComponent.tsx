@@ -17,6 +17,7 @@ import { Reasoning, ReasoningTrigger, ReasoningContent } from '../../../../share
 import ChatMessageImages from './ChatMessageImages';
 import { Markdown } from './Markdown';
 import MessageCopyControl from './MessageCopyControl';
+import { AutoApproveNotice } from './AutoApproveNotice';
 
 type DiffLine = {
   type: string;
@@ -167,7 +168,9 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
 
           <div className="w-full">
 
-            {message.isToolUse ? (
+            {message.type === 'notice' ? (
+              <AutoApproveNotice message={message} />
+            ) : message.isToolUse ? (
               <>
                 <div className="flex flex-col">
                   <div className="flex flex-col">

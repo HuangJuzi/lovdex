@@ -320,6 +320,19 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
         }
         break;
 
+      case 'permission_auto': {
+        const denied = msg.autoApproveBehavior === 'deny';
+        msgOut.push({
+          type: 'notice',
+          content: denied
+            ? `已自动拒绝 ${msg.toolName ?? '工具'}：${msg.autoApproveReason ?? '无人值守执行中'}`
+            : `已自动放行 ${msg.toolName ?? '工具'}`,
+          timestamp: msg.timestamp,
+          ...sharedMetadata,
+        });
+        break;
+      }
+
       // stream_end, complete, status, permission_*, session_created
       // are control events — not rendered as messages
       case 'stream_end':
