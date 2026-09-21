@@ -249,9 +249,12 @@ export function ScheduledTaskForm({
   const [localError, setLocalError] = useState<string | null>(null);
   const { isMobile } = useDeviceSettings({ mobileBreakpoint: 640 });
   const { models, loadedEngine } = useProviderModels(draft.executorProvider, open);
-  // 挂载时的引擎。表单每次打开都会因 ScheduledTasksPanel 的 key={formKey} 重新挂载
-  // （见 ScheduledTasksPanel.tsx:29/32/90），所以这两个 ref 天然是「每次打开」的作用域。
-  const initialEngineRef = useRef(draft.executorProvider);
+  // 「上次落定引擎」：每次 effect 应用完选中值后更新。用它（而不是挂载时的引擎）判断
+  // 是否发生了切换，否则「切到别的引擎再切回来」会被误判成没切过，模型停在中间那个
+  // 引擎的选项上，保存后就是「引擎 A + 引擎 B 的模型」这种错配。
+  // 表单每次打开都会因 ScheduledTasksPanel 的 key={formKey} 重新挂载
+  // （见 ScheduledTasksPanel.tsx:29/32/90），所以它天然是「每次打开」的作用域。
+  const settledEngineRef = useRef(draft.executorProvider);
   const modelPickedRef = useRef(false);
 
   const set = <K extends keyof ScheduledTaskDraft>(key: K, value: ScheduledTaskDraft[K]) =>
@@ -280,7 +283,7 @@ export function ScheduledTaskForm({
   //   - 自动纠正引擎（上面那个 effect）也算「切过」——engineSwitched 为真，模型跟着重置。
   useEffect(() => {
     if (loadedEngine !== draft.executorProvider) return;
-    const engineSwitched = loadedEngine !== initialEngineRef.current;
+    const engineSwitched = loadedEngine !== settledEngineRef.current;
     if (modelPickedRef.current && !engineSwitched) return;
     const next = nextModelOnLoad({
       mode: initial ? 'edit' : 'create',
@@ -288,6 +291,9 @@ export function ScheduledTaskForm({
       models,
       current: draft.executorModel,
     });
+    // 记录本次落定的引擎。放在早退之后是安全的：engineSwitched 为 false 时
+    // loadedEngine 本来就等于 settledEngineRef.current，更新是空操作。
+    settledEngineRef.current = loadedEngine;
     if (next !== draft.executorModel) set('executorModel', next);
   }, [loadedEngine, models, draft.executorProvider, draft.executorModel, initial]);
 
