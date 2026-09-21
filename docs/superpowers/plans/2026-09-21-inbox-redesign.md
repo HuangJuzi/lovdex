@@ -1177,7 +1177,12 @@ const FILTERS: { key: FilterKey; label: string }[] = [
 
 const SEVERITY_ORDER: InboxSeverity[] = ['critical', 'warning', 'info'];
 
-export default function InboxPage() {
+type InboxPageProps = {
+  /** 窄屏下点菜单按钮要能拉出侧边栏抽屉，而抽屉由 AppContent 持有 —— 用回调传进来。 */
+  onOpenSidebar?: () => void;
+};
+
+export default function InboxPage({ onOpenSidebar }: InboxPageProps = {}) {
   const navigate = useNavigate();
   const snapshot = useSyncExternalStore(subscribeInbox, getInboxSnapshot, getInboxSnapshot);
   // 断点与 Tailwind 的 lg（1024px）对齐：>=lg 两栏，<lg 单列 + 全屏 sheet。
@@ -1248,7 +1253,7 @@ export default function InboxPage() {
   return (
     <div className="mx-auto flex h-full min-h-0 w-full max-w-7xl flex-col p-4">
       <div className="mb-4 flex items-center gap-2">
-        {isMobile ? <MobileMenuButton onMenuClick={() => window.dispatchEvent(new CustomEvent('lovdex:open-sidebar'))} /> : null}
+        {isMobile ? <MobileMenuButton onMenuClick={() => onOpenSidebar?.()} /> : null}
         <InboxIcon className="h-5 w-5 text-primary" />
         <h1 className="text-lg font-semibold">收件箱</h1>
         {unreadCount > 0 ? (
@@ -1338,20 +1343,16 @@ export default function InboxPage() {
 }
 ```
 
-**关于 `MobileMenuButton` 的接线**：`InboxPage` 拿不到 `AppContent` 的 `setSidebarOpen`。本计划采用的最小接法是派发一个自定义事件 `lovdex:open-sidebar`，由 `AppContent` 监听（下一步）。如果实现时发现 `AppContent` 已经有更直接的传参通道，优先用那个。
+**关于 `MobileMenuButton` 的接线**：`InboxPage` 拿不到 `AppContent` 的 `setSidebarOpen`，所以用 `onOpenSidebar` 回调把「开抽屉」这件事交给 `AppContent`（下一步接上）。**不要**用 `window.dispatchEvent` 自定义事件 —— 回调更直接、可类型检查、可测试。
 
 - [ ] **Step 2: AppContent 监听开侧边栏事件**
 
-`web/src/components/app/AppContent.tsx` —— 在 `const isInboxRoute = ...` 附近加：
+`web/src/components/app/AppContent.tsx` —— 把主内容区里那个 `<InboxPage />` 换成传入回调：
 
 ```tsx
-  // 收件箱页在窄屏需要开侧边栏，但它是主内容区的子组件、拿不到 setSidebarOpen。
-  useEffect(() => {
-    const openSidebar = () => setSidebarOpen(true);
-    window.addEventListener('lovdex:open-sidebar', openSidebar);
-    return () => window.removeEventListener('lovdex:open-sidebar', openSidebar);
-  }, [setSidebarOpen]);
-```
+        {isInboxRoute ? (
+          <InboxPage onOpenSidebar={() => setSidebarOpen(true)} />
+        ) : (
 
 - [ ] **Step 3: 更新导出**
 
@@ -1982,6 +1983,6 @@ git commit -m "chore(inbox): address acceptance findings"
 
 ## 已知取舍
 
-- **`lovdex:open-sidebar` 自定义事件**是绕过 prop drilling 的最小接法。若实现时发现 `AppContent` 已有现成的上下文可传 `setSidebarOpen`，优先改用那个。
+- **窄屏开抽屉走 `onOpenSidebar` 回调**，由 `AppContent` 把 `setSidebarOpen` 传下来。刻意没用 `window` 自定义事件：回调可类型检查、可测试，也不引入隐式的全局耦合。
 - **汇总弹窗与 `ToastStack` 无法自动化测试**（`createPortal` + provider 依赖），只能手动验收。Task 8 Step 5 的清单必须真的走一遍。
 - **相对时间在 Task 6 里每分钟重算**，避免「2 分钟前」停在挂载时刻。
