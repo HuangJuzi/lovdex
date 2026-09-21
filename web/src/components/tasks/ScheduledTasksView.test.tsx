@@ -84,29 +84,41 @@ test('a scheduled task without the flag shows no auto-approval badge', () => {
   assert.equal(html.includes('自动审批'), false, 'the badge must not render when the flag is off');
 });
 
+// 本机时区无关的下次触发断言素材：期望日期与任务用同一个时刻推导，
+// 避免硬编码日期在 UTC-9 及以西等时区翻日导致测试翻车。
+const NEXT_RUN_ISO = '2026-08-14T12:00:00.000Z';
+const expectedNextDate = (() => {
+  const d = new Date(NEXT_RUN_ISO);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+})();
+
 test('renders 启用 switch column and 模式 header with aria-checked=true for enabled task', () => {
   const html = render([baseTask]);
   assert.match(html, /<th[^>]*>启用<\/th>/);
   assert.match(html, /<th[^>]*>模式<\/th>/);
   assert.match(html, /role="switch"/);
-  assert.match(html, /aria-checked="true"/);
+  // SSR 同时渲染桌面表格与手机卡片，单任务恰好 2 个开关
+  assert.equal((html.match(/aria-checked="true"/g) ?? []).length, 2, 'table and card switch both on');
   assert.match(html, /每日站会：启用\/停用/);
   // 旧 ⏻ Power 按钮（aria-label=启停）已由开关取代
   assert.doesNotMatch(html, /aria-label="启停"/);
 });
 
 test('enabled task renders next_run_at time', () => {
-  const html = render([baseTask]);
-  assert.match(html, /2026-08-14/);
+  const html = render([{ ...baseTask, next_run_at: NEXT_RUN_ISO }]);
+  assert.match(html, new RegExp(expectedNextDate));
 });
 
 test('disabled task: aria-checked=false, dimmed, em-dash next run, desktop mode badge persists', () => {
-  const html = render([{ ...baseTask, enabled: 0 }]);
-  assert.match(html, /aria-checked="false"/);
+  const html = render([{ ...baseTask, enabled: 0, next_run_at: NEXT_RUN_ISO }]);
+  // SSR 同时渲染桌面表格与手机卡片，单任务恰好 2 个开关，且没有残留开启态
+  assert.equal((html.match(/aria-checked="false"/g) ?? []).length, 2, 'table and card switch both off');
+  assert.equal((html.match(/aria-checked="true"/g) ?? []).length, 0, 'no switch left on');
   assert.match(html, /opacity-60/);
   assert.match(html, /已停用/);
   // 卡片停用时徽标被「已停用」取代，此处的「自动执行」只能来自桌面「模式」列
   assert.match(html, /自动执行/);
   // 停用后不再渲染会误导的下次触发时间
-  assert.doesNotMatch(html, /2026-08-14/);
+  assert.doesNotMatch(html, new RegExp(expectedNextDate));
 });
