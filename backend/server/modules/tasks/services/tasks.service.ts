@@ -77,6 +77,8 @@ type CreateTaskInput = {
   label?: TaskLabel;
   remark?: string | null;
   sourceScheduleId?: string | null;
+  /** 无人值守执行时是否自动审批工具权限；缺省 false（保持询问）。 */
+  autoApprove?: boolean;
   /**
    * 可选：新建任务时引用一个历史会话，后台把该会话压缩成 context_summary
    * 注入首次执行。语义与 sessionId（任务执行的会话链接）不同——来源会话仅
@@ -450,6 +452,7 @@ export function createTasksService(
       label: input.label ?? 'other',
       remark: input.remark ?? null,
       sourceScheduleId: input.sourceScheduleId ?? null,
+      autoApprove: input.autoApprove,
       contextSourceSessionId,
       contextMode,
       contextStatus: contextMode === 'none' ? null : 'pending',

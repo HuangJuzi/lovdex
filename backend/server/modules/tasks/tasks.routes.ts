@@ -50,6 +50,7 @@ export function buildTasksRouter(tasksService: TasksService, deps: { createSessi
         label: body.label as TaskLabel | undefined,
         remark: typeof body.remark === 'string' ? body.remark : null,
         sourceScheduleId: typeof body.sourceScheduleId === 'string' ? body.sourceScheduleId : null,
+        autoApprove: body.autoApprove === true,
         sourceSessionId: typeof body.sourceSessionId === 'string' ? body.sourceSessionId : null,
         contextMode: body.contextMode as 'none' | 'summary' | 'raw' | undefined,
         // 客户端重试 / 双击 / 两个标签页提交的是同一份意图：由服务端合并成一次落库，
@@ -98,7 +99,7 @@ export function buildTasksRouter(tasksService: TasksService, deps: { createSessi
       if (body.label !== undefined && (typeof body.label !== 'string' || !isTaskLabel(body.label))) {
         throw new AppError(`invalid label: ${String(body.label)}`, { code: 'INVALID_LABEL', statusCode: 400 });
       }
-      const hasFieldUpdates = ['title', 'description', 'executorProvider', 'executorModel', 'sessionId', 'projectPath', 'priority', 'deadline', 'label', 'remark'].some((k) => body[k] !== undefined);
+      const hasFieldUpdates = ['title', 'description', 'executorProvider', 'executorModel', 'sessionId', 'projectPath', 'priority', 'deadline', 'label', 'remark', 'autoApprove'].some((k) => body[k] !== undefined);
       if (typeof body.status === 'string' && hasFieldUpdates) {
         throw new AppError('cannot update status and fields in the same request', { code: 'INVALID_REQUEST', statusCode: 400 });
       }
@@ -122,6 +123,7 @@ export function buildTasksRouter(tasksService: TasksService, deps: { createSessi
         deadline?: string | null;
         label?: TaskLabel;
         remark?: string | null;
+        autoApprove?: boolean;
       } = {};
       if (typeof body.title === 'string') updates.title = body.title;
       if (typeof body.description === 'string') updates.description = body.description;
@@ -137,6 +139,7 @@ export function buildTasksRouter(tasksService: TasksService, deps: { createSessi
       if (typeof body.label === 'string') updates.label = body.label as TaskLabel;
       if (typeof body.remark === 'string') updates.remark = body.remark;
       if (body.remark === null) updates.remark = null;
+      if (typeof body.autoApprove === 'boolean') updates.autoApprove = body.autoApprove;
       const row = await tasksService.updateTask(taskId, updates);
       if (!row) throw new AppError('task not found', { code: 'TASK_NOT_FOUND', statusCode: 404 });
       res.json(row);

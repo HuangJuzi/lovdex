@@ -85,6 +85,7 @@ export const tasksDb = {
     label?: TaskLabel;
     remark?: string | null;
     sourceScheduleId?: string | null;
+    autoApprove?: boolean;
     contextSourceSessionId?: string | null;
     contextMode?: 'none' | 'summary' | 'raw';
     contextStatus?: 'pending' | 'ready' | 'failed' | null;
@@ -97,8 +98,8 @@ export const tasksDb = {
     const startedAtSet = status === 'in_progress' ? 'CURRENT_TIMESTAMP' : 'NULL';
     const completedAtSet = status === 'done' ? 'CURRENT_TIMESTAMP' : 'NULL';
     const row = db.prepare(`
-      INSERT INTO tasks (task_id, project_path, title, description, status, executor_provider, executor_model, position, session_id, started_at, completed_at, priority, deadline, is_operator, label, remark, context_source_session_id, context_mode, context_status, source_schedule_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ${startedAtSet}, ${completedAtSet}, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO tasks (task_id, project_path, title, description, status, executor_provider, executor_model, position, session_id, started_at, completed_at, priority, deadline, is_operator, label, remark, context_source_session_id, context_mode, context_status, source_schedule_id, auto_approve)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ${startedAtSet}, ${completedAtSet}, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       RETURNING *
     `).get(
       taskId,
@@ -119,6 +120,7 @@ export const tasksDb = {
       input.contextMode ?? 'none',
       input.contextStatus ?? null,
       input.sourceScheduleId ?? null,
+      input.autoApprove ? 1 : 0,
     ) as TaskRow;
     return normalizeTaskRow(row);
   },
@@ -162,6 +164,7 @@ export const tasksDb = {
     deadline?: string | null;
     label?: TaskLabel;
     remark?: string | null;
+    autoApprove?: boolean;
   }): TaskRow | null {
     const db = getConnection();
     const sets: string[] = [];
@@ -176,6 +179,7 @@ export const tasksDb = {
     if (updates.deadline !== undefined) { sets.push('deadline = ?'); params.push(updates.deadline); }
     if (updates.label !== undefined) { sets.push('label = ?'); params.push(updates.label); }
     if (updates.remark !== undefined) { sets.push('remark = ?'); params.push(updates.remark); }
+    if (updates.autoApprove !== undefined) { sets.push('auto_approve = ?'); params.push(updates.autoApprove ? 1 : 0); }
     sets.push('updated_at = CURRENT_TIMESTAMP');
     params.push(taskId);
     if (sets.length === 1) return tasksDb.getTask(taskId);
