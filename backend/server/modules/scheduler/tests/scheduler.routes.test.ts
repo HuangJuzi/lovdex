@@ -1,17 +1,27 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import express from 'express';
+import type { NextFunction, Request, Response } from 'express';
 
 import { buildSchedulerRouter } from '@/modules/scheduler/scheduler.routes.js';
+import { AppError } from '@/shared/utils.js';
 
 async function startServer(svc: unknown): Promise<{ baseUrl: string; close: () => Promise<void> }> {
   const app = express();
   app.use(express.json());
   app.use('/api/scheduled-tasks', buildSchedulerRouter(svc as never));
+  // 镜像 index.js:1994 的生产错误处理：AppError → statusCode + { error: { code, message } }。
+  // 没有它时 Express 默认处理器只认 err.statusCode、响应体是 HTML，断言不到 code。
+  app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
+    const e = err as { statusCode?: number; code?: string; message?: string };
+    res.status(e.statusCode ?? 500).json({ success: false, error: { code: e.code, message: e.message } });
+  });
   const server = app.listen(0);
-  await new Promise((resolve) => server.on('listening', resolve));
+  // 不直接把 resolve / r 传给 .on('listening') / .close()：两者的回调签名都是 (err?: Error) => void，
+  // 而 resolve / r 是 (value: void | PromiseLike<void>) => void，TS2345（存量错误，顺手修掉）。
+  await new Promise<void>((resolve) => server.once('listening', () => resolve()));
   const address = server.address() as { port: number };
-  return { baseUrl: `http://127.0.0.1:${address.port}`, close: () => new Promise((r) => server.close(r)) };
+  return { baseUrl: `http://127.0.0.1:${address.port}`, close: () => new Promise((r) => server.close(() => r())) };
 }
 
 function makeSvc() {
@@ -100,5 +110,32 @@ test('POST / returns the title the service resolved for a blank title', async ()
     assert.equal(res.status, 201);
     const body = await res.json() as { title: string };
     assert.equal(body.title, 'AI 取的名');
+  } finally { await close(); }
+});
+
+test('POST /:id/run-now surfaces the running guard as 409 + code', async () => {
+  const svc = {
+    ...makeSvc(),
+    runNow: () => {
+      throw new AppError('schedule s1 still has an unfinished run; settle or interrupt it first', {
+        code: 'SCHEDULE_RUNNING',
+        statusCode: 409,
+      });
+    },
+  };
+  const { baseUrl, close } = await startServer(svc);
+  try {
+    const res = await fetch(`${baseUrl}/api/scheduled-tasks/s1/run-now`, { method: 'POST' });
+    assert.equal(res.status, 409);
+    const body = await res.json() as { error?: { code?: string } };
+    assert.equal(body.error?.code, 'SCHEDULE_RUNNING', '前端靠这个 code 说人话');
+  } finally { await close(); }
+});
+
+test('POST /:id/run-now returns 404 for an unknown schedule', async () => {
+  const { baseUrl, close } = await startServer(makeSvc());
+  try {
+    const res = await fetch(`${baseUrl}/api/scheduled-tasks/nope/run-now`, { method: 'POST' });
+    assert.equal(res.status, 404);
   } finally { await close(); }
 });
