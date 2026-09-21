@@ -17,7 +17,7 @@ export type ScheduledRunHistoryViewProps = {
   projectOptions: TaskProjectOption[];
 };
 
-const DELETED_SCHEDULE = '已删除的调度';
+const DELETED_SCHEDULE_LABEL = '已删除的调度';
 
 /** 定时来源过滤。删调度不会删它跑出来的任务，所以过滤条件只看任务自身的字段。 */
 export function runsOf(tasks: Task[]): Task[] {
@@ -26,13 +26,15 @@ export function runsOf(tasks: Task[]): Task[] {
 
 /** 「所属调度」列：调度被删掉后任务行仍在，回退成占位文案。 */
 export function scheduleTitleOf(scheduleId: string | null, schedules: ScheduledTask[]): string {
-  if (!scheduleId) return DELETED_SCHEDULE;
-  return schedules.find((s) => s.schedule_id === scheduleId)?.title ?? DELETED_SCHEDULE;
+  if (!scheduleId) return DELETED_SCHEDULE_LABEL;
+  return schedules.find((s) => s.schedule_id === scheduleId)?.title ?? DELETED_SCHEDULE_LABEL;
 }
 
 /**
- * 触发时间倒序。后端时间戳是定长裸 UTC（`YYYY-MM-DD HH:MM:SS`），字典序即时序，
- * 所以直接比字符串，不用 `Date`（对齐 taskTimestamp.ts 的约定）。
+ * 触发时间倒序。调度触发时先建任务行、再起运行，所以 `created_at` 就是这次调度的
+ * 触发时间（`started_at` 在未启动/仅提醒的任务上是 NULL）。后端时间戳是定长裸 UTC
+ * （`YYYY-MM-DD HH:MM:SS`），字典序即时序，所以直接比字符串，不用 `Date`
+ * （对齐 taskTimestamp.ts 的约定）。
  */
 export function sortRunsByTriggeredDesc(runs: Task[]): Task[] {
   return [...runs].sort((a, b) => (a.created_at === b.created_at ? 0 : a.created_at < b.created_at ? 1 : -1));
@@ -100,8 +102,8 @@ export function ScheduledRunHistoryView({ runs, schedules, projectOptions }: Sch
             {ordered.map((task) => (
               <tr key={task.task_id} className="bg-card shadow-sm">
                 <td className="rounded-l-lg px-4 py-3 font-semibold text-card-foreground [overflow-wrap:anywhere]">{task.title}</td>
-                {/* 调度名与项目名都可能是不含空格的完整路径，截断 + title 兜底，
-                    避免把表推出横向滚动（沿用 ScheduledTasksView 的同类处理）。 */}
+                {/* 调度名与项目名都可能是不可断的长 token（项目名会回退成完整路径），
+                    截断 + title 兜底，避免把表推出横向滚动（沿用 ScheduledTasksView 的同类处理）。 */}
                 <td className="px-4 py-3 text-xs text-muted-foreground">
                   <span className="block max-w-40 truncate" title={scheduleTitleOf(task.source_schedule_id, schedules)}>
                     {scheduleTitleOf(task.source_schedule_id, schedules)}
@@ -122,7 +124,7 @@ export function ScheduledRunHistoryView({ runs, schedules, projectOptions }: Sch
       </div>
 
       {/* Mobile/tablet cards (<1024px) */}
-      <div className="grid min-h-0 w-full auto-rows-min flex-1 grid-cols-1 gap-3 overflow-y-auto px-3 pb-4 sm:grid-cols-2 sm:px-4 lg:hidden">
+      <div className="grid min-h-0 w-full flex-1 auto-rows-min grid-cols-1 gap-3 overflow-y-auto px-3 pb-4 sm:grid-cols-2 sm:px-4 lg:hidden">
         {ordered.map((task) => (
           <div key={task.task_id} className="flex flex-col gap-1.5 rounded-lg border border-border bg-card p-3 shadow-sm">
             <span className="line-clamp-2 overflow-hidden text-sm font-semibold text-card-foreground">{task.title}</span>

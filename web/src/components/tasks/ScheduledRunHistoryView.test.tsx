@@ -6,6 +6,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { StaticRouter } from 'react-router-dom/server';
 
 import type { ScheduledTask, Task } from '../../types/app';
+
 import {
   ScheduledRunHistoryView,
   runsOf,
@@ -122,4 +123,11 @@ test('始终渲染「打开任务」链接', () => {
 test('空列表渲染空态', () => {
   const html = render([]);
   assert.match(html, /暂无运行记录/);
+});
+
+test('按触发时间倒序渲染', () => {
+  const older = { ...baseTask, task_id: 'old', created_at: '2026-08-13 09:00:00' };
+  const newer = { ...baseTask, task_id: 'new', created_at: '2026-08-15 09:00:00' };
+  const html = render([older, newer]);
+  assert.ok(html.indexOf('/task/new') < html.indexOf('/task/old'));
 });
