@@ -4,7 +4,7 @@ import test from 'node:test';
 import { computeNext, createSchedulerService, isRunActive, type SchedulerDeps } from '@/modules/scheduler/services/scheduler.service.js';
 import type { ScheduledTaskDbLike } from '@/modules/scheduler/services/scheduled-task-db-like.js';
 import type { TasksService } from '@/modules/tasks/services/tasks.service.js';
-import type { ScheduledTaskRow } from '@/shared/types.js';
+import type { ScheduledTaskRow, TaskRow } from '@/shared/types.js';
 
 type CreateScheduledTaskInput = Parameters<ScheduledTaskDbLike['createScheduledTask']>[0];
 type CreateTaskInput = Parameters<TasksService['createTask']>[0];
@@ -61,8 +61,25 @@ test('isRunActive: 只把「进行中且没跑挂」当作上一轮没结束', (
   assert.equal(isRunActive(null), false, '查不到上一轮任务时不挡');
 });
 
+function mkTaskRow(over: Partial<TaskRow>): TaskRow {
+  return {
+    task_id: 'task-1', project_path: '/proj', title: '跑', description: null,
+    status: 'todo', sub_status: null, executor_provider: 'claude', executor_model: null,
+    position: 0, session_id: null, source_schedule_id: 's1', auto_approve: 0,
+    started_at: null, completed_at: null,
+    created_at: '2026-08-13T00:00:00.000Z', updated_at: '2026-08-13T00:00:00.000Z',
+    ai_summary: null, verdict_reason: null, verdict_at: null,
+    priority: 'P2', deadline: null, is_operator: 0, label: 'other', remark: null,
+    context_summary: null, context_source_session_id: null, context_mode: 'none',
+    context_status: null, context_raw: null,
+    ...over,
+  };
+}
+
 function makeService(nowIso: string, extra: Partial<SchedulerDeps> = {}) {
   const rows = new Map<string, ScheduledTaskRow>();
+  const taskRows = new Map<string, TaskRow>();
+  const runningSessions = new Set<string>();
   const createdTasks: unknown[] = [];
   const launches: Array<{ taskId: string; sessionId: string }> = [];
   const broadcasts: unknown[] = [];
@@ -108,14 +125,17 @@ function makeService(nowIso: string, extra: Partial<SchedulerDeps> = {}) {
         return { task_id: 'task-1' } as unknown as ReturnType<TasksService['createTask']>;
       },
       startExecution: () => ({ sessionId: 'sess-1' }),
+      // 上一轮任务的查表口：守卫读的就是它（真实实现返回 decorate() 之后的行）。
+      getTask: (taskId: string) => taskRows.get(taskId) ?? null,
     },
     createSession: () => 'sess-1',
     startTaskRun: (taskId: string, sessionId: string) => { launches.push({ taskId, sessionId }); return true; },
     broadcast: (e: unknown) => broadcasts.push(e),
     now: () => new Date(nowIso),
+    isSessionRunning: (sessionId: string) => runningSessions.has(sessionId),
     ...extra,
   });
-  return { svc, rows, createdTasks, launches, broadcasts };
+  return { svc, rows, taskRows, runningSessions, createdTasks, launches, broadcasts };
 }
 
 test('tick dispatches once + auto-run, auto-disables once, skips auto_run=0', async () => {
@@ -579,4 +599,63 @@ test('update accepts autoApprove and maps it to the auto_approve column', async 
 
   const updated = await svc.update(row.schedule_id, { autoApprove: true }) as ScheduledTaskRow;
   assert.equal(updated.auto_approve, 1);
+});
+
+test('runNow 拒绝在上一轮还没结束时再触发', async () => {
+  const { svc, rows, taskRows, createdTasks } = makeService('2026-08-13T12:00:00.000Z');
+  rows.set('s1', mkRow({ schedule_id: 's1', last_task_id: 'task-1' }));
+  taskRows.set('task-1', mkTaskRow({ task_id: 'task-1', status: 'in_progress', sub_status: 'running' }));
+
+  await assert.rejects(
+    () => svc.runNow('s1'),
+    (err: unknown) => (err as { code?: string }).code === 'SCHEDULE_RUNNING',
+  );
+  assert.equal(createdTasks.length, 0, '被守卫挡下时不许建任务');
+  assert.equal(rows.get('s1')?.last_task_id, 'task-1', '被挡下时不许动 last_task_id');
+});
+
+test('runNow 放行：上一轮跑挂 / 已结束 / 没跑过 / 任务已被删', async () => {
+  // 跑挂的：仍停在 in_progress 槽位但标 failed
+  const a = makeService('2026-08-13T12:00:00.000Z');
+  a.rows.set('s1', mkRow({ schedule_id: 's1', last_task_id: 'task-1' }));
+  a.taskRows.set('task-1', mkTaskRow({ task_id: 'task-1', status: 'in_progress', sub_status: 'failed' }));
+  await a.svc.runNow('s1');
+  assert.equal(a.createdTasks.length, 1, '跑挂的必须能重来');
+
+  // 上一轮跑完进了 in_review
+  const b = makeService('2026-08-13T12:00:00.000Z');
+  b.rows.set('s1', mkRow({ schedule_id: 's1', last_task_id: 'task-1' }));
+  b.taskRows.set('task-1', mkTaskRow({ task_id: 'task-1', status: 'in_review', sub_status: 'pending_acceptance' }));
+  await b.svc.runNow('s1');
+  assert.equal(b.createdTasks.length, 1);
+
+  // 没跑过
+  const c = makeService('2026-08-13T12:00:00.000Z');
+  c.rows.set('s1', mkRow({ schedule_id: 's1', last_task_id: null }));
+  await c.svc.runNow('s1');
+  assert.equal(c.createdTasks.length, 1);
+
+  // 上一轮的任务已被删（运行记录清理）—— 查不到就不挡
+  const d = makeService('2026-08-13T12:00:00.000Z');
+  d.rows.set('s1', mkRow({ schedule_id: 's1', last_task_id: 'gone' }));
+  await d.svc.runNow('s1');
+  assert.equal(d.createdTasks.length, 1);
+});
+
+test('runNow 挡住「人工把在跑的任务标成 done」：status 骗人，会话还在跑', async () => {
+  const { svc, rows, taskRows, runningSessions, createdTasks } = makeService('2026-08-13T12:00:00.000Z');
+  rows.set('s1', mkRow({ schedule_id: 's1', last_task_id: 'task-1' }));
+  taskRows.set('task-1', mkTaskRow({ task_id: 'task-1', status: 'done', sub_status: null, session_id: 'sess-live' }));
+  runningSessions.add('sess-live');
+
+  await assert.rejects(
+    () => svc.runNow('s1'),
+    (err: unknown) => (err as { code?: string }).code === 'SCHEDULE_RUNNING',
+  );
+  assert.equal(createdTasks.length, 0);
+});
+
+test('runNow 对不存在的调度返回 null（路由据此 404）', async () => {
+  const { svc } = makeService('2026-08-13T12:00:00.000Z');
+  assert.equal(await svc.runNow('nope'), null);
 });

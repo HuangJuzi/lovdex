@@ -9,10 +9,15 @@ import type { ScheduledTaskDbLike } from './scheduled-task-db-like.js';
 
 export type SchedulerDeps = {
   scheduledTasksDb: ScheduledTaskDbLike;
-  tasksService: Pick<TasksService, 'createTask' | 'startExecution'>;
+  tasksService: Pick<TasksService, 'createTask' | 'startExecution' | 'getTask'>;
   createSession: (provider: TaskEngine, projectPath: string, isOperator?: boolean) => string;
   startTaskRun: (taskId: string, sessionId: string) => boolean;
   broadcast: (event: { kind: string; [k: string]: unknown }) => void;
+  /**
+   * 会话是否仍在流式输出。必填而非可选：漏注入会让「上一轮还在跑」的守卫静默
+   * 失效，而拦住第二个 agent 正是本次要做的全部事情 —— 宁可在类型层面卡住。
+   */
+  isSessionRunning: (sessionId: string) => boolean;
   now?: () => Date;
   /** 模板标题留空时用 LLM 从描述取名；与 tasksService 同一个契约。 */
   generateTitle?: (input: { description: string | null }) => Promise<string | null>;
@@ -111,6 +116,28 @@ export function createSchedulerService(deps: SchedulerDeps) {
         error: error instanceof Error ? error.message : error,
       });
     }
+  }
+
+  /**
+   * 这条调度「上一轮还没结束」的那个任务；null = 可以再触发。
+   *
+   * 两段判据缺一不可：
+   * - 任务行：in_progress 且没标 failed（见 isRunActive）。用 getTask 而非裸 DB 行，
+   *   因为 decorate() 才会把 sub_status 算成 running / waiting_*。
+   * - 会话：status 会骗人 —— 任务页的「标记完成」在进行中也渲染，人工把正在跑的任务
+   *   标成 done 之后 status 就不是 in_progress 了，但 agent 还在同一个项目里写文件。
+   *   这一段与 deleteTask / session-transfer / operator-delete 是同一个判据。
+   *
+   * 上一轮的任务已被删（运行记录清理）时放行：查不到就不挡。
+   */
+  function blockingRunOf(schedule: ScheduledTaskRow): TaskRow | null {
+    const lastId = schedule.last_task_id;
+    if (!lastId) return null;
+    const task = deps.tasksService.getTask(lastId);
+    if (!task) return null;
+    if (isRunActive(task)) return task;
+    if (task.session_id && deps.isSessionRunning(task.session_id)) return task;
+    return null;
   }
 
   async function dispatch(schedule: ScheduledTaskRow): Promise<void> {
@@ -372,6 +399,14 @@ export function createSchedulerService(deps: SchedulerDeps) {
     async runNow(scheduleId: string): Promise<unknown> {
       const schedule = deps.scheduledTasksDb.getScheduledTask(scheduleId);
       if (!schedule) return null;
+      // 上一轮还在跑就拒绝：dispatch 每次都会新建任务并起一个 agent，同一个提示词
+      // 会在同一个项目里跑起第二个 agent。
+      if (blockingRunOf(schedule)) {
+        throw new AppError(
+          `schedule ${scheduleId} still has an unfinished run; settle or interrupt it first`,
+          { code: 'SCHEDULE_RUNNING', statusCode: 409 },
+        );
+      }
       // Awaited: createTask may block on title generation, and a dispatch failure
       // must surface to the route instead of becoming an unhandled rejection.
       await dispatch(schedule);

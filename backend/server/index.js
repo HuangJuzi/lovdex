@@ -644,6 +644,8 @@ const schedulerService = createSchedulerService({
     startTaskRun,
     broadcast: broadcastTask,
     generateTitle,
+    // 「立即触发」的运行中守卫：上一轮还在流式输出时不许再派一轮。
+    isSessionRunning: (sessionId) => chatRunRegistry.listRunningRuns().some((run) => run.sessionId === sessionId),
 });
 
 // Session-transfer primitive for the operator tool set: moves a task + its
