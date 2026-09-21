@@ -294,6 +294,9 @@ test('manualTasksOf 空数组还是空数组', () => {
 // source_schedule_id 外完全一样，任何「顺手多加一个条件」的漂移（比如
 // `&& t.status !== 'archived'`）都重新划分不出差别，护栏就成了摆设。
 // 覆盖满之后，这类单边漂移会恰好丢掉一行，互补性立刻破掉。
+// 判据落在 fixture 没覆盖的字段上时护栏仍是绿的（sub_status 曾是这种），所以这里
+// 也放了一对 failed 行。另外两类任何 fixture 都救不了：两边同步改判据、以及接线漂移
+// （TaskBoard 里那两处调用没有测试钉住，靠它自己的注释顶着）。
 test('manualTasksOf 与 runsOf 互为补集', () => {
   const tasks = [
     mkTask({ task_id: 'a', status: 'todo' }),
@@ -306,11 +309,18 @@ test('manualTasksOf 与 runsOf 互为补集', () => {
     mkTask({ task_id: 'h', source_schedule_id: 's4', status: 'done' }),
     mkTask({ task_id: 'i', status: 'archived' }),
     mkTask({ task_id: 'j', source_schedule_id: 's5', status: 'archived' }),
+    // 同一 status、只有 sub_status 不同的成对行：钉住「failed 的定时任务被放回看板
+    // 让用户重试」这个最诱人的例外。
+    mkTask({ task_id: 'k', status: 'in_review', sub_status: 'failed' }),
+    mkTask({ task_id: 'l', source_schedule_id: 's6', status: 'in_review', sub_status: 'failed' }),
   ];
   const manual = manualTasksOf(tasks).map((t) => t.task_id);
   const runs = runsOf(tasks).map((t) => t.task_id);
 
   assert.equal(manual.length + runs.length, tasks.length);
-  assert.deepEqual([...manual, ...runs].sort(), ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j']);
+  assert.deepEqual(
+    [...manual, ...runs].sort(),
+    ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l'],
+  );
   assert.equal(manual.filter((id) => runs.includes(id)).length, 0);
 });

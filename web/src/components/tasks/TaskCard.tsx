@@ -82,6 +82,9 @@ export const TaskCard = memo(function TaskCard({
             {LABEL_META[label].label}
           </span>
         )}
+        {/* 看板已不显示定时任务跑出来的任务（它们只在「定时 → 运行记录」里），所以这条
+            徽标目前渲染不到。保留是因为 TaskCard 是通用展示组件、接收任意 Task —— 删掉
+            就等于对它可能收到的定时来源任务撒谎。TaskDetail 里的同款徽标仍可达。 */}
         {task.source_schedule_id && (
           <span className="rounded-full bg-warning/10 px-2 py-0.5 font-semibold text-warning">
             ⏰ 定时
