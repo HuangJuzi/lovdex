@@ -13,7 +13,7 @@ function mkRow(over: Partial<ScheduledTaskRow>): ScheduledTaskRow {
   return {
     schedule_id: 's1', title: 't', description: null, project_path: null,
     executor_provider: 'claude', executor_model: null, priority: 'P2', label: 'other',
-    is_operator: 1, auto_run: 1, schedule_type: 'once', cron_expr: null,
+    is_operator: 1, auto_run: 1, auto_approve: 0, schedule_type: 'once', cron_expr: null,
     interval_seconds: null, run_at: null, timezone: 'local',
     next_run_at: '2026-08-13T00:00:00.000Z', last_run_at: null, last_task_id: null,
     enabled: 1, created_at: '2026-08-13T00:00:00.000Z', updated_at: '2026-08-13T00:00:00.000Z',

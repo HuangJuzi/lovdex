@@ -45,6 +45,7 @@ function makeRow(overrides: Partial<Row> = {}): Row {
     position: 0,
     session_id: 's1',
     source_schedule_id: null,
+    auto_approve: 0,
     started_at: null,
     completed_at: null,
     created_at: '2026-01-01',
