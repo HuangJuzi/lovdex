@@ -147,6 +147,16 @@ export function filterTasks(tasks: Task[], filter: TaskFilter, now: Date): Task[
 }
 
 /**
+ * 手动建的任务 —— 看板/表格只显示这些。定时任务跑出来的任务去「定时 → 运行记录」里看。
+ *
+ * 与 `ScheduledRunHistoryView.tsx` 的 `runsOf` **互为补集**：这里是 `!source_schedule_id`，
+ * 那边是 `source_schedule_id`。两个谓词必须同步改，`taskFilter.test.ts` 里有互补性护栏。
+ */
+export function manualTasksOf(tasks: Task[]): Task[] {
+  return tasks.filter((t) => !t.source_schedule_id);
+}
+
+/**
  * 是否处于「有东西被筛掉了」的状态：任务级筛选（项目 / 日期）或状态 pill 否掉了某个状态。
  *
  * `showArchived` 不计入 —— 打开它只会多出行、不会藏行；关闭时 archived 本就不渲染，

@@ -4,11 +4,13 @@ import assert from 'node:assert/strict';
 import type { Task } from '../../types/app';
 
 import { ASSISTANT_OPTION_VALUE } from './projectOptions';
+import { runsOf } from './ScheduledRunHistoryView';
 import { STATUS_ORDER } from './taskStatus';
 import {
   EMPTY_TASK_FILTER,
   filterTasks,
   isTaskFilterActive,
+  manualTasksOf,
   normalizeTaskFilter,
   resolveDateRange,
   toggleProjectFilter,
@@ -272,4 +274,34 @@ test('isTaskFilterActive: archived pill is ignored while showArchived is off', (
 test('isTaskFilterActive: archived pill counts once showArchived is on', () => {
   const withoutArchived = STATUS_ORDER.filter((s) => s !== 'archived');
   assert.equal(isTaskFilterActive(filterOf({ showArchived: true }), withoutArchived), true);
+});
+
+test('manualTasksOf 滤掉定时任务跑出来的任务', () => {
+  const tasks = [
+    mkTask({ task_id: 'manual-1' }),
+    mkTask({ task_id: 'run-1', source_schedule_id: 's1' }),
+    mkTask({ task_id: 'manual-2' }),
+  ];
+  assert.deepEqual(manualTasksOf(tasks).map((t) => t.task_id), ['manual-1', 'manual-2']);
+});
+
+test('manualTasksOf 空数组还是空数组', () => {
+  assert.deepEqual(manualTasksOf([]), []);
+});
+
+// 护栏：两个谓词互为补集。任何一边改了判据（比如将来加个「仅提醒不算」的例外），
+// 这条会立刻红 —— 否则「看板少一行」和「运行记录多一行」会各自漂移很久才被发现。
+test('manualTasksOf 与 runsOf 互为补集', () => {
+  const tasks = [
+    mkTask({ task_id: 'a' }),
+    mkTask({ task_id: 'b', source_schedule_id: 's1' }),
+    mkTask({ task_id: 'c', source_schedule_id: 's2' }),
+    mkTask({ task_id: 'd' }),
+  ];
+  const manual = manualTasksOf(tasks).map((t) => t.task_id);
+  const runs = runsOf(tasks).map((t) => t.task_id);
+
+  assert.equal(manual.length + runs.length, tasks.length);
+  assert.deepEqual([...manual, ...runs].sort(), ['a', 'b', 'c', 'd']);
+  assert.equal(manual.filter((id) => runs.includes(id)).length, 0);
 });

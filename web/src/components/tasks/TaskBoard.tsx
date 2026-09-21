@@ -26,7 +26,7 @@ import type { ScheduledTab } from './ScheduledTabBar';
 import { TaskTableView } from './TaskTableView';
 import { TaskInboxPanel } from './TaskInboxPanel';
 import { CreateTaskDialog } from './CreateTaskDialog';
-import { EMPTY_TASK_FILTER, filterTasks, isTaskFilterActive, normalizeTaskFilter } from './taskFilter';
+import { EMPTY_TASK_FILTER, filterTasks, isTaskFilterActive, manualTasksOf, normalizeTaskFilter } from './taskFilter';
 
 export function TaskBoardPage() {
   const navigate = useNavigate();
@@ -83,7 +83,10 @@ export function TaskBoardPage() {
     return () => clearInterval(id);
   }, []);
   const filteredTasks = useMemo(() => filterTasks(tasks, filter, now), [tasks, filter, now]);
-  const groups = useMemo(() => groupByStatus(filteredTasks), [filteredTasks]);
+  // 看板/表格只显示手动建的任务 —— 定时任务跑出来的去「定时 → 运行记录」里看。
+  // 收件箱仍收全量的 filteredTasks：无人值守的任务失败/卡住最需要被提醒，全静默反而危险。
+  const boardTasks = useMemo(() => manualTasksOf(filteredTasks), [filteredTasks]);
+  const groups = useMemo(() => groupByStatus(boardTasks), [boardTasks]);
 
   // 批量删除选择：跨表格/看板两个视图共享同一份 task_id 集合。
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -488,7 +491,7 @@ export function TaskBoardPage() {
           />
           {effectiveView === 'table' ? (
             <TaskTableView
-              tasks={filteredTasks}
+              tasks={boardTasks}
               projectOptions={projectOptions}
               showArchived={filter.showArchived}
               statusFilter={statusFilter}
