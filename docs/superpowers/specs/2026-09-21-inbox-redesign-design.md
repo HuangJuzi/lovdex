@@ -95,11 +95,19 @@ export function inboxTargetPath(it: InboxNotification): string | null {
 
 ### 4.1 容器与断点
 
-- 容器：`mx-auto flex h-full w-full max-w-7xl flex-col p-4`（`h-screen` → `h-full`，因为要嵌进 `AppContent` 的主内容区）。
-- 两栏：`grid gap-4 lg:grid-cols-12`，左栏 `lg:col-span-5`、右栏 `lg:col-span-7`。用 12 栅格而不是 `grid-cols-[5fr_7fr]`，避免任意值。
+- 容器：`flex h-full min-h-0 w-full flex-col p-4` —— **不设 max-width**，与主内容区一样占满全屏。（`h-screen` → `h-full`，因为要嵌进 `AppContent` 的主内容区。）
+- 两栏用 flex 行，**不用栅格**：左栏是显式宽度的可调列，右栏 `flex-1 min-w-0` 吃掉剩余空间。
 - **< `lg`（1024px）退回单列**，只渲染列表；详情走 §5 的全屏 sheet。
 
+**2026-09-21 修订（用户反馈）**：初版是 `max-w-7xl` + `lg:grid-cols-12`（5/7 栅格）。用户要求「和主页面一样占满全屏」，故去掉宽度上限；同时要求「列表宽度和左侧边栏一样，可调」，故左栏改为可拖动调宽（见 §4.2）。
+
 ### 4.2 左栏（列表）
+
+**宽度可调**（2026-09-21 修订）：默认 `288` —— 与侧边栏默认宽度一致，视觉上两栏对齐；但**各用各的 localStorage key**（`inboxListWidth` vs `sidebarWidth`），拖动互不影响。区间复用侧边栏的 200–480。
+
+复用侧边栏那套交互：拖动、键盘 `←`/`→`/`Home`/`End`、双击复位、`role="separator"` + `aria-*`。实现上把原来的 `SidebarResizeHandle` 与 `useSidebarWidth` 抽成通用的 `ResizeHandle` 与 `useResizableWidth`，侧边栏保留同名薄包装（对外 API 不变，既有测试继续有效）。
+
+⚠️ 分隔条是 `absolute inset-y-0 right-0` —— **父容器必须 `relative` 且不能是滚动容器**，否则会跟着内容滚走。滚动交给内层。
 
 - 筛选 chip（**局部 state，不进共享 filter**，与任务页表格状态筛选的既有约定一致）：`全部` / `未读 N` / `严重 N`。
 - 「全部已读」按钮置于头部右侧。
@@ -137,6 +145,14 @@ export function inboxTargetPath(it: InboxNotification): string | null {
 | 都没有 | 系统 |
 
 `code` 本身作为**原始字符串**展示在详情页元信息里（如 `disk_full`），不做翻译——它本来就是用户自己起的名字。
+
+### 4.6 时间戳时区（2026-09-21 修订，修既有 bug）
+
+两栏要在列表和详情里显示时间，于是暴露出一个**全仓既有缺陷**：后端所有表的时间列都是 SQLite `CURRENT_TIMESTAMP`，产出 `YYYY-MM-DD HH:MM:SS`，是 **UTC 但不带时区标识**。JS 的 `new Date()` 对「无时区标识的日期时间串」按**本地时间**解释（ES2015+；只有纯日期 `YYYY-MM-DD` 才按 UTC），于是整条时间偏掉一个时区偏移 —— Asia/Shanghai 下差 8 小时，真实的「3 小时前」显示成「11 小时前」。
+
+受影响的不止收件箱：`taskTimestamp.ts` 的 `formatRelativeTime` / `formatAbsoluteTime` 被 **7 个文件**使用（任务卡片、任务表格、任务详情、定时任务视图…），**任务页的时间一直是错的**。
+
+修法：在共享 util 里加 `parseBackendTimestamp`，对裸格式补 `Z` 按 UTC 解析；已带时区标识的串原样交给 `Date`。一处修好，收件箱与任务页同时纠正。
 
 ### 4.5 头部与侧边栏入口
 
