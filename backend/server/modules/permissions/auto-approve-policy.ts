@@ -113,7 +113,14 @@ const COMMAND_RULES: readonly CommandRule[] = [
         (tokens) =>
           tokens[0] === 'git' &&
           tokens[1] === 'clean' &&
-          tokens.slice(2).some((arg) => /^-[a-zA-Z]*f/.test(arg)),
+          tokens.slice(2).some((arg) => {
+            // 长写法 `--force` 与 `-f` 等价，必须一起拒。只有以短横线开头的参数才算旗标，
+            // 否则 `git clean -d src` 里的普通路径参数会被误判成 force。`--dry-run`(-n)
+            // 是空跑预览，bare 含 `-` 走不到规则里，保持放行。
+            if (!arg.startsWith('-')) return false;
+            const bare = arg.replace(/^--?/, '');
+            return bare === 'force' || /^[a-zA-Z]*f[a-zA-Z]*$/.test(bare);
+          }),
       ),
   },
   {

@@ -23,6 +23,8 @@ test('allows an ordinary bash command', () => {
     'rm -rf node_modules',
     'rm build.log',
     'git reset HEAD~1',
+    'git clean -n',
+    'git clean --dry-run',
     'ls -la',
   ];
   for (const command of allowed) {
@@ -77,7 +79,14 @@ test('denies destructive rm targets', () => {
 });
 
 test('denies privilege escalation, force pushes and history rewrites', () => {
-  for (const command of ['sudo apt install x', 'git push', 'git push origin main', 'git reset --hard HEAD~3']) {
+  for (const command of [
+    'sudo apt install x',
+    'git push',
+    'git push origin main',
+    'git reset --hard HEAD~3',
+    'git clean --force',
+    'git clean -fd --force',
+  ]) {
     assert.equal(
       decideAutoApproval('Bash', { command }).behavior,
       'deny',
