@@ -44,6 +44,8 @@ npx tsx --test src/components/tasks/scheduleRunNow.test.ts
 
 **基线（改动前实测）**：`scheduler.service.test.ts` 29 条全绿、`scheduler.routes.test.ts` 5 条全绿、`ScheduledTasksView.test.tsx` 12 条全绿。
 
+**行号与并发**：本文的行号核对于 `6d83521`。这个仓库有**多个会话同时在 main 上提交**（本计划写作期间另一个会话刚提交了 `992fc2a` 的运行记录删除功能），`ScheduledTasksView.tsx` / `ScheduledTasksPanel.tsx` 都可能在开工前被移动。动手前先 `git log --oneline -5` + 用 `grep -n` 复核本节引用的行号；锚点找不到了就按**符号名**（如 `async function runNow`、`const runs = useMemo`）定位，不要按行号硬改。
+
 ---
 
 ## Task 1: 后端 `isRunActive` 纯函数
@@ -882,7 +884,7 @@ import type { ScheduledTask, Task } from '../../types/app';
 import { runNowBlockedReason } from './scheduleRunNow';
 ```
 
-props 类型（`:9`）加四项：
+props 类型（`:12`）加四项：
 
 ```tsx
 export type ScheduledTasksViewProps = {
@@ -1027,7 +1029,7 @@ git commit -m "feat(scheduled-tasks): disable run-now while the previous run is 
 
 - [ ] **Step 1: 加状态**
 
-`ScheduledTasksPanel.tsx:41` 的 `const runs = useMemo(...)` 之后加：
+`ScheduledTasksPanel.tsx:44` 的 `const runs = useMemo(...)` 之后加：
 
 ```tsx
   // 「上一轮还没结束」的调度 → 那个运行。判据见 scheduleRunNow.blockingRunsBySchedule。
@@ -1046,7 +1048,7 @@ import 补：
 import { blockingRunsBySchedule, runNowErrorMessage } from './scheduleRunNow';
 ```
 
-- [ ] **Step 2: 改 `runNow`（`:86`）**
+- [ ] **Step 2: 改 `runNow`（`:117`）**
 
 ```tsx
   async function runNow(t: ScheduledTask) {
