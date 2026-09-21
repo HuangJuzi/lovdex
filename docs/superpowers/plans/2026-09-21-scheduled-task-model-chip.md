@@ -762,7 +762,7 @@ git commit -m "feat(scheduled-tasks): replace priority/label chips with a model 
 
 **Files:** 无（只读验证）
 
-- [ ] **Step 1: 确认服务在跑**
+- [x] **Step 1: 确认服务在跑**
 
 ```bash
 ss -ltnp | grep -E ':5188|:3188'
@@ -770,7 +770,7 @@ ss -ltnp | grep -E ':5188|:3188'
 
 Expected: 两个端口都在监听。若没有，**先问用户**再重启（重启后端需要用户逐次许可）。
 
-- [ ] **Step 2: 记录当前定时任务表**
+- [x] **Step 2: 记录当前定时任务表**
 
 ```bash
 sqlite3 ~/.lovdex/data/new-auth.db "SELECT schedule_id, title, executor_provider, executor_model, priority, label FROM scheduled_tasks LIMIT 10;"
@@ -778,7 +778,7 @@ sqlite3 ~/.lovdex/data/new-auth.db "SELECT schedule_id, title, executor_provider
 
 记下几条 `executor_model` 为空的**老**任务，Step 4 要用。
 
-- [ ] **Step 3: 新建一条定时任务，验证模型落库**
+- [x] **Step 3: 新建一条定时任务，验证模型落库**
 
 在浏览器（`http://<本机 IP>:5188`，不要用 localhost）打开任务页 → 切到定时任务视图 → 新建：
 1. 确认 chip 行是「名称 / 项目 / 引擎 / 模型」，**没有**优先级和标签。
@@ -793,7 +793,7 @@ sqlite3 ~/.lovdex/data/new-auth.db "SELECT schedule_id, executor_provider, execu
 
 Expected: `executor_model` = 刚才选的模型名；`priority` = `P2`、`label` = `other`（后端默认值兜底）。
 
-- [ ] **Step 4: 编辑一条老任务，验证 NULL 不被回填**
+- [x] **Step 4: 编辑一条老任务，验证 NULL 不被回填**
 
 编辑 Step 2 记下的那条 `executor_model` 为空的定时任务：确认模型 chip 显示「默认模型」，**不做任何修改**直接保存。再查库：
 
@@ -803,15 +803,15 @@ sqlite3 ~/.lovdex/data/new-auth.db "SELECT schedule_id, executor_model, priority
 
 Expected: `executor_model` 仍是 NULL，且 `priority`/`label` 保持原值（若原来不是 P2/other，也没被改掉）。
 
-- [ ] **Step 5: 验证切引擎会重置模型**
+- [x] **Step 5: 验证切引擎会重置模型**
 
 编辑任意一条定时任务 → 把引擎从 claude 切成别的 → 模型 chip 应跳到新引擎的第一个模型。
 
-- [ ] **Step 6: 验证「Lovdex 助手」项目下模型仍可点**
+- [x] **Step 6: 验证「Lovdex 助手」项目下模型仍可点**
 
 新建定时任务 → 项目选「Lovdex 助手」→ 模型 chip **不应该**置灰（这与「新建任务」弹窗的行为**不同**，是有意为之）。
 
-- [ ] **Step 7: 验证模型真的生效**
+- [x] **Step 7: 验证模型真的生效**
 
 对 Step 3 建的那条任务点「立即运行」，然后确认派发出的任务带着模型：
 
@@ -821,7 +821,7 @@ sqlite3 ~/.lovdex/data/new-auth.db "SELECT task_id, executor_model FROM tasks OR
 
 Expected: `executor_model` = 定时任务上存的模型名，不是 NULL。
 
-- [ ] **Step 8: 记录验证结果**
+- [x] **Step 8: 记录验证结果**
 
 把每一步的实际输出贴进对话，**失败就如实说失败**，别用「应该没问题」代替。
 
