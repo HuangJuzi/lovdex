@@ -1989,19 +1989,34 @@ git commit -m "feat(web): badge the scheduled tasks that will approve their own 
 
 - [ ] **Step 1: 放行事件**
 
+> **实施记录（2026-09-21）**：下面第 2 点**原文写反了，照抄会静默毁掉整个可观测性**。
+> `useChatRealtimeHandlers.ts:264-268` 的 `shouldPersist` 是一串 `!==`（**取反列表**），
+> 加上 `&& msg.kind !== 'permission_auto'` 会让它对该 kind 变成 `false`，
+> 帧在 `appendRealtime` 那步就被丢掉，根本到不了渲染层。标题写「放行」，
+> 代码做的是相反的事。**该文件应当完全不动**——`permission_auto` 必须留在
+> `shouldPersist` 之内才会被持久化与渲染。实施时已按正确行为处理（见 commit `cef2cc5`）。
+> 教训：改这类列表前先读它是白名单还是黑名单，别被小节标题带跑。
+
 1. `web/src/stores/useSessionStore.ts:30-31` 的 kind 联合会加一行：
 
 ```ts
   | 'permission_auto'
 ```
 
-2. `web/src/components/chat/hooks/useChatRealtimeHandlers.ts:267-268` 的排除条件里加一行：
+同一文件里 `NormalizedMessage` 接口还要补两个字段（`toolName` 附近）——它**没有**索引签名，
+不加的话 Step 2 的 `msg.autoApproveBehavior` 过不了 typecheck：
 
 ```ts
-        && msg.kind !== 'permission_auto'
+  autoApproveBehavior?: 'allow' | 'deny';
+  autoApproveReason?: string;
 ```
 
-这两处是让帧不被当成「未知事件」丢弃。用 grep 确认没有其它 `permission_cancelled` 的并列分支需要同步（`hooks/useProjectsState.ts:702` 也有一处，同样加上）。
+2. **不要动 `useChatRealtimeHandlers.ts`。** 理由见上方实施记录。
+
+用 grep 确认没有其它 `permission_cancelled` 的并列分支需要同步。实施时找到并处理的是
+`hooks/useProjectsState.ts:702`（侧栏注意力标记的排除列表）——那里**该**加，
+因为自动决定不该点亮侧栏红点。注意它和上面那处性质相反：那个列表加对了是「不打扰」，
+这个列表加错了是「看不见」。
 
 - [ ] **Step 2: 转成消息**
 
