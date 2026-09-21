@@ -72,6 +72,10 @@
 - `<DialogTitle>` **保持 `sr-only`**（a11y，且不动共享组件）。
 - 在 `DialogContent` 内新增**可见标题**：`你有未读通知`（`text-lg font-semibold`）+ 副标题 `共 N 条未读`。这是仓库既有模式——`CommandResultModal` 就是 sr-only 标题 + 自渲染头部。
 - **候选集不变**：仍是 `items.filter(it => !it.read_at && it.severity !== 'info').slice(0, 8)` —— `info` 永不进汇总弹窗，这条既有约定不能在这一版改掉。（实时 toast 侧同样只对非 info 弹窗，见 `AppContent.tsx:245-260`。）
+
+**2026-09-21 修订（不要按路由抑制）**：改版过程中一度加过「用户已经在 `/inbox` 就不弹汇总」，理由是「别糊在正看着的列表上」。结果是**功能被关掉**：收件箱列表是就地更新的，弹窗正是那个「有新东西」的信号；而且 `claimUnannouncedImportant()` 在门控**之前**执行，记账副作用已经把这条消费掉 —— 表现是「收件箱里有、任何路由都不弹」。**不要在 announce 路径上加路由判断。**
+
+**已知设计属性（两条弹窗路径互斥）**：实时到达的通知走 toast，`applyInboxEvent` 会先 `announced.add()` 记账，所以它**不会**再进汇总弹窗；汇总弹窗只负责「当时没连着、重连后 refetch 才发现」的那些（`claimUnannouncedImportant`）。副作用是：**漏看一条 6 秒的 toast 就等于完全没被告知**。若这个取舍不合适，改法是让 toast 路径不记账（代价：同一条会既弹 toast 又进下一次汇总）。
 - 列表行复用 §3.1 的图标块样式，**按严重度分组**（严重 / 警告），每组一个小写字标签。
 - 每行可点击直接跳转，复用 §3.3 的 `inboxTargetPath(it)` 共享函数；返回 `null` 的行不可点。
 - 底部按钮：`知道了`（纯关闭，不改已读状态）+ `全部已读` + `去收件箱`。
