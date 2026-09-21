@@ -5,6 +5,7 @@ import { Inbox } from 'lucide-react';
 import { Button } from '../../../../shared/view/ui';
 import { cn } from '../../../../lib/utils';
 import { subscribeInbox, getUnreadCount } from '../../../../stores/inboxStore';
+import { isInboxPath } from '../../../app/inboxRouteMatch';
 
 /**
  * 「收件箱」侧边栏整行入口，置于「定时任务」之后。点击跳 /inbox。
@@ -14,7 +15,7 @@ export default function SidebarInboxEntry() {
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const unread = useSyncExternalStore(subscribeInbox, getUnreadCount, () => 0);
-  const active = pathname === '/inbox';
+  const active = isInboxPath(pathname);
   return (
     <div className="flex-shrink-0 px-2 pt-1.5 md:px-1.5">
       <Button

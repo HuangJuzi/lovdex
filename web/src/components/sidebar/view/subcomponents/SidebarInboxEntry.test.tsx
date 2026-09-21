@@ -21,3 +21,7 @@ test('停在 /inbox 时入口高亮', () => {
 test('其他路由下不高亮', () => {
   assert.ok(render('/').includes('data-active="false"'));
 });
+
+test('尾斜杠 /inbox/ 也高亮', () => {
+  assert.ok(render('/inbox/').includes('data-active="true"'));
+});

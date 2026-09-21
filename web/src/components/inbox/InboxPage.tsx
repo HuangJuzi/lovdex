@@ -25,9 +25,15 @@ const SEVERITY_ORDER: InboxSeverity[] = ['critical', 'warning', 'info'];
 type InboxPageProps = {
   /** 窄屏下点菜单按钮要能拉出侧边栏抽屉，而抽屉由 AppContent 持有 —— 用回调传进来。 */
   onOpenSidebar?: () => void;
+  /**
+   * 是否渲染汉堡按钮。由 AppContent 传「抽屉是否激活」进来（它的断点是 768），
+   * **不要**用本组件自己的 `isMobile`（1024，管的是两栏/sheet）—— 两者不是一回事，
+   * 混用会在 768–1023px 渲染出一个点了没反应的死按钮。
+   */
+  showMenuButton?: boolean;
 };
 
-export default function InboxPage({ onOpenSidebar }: InboxPageProps = {}) {
+export default function InboxPage({ onOpenSidebar, showMenuButton = false }: InboxPageProps = {}) {
   const navigate = useNavigate();
   const snapshot = useSyncExternalStore(subscribeInbox, getInboxSnapshot, getInboxSnapshot);
   // 断点与 Tailwind 的 lg（1024px）对齐：>=lg 两栏，<lg 单列 + 全屏 sheet。
@@ -98,7 +104,7 @@ export default function InboxPage({ onOpenSidebar }: InboxPageProps = {}) {
   return (
     <div className="mx-auto flex h-full min-h-0 w-full max-w-7xl flex-col p-4">
       <div className="mb-4 flex items-center gap-2">
-        {isMobile ? <MobileMenuButton onMenuClick={() => onOpenSidebar?.()} /> : null}
+        {showMenuButton ? <MobileMenuButton onMenuClick={() => onOpenSidebar?.()} /> : null}
         <InboxIcon className="h-5 w-5 text-primary" />
         <h1 className="text-lg font-semibold">收件箱</h1>
         {unreadCount > 0 ? (
@@ -179,7 +185,7 @@ export default function InboxPage({ onOpenSidebar }: InboxPageProps = {}) {
             <InboxDetail
               item={selected}
               now={now}
-              onMarkRead={markReadLocal}
+              onMarkRead={(id) => { markReadLocal(id); setSheetOpen(false); }}
               onNavigate={(path) => { setSheetOpen(false); navigate(path); }}
             />
           </DialogContent>

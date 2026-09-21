@@ -36,6 +36,9 @@ export const SEVERITY_STYLE: Record<ToastSeverity, { icon: React.ReactNode; icon
 
 export const AUTO_DISMISS_MS = 6000;
 
+/** 退场动画 180ms；兜底定时器略长一点，防止 animationend 不触发时卡片永久留在 DOM 里。 */
+const EXIT_FALLBACK_MS = 250;
+
 /** 单条 toast：入场淡入缩放，AUTO_DISMISS_MS 后播放退场动画再卸载。 */
 export function ToastCard({ item, onDismiss }: { item: ToastItem; onDismiss: (id: string) => void }) {
   const [closing, setClosing] = useState(false);
@@ -62,6 +65,15 @@ export function ToastCard({ item, onDismiss }: { item: ToastItem; onDismiss: (id
     schedule(AUTO_DISMISS_MS);
     return clearTimer;
   }, [schedule, clearTimer, item.id]);
+
+  // 兜底：退场动画可能压根不跑（用户样式表 animation:none、不支持的旧内核），
+  // 那样 onAnimationEnd 永远不触发，卡片会停在 opacity:0 却仍然 pointer-events-auto，
+  // 在右上角形成一块看不见的点击黑洞。dismiss 按 id 过滤，天然幂等，重复调用无害。
+  useEffect(() => {
+    if (!closing) return;
+    const t = setTimeout(() => onDismiss(item.id), EXIT_FALLBACK_MS);
+    return () => clearTimeout(t);
+  }, [closing, item.id, onDismiss]);
 
   // 悬停暂停：记下剩余时间并清掉定时器；移出后按剩余时间续跑。
   const handleMouseEnter = useCallback(() => {

@@ -234,6 +234,7 @@ function AppContentInner() {
   const summaryItems = inbox.items
     .filter((it) => !it.read_at && it.severity !== 'info')
     .slice(0, 8);
+  const summaryTotal = inbox.items.filter((it) => !it.read_at && it.severity !== 'info').length;
   const summaryCritical = summaryItems.filter((it) => it.severity === 'critical');
   const summaryWarning = summaryItems.filter((it) => it.severity === 'warning');
 
@@ -317,7 +318,10 @@ function AppContentInner() {
 
       <div className="flex min-w-0 flex-1 flex-col">
         {isInboxRoute ? (
-          <InboxPage onOpenSidebar={() => setSidebarOpen(true)} />
+          <InboxPage
+            onOpenSidebar={() => setSidebarOpen(true)}
+            showMenuButton={isMobile}
+          />
         ) : (
           <MainContent
             selectedProject={selectedProject}
@@ -369,7 +373,7 @@ function AppContentInner() {
               CommandResultModal 已经在用的模式。 */}
           <DialogTitle>你有未读通知</DialogTitle>
           <h2 className="text-lg font-semibold">你有未读通知</h2>
-          <p className="mt-0.5 text-xs text-muted-foreground">共 {summaryItems.length} 条需要你看一眼</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">共 {summaryTotal} 条需要你看一眼</p>
 
           <div className="mt-3 space-y-3">
             {[
