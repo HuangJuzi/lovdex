@@ -83,6 +83,12 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
     return null;
   }
 
+  // 自动审批提示是系统留痕，不是对话内容：不画头像/名称/时间戳，
+  // 否则一次无人值守跑 20 个自动放行就是 20 组头尾，与「一行轻量提示」相反。
+  if (message.type === 'notice') {
+    return <AutoApproveNotice message={message} />;
+  }
+
   return (
     <div
       ref={messageRef}
@@ -168,9 +174,7 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
 
           <div className="w-full">
 
-            {message.type === 'notice' ? (
-              <AutoApproveNotice message={message} />
-            ) : message.isToolUse ? (
+            {message.isToolUse ? (
               <>
                 <div className="flex flex-col">
                   <div className="flex flex-col">
