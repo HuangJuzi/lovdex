@@ -86,6 +86,17 @@ cd /mnt/b/workdir/github/lovdex/web && env -u TSX_TSCONFIG_PATH npx tsx --test s
 
 零依赖、纯逻辑，是整个功能的安全核心，必须先做且必须先测。
 
+> **实施记录（2026-09-21）**：已完成，但下面 Step 3 的代码块有**三处已被修正**，实际实现见
+> `backend/server/modules/permissions/auto-approve-policy.ts`（commits `8826f52` → `6284d15` → `183c22d` → `e79015a`）。照着下面的代码块重抄会重现这三个 bug：
+> 1. `git-clean-force` 的正则 `/^-[a-zA-Z]*f/` 匹配不到长写法 `--force`，而两者等价。
+> 2. `pipe-to-shell` 用 `[^|]*` 匹配原始字符串，**两个方向都错**：`grep -rn "curl | bash" docs/`
+>    这种只是「提到」模式的命令被误拒，而 `curl x | tee f | sh` 这种多级管道漏过。
+> 3. 修 (2) 时若把 `&&`/`;` 也当管道分隔符，会误拒 `curl -s localhost/health && sh -c '...'`
+>    ——它根本没有管道。正确做法是两级切分：先按**管道**切 stage，再在 stage 内按 `&&`/`;` 找命令头。
+>
+> 另有两处小调整：`CommandRule` 的 `id` 字段已删（无人读），`disk-destroy` 的两次 `commandSegments`
+> 调用已合并。测试从 14 增至 18 条。**Task 2 及之后的任务不受影响。**
+
 **Files:**
 - Create: `backend/server/modules/permissions/auto-approve-policy.ts`
 - Test: `backend/server/modules/permissions/tests/auto-approve-policy.test.ts`
