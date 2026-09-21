@@ -354,6 +354,107 @@ git commit -m "feat(inbox): mount inbox page inside AppContent to keep the sideb
 
 ---
 
+## Task 2b: `/inbox/` 尾斜杠容错（代码审查发现）
+
+**Files:**
+- Modify: `web/src/components/app/AppContent.tsx`
+- Test: `web/src/components/app/inboxRouteMatch.test.ts`（新建，测纯函数）
+- Create: `web/src/components/app/inboxRouteMatch.ts`
+
+**为什么有这个任务**：Task 2 用的是 `pathname === '/inbox'`。react-router v6 匹配 `/inbox/` 时会命中同一条 Route，但 `location.pathname` **保留**尾斜杠，于是 `isInboxRoute` 为 false，`/inbox/` 这个 URL 下会渲染出 `MainContent` 空态。
+
+只有手敲 URL 或旧书签能触发（侧边栏入口和汇总弹窗都精确写 `/inbox`），但修起来很便宜。
+
+- [ ] **Step 1: 写失败的测试**
+
+创建 `web/src/components/app/inboxRouteMatch.test.ts`：
+
+```ts
+import test from 'node:test';
+import assert from 'node:assert/strict';
+
+import { isInboxPath } from './inboxRouteMatch';
+
+test('精确路径命中', () => {
+  assert.equal(isInboxPath('/inbox'), true);
+});
+
+test('尾斜杠也命中（react-router 会匹配该 Route，但 pathname 保留斜杠）', () => {
+  assert.equal(isInboxPath('/inbox/'), true);
+});
+
+test('其他路径不命中', () => {
+  assert.equal(isInboxPath('/'), false);
+  assert.equal(isInboxPath('/inboxes'), false);
+  assert.equal(isInboxPath('/task/inbox'), false);
+  assert.equal(isInboxPath('/inbox/123'), false);
+});
+```
+
+- [ ] **Step 2: 跑测试确认失败**
+
+```bash
+# 在 web/ 目录下
+env -u TSX_TSCONFIG_PATH npx tsx --test src/components/app/inboxRouteMatch.test.ts
+```
+
+预期：FAIL —— `Cannot find module './inboxRouteMatch'`
+
+- [ ] **Step 3: 写实现**
+
+创建 `web/src/components/app/inboxRouteMatch.ts`：
+
+```ts
+/**
+ * 判断当前路径是否是收件箱页。
+ *
+ * 不能直接 `pathname === '/inbox'`：react-router v6 匹配 `/inbox/` 时会命中同一条
+ * Route，但 `location.pathname` 保留尾斜杠，直接比较会让 `/inbox/` 落到主界面空态。
+ */
+export function isInboxPath(pathname: string): boolean {
+  const normalized = pathname.endsWith('/') && pathname.length > 1
+    ? pathname.slice(0, -1)
+    : pathname;
+  return normalized === '/inbox';
+}
+```
+
+- [ ] **Step 4: 接进 AppContent**
+
+`web/src/components/app/AppContent.tsx` —— 加 import：
+
+```tsx
+import { isInboxPath } from './inboxRouteMatch';
+```
+
+把 Task 2 加的那两行换成：
+
+```tsx
+  // /inbox 复用本组件只为拿到侧边栏；主内容区换成收件箱页。
+  // Router 已设 basename，useLocation().pathname 是剥掉 basename 的路径。
+  const { pathname } = useLocation();
+  const isInboxRoute = isInboxPath(pathname);
+```
+
+- [ ] **Step 5: 跑测试确认通过 + typecheck**
+
+```bash
+# 在 web/ 目录下
+env -u TSX_TSCONFIG_PATH npx tsx --test src/components/app/inboxRouteMatch.test.ts
+npm run typecheck
+```
+
+预期：PASS 3 个测试；typecheck 0 错误
+
+- [ ] **Step 6: 提交**
+
+```bash
+git add web/src/components/app/inboxRouteMatch.ts web/src/components/app/inboxRouteMatch.test.ts web/src/components/app/AppContent.tsx
+git commit -m "fix(inbox): tolerate a trailing slash on the inbox route"
+```
+
+---
+
 ## Task 3: `DialogContent` 增加 `sheet` 变体
 
 **Files:**
@@ -483,6 +584,125 @@ npm run typecheck
 ```bash
 git add web/src/shared/view/ui/Dialog.tsx web/src/shared/view/ui/Dialog.test.ts
 git commit -m "feat(ui): add optional sheet variant to DialogContent"
+```
+
+---
+
+## Task 3b: sheet 需要独立的入场动画（计划缺陷修正）
+
+**Files:**
+- Modify: `web/tailwind.config.js`
+- Modify: `web/src/shared/view/ui/Dialog.tsx`
+- Test: `web/src/shared/view/ui/Dialog.test.ts`
+
+**为什么有这个任务**：Task 3 实现时发现，`animate-dialog-content-show` 的 keyframes 写死了居中位移：
+
+```js
+'dialog-content-show': {
+  from: { opacity: '0', transform: 'translate(-50%, -48%) scale(0.96)' },
+  to:   { opacity: '1', transform: 'translate(-50%, -50%) scale(1)' },
+},
+```
+
+而 Task 3 把 `animate-dialog-content-show` 留在了**变体之外的公共类**里。于是 `variant="sheet"` 会继承这个动画，被 keyframes 强行拉到屏幕正中间 —— sheet 完全失效。这是原计划的缺陷，Task 6 依赖它，必须先修。
+
+修法：把动画类**移进变体查表**，sheet 用一套自己的、只做纵向位移的动画。
+
+- [ ] **Step 1: 写失败的测试**
+
+在 `web/src/shared/view/ui/Dialog.test.ts` 末尾追加：
+
+```ts
+test('center 与 sheet 各自绑定自己的入场动画', () => {
+  assert.ok(
+    DIALOG_CONTENT_VARIANT_CLASS.center.includes('animate-dialog-content-show'),
+    'center 应使用居中动画',
+  );
+  assert.ok(
+    DIALOG_CONTENT_VARIANT_CLASS.sheet.includes('animate-dialog-sheet-show'),
+    'sheet 应使用底部滑入动画',
+  );
+});
+
+test('sheet 不得沿用居中动画（其 keyframes 会强行注入 translate(-50%,-50%)）', () => {
+  assert.ok(
+    !DIALOG_CONTENT_VARIANT_CLASS.sheet.includes('animate-dialog-content-show'),
+    'sheet 不能带 animate-dialog-content-show',
+  );
+});
+```
+
+- [ ] **Step 2: 跑测试确认失败**
+
+```bash
+# 在 web/ 目录下
+env -u TSX_TSCONFIG_PATH npx tsx --test src/shared/view/ui/Dialog.test.ts
+```
+
+预期：FAIL —— 变体串里还没有 `animate-*` 类
+
+- [ ] **Step 3: 加 sheet 的 keyframes**
+
+`web/tailwind.config.js` —— 在 `keyframes` 的 `'dialog-content-show'` 之后加：
+
+```js
+        'dialog-sheet-show': {
+          from: { opacity: '0', transform: 'translateY(100%)' },
+          to: { opacity: '1', transform: 'translateY(0)' },
+        },
+```
+
+在 `animation` 的 `'dialog-content-show'` 之后加：
+
+```js
+        'dialog-sheet-show': 'dialog-sheet-show 240ms cubic-bezier(0.2, 0, 0, 1)',
+```
+
+- [ ] **Step 4: 把动画类移进变体查表**
+
+`web/src/shared/view/ui/Dialog.tsx` —— 变体常量改为：
+
+```tsx
+export const DIALOG_CONTENT_VARIANT_CLASS = {
+  center: 'left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 max-w-lg rounded-2xl animate-dialog-content-show',
+  sheet: 'inset-x-0 bottom-0 max-h-[85dvh] rounded-t-2xl rounded-b-none animate-dialog-sheet-show',
+} as const;
+```
+
+并把 `DialogContent` 的 `cn(...)` 里那一行 `'animate-dialog-content-show',` **删掉**（动画现在由变体提供）：
+
+```tsx
+          className={cn(
+            'fixed z-50 w-full border border-border/80 bg-popover text-popover-foreground',
+            'shadow-[0_3px_0_hsl(var(--foreground)/0.08),0_24px_60px_hsl(var(--foreground)/0.28)]',
+            DIALOG_CONTENT_VARIANT_CLASS[variant],
+            className
+          )}
+```
+
+- [ ] **Step 5: 跑测试确认通过**
+
+```bash
+# 在 web/ 目录下
+env -u TSX_TSCONFIG_PATH npx tsx --test src/shared/view/ui/Dialog.test.ts
+```
+
+预期：PASS，5 个测试全绿
+
+- [ ] **Step 6: 确认 center 行为未变 + typecheck**
+
+```bash
+# 在 web/ 目录下
+npm run typecheck
+```
+
+预期：0 错误。并手动确认任意既有弹窗（如侧边栏 Lovdex助手 → 新建会话）仍然**居中且带缩放淡入**。
+
+- [ ] **Step 7: 提交**
+
+```bash
+git add web/tailwind.config.js web/src/shared/view/ui/Dialog.tsx web/src/shared/view/ui/Dialog.test.ts
+git commit -m "fix(ui): give the dialog sheet its own entrance animation"
 ```
 
 ---
@@ -921,12 +1141,9 @@ import { useNavigate } from 'react-router-dom';
 import { CheckCheck, Inbox as InboxIcon } from 'lucide-react';
 
 import { Button, Dialog, DialogContent, DialogTitle } from '../../shared/view/ui';
-import { useWebSocket } from '../../contexts/WebSocketContext';
 import { useDeviceSettings } from '../../hooks/useDeviceSettings';
 import MobileMenuButton from '../main-content/view/subcomponents/MobileMenuButton';
-import {
-  subscribeInbox, getInboxSnapshot, refreshInbox, applyInboxEvent, markReadLocal, markAllReadLocal,
-} from '../../stores/inboxStore';
+import { subscribeInbox, getInboxSnapshot, markReadLocal, markAllReadLocal } from '../../stores/inboxStore';
 import type { InboxNotification, InboxSeverity } from '../../stores/inboxStore.pure';
 
 import { InboxDetail } from './InboxDetail';
@@ -945,7 +1162,6 @@ const SEVERITY_ORDER: InboxSeverity[] = ['critical', 'warning', 'info'];
 
 export default function InboxPage() {
   const navigate = useNavigate();
-  const { subscribe } = useWebSocket();
   const snapshot = useSyncExternalStore(subscribeInbox, getInboxSnapshot, getInboxSnapshot);
   // 断点与 Tailwind 的 lg（1024px）对齐：>=lg 两栏，<lg 单列 + 全屏 sheet。
   const { isMobile } = useDeviceSettings({ mobileBreakpoint: 1024 });
@@ -955,11 +1171,12 @@ export default function InboxPage() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [now, setNow] = useState(() => new Date());
 
-  // 首挂全量拉取。
-  useEffect(() => { void refreshInbox(); }, []);
-
-  // WS 实时：喂给 store（含重连全量刷新）。
-  useEffect(() => subscribe((event) => { applyInboxEvent(event as { kind?: string; payload?: unknown }); }), [subscribe]);
+  // 这里**刻意不**自己拉取收件箱、也不自己订阅 WS：本组件现在只可能渲染在
+  // AppContent 之内（见 App.tsx 的 /inbox 路由），而 AppContent 已经无条件做了
+  // refreshInbox() + applyInboxEvent() 订阅。再来一套会让 /inbox 上每次
+  // notification_updated / 重连都发两次全量 refetch，并让 created 事件进 reducer
+  // 两遍。当前 inboxStore 的 created 按 id 去重、幂等所以没有可见危害，但那是
+  // 巧合而非设计 —— 别把这份冗余加回来。
 
   // 相对时间每分钟重算一次，否则「2 分钟前」会一直停在挂载时的值。
   useEffect(() => {
@@ -1422,7 +1639,40 @@ git commit -m "feat(ui): soften notification toast with frosted card and motion"
 
 `AppContent` 依赖 WebSocket provider 与 router，无法 SSR 测；靠手动验收。
 
-- [ ] **Step 1: 计算候选集**
+- [ ] **Step 1: 在收件箱页上不要弹汇总（代码审查发现）**
+
+`web/src/components/app/AppContent.tsx` —— 现在的 announce effect **不区分路由**。硬加载 `/inbox` 时若存在未打扰的未读重要项、或断线重连的 refetch 命中，「你有未读通知」会直接糊在用户正盯着的收件箱列表上。
+
+把这段：
+
+```tsx
+  useEffect(() => {
+    const announce = () => {
+      if (claimUnannouncedImportant().length > 0) setSummaryOpen(true);
+    };
+    announce();
+    return subscribeInbox(announce);
+  }, []);
+```
+
+改成：
+
+```tsx
+  useEffect(() => {
+    const announce = () => {
+      const important = claimUnannouncedImportant();
+      // 已经在收件箱页时不弹汇总 —— 用户正盯着那个列表，糊一层弹窗纯属打扰。
+      // 但**仍要 claim 掉**（上面这行的副作用），否则他离开收件箱时会把刚看过
+      // 的内容又补弹一次。
+      if (isInboxRoute) return;
+      if (important.length > 0) setSummaryOpen(true);
+    };
+    announce();
+    return subscribeInbox(announce);
+  }, [isInboxRoute]);
+```
+
+- [ ] **Step 2: 计算候选集**
 
 `web/src/components/app/AppContent.tsx` —— 在 `const inbox = useSyncExternalStore(...)` 之后加：
 
@@ -1436,7 +1686,7 @@ git commit -m "feat(ui): soften notification toast with frosted card and motion"
   const summaryWarning = summaryItems.filter((it) => it.severity === 'warning');
 ```
 
-- [ ] **Step 2: 替换 Dialog 内容**
+- [ ] **Step 3: 替换 Dialog 内容**
 
 把第 341-354 行的 `<Dialog open={summaryOpen} ...>...</Dialog>` 整体替换为：
 
@@ -1499,7 +1749,7 @@ git commit -m "feat(ui): soften notification toast with frosted card and motion"
       </Dialog>
 ```
 
-- [ ] **Step 3: 补 import**
+- [ ] **Step 4: 补 import**
 
 `AppContent.tsx` 第 8 行的 store import 增加 `markReadLocal`、`markAllReadLocal`：
 
@@ -1513,7 +1763,7 @@ import { refreshInbox, applyInboxEvent, claimUnannouncedImportant, subscribeInbo
 import { inboxTargetPath } from '../inbox/inboxTarget';
 ```
 
-- [ ] **Step 4: typecheck**
+- [ ] **Step 5: typecheck**
 
 ```bash
 # 在 web/ 目录下
@@ -1522,7 +1772,7 @@ npm run typecheck
 
 预期：0 错误
 
-- [ ] **Step 5: 手动验收（必做）**
+- [ ] **Step 6: 手动验收（必做）**
 
 制造一条未读 critical 通知（最简单的办法：从收件箱上报 skill 发一条，或直接改库里 `notifications` 表某行 `read_at = NULL`），刷新页面：
 
@@ -1532,7 +1782,7 @@ npm run typecheck
 4. 点「全部已读」→ 弹窗关闭、角标清零
 5. **info 级别的通知不出现**在这个弹窗里
 
-- [ ] **Step 6: 提交**
+- [ ] **Step 7: 提交**
 
 ```bash
 git add web/src/components/app/AppContent.tsx
