@@ -289,19 +289,28 @@ test('manualTasksOf 空数组还是空数组', () => {
   assert.deepEqual(manualTasksOf([]), []);
 });
 
-// 护栏：两个谓词互为补集。任何一边改了判据（比如将来加个「仅提醒不算」的例外），
-// 这条会立刻红 —— 否则「看板少一行」和「运行记录多一行」会各自漂移很久才被发现。
+// 护栏：两个谓词互为补集。fixture 刻意让**每个 status 值在「手动」和「定时」两侧
+// 各出现一次**，is_operator=1 同样两侧都有 —— 只放 todo 一种 status 时，所有行除
+// source_schedule_id 外完全一样，任何「顺手多加一个条件」的漂移（比如
+// `&& t.status !== 'archived'`）都重新划分不出差别，护栏就成了摆设。
+// 覆盖满之后，这类单边漂移会恰好丢掉一行，互补性立刻破掉。
 test('manualTasksOf 与 runsOf 互为补集', () => {
   const tasks = [
-    mkTask({ task_id: 'a' }),
-    mkTask({ task_id: 'b', source_schedule_id: 's1' }),
-    mkTask({ task_id: 'c', source_schedule_id: 's2' }),
-    mkTask({ task_id: 'd' }),
+    mkTask({ task_id: 'a', status: 'todo' }),
+    mkTask({ task_id: 'b', source_schedule_id: 's1', status: 'todo', is_operator: 1 }),
+    mkTask({ task_id: 'c', status: 'in_progress', is_operator: 1 }),
+    mkTask({ task_id: 'd', source_schedule_id: 's2', status: 'in_progress' }),
+    mkTask({ task_id: 'e', status: 'in_review' }),
+    mkTask({ task_id: 'f', source_schedule_id: 's3', status: 'in_review' }),
+    mkTask({ task_id: 'g', status: 'done' }),
+    mkTask({ task_id: 'h', source_schedule_id: 's4', status: 'done' }),
+    mkTask({ task_id: 'i', status: 'archived' }),
+    mkTask({ task_id: 'j', source_schedule_id: 's5', status: 'archived' }),
   ];
   const manual = manualTasksOf(tasks).map((t) => t.task_id);
   const runs = runsOf(tasks).map((t) => t.task_id);
 
   assert.equal(manual.length + runs.length, tasks.length);
-  assert.deepEqual([...manual, ...runs].sort(), ['a', 'b', 'c', 'd']);
+  assert.deepEqual([...manual, ...runs].sort(), ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j']);
   assert.equal(manual.filter((id) => runs.includes(id)).length, 0);
 });
