@@ -113,6 +113,8 @@ export function createSchedulerService(deps: SchedulerDeps) {
       priority: schedule.priority as 'P0' | 'P1' | 'P2' | 'P3',
       label: schedule.label as never,
       isOperator: schedule.is_operator === 1,
+      // 镜像到任务行：派发后任务自包含，之后改/删定时任务不影响已在跑的那一次。
+      autoApprove: schedule.auto_approve === 1,
       sourceScheduleId: schedule.schedule_id,
     });
     if (task && schedule.auto_run === 1) {
@@ -252,6 +254,7 @@ export function createSchedulerService(deps: SchedulerDeps) {
         priority: typeof input.priority === 'string' ? input.priority : undefined,
         label: typeof input.label === 'string' ? input.label : undefined,
         autoRun: input.autoRun !== 0,
+        autoApprove: input.autoApprove === true,
         scheduleType: input.scheduleType as never,
         cronExpr: typeof input.cronExpr === 'string' ? input.cronExpr : null,
         intervalSeconds: typeof input.intervalSeconds === 'number' ? input.intervalSeconds : null,
@@ -292,6 +295,7 @@ export function createSchedulerService(deps: SchedulerDeps) {
         priority: 'priority',
         label: 'label',
         autoRun: 'auto_run',
+        autoApprove: 'auto_approve',
         scheduleType: 'schedule_type',
         cronExpr: 'cron_expr',
         intervalSeconds: 'interval_seconds',

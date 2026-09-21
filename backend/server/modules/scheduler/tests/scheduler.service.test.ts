@@ -62,6 +62,7 @@ function makeService(nowIso: string, extra: Partial<SchedulerDeps> = {}) {
         cron_expr: i.cronExpr ?? null,
         interval_seconds: i.intervalSeconds ?? null,
         run_at: i.runAt ?? null,
+        auto_approve: i.autoApprove ? 1 : 0,
         timezone: i.timezone,
         next_run_at: i.nextRunAt,
       });
@@ -71,7 +72,12 @@ function makeService(nowIso: string, extra: Partial<SchedulerDeps> = {}) {
     listScheduledTasks: () => [...rows.values()],
     updateScheduledTask: (id: string, u: Record<string, unknown>) => {
       const cur = rows.get(id); if (!cur) return null;
-      const next = { ...cur, ...u } as ScheduledTaskRow; rows.set(id, next); return next;
+      // 与真实 scheduled-tasks.db 对齐：布尔列走 allowed 白名单落库为 0/1，不保留 true/false
+      const normalized = { ...u };
+      for (const col of ['is_operator', 'auto_run', 'auto_approve', 'enabled']) {
+        if (col in normalized) normalized[col] = normalized[col] ? 1 : 0;
+      }
+      const next = { ...cur, ...normalized } as ScheduledTaskRow; rows.set(id, next); return next;
     },
     deleteScheduledTask: (id: string) => { rows.delete(id); },
     listDueScheduledTasks: (n: string) => [...rows.values()].filter((s) => s.enabled === 1 && s.next_run_at <= n),
@@ -482,4 +488,51 @@ test('update: a legacy row with a broken schedule is surfaced instead of silentl
     () => svc.update('legacy', { title: '只改标题' }),
     (e: { statusCode?: number; code?: string }) => e.statusCode === 400 && e.code === 'INVALID_SCHEDULE',
   );
+});
+
+test('dispatch mirrors auto_approve from the schedule onto the task', async () => {
+  const { svc, rows, createdTasks } = makeService('2026-08-13T12:00:00.000Z');
+  rows.set('flagged', mkRow({
+    schedule_id: 'flagged',
+    auto_approve: 1,
+    run_at: '2026-08-13T00:00:00.000Z',
+    next_run_at: '2026-08-13T00:00:00.000Z',
+  }));
+  rows.set('plain', mkRow({
+    schedule_id: 'plain',
+    auto_approve: 0,
+    run_at: '2026-08-13T00:00:00.000Z',
+    next_run_at: '2026-08-13T00:00:00.000Z',
+  }));
+
+  await svc.tickNow();
+
+  assert.equal(createdTasks.length, 2);
+  const flagged = createdTasks.find((t) => (t as { sourceScheduleId?: string }).sourceScheduleId === 'flagged');
+  const plain = createdTasks.find((t) => (t as { sourceScheduleId?: string }).sourceScheduleId === 'plain');
+  assert.equal((flagged as { autoApprove?: boolean }).autoApprove, true, 'the flag must reach the task row');
+  assert.equal((plain as { autoApprove?: boolean }).autoApprove, false, 'an unflagged schedule must not auto-approve');
+});
+
+test('create defaults auto_approve to false and honours an explicit true', async () => {
+  const { svc } = makeService('2026-08-13T12:00:00.000Z');
+
+  const plain = await svc.create({ title: 'a', scheduleType: 'cron', cronExpr: '0 9 * * *' }) as ScheduledTaskRow;
+  assert.equal(plain.auto_approve, 0);
+
+  const flagged = await svc.create({
+    title: 'b',
+    scheduleType: 'cron',
+    cronExpr: '0 9 * * *',
+    autoApprove: true,
+  }) as ScheduledTaskRow;
+  assert.equal(flagged.auto_approve, 1);
+});
+
+test('update accepts autoApprove and maps it to the auto_approve column', async () => {
+  const { svc } = makeService('2026-08-13T12:00:00.000Z');
+  const row = await svc.create({ title: 'a', scheduleType: 'cron', cronExpr: '0 9 * * *' }) as ScheduledTaskRow;
+
+  const updated = await svc.update(row.schedule_id, { autoApprove: true }) as ScheduledTaskRow;
+  assert.equal(updated.auto_approve, 1);
 });

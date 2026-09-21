@@ -12,6 +12,7 @@ export type ScheduledTaskDbLike = {
     priority?: string;
     label?: string;
     autoRun?: boolean;
+    autoApprove?: boolean;
     scheduleType: ScheduledTaskScheduleType;
     cronExpr?: string | null;
     intervalSeconds?: number | null;
