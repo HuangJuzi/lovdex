@@ -54,9 +54,13 @@ export function nextModelOnLoad(input: {
 }): string
 ```
 
-`modelOptionsFor` 的两条规则：
-- `models` 为空 → `[{ value: '', label: '默认模型' }]`（沿用 `CreateTaskDialog.tsx:230-232` 的兜底）。
-- `current` 非空且不在 `models` 里 → 在列表**前面**追加 `[{ value: current, label: `${current}（不在当前引擎列表）` }]`。对齐 `TaskDetail.tsx:725-727` 的既有做法。没有这一条，chip 会显示空白，用户随手一保存就把模型静默改成了 NULL。
+`modelOptionsFor` 的规则 —— 顺序固定为 **`默认模型` → （可选）`不在当前引擎列表` → 引擎模型列表**：
+
+- **「默认模型」（值 `''`）常驻第一项**，与 `models` 是否为空、`current` 是否为空无关。它是合法选择（跟随 provider 默认槽位），也是编辑老任务（`executor_model` 为 NULL）时**唯一能表达当前值的项**——`ChipSelect.tsx:55` 渲染的是 `current?.label ?? label`，列表非空时若没有值为 `''` 的项，芯片会退化成裸的「模型」二字。对齐 `TaskDetail.tsx:724` 的 `<option value="">默认模型 (default)</option>`。
+- `models` 为空（还没加载 / 拉取失败）→ 只给这一项，不追加别的：没有「列表」可言，标「不在当前引擎列表」没有意义。
+- `current` 非空且不在 `models` 里 → 在「默认模型」**之后**、列表**之前**插一项 `{ value: current, label: `${current}（不在当前引擎列表）` }`。对齐 `TaskDetail.tsx:725-727` 的既有做法。没有这一条，芯片会显示空白，用户随手一保存就把模型静默改成了 NULL。
+
+> 这一条是 2026-09-21 修正的：spec 初稿把「默认模型」写成「仅列表为空时兜底」，那样在「列表非空 + `current === ''`」时无项可匹配，编辑 NULL 老任务会显示裸的「模型」二字，与本文档「NULL → 显示「默认模型」」的要求自相矛盾。缺陷由 Task 4 实现时发现。
 
 `nextModelOnLoad` 的规则：
 
@@ -163,7 +167,7 @@ useEffect(() => {
 web 测试跑 `node:test` + `renderToStaticMarkup`，无 DOM，effect 与交互都不执行。因此：
 
 **新增 `web/src/components/tasks/useProviderModels.test.ts`** —— 纯函数全覆盖：
-- `modelOptionsFor`：空列表兜底；`current` 在列表内；`current` 不在列表（前置追加标注项）；`current === ''`（不追加）。
+- `modelOptionsFor`：空列表只给兜底项；「默认模型」在列表非空时**也**常驻第一项（含 `current === ''`，这是编辑 NULL 老任务的显示路径）；`current` 在列表内；`current` 不在列表（在「默认模型」之后、列表之前插标注项）；空 label 回退成 value。
 - `nextModelOnLoad`：create → 第一项；create + 空列表 → `''`；edit + 未切引擎 → 保持 `current`（含 `''`）；edit + 切了引擎 → 第一项。
 
 **改 `web/src/components/tasks/ScheduledTaskForm.test.tsx`**：

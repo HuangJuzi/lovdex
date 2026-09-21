@@ -25,9 +25,9 @@ unset TSX_TSCONFIG_PATH          # 全局 export 的 server/tsconfig.json 会让
 |---|---|
 | `npm run typecheck` | 0 个错误（web 侧是干净的） |
 | `npx eslint src/components/tasks/ScheduledTaskForm.tsx` | **6 problems**（5 条 `react-refresh/only-export-components` + 1 条 `tailwindcss/classnames-order`） |
-| `npx eslint src/components/tasks/CreateTaskDialog.tsx` | 6 problems |
-| `npx eslint src/components/tasks/ScheduledTaskForm.test.tsx` | 3 problems |
-| `npx eslint src/components/tasks/CreateTaskDialog.test.tsx` | 0 |
+| `npx eslint src/components/tasks/CreateTaskDialog.tsx` | **4 problems** |
+| `npx eslint src/components/tasks/ScheduledTaskForm.test.tsx` | **1 problem** |
+| `npx eslint src/components/tasks/CreateTaskDialog.test.tsx` | **0 problems** |
 
 **读数字要看 eslint 的汇总行，别用 `grep -c` 数行** —— 末尾的「✖ N problems」和「0 errors and 1 warning potentially fixable」也含 `warning` 字样，会把 6 数成 8：
 
@@ -92,6 +92,7 @@ test('modelOptionsFor falls back to a single 默认模型 entry when the list is
 
 test('modelOptionsFor maps value/label when the current value is in the list', () => {
   assert.deepEqual(modelOptionsFor(MODELS, 'opus'), [
+    { value: '', label: '默认模型' },
     { value: 'default', label: '默认' },
     { value: 'opus', label: 'Opus' },
   ]);
@@ -99,21 +100,33 @@ test('modelOptionsFor maps value/label when the current value is in the list', (
 
 test('modelOptionsFor keeps a stale model as a labelled extra row', () => {
   assert.deepEqual(modelOptionsFor(MODELS, 'ghost'), [
+    { value: '', label: '默认模型' },
     { value: 'ghost', label: 'ghost（不在当前引擎列表）' },
     { value: 'default', label: '默认' },
     { value: 'opus', label: 'Opus' },
   ]);
 });
 
-test('modelOptionsFor does not add an extra row for the empty (default) value', () => {
+test('modelOptionsFor always keeps the 默认模型 entry first, even for the empty value', () => {
   assert.deepEqual(modelOptionsFor(MODELS, ''), [
+    { value: '', label: '默认模型' },
     { value: 'default', label: '默认' },
     { value: 'opus', label: 'Opus' },
   ]);
 });
 
+test('modelOptionsFor resolves the empty value to 默认模型 even when models are loaded', () => {
+  // 回归：ChipSelect 渲染的是 `current?.label ?? label`，若列表非空时没有值为 '' 的项，
+  // 编辑一条 executor_model 为 NULL 的老任务会显示裸的「模型」二字。
+  const options = modelOptionsFor(MODELS, '');
+  assert.equal(options.find((o) => o.value === '')?.label, '默认模型');
+});
+
 test('modelOptionsFor falls back to value when a model has an empty label', () => {
-  assert.deepEqual(modelOptionsFor([{ value: 'x', label: '' }], 'x'), [{ value: 'x', label: 'x' }]);
+  assert.deepEqual(modelOptionsFor([{ value: 'x', label: '' }], 'x'), [
+    { value: '', label: '默认模型' },
+    { value: 'x', label: 'x' },
+  ]);
 });
 
 // ---- nextModelOnLoad ----
@@ -226,15 +239,26 @@ export function useProviderModels(
 }
 
 /**
- * 模型 chip 的选项。空列表兜底成一项「默认模型」（值为空串 = 不指定，跑 provider
- * 默认槽位）；当前值不在列表里时**前置**一项带标注的同值项——没有这一条，芯片会
- * 显示空白，用户随手一保存就把模型静默改成 NULL。
+ * 模型 chip 的选项。
+ *
+ * 「默认模型」（空串 = 跟随 provider 默认槽位）**常驻第一项**：它是合法选择，也是
+ * 编辑老任务（`executor_model` 为 NULL）时唯一能表达当前值的项——少了它，ChipSelect
+ * 的 `current?.label ?? label` 会退化成裸的「模型」二字。同 TaskDetail 的
+ * `<option value="">默认模型 (default)</option>`。
+ *
+ * 列表为空（还没加载 / 拉取失败）时只给这一项；当前值不在列表里时，在它之后、列表
+ * 之前插一项带标注的同值项，否则芯片会显示空白、用户随手一保存就把模型静默改成 NULL。
  */
 export function modelOptionsFor(models: ProviderModelOption[], current: string): ChipSelectOption[] {
-  if (models.length === 0) return [{ value: '', label: '默认模型' }];
+  const fallback: ChipSelectOption = { value: '', label: '默认模型' };
+  // 列表为空时即便 current 非空也只给兜底项：没有「列表」可言，标「不在当前引擎列表」没有意义。
+  if (models.length === 0) return [fallback];
   const mapped: ChipSelectOption[] = models.map((m) => ({ value: m.value, label: m.label || m.value }));
-  if (!current || mapped.some((o) => o.value === current)) return mapped;
-  return [{ value: current, label: `${current}（不在当前引擎列表）` }, ...mapped];
+  const stale: ChipSelectOption[] =
+    current && !mapped.some((o) => o.value === current)
+      ? [{ value: current, label: `${current}（不在当前引擎列表）` }]
+      : [];
+  return [fallback, ...stale, ...mapped];
 }
 
 /**
@@ -378,13 +402,19 @@ type ProviderModelsApiResponse = {
 import type { Project, Task, TaskEngine, TaskLabel, TaskPriority } from '../../types/app';
 ```
 
-加一行新 import（放在 `ChipSelect` 那组的字母序位置）：
+加一行新 import（放在 `./` 组的字母序位置）：
 
 ```ts
 import { modelOptionsFor, useProviderModels } from './useProviderModels';
 ```
 
-`authenticatedFetch` 仍被第 120 行附近的「加载项目列表」effect 使用，**保留** import。
+**`authenticatedFetch` 也要从第 9 行的 import 里去掉**（实测：本文件里它**只**被要删的那段模型拉取用过；「加载项目列表」那个 effect 走的是 `api.projects()`）：
+
+```ts
+import { api } from '../../utils/api';
+```
+
+> 计划初稿曾写「保留 `authenticatedFetch`」，那是错的——保留会留下 unused import，反而把 eslint 推高。执行时以实测为准。
 
 - [ ] **Step 5: 换用共用的选项函数**
 
@@ -418,7 +448,7 @@ cd /mnt/b/workdir/github/lovdex/web && npm run typecheck
 npx eslint src/components/tasks/CreateTaskDialog.tsx 2>&1 | grep -E '^✖'
 ```
 
-Expected: typecheck 无输出；eslint **6 problems**（与基线相同）。
+Expected: typecheck 无输出；eslint **4 problems**（与基线相同）。
 
 若 typecheck 报 `ProviderModelOption is declared but never used`，说明第 8 行的 import 没删干净。
 
