@@ -100,6 +100,8 @@ const runs = useMemo(() => tasks.filter((t) => t.source_schedule_id), [tasks]);
 
 子标签条复用 header 那套分段控件的视觉（`TaskBoard.tsx:294-343`：`rounded-xl border border-border/70 bg-muted/50 p-0.5` 容器 + 选中项 `bg-card shadow-raised-sm` + `aria-pressed`），保证两处观感一致。
 
+> **（2026-09-21 写计划时修正）** 子标签条单独成文件 `ScheduledTabBar.tsx`（连同导出的 `ScheduledTab` 类型），不内联进面板 —— 面板依赖 `useWebSocket` context，在没有 DOM 的测试环境里渲染不起来，而标签条要能被静态断言。
+
 ### 2.3 `ScheduledTasksView.tsx` —— 让出标题行
 
 删掉 `90-93` 行那行静态标题「⏰ 定时任务」—— 子标签条已经承担了「这是哪一页」的指示，留着就是两行 chrome。`flex flex-shrink-0 items-center justify-between px-3 py-2 sm:px-4` 这套内边距由子标签条沿用，纵向占位不变。
@@ -117,10 +119,18 @@ type ScheduledRunHistoryViewProps = {
   runs: Task[];                          // 已过滤：source_schedule_id 非空
   schedules: ScheduledTask[];            // 用于 schedule_id → title 映射
   projectOptions: TaskProjectOption[];
-  onOpenTask: (task: Task) => void;
-  onOpenSession: (task: Task) => void;
 };
 ```
+
+> **（2026-09-21 写计划时修正）** 初稿的 props 里还有 `onOpenTask` / `onOpenSession` 两个回调。改成组件内部直接用 `Link`：props 更少，且 `Link` 在静态标记里渲染成 `href`，测试能直接断言跳转目标 —— 回调在无 DOM 的测试环境里断言不到。
+
+同文件导出三个纯函数供单测（`runsOf` / `scheduleTitleOf` / `sortRunsByTriggeredDesc`）—— 过滤逻辑放在这里而不是面板里，就是为了能脱离组件被测。
+
+**过滤**：`runsOf(tasks)` 只保留 `source_schedule_id` 非空的行。删调度不会删它跑出来的任务，所以判据只看任务自身字段。
+
+**调度名映射**：`scheduleTitleOf(scheduleId, schedules)`；调度已删除（或 `scheduleId` 为 null）回退「已删除的调度」。
+
+**排序**：`sortRunsByTriggeredDesc`，按 `created_at` 字符串倒序（后端时间戳是定长裸 UTC，字典序即时序，对齐 `taskTimestamp.ts:16` 的约定），返回新数组不改原数组。
 
 **桌面表格列**：标题 / 所属调度 / 项目 / 状态 / 触发时间 / 操作
 
@@ -128,12 +138,10 @@ type ScheduledRunHistoryViewProps = {
 |---|---|
 | 标题 | `font-semibold`，`line-clamp-2` |
 | 所属调度 | `schedule_id → title`；查不到（调度已删除）回退「已删除的调度」。加 `truncate` + `title`，防止长标题把表推宽（沿用 `ScheduledTasksView.tsx:115-118` 的处理） |
-| 项目 | 复用 `ScheduledTasksView.tsx:21-25` 的 `projectLabel` 口径（`is_operator === 1` → 🤖 Lovdex助手；否则查 `projectOptions`，回退完整路径）。为共用，把它从 `ScheduledTasksView.tsx` 抽到一个小模块导出 |
+| 项目 | 复用 `ScheduledTasksView.tsx:21-25` 的 `projectLabel` 口径（`is_operator === 1` → 🤖 Lovdex助手；否则查 `projectOptions`，回退完整路径）。为共用，把它从 `ScheduledTasksView.tsx` 抽到新模块 `projectLabel.ts` 导出（参数用结构化类型 `{ is_operator: number; project_path: string | null }`，`Task` 与 `ScheduledTask` 都能传） |
 | 状态 | `STATUS_META[status].label` + 色点；后面跟 `<SubStatusBadge subStatus={task.sub_status} />` |
 | 触发时间 | `formatAbsoluteTime(task.created_at)`，`font-mono text-2xs`。用 `created_at` 而非 `started_at`：调度触发时先建任务行、再起运行，`created_at` 才是「这次调度什么时候被触发」，且它对**每条**运行都有值（`started_at` 在未启动/仅提醒的任务上是 NULL） |
 | 操作 | 纯跳转：「打开任务」→ `/task/:id`；`canOpenSession(task)` 为真时再加「打开会话」→ `/session/:session_id` |
-
-排序：`created_at` 倒序。用 `sortTasks` 之类的通用排序器没必要，直接按字符串倒序（后端时间戳是裸 UTC 定长格式，字典序即时序，对齐 `taskTimestamp.ts:16` 的约定）。
 
 **移动卡片**（`<lg`）：标题 / 所属调度 / 状态 + 子状态 / 触发时间 / 两个操作按钮，结构对齐 `ScheduledTaskCard`。
 
@@ -170,11 +178,16 @@ type ScheduledRunHistoryViewProps = {
 web 测试跑 `node:test` + `renderToStaticMarkup`，**无 DOM、effect 与交互都不执行**，所以断言落在静态标记上。
 
 **新增 `web/src/components/tasks/ScheduledRunHistoryView.test.tsx`**：
-- 只渲染 `source_schedule_id` 非空的任务 —— 传一个混合列表（含 `source_schedule_id: null` 的行），断言其标题**不出现**。
+- `runsOf`：混合列表（含 `source_schedule_id: null` 的行）只留下定时来源的那条。
+- `sortRunsByTriggeredDesc`：按 `created_at` 倒序，**且不改原数组**。
+- `scheduleTitleOf`：命中调度 → title；查不到 → 「已删除的调度」；传 `null` 同理。
+- 静态标记：桌面表格列头含「所属调度」「触发时间」；移动卡片分支存在（`lg:hidden`）；标题 / 调度名 / 项目名 / 状态都渲染出来。
+- 「打开任务」恒渲染且 `href="/task/:id"`；「打开会话」只在 `canOpenSession` 为真时渲染（`status: 'in_progress'` + 有 `session_id`）。
 - 空列表 → 「暂无运行记录」。
-- 调度名映射：`schedules` 里有对应 `schedule_id` → 渲染其 title；查不到 → 「已删除的调度」。
-- 无 `session_id` 的任务不渲染「打开会话」。
-- fixture 需补全 `Task` 必填字段（照抄 `TaskCard.test.tsx:38` 的 `source_schedule_id` 一带）。
+
+**新增 `web/src/components/tasks/ScheduledTabBar.test.tsx`**：两个标签都渲染；恰好一个 `aria-pressed="true"`；激活/未激活样式类不同。
+
+**新增 `web/src/components/tasks/projectLabel.test.ts`**：`is_operator=1` / 无路径 → 助手标签；命中 `projectOptions` → label；未命中 → 回退完整路径。
 
 **改 `ScheduledTasksView.test.tsx`**：删标题行后，「⏰ 定时任务」不再出现 —— 现有测试未断言它（只断言 `/暂无定时任务/`，`74` 行），预计无需改动；跑一遍确认。
 
