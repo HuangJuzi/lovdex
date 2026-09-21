@@ -43,7 +43,7 @@ function mkScheduledTask(over: Record<string, unknown>) {
   return {
     schedule_id: 's1', title: 't', description: 'd', project_path: null,
     executor_provider: 'claude', executor_model: null, priority: 'P2', label: 'other',
-    is_operator: 1, auto_run: 1, schedule_type: 'interval', cron_expr: null,
+    is_operator: 1, auto_run: 1, auto_approve: 0, schedule_type: 'interval', cron_expr: null,
     interval_seconds: 5400, run_at: null, timezone: 'local',
     next_run_at: '2026-08-14T09:00:00.000Z', last_run_at: null, last_task_id: null,
     enabled: 1, created_at: '2026-08-13T00:00:00.000Z', updated_at: '2026-08-13T00:00:00.000Z',
@@ -298,4 +298,34 @@ test('model chip renders disabled before the model list arrives', () => {
 test('model chip shows the 默认模型 fallback before the list arrives', () => {
   const html = renderWithOptions([]);
   assert.ok(html.includes('默认模型'));
+});
+
+test('EMPTY_DRAFT defaults autoApprove to false', () => {
+  // 默认必须是关：新建定时任务不应该悄悄拿到无人监督权限。
+  assert.equal(EMPTY_DRAFT.autoApprove, false);
+});
+
+test('toApiBody sends autoApprove as a boolean', () => {
+  assert.equal(toApiBody({ ...EMPTY_DRAFT, autoApprove: true }).autoApprove, true);
+  assert.equal(toApiBody({ ...EMPTY_DRAFT, autoApprove: false }).autoApprove, false);
+});
+
+test('toDraft reads the stored auto_approve flag', () => {
+  assert.equal(toDraft(mkScheduledTask({ auto_approve: 1 }) as never).autoApprove, true);
+  assert.equal(toDraft(mkScheduledTask({ auto_approve: 0 }) as never).autoApprove, false);
+});
+
+test('toDraft treats a missing auto_approve as off', () => {
+  const withoutFlag = mkScheduledTask({});
+  delete (withoutFlag as Record<string, unknown>).auto_approve;
+  assert.equal(toDraft(withoutFlag as never).autoApprove, false);
+});
+
+test('renders an auto-approval toggle that explains the consequence', () => {
+  const html = renderWithOptions([]);
+  const toggle = /<button[^>]*aria-label="自动审批"[^>]*>/.exec(html)?.[0] ?? '';
+  assert.ok(toggle.length > 0, 'the auto-approval toggle must render');
+  assert.ok(/ aria-pressed="false"/.test(toggle), 'a new task must default to off');
+  // 只写开关名的文案会让人不知道开了会发生什么。
+  assert.ok(html.includes('危险操作仍会拒绝'), 'the hint must state what turning it on does');
 });

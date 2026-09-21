@@ -123,6 +123,8 @@ export interface Task {
   is_operator: number; // 0 | 1 — 1 = Lovdex 助手任务
   label: TaskLabel;
   remark: string | null;
+  /** 无人值守执行时是否自动审批工具权限（0 = 保持询问，1 = 自动决定）。 */
+  auto_approve: number; // 0 | 1
   /** 新建任务时从来源会话压缩出的上下文摘要（可选，后台异步生成）。 */
   context_summary: string | null;
   /** 上下文来源会话 id（新建任务时选的参考历史）。 */
@@ -174,6 +176,7 @@ export interface ScheduledTask {
   label: TaskLabel;
   is_operator: number; // 0 | 1
   auto_run: number;    // 0 | 1
+  auto_approve: number; // 0 | 1
   schedule_type: ScheduledTaskScheduleType;
   cron_expr: string | null;
   interval_seconds: number | null;
