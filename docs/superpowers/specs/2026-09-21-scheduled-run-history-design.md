@@ -159,7 +159,7 @@ type ScheduledRunHistoryViewProps = {
 | `/tasks?view=scheduled` | 定时页 · **调度**（默认子标签） |
 | `/tasks?view=scheduled&tab=runs` | 定时页 · 运行记录 |
 
-侧边栏「定时任务」入口（`SidebarScheduledEntry.tsx:18`）不变，仍落「调度」。
+侧边栏「定时任务」入口（`SidebarScheduledEntry.tsx:18`）不带 tab 参数，所以落在**上次记住的子标签**（首访是「调度」）—— 与 `viewMode` 一样持久化。
 
 ## 4. header 行为
 
@@ -204,3 +204,32 @@ web 测试跑 `node:test` + `renderToStaticMarkup`，**无 DOM、effect 与交�
 4. 在任务详情页点「⏰ 定时」徽标 → 落到运行记录。
 5. 刷新看板 → 看板与表格的条数**与改动前一致**（249）。
 6. 窄屏（<1024px）下运行记录渲染卡片而非表格，操作按钮可点。
+
+## 7. 实现与验收结果（2026-09-21）
+
+**实现**：10 个提交，全部落在 `web/src/components/tasks/`，**后端零改动**（逐个提交核对 `git show --stat` 无 `backend/` 文件）。新增 4 个文件：`projectLabel.ts` + `.test.ts`、`ScheduledTabBar.tsx` + `.test.tsx`、`ScheduledRunHistoryView.tsx` + `.test.tsx`；改 3 个：`ScheduledTasksView.tsx`（删标题行）、`ScheduledTasksPanel.tsx`（子标签分流）、`TaskBoard.tsx`（state + URL 播种 + 传参）、`TaskDetail.tsx`（徽标深链）。
+
+**自动化检查**（全绿）：
+
+| 检查 | 结果 |
+|---|---|
+| `npm run typecheck` | **0 错误** |
+| eslint 逐文件 | TaskBoard 0 / Panel 1 / View 2 / TaskDetail 8 —— 与改动前基线**逐项相同，零新增** |
+| web 单测（8 个文件） | **98 pass / 0 fail**（projectLabel 6、ScheduledTabBar 3、ScheduledRunHistoryView 12、ScheduledTasksView 7、TaskCard 13、TaskTableView 18、TaskFilterBar 4、taskFilter 35） |
+
+**浏览器 E2E**（puppeteer-core + 缓存 chromium 连 `:5188`，断言走 DOM / computed style，不依赖截图）：**19/19 通过**。
+
+实测数据：`tasks` 249 行，`source_schedule_id` 非空 6 行；这 6 行分属 **4 个不同的** `source_schedule_id`，而 `scheduled_tasks` 只剩 1 条 —— 也就是说**其中 3 条指向已删除的调度**。E2E 因此顺带在真实数据上验证了回退分支：3 行显示真名「同步付款审批并通知」、3 行显示「已删除的调度」，与 API 算出的期望值逐一对上。
+
+覆盖到的点：默认落「调度」；切到「运行记录」后列头含「所属调度」「触发时间」、行数 6；刷新后记住子标签；`?tab=runs` 覆盖已存的 `schedules`；定时来源任务**仍在看板里**（不回归）；窄屏（900px）桌面表格 `display:none`、卡片网格 `display:grid` 且 6 个卡片、卡片里带调度名与「打开任务」；「运行记录」下点 header「新建任务」弹的仍是定时任务表单；详情页「⏰ 定时」徽标落到 `/tasks?view=scheduled&tab=runs`。
+
+**过程中修掉的两个真问题**（都由审查发现、非计划预见）：
+
+1. **冷启动谎报「已删除的调度」**（Important）：面板挂载时 `useScheduledTasks` 请求刚发出（`loading=true`、`schedules=[]`），而「运行记录」刻意不等它 —— 于是每一行都显示「已删除的调度」。加载中会闪几百毫秒；若调度请求失败而任务请求成功，则是**永久**的假信息，且重试按钮在另一个子标签里。修法：新增 `ScheduleLookup = 'loading' | 'error' | 'ready'`，只有 `ready` 才允许断言「已删除」。见提交 `eb15d26`。
+2. **组件的排序没有测试钉住**：`const ordered = sortRunsByTriggeredDesc(runs)` 被删掉后 9 个测试照样全绿。补了一条断言渲染顺序的测试，并用「临时改实现确认它变红」验证过它真的咬得住。
+
+**已知遗留**（非阻塞，记录备查）：
+
+- `loadError` 为真但内存里仍有有效调度名时（加载成功后的某次刷新失败），「所属调度」会翻成「调度列表不可用」。属**少说**而非谎说，且下一次成功刷新即自愈，故本次未处理。
+- `?tab=runs` 深链会先渲染一帧「调度」再切过去（`useLocalStorage` 初值来自 localStorage，URL 播种在 `useEffect` 里）。这是沿用 `?view=scheduled` 既有的播种方式，不是本次引入。
+- 控制台每次加载都有一条 `WebSocket error: [object Event]`。已在**未改动的**路由 `/` 上复现，确认与本次改动无关，未追查。
