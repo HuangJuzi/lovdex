@@ -169,8 +169,10 @@ web 测试跑 `node:test` + `renderToStaticMarkup`，无 DOM，effect 与交互�
 **改 `web/src/components/tasks/ScheduledTaskForm.test.tsx`**：
 - fixture（`47` 行附近）去掉 `priority`。
 - 静态标记断言：渲染结果**不再出现**「优先级」「标签」，**出现**「模型」。
-- `toApiBody`（已 export）直接断言：产出含 `executorModel`，不含 `priority` / `label`；`executorModel: ''` → `null`。
-- `toDraft`：编辑模式下 `executor_model` 为 NULL → `''`；有值 → 原值。
+- `toApiBody`（`103` 行已 export）直接断言：产出含 `executorModel`，不含 `priority` / `label`；`executorModel: ''` → `null`。
+- `toDraft`（`145` 行，**当前未 export，需补 `export`**）：编辑模式下 `executor_model` 为 NULL → `''`；有值 → 原值。
+
+现有测试文件已经 stub 了 `document.body` 让 portal 能渲染（`ScheduledTaskForm.test.tsx:8-15`），静态标记断言在打开态下成立。
 
 **回归护栏**：`CreateTaskDialog.test.tsx` 必须保持全绿（hook 抽取动到了它）。
 
