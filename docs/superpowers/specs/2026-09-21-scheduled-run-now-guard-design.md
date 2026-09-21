@@ -27,6 +27,10 @@ blocked ⇔ 上一轮任务存在 && ( status === 'in_progress' && sub_status !=
 计划是 `waiting_answer` / `waiting_plan`，跑挂的仍停在 `in_progress` 槽位但标 `failed`。
 所以「运行中 + 等人工都挡、跑挂的放行」恰好就是 `!== 'failed'` 这一条，不需要枚举标签。
 
+> 注意：`!== 'failed'` 这个形式对**裸 DB 行**与 decorate 后的行结果相同（实现时逐输入比对过）。
+> 用 `getTask` 的真正理由是「与 `deleteTask` 等守卫同一个查表口」以及**判据一旦从 `!== 'failed'`
+> 改成按 `running` / `waiting_*` 枚举，decorate 算出的有效值才是前提** —— 不是「不用它就错」。
+
 被 `!== 'failed'` 挡住的标签必须是有意识的选择（它们是 `decorate` 里合法的 in_progress 标签）：
 `running` / `waiting_answer` / `waiting_plan` / `waiting_approval` / `blocked` / `only_plan` /
 `needs_review` / 以及 `null`（无标签=正在跑）。**只有 `failed` 是明确的「上一轮已经终止、可以重来」**，

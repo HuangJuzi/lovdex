@@ -299,7 +299,7 @@ test('runNow 对不存在的调度返回 null（路由据此 404）', async () =
 
 - [ ] **Step 3: 跑测试，确认它失败**
 
-同上命令。Expected: FAIL —— 前三条以 `Missing expected rejection` / `1 !== 0` 失败（`runNow` 现在无条件派发），最后一条已通过。
+同上命令。Expected: FAIL，`# tests 34` / `# pass 32` / `# fail 2` —— 只有两条**拒绝类**测试失败（`Missing expected rejection`）；「放行四分支」与「不存在的调度返回 null」在无守卫时本来就通过，它们的价值在绿跑里（钉住守卫的负空间，防止将来把 `!== 'failed'` 写成过度拦截，以及防止 `if (!schedule) return null` 被挪到守卫之后）。
 
 - [ ] **Step 4: 实现守卫**
 
