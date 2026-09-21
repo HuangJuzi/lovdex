@@ -67,15 +67,26 @@ export function useProviderModels(
 }
 
 /**
- * 模型 chip 的选项。空列表兜底成一项「默认模型」（值为空串 = 不指定，跑 provider
- * 默认槽位）；当前值不在列表里时**前置**一项带标注的同值项——没有这一条，芯片会
- * 显示空白，用户随手一保存就把模型静默改成 NULL。
+ * 模型 chip 的选项。
+ *
+ * 「默认模型」（空串 = 跟随 provider 默认槽位）**常驻第一项**：它是合法选择，也是
+ * 编辑老任务（`executor_model` 为 NULL）时唯一能表达当前值的项——少了它，ChipSelect
+ * 的 `current?.label ?? label` 会退化成裸的「模型」二字。同 TaskDetail 的
+ * `<option value="">默认模型 (default)</option>`。
+ *
+ * 列表为空（还没加载 / 拉取失败）时只给这一项；当前值不在列表里时，在它之后、列表
+ * 之前插一项带标注的同值项，否则芯片会显示空白、用户随手一保存就把模型静默改成 NULL。
  */
 export function modelOptionsFor(models: ProviderModelOption[], current: string): ChipSelectOption[] {
-  if (models.length === 0) return [{ value: '', label: '默认模型' }];
+  const fallback: ChipSelectOption = { value: '', label: '默认模型' };
+  // 列表为空时即便 current 非空也只给兜底项：没有「列表」可言，标「不在当前引擎列表」没有意义。
+  if (models.length === 0) return [fallback];
   const mapped: ChipSelectOption[] = models.map((m) => ({ value: m.value, label: m.label || m.value }));
-  if (!current || mapped.some((o) => o.value === current)) return mapped;
-  return [{ value: current, label: `${current}（不在当前引擎列表）` }, ...mapped];
+  const stale: ChipSelectOption[] =
+    current && !mapped.some((o) => o.value === current)
+      ? [{ value: current, label: `${current}（不在当前引擎列表）` }]
+      : [];
+  return [fallback, ...stale, ...mapped];
 }
 
 /**
