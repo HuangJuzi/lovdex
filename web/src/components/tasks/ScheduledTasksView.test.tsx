@@ -37,15 +37,15 @@ function render(
   extra: Partial<Parameters<typeof ScheduledTasksView>[0]> = {},
 ) {
   return renderToStaticMarkup(
-    <StaticRouter location="/tasks?view=scheduled">
+    <StaticRouter location="/scheduled">
       <ScheduledTasksView
         tasks={tasks}
         projectOptions={projectOptions}
         {...handlers}
         blockedRuns={new Map()}
         pendingRunNow={new Set()}
-        runNowError={null}
-        onDismissRunNowError={noop}
+        actionError={null}
+        onDismissActionError={noop}
         {...extra}
       />
     </StaticRouter>,
@@ -183,7 +183,7 @@ test('没被挡住的立即触发保持可点', () => {
 });
 
 test('没有调度时错误条仍然渲染在空态上方', () => {
-  const html = render([], { runNowError: '「每日站会」上一轮还没结束，先处理或中断它再触发' });
+  const html = render([], { actionError: '「每日站会」上一轮还没结束，先处理或中断它再触发' });
   assert.match(html, /暂无定时任务/);
   assert.match(html, /上一轮还没结束，先处理或中断它再触发/);
   // 「上方」不能只靠两段文字同时出现来证明，钉住先后顺序
@@ -193,13 +193,22 @@ test('没有调度时错误条仍然渲染在空态上方', () => {
   );
 });
 
-test('runNowError 渲染成列表上方的提示条，可关闭', () => {
-  const html = render([baseTask], { runNowError: '「每日站会」上一轮还没结束，先处理或中断它再触发' });
+test('actionError 渲染成列表上方的提示条，可关闭', () => {
+  const html = render([baseTask], { actionError: '「每日站会」上一轮还没结束，先处理或中断它再触发' });
   assert.match(html, /上一轮还没结束，先处理或中断它再触发/);
   assert.match(html, />关闭</);
 });
 
-test('runNowError 为 null 时不渲染提示条', () => {
+test('actionError 为 null 时不渲染提示条', () => {
   const html = render([baseTask]);
   assert.doesNotMatch(html, />关闭</);
+});
+
+/**
+ * 提示条是**列表级操作共用**的（立即触发 + 删除），不是「立即触发专用」——
+ * 删定时任务也会撞 409（该调度还有一轮在跑），那条文案必须走同一个渲染口。
+ */
+test('actionError 也承载删除失败的文案', () => {
+  const html = render([baseTask], { actionError: '「每日站会」还有一轮未结束的运行，先停止或中断它再删除' });
+  assert.match(html, /还有一轮未结束的运行，先停止或中断它再删除/);
 });

@@ -21,12 +21,12 @@ export type ScheduledTasksViewProps = {
   blockedRuns: Map<string, Task>;
   /** 正在派发中的 schedule_id（连点闸门）。 */
   pendingRunNow: Set<string>;
-  /** 立即触发失败的提示条文案；null = 不显示。 */
-  runNowError: string | null;
-  onDismissRunNowError: () => void;
+  /** 列表级操作（立即触发 / 删除）失败的提示条文案；null = 不显示。 */
+  actionError: string | null;
+  onDismissActionError: () => void;
 };
 
-type ScheduledTaskCardProps = Omit<ScheduledTasksViewProps, 'tasks' | 'runNowError' | 'onDismissRunNowError'> & { task: ScheduledTask };
+type ScheduledTaskCardProps = Omit<ScheduledTasksViewProps, 'tasks' | 'actionError' | 'onDismissActionError'> & { task: ScheduledTask };
 
 const MODE_BADGE_CLASS = {
   auto: 'rounded-full bg-success/10 px-2 py-0.5 font-semibold text-success',
@@ -119,15 +119,16 @@ function ScheduledTaskCard({ task, projectOptions, onEdit, onDelete, onToggle, o
   );
 }
 
-export function ScheduledTasksView({ tasks, projectOptions, onEdit, onDelete, onToggle, onRunNow, blockedRuns, pendingRunNow, runNowError, onDismissRunNowError }: ScheduledTasksViewProps) {
+export function ScheduledTasksView({ tasks, projectOptions, onEdit, onDelete, onToggle, onRunNow, blockedRuns, pendingRunNow, actionError, onDismissActionError }: ScheduledTasksViewProps) {
   const navigate = useNavigate();
 
-  // 立即触发失败的提示条：与 ScheduledRunHistoryView 的结果条同位置（列表上方），
-  // 空态也要能报错（比如清空列表前的最后一次点击撞上 409）。
-  const errorStrip = runNowError ? (
+  // 列表级操作失败的提示条：与 ScheduledRunHistoryView 的结果条同位置（列表上方），
+  // 空态也要能报错（比如删掉列表最后一条调度时撞上 409）。立即触发与删除共用一条 ——
+  // 同一时刻只该有一条「刚才那次操作怎么了」，最新的一次覆盖上一条。
+  const errorStrip = actionError ? (
     <div className="mx-3 mt-2 flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive sm:mx-4">
-      <span className="min-w-0 flex-1 break-words">{runNowError}</span>
-      <button type="button" onClick={onDismissRunNowError} className="shrink-0 font-semibold hover:underline">关闭</button>
+      <span className="min-w-0 flex-1 break-words">{actionError}</span>
+      <button type="button" onClick={onDismissActionError} className="shrink-0 font-semibold hover:underline">关闭</button>
     </div>
   ) : null;
 

@@ -5,6 +5,7 @@ import { useScheduledTasks } from '../../hooks/useScheduledTasks';
 import type { ScheduledTask, Task } from '../../types/app';
 import { api } from '../../utils/api';
 import type { DeleteOutcome } from './runHistoryDelete';
+import { deletedRunIds, scheduleDeleteConfirmMessage, scheduleDeleteErrorMessage } from './scheduleDelete';
 import { ScheduledRunHistoryView, runsOf, type ScheduleLookup } from './ScheduledRunHistoryView';
 import { blockingRunsBySchedule, runNowErrorMessage } from './scheduleRunNow';
 import { ScheduledTabBar, type ScheduledTab } from './ScheduledTabBar';
@@ -51,7 +52,8 @@ export const ScheduledTasksPanel = forwardRef<ScheduledTasksPanelHandle, Schedul
   // 渲染成 disabled。与同文件 submittingRef 是同一套写法。
   const [pendingRunNow, setPendingRunNow] = useState<Set<string>>(new Set());
   const pendingRunNowRef = useRef<Set<string>>(new Set());
-  const [runNowError, setRunNowError] = useState<string | null>(null);
+  // 列表级操作（立即触发 / 删除）失败的提示条。同一时刻只留最新的一条。
+  const [actionError, setActionError] = useState<string | null>(null);
 
   /**
    * 删除运行记录。**逐条**调单个删除接口，而不是 `api.tasks.removeMany` ——
@@ -111,10 +113,35 @@ export const ScheduledTasksPanel = forwardRef<ScheduledTasksPanelHandle, Schedul
     }
   }
 
+  /**
+   * 删除定时任务。后端会**级联**删掉它跑出来的任务与关联会话（见
+   * tasksService.deleteTasksBySchedule），所以这里两件事都不能省：
+   * - 确认文案必须写明会话也会被删（scheduleDeleteConfirmMessage）；
+   * - 把响应里带回的 task id 交给 onRunsDeleted，让行从本地任务列表里摘掉。
+   *
+   * 失败必须如实报出来：删除从「永远成功」变成了「可能被拒」—— 该调度还有一轮在跑时
+   * 后端抛 409 SESSION_RUNNING，改动前这里直接把响应丢掉，用户点一下什么也不会发生。
+   */
   async function remove(t: ScheduledTask) {
-    if (!window.confirm(`删除定时任务「${t.title}」？已生成的任务不会被删除。`)) return;
-    await api.scheduledTasks.remove(t.schedule_id);
-    void refresh();
+    const runCount = runs.filter((r) => r.source_schedule_id === t.schedule_id).length;
+    if (!window.confirm(scheduleDeleteConfirmMessage(t.title, runCount))) return;
+    setActionError(null);
+    try {
+      const res = await api.scheduledTasks.remove(t.schedule_id);
+      const body = await res.json().catch(() => null);
+      if (!res.ok) {
+        setActionError(scheduleDeleteErrorMessage(t.title, res.status, body));
+        console.error('delete schedule failed', t.schedule_id, body ?? res.status);
+        return;
+      }
+      const deletedRuns = deletedRunIds(body);
+      if (deletedRuns.length > 0) onRunsDeleted(deletedRuns);
+      void refresh();
+    } catch (e) {
+      // 没拿到响应（断网 / 后端没起来 / 连接中途被重置）：没有 status 可用，直接说清。
+      setActionError(`「${t.title}」删除失败：无法连接后端`);
+      console.error('delete schedule failed', t.schedule_id, e);
+    }
   }
 
   async function toggle(t: ScheduledTask) {
@@ -130,19 +157,19 @@ export const ScheduledTasksPanel = forwardRef<ScheduledTasksPanelHandle, Schedul
     if (pendingRunNowRef.current.has(id) || blockedRuns.has(id)) return;
     pendingRunNowRef.current.add(id);
     setPendingRunNow(new Set(pendingRunNowRef.current));
-    setRunNowError(null);
+    setActionError(null);
     try {
       const res = await api.scheduledTasks.runNow(id);
       if (!res.ok) {
         const body = await res.json().catch(() => null);
-        setRunNowError(runNowErrorMessage(t.title, res.status, body));
+        setActionError(runNowErrorMessage(t.title, res.status, body));
         console.error('runNow failed', id, body ?? res.status);
       }
       // 失败也要刷新：例如被另一个标签页抢先派发了一轮，本地列表已经不同步了。
       void refresh();
     } catch (e) {
       // 没拿到响应（断网 / 后端没起来 / 连接中途被重置）：没有 status 可用，直接说清。
-      setRunNowError(`「${t.title}」立即触发失败：无法连接后端`);
+      setActionError(`「${t.title}」立即触发失败：无法连接后端`);
       console.error('runNow failed', id, e);
     } finally {
       pendingRunNowRef.current.delete(id);
@@ -187,8 +214,8 @@ export const ScheduledTasksPanel = forwardRef<ScheduledTasksPanelHandle, Schedul
         onRunNow={(t) => void runNow(t)}
         blockedRuns={blockedRuns}
         pendingRunNow={pendingRunNow}
-        runNowError={runNowError}
-        onDismissRunNowError={() => setRunNowError(null)}
+        actionError={actionError}
+        onDismissActionError={() => setActionError(null)}
       />
     );
   }
