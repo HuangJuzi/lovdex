@@ -25,7 +25,7 @@ export function moreSetCount(name: string, sourceSessionId: string, remark: stri
  *
  * 在途那一档不是锦上添花 —— title 留空时后端要等模型取名（阻塞窗口最长
  * `TITLE_BLOCKING_TIMEOUT_MS` = 3s）才落库，这期间弹窗一直开着，按钮若仍可点，
- * 双击 / Enter 连击就是两次 POST，板上多出一条一模一样的任务。
+ * 双击连击就是两次 POST，板上多出一条一模一样的任务。
  */
 export function canSubmitNewTask(prompt: string, submitting: boolean): boolean {
   return prompt.trim() !== '' && !submitting;
@@ -144,7 +144,7 @@ export function CreateTaskDialog({
 
   async function submit() {
     // 连击守卫。用同步的 ref 而不是 submitting state：setState 要等下一轮渲染才
-    // 生效，同一 tick 里（双击、Enter 连击）的第二次调用读到的还是旧值。
+    // 生效，同一 tick 里的第二次点击读到的还是旧值。
     if (submittingRef.current) return;
     setError('');
     const p = prompt.trim();
@@ -232,12 +232,6 @@ export function CreateTaskDialog({
               placeholder="发给 agent 执行的内容"
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  void submit();
-                }
-              }}
             />
             <div className="flex flex-wrap items-center gap-1.5 border-t border-border/60 px-3 py-2.5">
               <ChipSelect
@@ -340,7 +334,6 @@ export function CreateTaskDialog({
           {error && <p className="mt-2 text-sm text-destructive">{error}</p>}
 
           <div className="mt-3 flex items-center justify-end gap-2">
-            <span className="mr-auto text-xs text-muted-foreground">{isMobile ? 'Enter 创建 · Shift+Enter 换行' : ''}</span>
             <Button size="sm" variant="ghost" onClick={reset} disabled={submitting}><RotateCcw className="mr-1 h-3.5 w-3.5" />重置</Button>
             <Button size="sm" onClick={onClose} variant="ghost" disabled={submitting}>取消</Button>
           </div>

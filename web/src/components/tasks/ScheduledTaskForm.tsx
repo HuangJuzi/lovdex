@@ -79,7 +79,7 @@ export const EMPTY_DRAFT: ScheduledTaskDraft = {
  *
  * 在途那一档不是锦上添花 —— title 留空时后端要等模型取名（阻塞窗口最长
  * `TITLE_BLOCKING_TIMEOUT_MS` = 3s）才落库，这期间弹窗一直开着，按钮若仍可点，
- * 双击 / Enter 连击就是两次 POST，列表里多出一条一模一样的定时任务。
+ * 双击连击就是两次 POST，列表里多出一条一模一样的定时任务。
  *
  * 只卡描述：调度字段（cron / 触发时间 / 间隔）的缺失走提交时的内联报错，与
  * CreateTaskDialog 把可用性判据保持在单一维度上的做法一致。
@@ -365,12 +365,6 @@ export function ScheduledTaskForm({
               placeholder="说清楚要做什么就行，名称留空会自动生成"
               value={draft.description}
               onChange={(e) => set('description', e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  submit();
-                }
-              }}
             />
             <div className="flex flex-wrap items-center gap-1.5 border-t border-border/60 px-3 py-2.5">
               <NameChip value={draft.title} onChange={(v) => set('title', v)} isMobile={isMobile} />

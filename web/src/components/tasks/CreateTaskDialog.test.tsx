@@ -18,7 +18,7 @@ test('moreSetCount counts name / source session / remark', () => {
 
 // 确认按钮的可用性判据：需求为空、或已有创建请求在途，都不能再提交。
 // 在途那一档是「同一个任务被建出多条」的根因 —— title 留空时后端要等模型取名
-// （最长 3s）才落库，这期间按钮若仍可点，双击 / Enter 连击就是两次 POST。
+// （最长 3s）才落库，这期间按钮若仍可点，双击连击就是两次 POST。
 test('canSubmitNewTask rejects empty prompt and in-flight submit', () => {
   assert.equal(canSubmitNewTask('需求', false), true);
   assert.equal(canSubmitNewTask('   ', false), false); // 纯空白不算已填
