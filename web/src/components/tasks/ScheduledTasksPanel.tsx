@@ -136,14 +136,14 @@ export const ScheduledTasksPanel = forwardRef<ScheduledTasksPanelHandle, Schedul
       if (!res.ok) {
         const body = await res.json().catch(() => null);
         setRunNowError(runNowErrorMessage(t.title, res.status, body));
-        console.error('runNow failed', body ?? res.status);
+        console.error('runNow failed', id, body ?? res.status);
       }
       // 失败也要刷新：例如被另一个标签页抢先派发了一轮，本地列表已经不同步了。
       void refresh();
     } catch (e) {
-      // 请求根本没发出去（断网 / 后端没起来）：没有 status 可用，直接说清。
+      // 没拿到响应（断网 / 后端没起来 / 连接中途被重置）：没有 status 可用，直接说清。
       setRunNowError(`「${t.title}」立即触发失败：无法连接后端`);
-      console.error('runNow failed', e);
+      console.error('runNow failed', id, e);
     } finally {
       pendingRunNowRef.current.delete(id);
       setPendingRunNow(new Set(pendingRunNowRef.current));
