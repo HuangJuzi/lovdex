@@ -636,6 +636,17 @@ test('runNow 放行：上一轮跑挂 / 已结束 / 没跑过 / 任务已被删'
   await c.svc.runNow('s1');
   assert.equal(c.createdTasks.length, 1);
 
+  // 状态已结束 + session_id 存在 + 会话没在跑 → 放行。
+  // 这一格是生产上最常见的放行形态（auto_run=1 的调度跑完后，上一轮必然带 session_id
+  // 且已 settle）。少了它，第二段判据被简化成「只看 session_id 存不存在」也不会有人发现。
+  const e = makeService('2026-08-13T12:00:00.000Z');
+  e.rows.set('s1', mkRow({ schedule_id: 's1', last_task_id: 'task-1' }));
+  e.taskRows.set('task-1', mkTaskRow({
+    task_id: 'task-1', status: 'in_review', sub_status: 'pending_acceptance', session_id: 'sess-dead',
+  }));
+  await e.svc.runNow('s1');
+  assert.equal(e.createdTasks.length, 1, '上一轮已结束（会话没在跑）必须放行');
+
   // 上一轮的任务已被删（运行记录清理）—— 查不到就不挡
   const d = makeService('2026-08-13T12:00:00.000Z');
   d.rows.set('s1', mkRow({ schedule_id: 's1', last_task_id: 'gone' }));

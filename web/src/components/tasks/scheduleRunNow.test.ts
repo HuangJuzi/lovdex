@@ -32,8 +32,10 @@ test('blockingRunsBySchedule: 进行中且没跑挂的上一轮才算挡住', ()
 
   // 无标签也算「没走完」：裸 DB 行是 null，decorate() 之后是 running，两种都要挡
   assert.ok(blockingRunsBySchedule([s], [task({ sub_status: null })]).has('s1'), 'in_progress + null 必须挡');
-  assert.ok(blockingRunsBySchedule([s], [task({ sub_status: 'running' })]).has('s1'));
-  assert.ok(blockingRunsBySchedule([s], [task({ sub_status: 'waiting_answer' })]).has('s1'), '等你回答也要挡');
+  // 与后端 isRunActive 的测试用同一组标签，让两侧真值表字面一致
+  for (const sub of ['running', 'waiting_answer', 'waiting_plan', 'waiting_approval', 'blocked', 'only_plan', 'needs_review'] as const) {
+    assert.ok(blockingRunsBySchedule([s], [task({ sub_status: sub })]).has('s1'), `in_progress + ${sub} 必须挡`);
+  }
 
   // failed 是唯一明确的「上一轮已经终止、可以重来」
   assert.equal(blockingRunsBySchedule([s], [task({ sub_status: 'failed' })]).has('s1'), false, '跑挂的必须放行');
