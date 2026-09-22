@@ -176,8 +176,21 @@ test('派发中的那一行也禁用，文案是「正在触发…」', () => {
 
 test('没被挡住的立即触发保持可点', () => {
   const html = render([baseTask]);
+  // 正向计数先钉住「两套布局的 ▶ 都在」，否则下面那条 0 命中在正则漂移时会空转
+  assert.equal((html.match(/<button[^>]*aria-label="立即触发"/g) ?? []).length, 2, '两套布局各一个 ▶');
   assert.equal(countDisabledRunNow(html), 0, '默认状态下按钮不该是灰的');
   assert.match(html, /title="立即触发"/);
+});
+
+test('没有调度时错误条仍然渲染在空态上方', () => {
+  const html = render([], { runNowError: '「每日站会」上一轮还没结束，先处理或中断它再触发' });
+  assert.match(html, /暂无定时任务/);
+  assert.match(html, /上一轮还没结束，先处理或中断它再触发/);
+  // 「上方」不能只靠两段文字同时出现来证明，钉住先后顺序
+  assert.ok(
+    html.indexOf('上一轮还没结束') < html.indexOf('暂无定时任务'),
+    '错误条必须排在空态文案之前',
+  );
 });
 
 test('runNowError 渲染成列表上方的提示条，可关闭', () => {
