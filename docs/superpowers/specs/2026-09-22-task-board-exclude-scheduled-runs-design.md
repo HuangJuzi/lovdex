@@ -157,7 +157,7 @@ web 测试是 `node:test` + `renderToStaticMarkup`，**无 DOM、不跑 effect�
 **过程中的三处修正**（都是测试方法或护栏本身的问题，不是产品缺陷）：
 
 1. **护栏原本咬不住**（spec 计划阶段就埋下的）：`taskFilter.test.ts` 的 fixture 除 `task_id`/`source_schedule_id` 外完全相同，所以任何基于其它字段的判据漂移都测不出来 —— 审查在 `/tmp` 复制文件做了三个漂移变体，**全部 38/38 照绿**。修法是让 fixture 覆盖满 5 个 `TaskStatus`（`7bab9c7`）并再补一对 `sub_status: 'failed'`（`b2a5f43`），现在 `&& status !== 'archived'` / `&& status !== 'done'` / `&& is_operator !== 1` / `|| status === 'archived'` / `&& sub_status !== 'failed'` 等变体**逐个都会把护栏打红**（每条都用变异测试实证过）。顺带发现审查最初建议的变体里 `status: 'failed'` 根本编译不过 —— `failed` 是 `SubStatus` 不是 `TaskStatus`。
-2. **计划里的 E2E 断言不可实现**：计划写「表格实际行数 == 状态 pill 上『全部』的计数」，但 `TaskTableView.tsx:153-171` 的状态 pill **根本不渲染计数**。改成与 API 实时算出的期望行数比对（并允许重读一次以吸收调度持续建任务带来的数据漂移）。
+2. **计划里的 E2E 断言不可实现**：计划写「表格实际行数 == 状态 pill 上『全部』的计数」，但 `TaskTableView.tsx:154-159` 的**「全部」那颗 pill 不渲染计数**（只有 per-status 的 pill 才带 `{groups[status].length}`，见 `:168`）。改成与 API 实时算出的期望行数比对（并允许重读一次以吸收调度持续建任务带来的数据漂移）。
 3. **E2E 两处方法错误**（都不是产品问题，已修正后重跑）：(a) 断言详情页标题时用 `document.body.innerText`，但标题渲染在可编辑 `input/textarea` 的 **value** 里，`innerText` 拿不到 —— 改用 URL + 徽标 + 表单值三者联合断言；(b) 检查 4 访问过 `?view=scheduled` 后，`taskViewMode` 被**持久化**成 `'scheduled'`，导致后续 `goto('/tasks')` 落回定时页、收件箱根本不渲染 —— 属于用例间的状态泄漏，进检查 5 前先清掉该 key。
 
 **已知遗留**（非阻塞，记录备查）：
