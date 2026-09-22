@@ -112,7 +112,7 @@ export type OperatorToolDeps = {
     get: (scheduleId: string) => unknown;
     create: (i: Record<string, unknown>) => unknown;
     update: (scheduleId: string, u: Record<string, unknown>) => Promise<unknown> | unknown;
-    remove: (scheduleId: string) => void;
+    remove: (scheduleId: string) => Promise<unknown> | unknown;
   };
   /**
    * 通知中心（收件箱）。注入自 index.js，形状直接匹配 notifications.service，
@@ -551,14 +551,17 @@ export function buildOperatorTools(deps: OperatorToolDeps) {
       },
     },
     delete_scheduled_task: {
-      description: 'Delete a scheduled-task template (already-created tasks are kept).',
+      description:
+        'Delete a scheduled-task template AND the tasks/sessions it has already generated (they are removed together, and the transcripts are not recoverable). Refused with an error while one of its runs is still in progress — settle or interrupt that run first.',
       inputSchema: {
         type: 'object',
         properties: { scheduleId: { type: 'string' } },
         required: ['scheduleId'],
       },
       handler: async (i: { scheduleId: string }) => {
-        deps.scheduledTasks!.remove(i.scheduleId);
+        // 必须 await：级联被拒时 remove 会 reject，不接住就是一次 unhandledRejection
+        // （进程级告警），而助手拿到的却是一个假的 success。
+        await deps.scheduledTasks!.remove(i.scheduleId);
         return { success: true };
       },
     },

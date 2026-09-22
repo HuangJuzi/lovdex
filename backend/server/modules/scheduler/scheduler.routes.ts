@@ -8,7 +8,7 @@ export type SchedulerServiceLike = {
   get: (scheduleId: string) => unknown;
   create: (input: Record<string, unknown>) => Promise<unknown>;
   update: (scheduleId: string, updates: Record<string, unknown>) => Promise<unknown>;
-  remove: (scheduleId: string) => void;
+  remove: (scheduleId: string) => Promise<{ deletedTaskIds: string[] }>;
   runNow: (scheduleId: string) => unknown;
   setEnabled: (scheduleId: string, enabled: boolean) => unknown;
 };
@@ -47,9 +47,11 @@ export function buildSchedulerRouter(svc: SchedulerServiceLike) {
     res.json(row);
   }));
 
+  // 删除会级联清掉该调度跑出来的任务与会话，所以是异步的：任务仍有一轮在跑时
+  // 服务层抛 409（SESSION_RUNNING），错误处理中间件据此回给前端。
   router.delete('/:scheduleId', asyncHandler(async (req, res) => {
-    svc.remove(String(req.params.scheduleId));
-    res.json({ success: true });
+    const { deletedTaskIds } = await svc.remove(String(req.params.scheduleId));
+    res.json({ success: true, deletedTaskIds });
   }));
 
   router.post('/:scheduleId/run-now', asyncHandler(async (req, res) => {

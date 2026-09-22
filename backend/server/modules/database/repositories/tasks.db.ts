@@ -137,7 +137,7 @@ export const tasksDb = {
     return row ? normalizeTaskRow(row) : null;
   },
 
-  listTasks(filter: { projectPath?: string; status?: TaskStatus } = {}): TaskRow[] {
+  listTasks(filter: { projectPath?: string; status?: TaskStatus; sourceScheduleId?: string } = {}): TaskRow[] {
     const db = getConnection();
     const clauses: string[] = [];
     const params: unknown[] = [];
@@ -148,6 +148,12 @@ export const tasksDb = {
     if (filter.status) {
       clauses.push('status = ?');
       params.push(filter.status);
+    }
+    // 定时任务跑出来的那些行（idx_tasks_source_schedule 上有索引）。删调度要按它
+    // 找齐该调度的全部运行，所以过滤放在 SQL 里，而不是取全表再在内存里筛。
+    if (filter.sourceScheduleId) {
+      clauses.push('source_schedule_id = ?');
+      params.push(filter.sourceScheduleId);
     }
     const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
     return (db.prepare(`SELECT * FROM tasks ${where} ORDER BY position ASC, created_at ASC`).all(...params) as TaskRow[]).map(normalizeTaskRow);

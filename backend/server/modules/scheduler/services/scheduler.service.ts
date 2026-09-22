@@ -9,7 +9,7 @@ import type { ScheduledTaskDbLike } from './scheduled-task-db-like.js';
 
 export type SchedulerDeps = {
   scheduledTasksDb: ScheduledTaskDbLike;
-  tasksService: Pick<TasksService, 'createTask' | 'startExecution' | 'getTask'>;
+  tasksService: Pick<TasksService, 'createTask' | 'startExecution' | 'getTask' | 'deleteTasksBySchedule'>;
   createSession: (provider: TaskEngine, projectPath: string, isOperator?: boolean) => string;
   startTaskRun: (taskId: string, sessionId: string) => boolean;
   broadcast: (event: { kind: string; [k: string]: unknown }) => void;
@@ -402,9 +402,22 @@ export function createSchedulerService(deps: SchedulerDeps) {
       }
       return row;
     },
-    remove(scheduleId: string): void {
+    /**
+     * 删除调度：模板 + 它跑出来的任务与会话一起走。
+     *
+     * 级联本身由 tasksService.deleteTasksBySchedule 拥有（守卫、会话硬删、
+     * 逐条 task_deleted 广播都在那条路径上），这里只管编排与顺序：
+     * **先清运行、再删模板行**。反过来的话，级联被拒（还有一轮在跑 → 409）时模板
+     * 已经没了，用户拿着 409 却没有了重试的入口。
+     *
+     * 返回值把被删掉的任务 id 带回给路由 —— WS 不可靠，前端要靠这份 id 把行从本地
+     * 任务列表里摘掉。
+     */
+    async remove(scheduleId: string): Promise<{ deletedTaskIds: string[] }> {
+      const { deletedTaskIds } = await deps.tasksService.deleteTasksBySchedule(scheduleId);
       deps.scheduledTasksDb.deleteScheduledTask(scheduleId);
       deps.broadcast({ kind: 'scheduled_task_deleted', scheduleId, timestamp: now().toISOString() });
+      return { deletedTaskIds };
     },
     setEnabled(scheduleId: string, enabled: boolean): unknown {
       const row = deps.scheduledTasksDb.updateScheduledTask(scheduleId, { enabled: enabled ? 1 : 0 });
