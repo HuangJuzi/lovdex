@@ -275,3 +275,12 @@ web 无 DOM 环境，走 `renderToStaticMarkup`（同 `SidebarInboxEntry.test.ts
 - 不动「定时任务」「收件箱」两行（它们已经是目标风格）。
 - 不动新建项目向导本身（`ProjectCreationWizard` 及其产物）。
 - 不做侧栏折叠态（`SidebarCollapsed`）的新建任务入口 —— 那里现在也没有新建项目入口。
+
+## 7. 已知遗留（本次有意不做，记录在案）
+
+实施过程中发现、但判定不属于本次范围的问题。都已在代码注释或本节留下线索，不留在 review 线程里。
+
+1. **`TaskBoard` 关闭弹窗后焦点掉到 `body`**（§2.5 已详述根因）。`CreateTaskDialog` 的 `autoFocus` 已删（`5b74468`），侧栏三条关闭路径（ESC / 遮罩 / 取消）实测已还原到触发按钮；但 `TaskBoard.tsx:353` 的 `disabled={creating}` 是第二重成因 —— 按钮变 `disabled` 时浏览器立即移走焦点，早于 `Dialog` 捕获 `previousFocusRef`。建议改法：`openCreateForm` 幂等，可把 `disabled={creating}` 换成 `aria-disabled={creating}` 并补禁用样式。**代价需产品确认**：`aria-disabled` 不阻止点击，等于允许"创建中再点一次"。
+2. **`hiddenCreated` 语义被重载**（`TaskBoard.tsx`）。面板内新建路径只在 `isHiddenByFilters(created)` 时设置它，侧栏路径无条件设置 —— 于是同一个 state 在两条路径上分别意味着「被藏住的」和「刚建的」。行为可辩护（提示条显示时文案始终为真），但标识符名不副实。后续可重命名为 `recentlyCreated`（约 8 处机械改动，会同时触及面板内路径）。
+3. **`TaskBoard` 清 URL state 时把整个 state 抹掉**（`navigate(location.pathname, { replace: true, state: null })`）。未来若有调用方传 `{createdTaskId, 别的字段}`，别的字段会丢；`location.search` / `hash` 也一并丢。当前无实际影响：`TaskBoard` 是 `/tasks` 上唯一的 `location.state` 消费者，也没有任何地方链接到 `/tasks?...`。
+4. **`Lovdex助手` 行的可访问名仍被嵌套动作污染**（实机 a11y 树为 `Lovdex助手 新建 Lovdex助手 会话 Lovdex助手 设置`）。`SidebarSectionRow` 已通过 `aria-label={label}` 解决了 `项目` / `最近会话` 两行，但 `SidebarAssistant` 走自己那套 markup，尚未迁到共用组件 —— 与本 spec §2.1「不重构 SidebarAssistant」是同一笔范围外决定。
