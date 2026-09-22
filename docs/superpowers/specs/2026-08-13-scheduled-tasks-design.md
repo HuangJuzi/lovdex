@@ -120,7 +120,7 @@ CREATE INDEX IF NOT EXISTS idx_tasks_source_schedule ON tasks(source_schedule_id
 | POST | `/api/scheduled-tasks` | 创建（校验 schedule_type + 对应字段；`is_operator` 由 project_path 派生） |
 | GET | `/api/scheduled-tasks/:id` | 单条 |
 | PATCH | `/api/scheduled-tasks/:id` | 更新；改调度字段则重算 `next_run_at` |
-| DELETE | `/api/scheduled-tasks/:id` | 删模板（不动已生成的任务） |
+| DELETE | `/api/scheduled-tasks/:id` | 删模板（**2026-09-22 起改为连带删除已生成的任务与会话**，见 `2026-09-22-scheduled-task-delete-cascade-design.md`；本文该行的旧约定「不动已生成的任务」已失效） |
 | POST | `/api/scheduled-tasks/:id/run-now` | 手动触发一次（调试/补跑用） |
 | POST | `/api/scheduled-tasks/:id/enable` / `disable` | 启停 |
 
