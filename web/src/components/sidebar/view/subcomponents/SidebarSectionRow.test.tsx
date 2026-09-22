@@ -83,3 +83,18 @@ test('展开态在 DOM 里可见（aria-expanded）', () => {
   assert.ok(collapsedHtml.includes('aria-expanded="false"'));
   assert.ok(expandedHtml.includes('aria-expanded="true"'));
 });
+
+test('children 渲染在标题行之后、wrapper 之内', () => {
+  const html = renderToStaticMarkup(
+    <SidebarSectionRow icon={Folder} label="项目" collapsed={false} onToggle={noop}>
+      <div title="区块体" />
+    </SidebarSectionRow>,
+  );
+  assert.ok(html.includes('title="区块体"'));
+  // 必须在按钮之后（标题行下方）。
+  assert.ok(html.indexOf('title="区块体"') > html.indexOf('lucide-chevron-down'));
+  // 且仍在 wrapper 内：wrapper 是根元素，它自己的 `</div>` 必须收在 children 之后。
+  // 若 children 被渲染成 wrapper 的兄弟节点，children 之后只会剩它自己的闭合标签（1 个）。
+  const tail = html.slice(html.indexOf('title="区块体"'));
+  assert.equal((tail.match(/<\/div>/g) ?? []).length, 2);
+});

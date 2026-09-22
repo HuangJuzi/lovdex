@@ -19,6 +19,13 @@ type SidebarSectionRowProps = {
   actions?: ReactNode;
   /** 挂在最外层 wrapper 上，用于加分隔线等。tailwind-merge 会正确覆盖。 */
   className?: string;
+  /**
+   * 区块体（可折叠的列表等）。渲染在标题行**下方、同一个 wrapper 内**，
+   * 这样 wrapper 的 `px-2 pt-1.5 md:px-1.5` 同时作用于标题与区块体 ——
+   * 调用方不必在兄弟节点上复刻一遍内边距，`className` 里的 `pb-2` 也
+   * 自然落在区块底部而不是标题与列表之间。
+   */
+  children?: ReactNode;
 };
 
 /**
@@ -31,6 +38,9 @@ type SidebarSectionRowProps = {
  *
  * 最外层 wrapper 带 `group`，正是为了让 `group-hover:` / `group-focus-within:`
  * 这些变体能作用到传入的 `actions` 后代上 —— 删掉它，动作区的显形规则会全部失效。
+ *
+ * `children` 与标题行共用同一个 wrapper：wrapper 的水平内边距同时管住两者，
+ * 调用方传的 `className`（`pb-2` 等）落在整个区块的底部。
  */
 export default function SidebarSectionRow({
   icon: Icon,
@@ -39,6 +49,7 @@ export default function SidebarSectionRow({
   onToggle,
   actions,
   className,
+  children,
 }: SidebarSectionRowProps) {
   return (
     <div className={cn('group flex-shrink-0 px-2 pt-1.5 md:px-1.5', className)}>
@@ -64,6 +75,7 @@ export default function SidebarSectionRow({
           )}
         </div>
       </Button>
+      {children}
     </div>
   );
 }

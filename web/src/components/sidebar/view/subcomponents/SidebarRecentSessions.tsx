@@ -54,59 +54,55 @@ export default function SidebarRecentSessions({
     });
 
   return (
-    <>
-      <SidebarSectionRow
-        icon={History}
-        label="最近会话"
-        collapsed={collapsed}
-        onToggle={toggleCollapsed}
-        // 行组件自带 `px-2 pt-1.5 md:px-1.5`；分隔线与下间距通过 className 挂在它的 wrapper 上。
-        className="border-t border-border/60 pb-2"
-      />
-
+    <SidebarSectionRow
+      icon={History}
+      label="最近会话"
+      collapsed={collapsed}
+      onToggle={toggleCollapsed}
+      // 行组件自带 `px-2 pt-1.5 md:px-1.5`；分隔线与下间距通过 className 挂在它的 wrapper 上。
+      className="border-t border-border/60 pb-2"
+    >
       {!collapsed && (
-        // 列表沿用改造前外层那圈同款水平内边距，否则整列会相对标题行左移 8px。
-        <div className="px-2 md:px-1.5">
-          <div className="ml-3 max-h-[28vh] overflow-y-auto border-l border-border pl-3">
-            {recent.length === 0 ? (
-              <p className="px-1 py-2 text-xs text-muted-foreground">暂无最近会话</p>
-            ) : (
-              <div className="space-y-0.5 py-1">
-                {recent.map(({ session, project }) => {
-                  const provider = session.__provider ?? session.provider;
-                  return (
-                    <button
-                      key={`${project.projectId}-${session.id}`}
-                      type="button"
-                      onClick={() => onRecentSessionSelect(session, project)}
-                      className="w-full rounded-md px-2 py-2 text-left transition-colors hover:bg-muted"
-                    >
-                      <div className="flex items-center gap-1.5">
-                        <span className="min-w-0 flex-1 truncate text-xs font-normal text-foreground">
-                          {resolveSessionTitle(session) ?? '新建会话'}
+        // 水平内边距由行组件 wrapper 统一提供，这里只保留列表自己的缩进线。
+        <div className="ml-3 max-h-[28vh] overflow-y-auto border-l border-border pl-3">
+          {recent.length === 0 ? (
+            <p className="px-1 py-2 text-xs text-muted-foreground">暂无最近会话</p>
+          ) : (
+            <div className="space-y-0.5 py-1">
+              {recent.map(({ session, project }) => {
+                const provider = session.__provider ?? session.provider;
+                return (
+                  <button
+                    key={`${project.projectId}-${session.id}`}
+                    type="button"
+                    onClick={() => onRecentSessionSelect(session, project)}
+                    className="w-full rounded-md px-2 py-2 text-left transition-colors hover:bg-muted"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span className="min-w-0 flex-1 truncate text-xs font-normal text-foreground">
+                        {resolveSessionTitle(session) ?? '新建会话'}
+                      </span>
+                      {provider && provider !== 'claude' && (
+                        <span className="flex-shrink-0 rounded bg-muted px-1 py-0.5 text-4xs uppercase text-muted-foreground">
+                          {provider}
                         </span>
-                        {provider && provider !== 'claude' && (
-                          <span className="flex-shrink-0 rounded bg-muted px-1 py-0.5 text-4xs uppercase text-muted-foreground">
-                            {provider}
-                          </span>
-                        )}
-                      </div>
-                      <div className="mt-0.5 flex items-center gap-1.5 pl-3">
-                        <span className="min-w-0 flex-1 truncate text-3xs text-muted-foreground">
-                          {project.displayName || project.projectId}
-                        </span>
-                        <span className="flex-shrink-0 text-3xs text-muted-foreground/60">
-                          {formatCompactSessionAge(getSessionTime(session), currentTime)}
-                        </span>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+                      )}
+                    </div>
+                    <div className="mt-0.5 flex items-center gap-1.5 pl-3">
+                      <span className="min-w-0 flex-1 truncate text-3xs text-muted-foreground">
+                        {project.displayName || project.projectId}
+                      </span>
+                      <span className="flex-shrink-0 text-3xs text-muted-foreground/60">
+                        {formatCompactSessionAge(getSessionTime(session), currentTime)}
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
-    </>
+    </SidebarSectionRow>
   );
 }

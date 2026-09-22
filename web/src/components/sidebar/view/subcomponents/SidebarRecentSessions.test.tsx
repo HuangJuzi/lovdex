@@ -94,3 +94,17 @@ test('箭头渲染在标题之后（在右）', () => {
   assert.ok(html.includes('>最近会话</span>'));
   assert.ok(html.indexOf('lucide-chevron-down') > html.indexOf('>最近会话</span>'));
 });
+
+test('分隔线通过 className 透传到行 wrapper，列表保留原有内缩', () => {
+  const projects = [mkProject('p1', '项目一', [mkSession('s1', '2026-08-18T01:00:00Z')])];
+  const html = renderToStaticMarkup(
+    <SidebarRecentSessions projects={projects} onRecentSessionSelect={noop} />,
+  );
+  // 删掉 consumer 传的 className，border-t 会静默消失 —— 组件自己的测试证明不了这一点。
+  assert.ok(html.includes('border-t border-border/60 pb-2'));
+  // wrapper 自带的那圈水平内边距必须仍在（列表靠它对齐标题行）。
+  assert.ok(html.includes('group flex-shrink-0 px-2 pt-1.5 md:px-1.5'));
+  // 列表内缩改由 wrapper 统一提供，不能再出现补偿性的重复内边距兄弟节点。
+  assert.ok(!html.includes('class="px-2 md:px-1.5"'));
+  assert.ok(html.includes('class="ml-3 max-h-[28vh] overflow-y-auto border-l border-border pl-3"'));
+});
