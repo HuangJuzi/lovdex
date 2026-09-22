@@ -11,8 +11,10 @@ type SidebarSectionRowProps = {
   onToggle: () => void;
   /**
    * hover 才显形的右侧动作区。每个动作**自己**带
-   * `opacity-0 group-hover:opacity-100 touch:opacity-100` —— 组件不替它兜底，
-   * 因为各动作的配色不同（primary / foreground / destructive）。
+   * `opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 touch:opacity-100`
+   * —— 组件不替它兜底，因为各动作的配色不同（primary / foreground / destructive）。
+   * `group-focus-within:` 不能省：键盘 Tab 进动作区时 `group-hover:` 不触发，
+   * 焦点会落在 `opacity: 0` 的元素上，用户既看不见按钮也看不见焦点。
    */
   actions?: ReactNode;
   /** 挂在最外层 wrapper 上，用于加分隔线等。tailwind-merge 会正确覆盖。 */
@@ -26,6 +28,9 @@ type SidebarSectionRowProps = {
  * 触屏没有 hover，动作区靠 `touch:opacity-100` 常显 —— 那是 src/index.css 里
  * `@media (hover: none) and (pointer: coarse)` 下的 `opacity: 1 !important`。
  * 所以一份 markup 同时管桌面和触屏，不必像 SidebarAssistant 那样拆两套。
+ *
+ * 最外层 wrapper 带 `group`，正是为了让 `group-hover:` / `group-focus-within:`
+ * 这些变体能作用到传入的 `actions` 后代上 —— 删掉它，动作区的显形规则会全部失效。
  */
 export default function SidebarSectionRow({
   icon: Icon,
@@ -41,6 +46,7 @@ export default function SidebarSectionRow({
         variant="ghost"
         className="flex h-auto w-full justify-between bg-primary/5 p-2 font-normal hover:bg-muted"
         onClick={onToggle}
+        aria-expanded={!collapsed}
         title={`${collapsed ? '展开' : '收起'} ${label}`}
       >
         <div className="flex min-w-0 flex-1 items-center gap-2.5">

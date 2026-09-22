@@ -46,3 +46,40 @@ test('actions 渲染进行内动作区，且在箭头之前', () => {
   assert.ok(html.includes('title="新建项目"'));
   assert.ok(html.indexOf('title="新建项目"') < html.indexOf('lucide-chevron-down'));
 });
+
+test('wrapper 带 group（hover 显形的作用域根）与淡紫底', () => {
+  const html = renderToStaticMarkup(
+    <SidebarSectionRow icon={Folder} label="项目" collapsed={false} onToggle={noop} />,
+  );
+  // 删掉 group，`group-hover:` 系列全部失效 —— 必须有断言兜住。
+  assert.ok(html.includes('class="group '));
+  // 「统一成 Lovdex助手 风格」的四条规则之一。
+  assert.ok(html.includes('bg-primary/5'));
+});
+
+test('className 与自有类合并且不互相吞并', () => {
+  const html = renderToStaticMarkup(
+    <SidebarSectionRow
+      icon={Folder}
+      label="项目"
+      collapsed={false}
+      onToggle={noop}
+      className="border-t border-border/60 pb-2"
+    />,
+  );
+  assert.ok(html.includes('border-t border-border/60 pb-2'));
+  // 自有类不能被透传的 className 顶掉。
+  assert.ok(html.includes('flex-shrink-0'));
+  assert.ok(html.includes('md:px-1.5'));
+});
+
+test('展开态在 DOM 里可见（aria-expanded）', () => {
+  const collapsedHtml = renderToStaticMarkup(
+    <SidebarSectionRow icon={Folder} label="项目" collapsed onToggle={noop} />,
+  );
+  const expandedHtml = renderToStaticMarkup(
+    <SidebarSectionRow icon={Folder} label="项目" collapsed={false} onToggle={noop} />,
+  );
+  assert.ok(collapsedHtml.includes('aria-expanded="false"'));
+  assert.ok(expandedHtml.includes('aria-expanded="true"'));
+});
