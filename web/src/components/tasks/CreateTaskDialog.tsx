@@ -227,7 +227,12 @@ export function CreateTaskDialog({
         <div className="p-5">
           <div className="rounded-2xl border border-border/80 transition-colors focus-within:border-primary/60 focus-within:ring-2 focus-within:ring-ring/50">
             <textarea
-              autoFocus
+              // 不要用 `autoFocus`：React 在 commit 阶段就应用它，早于 `Dialog` 里
+              // 记录「打开前焦点」的那个 passive effect，于是 `previousFocusRef`
+              // 抓到的是这个 textarea 自己，关闭时「还原」焦点会落到正在卸载的
+              // 节点上 → 掉到 body。`DialogContent` 本来就有 rAF 兜底聚焦第一个
+              // 可聚焦元素（Dialog.tsx:178-186），这里删掉后 textarea 照样是
+              // 第一个被聚焦的，UX 不变。
               className="min-h-[180px] w-full resize-y rounded-t-2xl border-0 bg-transparent px-4 py-3 text-base leading-relaxed text-foreground placeholder:text-muted-foreground/60 focus:outline-none sm:min-h-[240px]"
               placeholder="发给 agent 执行的内容"
               value={prompt}
