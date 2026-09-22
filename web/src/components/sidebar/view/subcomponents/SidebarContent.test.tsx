@@ -117,6 +117,28 @@ test('有展开项时渲染「收起全部项目」', () => {
   assert.ok(render({ hasExpandedProjects: true }).includes('title="收起全部项目"'));
 });
 
+test('项目区块收起时不渲染「收起全部项目」（没有可收起的可见对象）', () => {
+  // 显示条件是 `hasExpandedProjects && !projectsCollapsed` 两半；
+  // 上面两条只动了 hasExpandedProjects，projectsCollapsed 是内部 state
+  // （从 localStorage 读初值），这一半不 stub 就测不到。
+  const original = (globalThis as { localStorage?: unknown }).localStorage;
+  const store = new Map<string, string>();
+  (globalThis as { localStorage?: unknown }).localStorage = {
+    getItem: (k: string) => store.get(k) ?? null,
+    setItem: (k: string, v: string) => void store.set(k, v),
+  };
+  try {
+    store.set('lovdex:sidebar:projects-collapsed', '1');
+    const html = render({ hasExpandedProjects: true });
+    // 条件两半都要成立才渲染；收起时这一半不成立。
+    assert.ok(!html.includes('title="收起全部项目"'));
+    // 收起的是列表不是入口 —— 新建项目按钮必须还在。
+    assert.ok(html.includes('title="新建项目"'));
+  } finally {
+    (globalThis as { localStorage?: unknown }).localStorage = original;
+  }
+});
+
 /**
  * 取出某个动作按钮**自己的 markup 片段**（从它自己的 `class="…"` 到它内部 `<svg>` 结束）。
  *

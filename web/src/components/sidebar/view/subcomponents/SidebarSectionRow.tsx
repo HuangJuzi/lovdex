@@ -41,6 +41,12 @@ type SidebarSectionRowProps = {
  *
  * `children` 与标题行共用同一个 wrapper：wrapper 的水平内边距同时管住两者，
  * 调用方传的 `className`（`pb-2` 等）落在整个区块的底部。
+ *
+ * 行按钮显式带 `aria-label={label}`：`actions` 里嵌的 `div role="button"` 自带
+ * `aria-label`，不显式指定名字的话它会被折进行按钮的 name-from-content，
+ * 无障碍树里读成「项目 新建项目」。可见文案本来就等于 `label`，所以这不是
+ * 用不同的名字覆盖可见标签，只是挡住后代内容污染名字；展开/收起状态仍由
+ * `aria-expanded` 承载（那才是 disclosure 控件的正确表达）。
  */
 export default function SidebarSectionRow({
   icon: Icon,
@@ -58,6 +64,7 @@ export default function SidebarSectionRow({
         className="flex h-auto w-full justify-between bg-primary/5 p-2 font-normal hover:bg-muted"
         onClick={onToggle}
         aria-expanded={!collapsed}
+        aria-label={label}
         title={`${collapsed ? '展开' : '收起'} ${label}`}
       >
         <div className="flex min-w-0 flex-1 items-center gap-2.5">
