@@ -10,15 +10,28 @@ async function startServer(svc: unknown): Promise<{ baseUrl: string; close: () =
   const app = express();
   app.use(express.json());
   app.use('/api/scheduled-tasks', buildSchedulerRouter(svc as never));
-  // 镜像 index.js:1994 的生产错误处理：AppError → statusCode + { error: { code, message } }。
+  // 镜像 index.js:1994 的生产错误处理：AppError → statusCode + { error: { code, message, details } }。
   // 没有它时 Express 默认处理器只认 err.statusCode、响应体是 HTML，断言不到 code。
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
-    const e = err as { statusCode?: number; code?: string; message?: string };
-    res.status(e.statusCode ?? 500).json({ success: false, error: { code: e.code, message: e.message } });
+    // 只对 AppError 认 statusCode/code —— 生产也是这么收窄的（index.js:1994），
+    // 别的错误一律 500 + INTERNAL_ERROR，避免测试版比生产宽松。
+    if (err instanceof AppError) {
+      return res.status(err.statusCode).json({
+        success: false,
+        error: { code: err.code, message: err.message, details: err.details },
+      });
+    }
+    console.error('unhandled error in scheduler routes test', err);
+    return res.status(500).json({
+      success: false,
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' },
+    });
   });
   const server = app.listen(0);
-  // 不直接把 resolve / r 传给 .on('listening') / .close()：两者的回调签名都是 (err?: Error) => void，
-  // 而 resolve / r 是 (value: void | PromiseLike<void>) => void，TS2345（存量错误，顺手修掉）。
+  // 不直接把 r 传给 .close()：close 的回调是 (err?: Error) => void，而这里的返回类型
+  // 把 r 定型成 (value: void | PromiseLike<void>) => void，Error | undefined 不能赋给 void
+  // → TS2345（存量错误 scheduler.routes.test.ts(14,102)，顺手修掉）。
+  // 'listening' 的监听器其实无参、传 resolve 本不报错，包一层只是顺手统一风格。
   await new Promise<void>((resolve) => server.once('listening', () => resolve()));
   const address = server.address() as { port: number };
   return { baseUrl: `http://127.0.0.1:${address.port}`, close: () => new Promise((r) => server.close(() => r())) };
@@ -137,5 +150,7 @@ test('POST /:id/run-now returns 404 for an unknown schedule', async () => {
   try {
     const res = await fetch(`${baseUrl}/api/scheduled-tasks/nope/run-now`, { method: 'POST' });
     assert.equal(res.status, 404);
+    const body = await res.json() as { error?: { code?: string } };
+    assert.equal(body.error?.code, 'SCHEDULE_NOT_FOUND', '404 必须来自路由分支，不是 Express 默认 404');
   } finally { await close(); }
 });
