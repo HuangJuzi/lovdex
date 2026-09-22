@@ -65,16 +65,12 @@ export default function SidebarModals({
           document.body,
         )}
 
-      {/* 与 TaskBoard 同款常挂用法（`<CreateTaskDialog open={...} />`），而不是
-          `{showNewTask && <CreateTaskDialog open ... />}`：`open` 是弹窗自己的契约，
-          它驱动 `useProviderModels(engine, open)` 与「每次打开重置表单」那个 effect。
-          把 `open` 写死成 true 会让这两者在侧栏这条调用路径上变成空转，日后任何新增的
-          open 驱动逻辑都会静默地只对 TaskBoard 生效。
-          代价只是侧栏挂载时多打一次 /api/projects（实测两次开关弹窗的增量为 0，不会
-          随打开次数重打）；侧栏只在 / 、/session/:id 、/inbox 挂载，这几个路由之间
-          切换也不会重挂，可以忽略。
-          注意：这样改**不会**让关闭后焦点回到触发按钮 —— 焦点还原另有其因（见
-          CreateTaskDialog 的 autoFocus），TaskBoard 同样掉到 body，与本挂载方式无关。 */}
+      {/* 与 TaskBoard 同款常挂用法：`CreateTaskDialog` 的 `open` prop 驱动它自己的
+          `useProviderModels` 与表单重置，写死 `open` 会让这两条在侧栏路径上空转。
+          代价是侧栏挂载时多打一次 /api/projects 与 /api/providers/installed
+          （后者来自 useTaskEngineAvailability，不像 useProviderModels 那样被 open
+          门控）；开关弹窗本身不会再重打 /api/projects。侧栏只在 / 、/session/:id 、
+          /inbox 挂载，且这几个路由之间切换不会重挂，可以忽略。 */}
       <CreateTaskDialog open={showNewTask} onClose={onCloseNewTask} onCreated={onTaskCreated} />
 
       {deleteConfirmation &&
