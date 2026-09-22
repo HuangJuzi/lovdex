@@ -173,7 +173,13 @@ i18n 新增 `sidebar.tooltips.createTask` = `"Create new task"`（`web/src/i18n/
 >
 > **更正（同日，二次实测）**：上面这句也是错的。改成常挂之后实测焦点**仍然**掉到 `BODY`，`TaskBoard` 这个"参照物"也一样 —— 也就是说焦点问题**与挂载方式无关**，是既有缺陷。真正的根因是 `CreateTaskDialog.tsx` 的 textarea 上挂了 `autoFocus`：React 在 **commit 阶段**就应用 `autoFocus`，早于 `Dialog` 里记录「打开前焦点」的那个 passive effect，于是 `previousFocusRef.current` 抓到的是 **textarea 自己**；关闭时把焦点"还原"到正在卸载的节点上 → 落到 `body`。`triggerRef.current` 为空（两个调用点都没用 `DialogTrigger`），兜底路径也失效。
 >
-> 修法在 `CreateTaskDialog.tsx`：删掉那个 `autoFocus`。`DialogContent` 本来就有 rAF 兜底聚焦第一个可聚焦元素（`Dialog.tsx:178-186`），而该弹窗里第一个可聚焦元素正是这个 textarea（`DialogTitle` 是 `sr-only` 的 `h2`，不可聚焦；`DialogContent` 自身不渲染关闭按钮），所以删掉后 UX 不变。这一并修好了 `TaskBoard` 的同一缺陷。
+> 修法在 `CreateTaskDialog.tsx`：删掉那个 `autoFocus`。`DialogContent` 本来就有 rAF 兜底聚焦第一个可聚焦元素（`Dialog.tsx:178-186`），而该弹窗里第一个可聚焦元素正是这个 textarea（`DialogTitle` 是 `sr-only` 的 `h2`，不可聚焦；`DialogContent` 自身不渲染关闭按钮），所以删掉后 UX 不变。
+>
+> **已知遗留（不在本次范围，未修）**：`TaskBoard` 还有**第二重**成因，删 `autoFocus` 对它不够。`TaskBoard.tsx:353` 的触发按钮带 `disabled={creating}` —— 点击后 `creating` 变 `true`，按钮变 `disabled`，**浏览器会立即把焦点从被禁用的元素上移走**（落到 `body`），而这发生在 commit 阶段，早于 `Dialog` 捕获 `previousFocusRef`。所以 TaskBoard 那条路径关闭后仍掉到 `body`。
+>
+> 实测（侧栏三条关闭路径：ESC / 遮罩 / 取消）：侧栏已全部还原到触发按钮 ✅；TaskBoard 仍为 `body` ❌。
+>
+> 建议修法（需产品决策，故未擅自改）：`openCreateForm` 是幂等的（重复 `setCreating(true)` 无副作用），可把 `disabled={creating}` 换成 `aria-disabled={creating}` 并补上对应的禁用样式，焦点锚点即保住。代价是 `aria-disabled` 不阻止点击，需要确认"创建中可再点一次"是可接受的。
 >
 > 常挂本身仍然是对的，但理由是**另一条**：`open` 是 `CreateTaskDialog` 自己的契约，驱动 `useProviderModels(engine, open)` 与表单重置 effect，写死 `open` 会让这两条在侧栏路径上空转。
 >
