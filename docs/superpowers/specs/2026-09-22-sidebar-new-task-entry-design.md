@@ -85,12 +85,12 @@ type SidebarSectionRowProps = {
     {/* 结构照抄 SidebarAssistant.tsx:442-461 的「新建会话 +」 */}
     <div
       role="button" tabIndex={0}
-      className="touch:opacity-100 flex h-7 w-7 cursor-pointer items-center justify-center rounded text-muted-foreground opacity-0 transition-all duration-150 hover:bg-primary/20 hover:text-primary hover:ring-1 hover:ring-primary/40 group-hover:opacity-100"
+      className="touch:opacity-100 flex h-7 w-7 cursor-pointer items-center justify-center rounded text-muted-foreground opacity-0 transition-all duration-150 hover:bg-primary/20 hover:text-primary hover:ring-1 hover:ring-primary/40 group-focus-within:opacity-100 group-hover:opacity-100"
       onClick={(e) => { e.stopPropagation(); onCreateProject(); }}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onCreateProject(); } }}
       title="新建项目" aria-label="新建项目"
     >
-      <FolderPlus className="!h-5 !w-5" />
+      <FolderPlus className="!h-3.5 !w-3.5" />
     </div>
     {hasExpandedProjects && !projectsCollapsed && (
       /* 同款结构，图标 ChevronsDownUp，title/aria-label「收起全部项目」，onClick → onCollapseAllProjects */
@@ -98,6 +98,12 @@ type SidebarSectionRowProps = {
   </>}
 />
 ```
+
+关于那两个 class：
+
+- **`!h-3.5 !w-3.5` 的 `!` 不能省。** 动作按钮渲染在行组件的 `<Button>` 内部，而 `Button` 基础类含 `[&_svg]:size-4`（后代选择器，特异度 (0,1,1)），会盖掉 svg 上的普通 `.h-3\.5` (0,1,0)。已实测确认：侧栏顶部在 `Button` 内的 `ClipboardList h-3.5 w-3.5` 计算宽度是 **16px**，而在 `Input` 内的 `Search h-3.5 w-3.5` 是 14px。仓库既有先例：`SidebarAssistant.tsx:460` 的 `!h-5 !w-5`。
+  **尺寸取 14px（不是 `SidebarAssistant` 那个 `+` 的 20px）**，为的是保住「收起全部项目」原来的 14px 观感；同一行里两个动作图标尺寸一致。代价是与 Lovdex助手 行的 `+`（20px）不同尺寸。
+- **`group-focus-within:opacity-100` 也不能省。** 键盘 Tab 进动作区时 `group-hover:` 不触发，焦点会落在 `opacity: 0` 的元素上，用户既看不见按钮也看不见焦点。`touch:` 只覆盖粗指针，不覆盖键盘。
 
 （上面是内联 markup，不抽新的按钮组件 —— 全仓库这种行内动作按钮都是就地写的，抽出来反而多一层跳转。）
 
