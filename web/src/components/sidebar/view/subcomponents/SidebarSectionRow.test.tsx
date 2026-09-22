@@ -98,3 +98,20 @@ test('children 渲染在标题行之后、wrapper 之内', () => {
   const tail = html.slice(html.indexOf('title="区块体"'));
   assert.equal((tail.match(/<\/div>/g) ?? []).length, 2);
 });
+
+test('行按钮用 label 做可访问名，不被嵌套动作的 aria-label 污染', () => {
+  const html = renderToStaticMarkup(
+    <SidebarSectionRow
+      icon={Folder}
+      label="项目"
+      collapsed={false}
+      onToggle={noop}
+      actions={<div role="button" aria-label="新建项目" />}
+    />,
+  );
+  // 没有 aria-label 时，行按钮的 name-from-content 会把嵌套动作的 aria-label
+  // 一起吞掉（实机树里是「项目 新建项目」）。
+  assert.ok(html.includes('aria-label="项目"'));
+  // 动作自己的 aria-label 不受影响。
+  assert.ok(html.includes('aria-label="新建项目"'));
+});
