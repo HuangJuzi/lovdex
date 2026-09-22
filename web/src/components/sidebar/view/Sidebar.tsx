@@ -8,6 +8,7 @@ import { useSidebarController } from '../hooks/useSidebarController';
 import { useSidebarWidth } from '../../../hooks/useSidebarWidth';
 import type { Project, LLMProvider } from '../../../types/app';
 import type { MCPServerStatus, SidebarProps } from '../types/types';
+import { createdTaskNavState } from '../../tasks/createdTaskHandoff';
 
 import SidebarCollapsed from './subcomponents/SidebarCollapsed';
 import SidebarContent from './subcomponents/SidebarContent';
@@ -252,7 +253,7 @@ function Sidebar({
           setShowNewTask(false);
           // 带上 task_id，让 /tasks 那边能认出「刚建的是哪一条」——被用户存下的
           // 筛选藏住时，TaskBoard 会用它点亮既有的提示条。
-          navigate('/tasks', { state: { createdTaskId: task.task_id } });
+          navigate('/tasks', { state: createdTaskNavState(task.task_id) });
         }}
         deleteConfirmation={deleteConfirmation}
         onCancelDeleteProject={() => setDeleteConfirmation(null)}

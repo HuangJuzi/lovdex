@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { LayoutGrid, Plus, SlidersHorizontal, Table, X } from 'lucide-react';
 
 import { useWebSocket } from '../../contexts/WebSocketContext';
@@ -24,10 +24,12 @@ import { TaskFilterBar } from './TaskFilterBar';
 import { TaskTableView } from './TaskTableView';
 import { TaskInboxPanel } from './TaskInboxPanel';
 import { CreateTaskDialog } from './CreateTaskDialog';
+import { readCreatedTaskId } from './createdTaskHandoff';
 import { EMPTY_TASK_FILTER, filterTasks, isTaskFilterActive, manualTasksOf, normalizeTaskFilter } from './taskFilter';
 
 export function TaskBoardPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { subscribe, sendMessage } = useWebSocket();
   const { tasks, loading, loadError, refresh, upsert, remove } = useTasks({}, subscribe);
   const [storedFilter, setFilter] = useLocalStorage<unknown>('taskFilter', EMPTY_TASK_FILTER);
@@ -181,6 +183,23 @@ export function TaskBoardPage() {
 
   // 创建的任务被当前筛选排除时留存提示；筛选调到能显示它（或手动关闭）后消失。
   const [hiddenCreated, setHiddenCreated] = useState<Task | null>(null);
+
+  // 侧栏「新建任务」跳进来时带过来的 task_id。等任务列表到齐后认领一次，
+  // 再清掉 URL state，免得浏览器前进/后退把它重放成又一次提示。
+  const [pendingCreatedId, setPendingCreatedId] = useState<string | null>(() =>
+    readCreatedTaskId(location.state),
+  );
+
+  useEffect(() => {
+    if (!pendingCreatedId || loading) return;
+    const task = tasks.find((t) => t.task_id === pendingCreatedId);
+    setPendingCreatedId(null);
+    // 无条件记下：显不显示提示条交给既有的 `filterStillHidesNewTask` 判断
+    // （`hiddenCreated` 只是「刚建的任务」标记，不是「被藏住的任务」标记）。
+    // 不在这里调 `isHiddenByFilters` —— 它是每次渲染重建的闭包，塞进依赖会死循环。
+    if (task) setHiddenCreated(task);
+    navigate(location.pathname, { replace: true, state: null });
+  }, [pendingCreatedId, loading, tasks, navigate, location.pathname]);
 
   function openCreateForm() {
     setCreating(true);
