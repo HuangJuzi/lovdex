@@ -234,34 +234,40 @@ function NameChip({ value, onChange, isMobile }: { value: string; onChange: (v: 
   );
 }
 
-export type ScheduledTaskFormProps = {
-  open: boolean;
+/**
+ * 表单本体（不含 Dialog 壳、不含标题头），自管 draft state。新建弹窗与详情面板共用：
+ * - 新建弹窗（`ScheduledTaskForm`）包一层 Dialog + 标题头；
+ * - 详情面板（`ScheduledTaskDetail`）把它嵌进面板里，直接改选中任务。
+ *
+ * `active` 是模型拉取闸门（见 useProviderModels）：弹窗关着时传 false 不发请求，
+ * 详情面板常开传 true。
+ */
+export type ScheduledTaskFormBodyProps = {
   initial?: ScheduledTask | null;
+  active?: boolean;
   projectOptions: TaskProjectOption[];
   submitting: boolean;
   error: string | null;
-  onClose: () => void;
+  onCancel: () => void;
   onSubmit: (draft: ScheduledTaskDraft) => void;
 };
 
-export function ScheduledTaskForm({
-  open,
+export function ScheduledTaskFormBody({
   initial,
+  active = true,
   projectOptions,
   submitting,
   error,
-  onClose,
+  onCancel,
   onSubmit,
-}: ScheduledTaskFormProps) {
+}: ScheduledTaskFormBodyProps) {
   const [draft, setDraft] = useState<ScheduledTaskDraft>(() => toDraft(initial));
   const [localError, setLocalError] = useState<string | null>(null);
   const { isMobile } = useDeviceSettings({ mobileBreakpoint: 640 });
-  const { models, loadedEngine } = useProviderModels(draft.executorProvider, open);
+  const { models, loadedEngine } = useProviderModels(draft.executorProvider, active);
   // 「上次落定引擎」：每次 effect 应用完选中值后更新。用它（而不是挂载时的引擎）判断
   // 是否发生了切换，否则「切到别的引擎再切回来」会被误判成没切过，模型停在中间那个
   // 引擎的选项上，保存后就是「引擎 A + 引擎 B 的模型」这种错配。
-  // 表单每次打开都会因 ScheduledTasksPanel 的 key={formKey} 重新挂载
-  // （见 ScheduledTasksPanel.tsx:29/32/90），所以它天然是「每次打开」的作用域。
   const settledEngineRef = useRef(draft.executorProvider);
   const modelPickedRef = useRef(false);
 
@@ -344,13 +350,241 @@ export function ScheduledTaskForm({
   const canSubmit = canSubmitScheduledTask(draft.description, submitting);
 
   return (
+    <>
+      <div className="rounded-2xl border border-border/80 transition-colors focus-within:border-primary/60 focus-within:ring-2 focus-within:ring-ring/50">
+        <textarea
+          autoFocus
+          className="min-h-[180px] w-full resize-y rounded-t-2xl border-0 bg-transparent px-4 py-3 text-base leading-relaxed text-foreground placeholder:text-muted-foreground/60 focus:outline-none sm:min-h-[240px]"
+          placeholder="说清楚要做什么就行，名称留空会自动生成"
+          value={draft.description}
+          onChange={(e) => set('description', e.target.value)}
+        />
+        <div className="flex flex-wrap items-center gap-1.5 border-t border-border/60 px-3 py-2.5">
+          <NameChip value={draft.title} onChange={(v) => set('title', v)} isMobile={isMobile} />
+          <ChipSelect
+            ariaLabel="项目"
+            label="项目"
+            options={projectChipOptions}
+            value={draft.projectPath}
+            isMobile={isMobile}
+            onChange={(v) => set('projectPath', v)}
+          />
+          <ChipSelect
+            ariaLabel="引擎"
+            label="引擎"
+            options={engineOptions}
+            value={draft.executorProvider}
+            disabled={engineAvailability.status !== 'ready'}
+            isMobile={isMobile}
+            onChange={(v) => {
+              modelPickedRef.current = false;
+              set('executorProvider', v as TaskEngine);
+            }}
+          />
+          <ChipSelect
+            ariaLabel="模型"
+            label="模型"
+            options={modelOptionsFor(models, draft.executorModel)}
+            value={draft.executorModel}
+            disabled={models.length === 0}
+            isMobile={isMobile}
+            onChange={(v) => {
+              modelPickedRef.current = true;
+              set('executorModel', v);
+            }}
+          />
+          <button
+            type="button"
+            aria-label={submitting ? '保存中，请稍候' : canSubmit ? '保存定时任务' : '描述为空，暂不能保存'}
+            aria-busy={submitting}
+            title="保存"
+            disabled={!canSubmit}
+            onClick={submit}
+            className={cn(
+              'ml-auto flex h-10 w-10 items-center justify-center rounded-full bg-primary text-primary-foreground transition-colors hover:bg-primary/90',
+              submitting ? 'cursor-wait opacity-70' : 'disabled:cursor-not-allowed disabled:opacity-40',
+            )}
+          >
+            {submitting ? <Loader2 className="h-5 w-5 animate-spin" /> : <ArrowUp className="h-5 w-5" />}
+          </button>
+        </div>
+      </div>
+
+      {engineHint && <p className="mt-2 text-xs text-muted-foreground">{engineHint}</p>}
+
+      <div className="mt-3 flex flex-col gap-3 rounded-xl border border-border p-3">
+        <span className="text-2xs font-semibold tracking-wide text-muted-foreground">调度</span>
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex gap-1 rounded-lg border border-border bg-muted p-1">
+            {SCHEDULE_TYPES.map((t) => (
+              <button
+                key={t.value}
+                type="button"
+                onClick={() => set('scheduleType', t.value)}
+                className={cn(
+                  'rounded-md px-3 py-1.5 text-sm transition-colors',
+                  draft.scheduleType === t.value
+                    ? 'bg-card shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+          {draft.scheduleType === 'once' && (
+            <Input
+              type="datetime-local"
+              className="h-9 w-auto"
+              value={draft.runAt}
+              onChange={(e) => set('runAt', e.target.value)}
+            />
+          )}
+          {draft.scheduleType === 'interval' && (
+            <>
+              <Input
+                type="number"
+                min={1}
+                step={1}
+                aria-label="间隔数量"
+                className="h-9 w-24"
+                value={draft.intervalAmount}
+                onChange={(e) => set('intervalAmount', e.target.value)}
+              />
+              <ChipSelect
+                ariaLabel="间隔单位"
+                label="间隔单位"
+                options={INTERVAL_UNITS.map((u) => ({ value: u.value, label: u.label }))}
+                value={draft.intervalUnit}
+                isMobile={isMobile}
+                onChange={(v) => set('intervalUnit', v as IntervalUnit)}
+              />
+            </>
+          )}
+          {draft.scheduleType === 'cron' && (
+            <>
+              <ChipSelect
+                ariaLabel="Cron 模式"
+                label="Cron 模式"
+                options={CRON_MODES}
+                value={draft.cronMode}
+                isMobile={isMobile}
+                onChange={(v) => setDraft((d) => switchCronMode(d, v as CronMode))}
+              />
+              {draft.cronMode === 'custom' ? (
+                <Input
+                  className="h-9 w-auto"
+                  placeholder="0 9 * * *"
+                  aria-label="cron 表达式"
+                  value={draft.cronExpr}
+                  onChange={(e) => set('cronExpr', e.target.value)}
+                />
+              ) : (
+                <>
+                  {draft.cronMode === 'weekly' && (
+                    <ChipSelect
+                      ariaLabel="星期"
+                      label="星期"
+                      options={DOW_OPTIONS}
+                      value={draft.cronDow}
+                      isMobile={isMobile}
+                      onChange={(v) => set('cronDow', v)}
+                    />
+                  )}
+                  {draft.cronMode === 'monthly' && (
+                    <ChipSelect
+                      ariaLabel="日期"
+                      label="日期"
+                      options={DOM_OPTIONS}
+                      value={draft.cronDom}
+                      isMobile={isMobile}
+                      onChange={(v) => set('cronDom', v)}
+                    />
+                  )}
+                  <Input
+                    type="time"
+                    aria-label="触发时间"
+                    className="h-9 w-auto"
+                    value={draft.cronTime}
+                    onChange={(e) => set('cronTime', e.target.value)}
+                  />
+                </>
+              )}
+            </>
+          )}
+          <button
+            type="button"
+            aria-pressed={draft.autoRun}
+            onClick={() => set('autoRun', !draft.autoRun)}
+            className={cn(
+              'flex h-9 items-center rounded-full border px-3 text-sm transition-colors',
+              draft.autoRun
+                ? 'border-primary/60 bg-primary/10 text-primary'
+                : 'border-border/80 bg-card text-muted-foreground',
+            )}
+          >
+            自动执行
+          </button>
+          <span className="text-xs text-muted-foreground">关闭则仅生成提醒任务，不自动开跑</span>
+          <button
+            type="button"
+            aria-label="自动审批"
+            aria-pressed={draft.autoApprove}
+            onClick={() => set('autoApprove', !draft.autoApprove)}
+            className={cn(
+              'flex h-9 items-center rounded-full border px-3 text-sm transition-colors',
+              draft.autoApprove
+                ? 'border-primary/60 bg-primary/10 text-primary'
+                : 'border-border/80 bg-card text-muted-foreground',
+            )}
+          >
+            自动审批
+          </button>
+          <span className="text-xs text-muted-foreground">
+            无人值守时自动放行工具调用（危险操作仍会拒绝）
+          </span>
+        </div>
+      </div>
+
+      {(localError || error) && <p className="mt-2 text-sm text-destructive">{localError ?? error}</p>}
+
+      <div className="mt-3 flex items-center justify-end gap-2">
+        <Button size="sm" variant="ghost" onClick={onCancel} disabled={submitting}>
+          取消
+        </Button>
+      </div>
+    </>
+  );
+}
+
+export type ScheduledTaskFormProps = {
+  open: boolean;
+  initial?: ScheduledTask | null;
+  projectOptions: TaskProjectOption[];
+  submitting: boolean;
+  error: string | null;
+  onClose: () => void;
+  onSubmit: (draft: ScheduledTaskDraft) => void;
+};
+
+/** 新建定时任务弹窗（编辑已改走详情面板内联，见 ScheduledTaskDetail）。 */
+export function ScheduledTaskForm({
+  open,
+  initial,
+  projectOptions,
+  submitting,
+  error,
+  onClose,
+  onSubmit,
+}: ScheduledTaskFormProps) {
+  return (
     <Dialog
       open={open}
       onOpenChange={(o) => {
         if (!o && !submitting) onClose();
       }}
     >
-      <DialogContent className="max-h-[85vh] w-full sm:max-w-[66.7vw] overflow-y-auto">
+      <DialogContent className="max-h-[85vh] w-full overflow-y-auto sm:max-w-[66.7vw]">
         <DialogTitle>{initial ? '编辑定时任务' : '新建定时任务'}</DialogTitle>
         <div className="border-b border-border px-5 py-3">
           <h2 className="text-sm font-semibold text-foreground">{initial ? '编辑定时任务' : '新建定时任务'}</h2>
@@ -358,208 +592,15 @@ export function ScheduledTaskForm({
         </div>
 
         <div className="p-5">
-          <div className="rounded-2xl border border-border/80 transition-colors focus-within:border-primary/60 focus-within:ring-2 focus-within:ring-ring/50">
-            <textarea
-              autoFocus
-              className="min-h-[180px] w-full resize-y rounded-t-2xl border-0 bg-transparent px-4 py-3 text-base leading-relaxed text-foreground placeholder:text-muted-foreground/60 focus:outline-none sm:min-h-[240px]"
-              placeholder="说清楚要做什么就行，名称留空会自动生成"
-              value={draft.description}
-              onChange={(e) => set('description', e.target.value)}
-            />
-            <div className="flex flex-wrap items-center gap-1.5 border-t border-border/60 px-3 py-2.5">
-              <NameChip value={draft.title} onChange={(v) => set('title', v)} isMobile={isMobile} />
-              <ChipSelect
-                ariaLabel="项目"
-                label="项目"
-                options={projectChipOptions}
-                value={draft.projectPath}
-                isMobile={isMobile}
-                onChange={(v) => set('projectPath', v)}
-              />
-              <ChipSelect
-                ariaLabel="引擎"
-                label="引擎"
-                options={engineOptions}
-                value={draft.executorProvider}
-                disabled={engineAvailability.status !== 'ready'}
-                isMobile={isMobile}
-                onChange={(v) => {
-                  modelPickedRef.current = false;
-                  set('executorProvider', v as TaskEngine);
-                }}
-              />
-              <ChipSelect
-                ariaLabel="模型"
-                label="模型"
-                options={modelOptionsFor(models, draft.executorModel)}
-                value={draft.executorModel}
-                disabled={models.length === 0}
-                isMobile={isMobile}
-                onChange={(v) => {
-                  modelPickedRef.current = true;
-                  set('executorModel', v);
-                }}
-              />
-              <button
-                type="button"
-                aria-label={submitting ? '保存中，请稍候' : canSubmit ? '保存定时任务' : '描述为空，暂不能保存'}
-                aria-busy={submitting}
-                title="保存"
-                disabled={!canSubmit}
-                onClick={submit}
-                className={cn(
-                  'ml-auto flex h-10 w-10 items-center justify-center rounded-full bg-primary text-primary-foreground transition-colors hover:bg-primary/90',
-                  submitting ? 'cursor-wait opacity-70' : 'disabled:cursor-not-allowed disabled:opacity-40',
-                )}
-              >
-                {submitting ? <Loader2 className="h-5 w-5 animate-spin" /> : <ArrowUp className="h-5 w-5" />}
-              </button>
-            </div>
-          </div>
-
-          {engineHint && <p className="mt-2 text-xs text-muted-foreground">{engineHint}</p>}
-
-          <div className="mt-3 flex flex-col gap-3 rounded-xl border border-border p-3">
-            <span className="text-2xs font-semibold tracking-wide text-muted-foreground">调度</span>
-            <div className="flex flex-wrap items-center gap-3">
-              <div className="flex gap-1 rounded-lg border border-border bg-muted p-1">
-                {SCHEDULE_TYPES.map((t) => (
-                  <button
-                    key={t.value}
-                    type="button"
-                    onClick={() => set('scheduleType', t.value)}
-                    className={cn(
-                      'rounded-md px-3 py-1.5 text-sm transition-colors',
-                      draft.scheduleType === t.value
-                        ? 'bg-card shadow-sm'
-                        : 'text-muted-foreground hover:text-foreground',
-                    )}
-                  >
-                    {t.label}
-                  </button>
-                ))}
-              </div>
-              {draft.scheduleType === 'once' && (
-                <Input
-                  type="datetime-local"
-                  className="h-9 w-auto"
-                  value={draft.runAt}
-                  onChange={(e) => set('runAt', e.target.value)}
-                />
-              )}
-              {draft.scheduleType === 'interval' && (
-                <>
-                  <Input
-                    type="number"
-                    min={1}
-                    step={1}
-                    aria-label="间隔数量"
-                    className="h-9 w-24"
-                    value={draft.intervalAmount}
-                    onChange={(e) => set('intervalAmount', e.target.value)}
-                  />
-                  <ChipSelect
-                    ariaLabel="间隔单位"
-                    label="间隔单位"
-                    options={INTERVAL_UNITS.map((u) => ({ value: u.value, label: u.label }))}
-                    value={draft.intervalUnit}
-                    isMobile={isMobile}
-                    onChange={(v) => set('intervalUnit', v as IntervalUnit)}
-                  />
-                </>
-              )}
-              {draft.scheduleType === 'cron' && (
-                <>
-                  <ChipSelect
-                    ariaLabel="Cron 模式"
-                    label="Cron 模式"
-                    options={CRON_MODES}
-                    value={draft.cronMode}
-                    isMobile={isMobile}
-                    onChange={(v) => setDraft((d) => switchCronMode(d, v as CronMode))}
-                  />
-                  {draft.cronMode === 'custom' ? (
-                    <Input
-                      className="h-9 w-auto"
-                      placeholder="0 9 * * *"
-                      aria-label="cron 表达式"
-                      value={draft.cronExpr}
-                      onChange={(e) => set('cronExpr', e.target.value)}
-                    />
-                  ) : (
-                    <>
-                      {draft.cronMode === 'weekly' && (
-                        <ChipSelect
-                          ariaLabel="星期"
-                          label="星期"
-                          options={DOW_OPTIONS}
-                          value={draft.cronDow}
-                          isMobile={isMobile}
-                          onChange={(v) => set('cronDow', v)}
-                        />
-                      )}
-                      {draft.cronMode === 'monthly' && (
-                        <ChipSelect
-                          ariaLabel="日期"
-                          label="日期"
-                          options={DOM_OPTIONS}
-                          value={draft.cronDom}
-                          isMobile={isMobile}
-                          onChange={(v) => set('cronDom', v)}
-                        />
-                      )}
-                      <Input
-                        type="time"
-                        aria-label="触发时间"
-                        className="h-9 w-auto"
-                        value={draft.cronTime}
-                        onChange={(e) => set('cronTime', e.target.value)}
-                      />
-                    </>
-                  )}
-                </>
-              )}
-              <button
-                type="button"
-                aria-pressed={draft.autoRun}
-                onClick={() => set('autoRun', !draft.autoRun)}
-                className={cn(
-                  'flex h-9 items-center rounded-full border px-3 text-sm transition-colors',
-                  draft.autoRun
-                    ? 'border-primary/60 bg-primary/10 text-primary'
-                    : 'border-border/80 bg-card text-muted-foreground',
-                )}
-              >
-                自动执行
-              </button>
-              <span className="text-xs text-muted-foreground">关闭则仅生成提醒任务，不自动开跑</span>
-              <button
-                type="button"
-                aria-label="自动审批"
-                aria-pressed={draft.autoApprove}
-                onClick={() => set('autoApprove', !draft.autoApprove)}
-                className={cn(
-                  'flex h-9 items-center rounded-full border px-3 text-sm transition-colors',
-                  draft.autoApprove
-                    ? 'border-primary/60 bg-primary/10 text-primary'
-                    : 'border-border/80 bg-card text-muted-foreground',
-                )}
-              >
-                自动审批
-              </button>
-              <span className="text-xs text-muted-foreground">
-                无人值守时自动放行工具调用（危险操作仍会拒绝）
-              </span>
-            </div>
-          </div>
-
-          {(localError || error) && <p className="mt-2 text-sm text-destructive">{localError ?? error}</p>}
-
-          <div className="mt-3 flex items-center justify-end gap-2">
-            <Button size="sm" variant="ghost" onClick={onClose} disabled={submitting}>
-              取消
-            </Button>
-          </div>
+          <ScheduledTaskFormBody
+            initial={initial}
+            active={open}
+            projectOptions={projectOptions}
+            submitting={submitting}
+            error={error}
+            onCancel={onClose}
+            onSubmit={onSubmit}
+          />
         </div>
       </DialogContent>
     </Dialog>

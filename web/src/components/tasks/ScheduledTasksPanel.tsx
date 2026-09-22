@@ -1,15 +1,19 @@
-import { forwardRef, useCallback, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 
 import { useWebSocket } from '../../contexts/WebSocketContext';
+import { useDeviceSettings } from '../../hooks/useDeviceSettings';
 import { useScheduledTasks } from '../../hooks/useScheduledTasks';
 import type { ScheduledTask, Task } from '../../types/app';
 import { api } from '../../utils/api';
+import { Dialog, DialogContent, DialogTitle } from '../../shared/view/ui';
+
 import type { DeleteOutcome } from './runHistoryDelete';
 import { deletedRunIds, scheduleDeleteConfirmMessage, scheduleDeleteErrorMessage } from './scheduleDelete';
 import { ScheduledRunHistoryView, runsOf, type ScheduleLookup } from './ScheduledRunHistoryView';
 import { blockingRunsBySchedule, runNowErrorMessage } from './scheduleRunNow';
 import { ScheduledTabBar, type ScheduledTab } from './ScheduledTabBar';
 import { ScheduledTaskForm, toApiBody, type ScheduledTaskDraft } from './ScheduledTaskForm';
+import { ScheduledTaskDetail } from './ScheduledTaskDetail';
 import { ScheduledTasksView } from './ScheduledTasksView';
 import type { TaskProjectOption } from './TaskCard';
 
@@ -30,11 +34,14 @@ export type ScheduledTasksPanelProps = {
 export const ScheduledTasksPanel = forwardRef<ScheduledTasksPanelHandle, ScheduledTasksPanelProps>(
   function ScheduledTasksPanel({ projectOptions, tasks, tab, onTabChange, onRunsDeleted }, ref) {
   const { subscribe } = useWebSocket();
+  // 断点与 Tailwind 的 lg（1024px）对齐：>=lg 详情作右栏，<lg 详情作底部 sheet。
+  const { isMobile } = useDeviceSettings({ mobileBreakpoint: 1024 });
   // 注意改名：hook 解构出来的字段本来就叫 `tasks`，但那是**调度**列表
   // （ScheduledTask[]），跟 props 里传进来的**任务**列表（Task[]）同名。
   const { tasks: schedules, loading, loadError, refresh } = useScheduledTasks({}, subscribe);
   const [formOpen, setFormOpen] = useState(false);
-  const [editing, setEditing] = useState<ScheduledTask | null>(null);
+  // 详情面板里打开的那条调度（点击列表行/卡片进入）。
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [formKey, setFormKey] = useState(0);
@@ -44,6 +51,18 @@ export const ScheduledTasksPanel = forwardRef<ScheduledTasksPanelHandle, Schedul
   const submittingRef = useRef(false);
 
   const runs = useMemo(() => runsOf(tasks), [tasks]);
+  // task_id → Task：把调度行的 last_task_id 映射到那条运行开的会话（跳会话用）。
+  const taskById = useMemo(() => {
+    const m = new Map<string, Task>();
+    for (const t of tasks) m.set(t.task_id, t);
+    return m;
+  }, [tasks]);
+
+  // 选中的调度对象；列表里不存在（被删/刷新后消失）时回落 null。
+  const selectedTask = useMemo(
+    () => schedules.find((s) => s.schedule_id === selectedId) ?? null,
+    [schedules, selectedId],
+  );
 
   // 「上一轮还没结束」的调度 → 那个运行。判据见 scheduleRunNow.blockingRunsBySchedule。
   const blockedRuns = useMemo(() => blockingRunsBySchedule(schedules, tasks), [schedules, tasks]);
@@ -54,6 +73,13 @@ export const ScheduledTasksPanel = forwardRef<ScheduledTasksPanelHandle, Schedul
   const pendingRunNowRef = useRef<Set<string>>(new Set());
   // 列表级操作（立即触发 / 删除）失败的提示条。同一时刻只留最新的一条。
   const [actionError, setActionError] = useState<string | null>(null);
+
+  // 选中任务从列表里消失（被删 / 刷新后不在）时关闭详情，别渲染一个幽灵面板。
+  useEffect(() => {
+    if (selectedId && !loading && !schedules.some((s) => s.schedule_id === selectedId)) {
+      setSelectedId(null);
+    }
+  }, [selectedId, schedules, loading]);
 
   /**
    * 删除运行记录。**逐条**调单个删除接口，而不是 `api.tasks.removeMany` ——
@@ -83,27 +109,46 @@ export const ScheduledTasksPanel = forwardRef<ScheduledTasksPanelHandle, Schedul
     return { deleted, failed };
   }
 
-  const openNew = useCallback(() => { setEditing(null); setError(null); setFormKey((k) => k + 1); setFormOpen(true); }, []);
+  const openNew = useCallback(() => { setError(null); setFormKey((k) => k + 1); setFormOpen(true); }, []);
   // 供全局「新建任务」按钮在定时视图下直接唤起新建定时任务表单。
   useImperativeHandle(ref, () => ({ openNew }), [openNew]);
-  const openEdit = (t: ScheduledTask) => { setEditing(t); setError(null); setFormKey((k) => k + 1); setFormOpen(true); };
+  // 点击列表行/卡片 → 打开详情（内联编辑）。
+  const openDetail = (t: ScheduledTask) => { setSelectedId(t.schedule_id); setError(null); };
 
-  async function submit(draft: ScheduledTaskDraft) {
+  async function submitCreate(draft: ScheduledTaskDraft) {
     if (submittingRef.current) return;
     submittingRef.current = true;
     setSubmitting(true);
     setError(null);
-    const body = toApiBody(draft);
     try {
-      const res = editing
-        ? await api.scheduledTasks.update(editing.schedule_id, body)
-        : await api.scheduledTasks.create(body);
+      const res = await api.scheduledTasks.create(toApiBody(draft));
       if (!res.ok) {
         const err = await res.json().catch(() => null);
         setError(err?.error?.message ?? `保存失败 (${res.status})`);
         return;
       }
       setFormOpen(false);
+      void refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '保存失败');
+    } finally {
+      submittingRef.current = false;
+      setSubmitting(false);
+    }
+  }
+
+  async function submitUpdate(scheduleId: string, draft: ScheduledTaskDraft) {
+    if (submittingRef.current) return;
+    submittingRef.current = true;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const res = await api.scheduledTasks.update(scheduleId, toApiBody(draft));
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        setError(err?.error?.message ?? `保存失败 (${res.status})`);
+        return;
+      }
       void refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : '保存失败');
@@ -181,6 +226,26 @@ export const ScheduledTasksPanel = forwardRef<ScheduledTasksPanelHandle, Schedul
   // 传下去，否则每行都会显示成「已删除的调度」。
   const scheduleLookup: ScheduleLookup = loading ? 'loading' : loadError ? 'error' : 'ready';
 
+  const detailPanel = selectedTask && !isMobile ? (
+    <div className="hidden h-full min-h-0 w-[420px] shrink-0 rounded-xl border border-border bg-card lg:block">
+      <ScheduledTaskDetail
+        key={selectedTask.schedule_id}
+        task={selectedTask}
+        taskById={taskById}
+        projectOptions={projectOptions}
+        submitting={submitting}
+        error={error}
+        onSubmit={(d) => void submitUpdate(selectedTask.schedule_id, d)}
+        onClose={() => setSelectedId(null)}
+        onToggle={(t) => void toggle(t)}
+        onRunNow={(t) => void runNow(t)}
+        onDelete={(t) => void remove(t)}
+        blocked={blockedRuns.get(selectedTask.schedule_id) ?? null}
+        pendingRunNow={pendingRunNow.has(selectedTask.schedule_id)}
+      />
+    </div>
+  ) : null;
+
   // 加载与失败只挡「调度」子标签：运行记录不依赖调度请求，调度列表还在路上时它
   // 照样能看，「所属调度」列按 scheduleLookup 显示状态占位。
   let body;
@@ -205,18 +270,25 @@ export const ScheduledTasksPanel = forwardRef<ScheduledTasksPanelHandle, Schedul
     );
   } else {
     body = (
-      <ScheduledTasksView
-        tasks={schedules}
-        projectOptions={projectOptions}
-        onEdit={openEdit}
-        onDelete={(t) => void remove(t)}
-        onToggle={(t) => void toggle(t)}
-        onRunNow={(t) => void runNow(t)}
-        blockedRuns={blockedRuns}
-        pendingRunNow={pendingRunNow}
-        actionError={actionError}
-        onDismissActionError={() => setActionError(null)}
-      />
+      <div className="flex min-h-0 flex-1 gap-4">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <ScheduledTasksView
+            tasks={schedules}
+            projectOptions={projectOptions}
+            taskById={taskById}
+            selectedId={selectedId}
+            onSelect={openDetail}
+            onDelete={(t) => void remove(t)}
+            onToggle={(t) => void toggle(t)}
+            onRunNow={(t) => void runNow(t)}
+            blockedRuns={blockedRuns}
+            pendingRunNow={pendingRunNow}
+            actionError={actionError}
+            onDismissActionError={() => setActionError(null)}
+          />
+        </div>
+        {detailPanel}
+      </div>
     );
   }
 
@@ -224,7 +296,41 @@ export const ScheduledTasksPanel = forwardRef<ScheduledTasksPanelHandle, Schedul
     <>
       <ScheduledTabBar tab={tab} onChange={onTabChange} />
       {body}
-      <ScheduledTaskForm key={formKey} open={formOpen} initial={editing} projectOptions={projectOptions} submitting={submitting} error={error} onClose={() => { if (!submittingRef.current) setFormOpen(false); }} onSubmit={(d) => void submit(d)} />
+      <ScheduledTaskForm
+        key={formKey}
+        open={formOpen}
+        initial={null}
+        projectOptions={projectOptions}
+        submitting={submitting}
+        error={error}
+        onClose={() => { if (!submittingRef.current) setFormOpen(false); }}
+        onSubmit={(d) => void submitCreate(d)}
+      />
+      {/* 移动端详情走底部 sheet；桌面详情是右栏（见 detailPanel）。 */}
+      {isMobile && (
+        <Dialog open={selectedId != null} onOpenChange={(o) => { if (!o) setSelectedId(null); }}>
+          <DialogContent variant="sheet" className="flex h-[85dvh] flex-col p-0">
+            <DialogTitle>{selectedTask?.title ?? '定时任务详情'}</DialogTitle>
+            {selectedTask && (
+              <ScheduledTaskDetail
+                key={selectedTask.schedule_id}
+                task={selectedTask}
+                taskById={taskById}
+                projectOptions={projectOptions}
+                submitting={submitting}
+                error={error}
+                onSubmit={(d) => void submitUpdate(selectedTask.schedule_id, d)}
+                onClose={() => setSelectedId(null)}
+                onToggle={(t) => void toggle(t)}
+                onRunNow={(t) => void runNow(t)}
+                onDelete={(t) => void remove(t)}
+                blocked={blockedRuns.get(selectedTask.schedule_id) ?? null}
+                pendingRunNow={pendingRunNow.has(selectedTask.schedule_id)}
+              />
+            )}
+          </DialogContent>
+        </Dialog>
+      )}
     </>
   );
 });

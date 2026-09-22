@@ -6,6 +6,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { StaticRouter } from 'react-router-dom/server';
 
 import type { ScheduledTask, Task } from '../../types/app';
+
 import { ScheduledTasksView } from './ScheduledTasksView';
 
 const baseTask: ScheduledTask = {
@@ -19,7 +20,7 @@ const baseTask: ScheduledTask = {
 
 const projectOptions = [{ value: '/proj', label: 'proj' }];
 const noop = () => {};
-const handlers = { onEdit: noop, onDelete: noop, onToggle: noop, onRunNow: noop };
+const handlers = { onDelete: noop, onToggle: noop, onRunNow: noop, onSelect: noop };
 
 const runningTask: Task = {
   task_id: 't1', project_path: '/proj', title: '跑', description: null,
@@ -41,6 +42,8 @@ function render(
       <ScheduledTasksView
         tasks={tasks}
         projectOptions={projectOptions}
+        taskById={new Map()}
+        selectedId={null}
         {...handlers}
         blockedRuns={new Map()}
         pendingRunNow={new Set()}
@@ -85,6 +88,32 @@ test('renders 查看任务 link when last_task_id exists', () => {
   const html = render([{ ...baseTask, last_task_id: 't9' }]);
   assert.match(html, /查看任务/);
   assert.match(html, /href="\/task\/t9"/);
+});
+
+test('renders 打开会话 link to the session when last run has an openable session', () => {
+  const html = render(
+    [{ ...baseTask, last_task_id: 't1' }],
+    { taskById: new Map([['t1', runningTask]]) },
+  );
+  assert.match(html, /打开会话/);
+  assert.match(html, /href="\/session\/sess-1"/);
+});
+
+test('falls back to 查看任务 when last task has no openable session', () => {
+  const html = render([{ ...baseTask, last_task_id: 't9' }], { taskById: new Map() });
+  assert.match(html, /查看任务/);
+  assert.match(html, /href="\/task\/t9"/);
+  assert.doesNotMatch(html, /打开会话/);
+});
+
+test('no edit pencil button in either layout', () => {
+  const html = render([baseTask]);
+  assert.doesNotMatch(html, /aria-label="编辑"/);
+});
+
+test('marks the selected schedule in both layouts', () => {
+  const html = render([baseTask], { selectedId: 's1' });
+  assert.equal((html.match(/data-selected="true"/g) ?? []).length, 2, 'table row and card both marked');
 });
 
 test('shows — when no last task', () => {
