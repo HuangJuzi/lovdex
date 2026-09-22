@@ -16,7 +16,7 @@ type SidebarRecentSessionsProps = {
 const COLLAPSE_KEY = 'lovdex:sidebar:recent-sessions-collapsed';
 
 /**
- * 侧边栏「最近任务」区块：展示最近活跃的 session（含助手会话），最多 10 条。
+ * 侧边栏「最近会话」区块：展示最近活跃的 session（含助手会话），最多 10 条。
  * 置于项目列表滚动区与底部设置之间。样式对齐 SidebarScheduledEntry / SidebarAssistant。
  */
 export default function SidebarRecentSessions({
@@ -55,7 +55,7 @@ export default function SidebarRecentSessions({
             return next;
           })
         }
-        title={collapsed ? '展开 最近任务' : '收起 最近任务'}
+        title={collapsed ? '展开 最近会话' : '收起 最近会话'}
         className="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left hover:bg-muted"
       >
         {collapsed ? (
@@ -64,13 +64,13 @@ export default function SidebarRecentSessions({
           <ChevronDown className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
         )}
         <History className="h-4 w-4 flex-shrink-0 text-primary" />
-        <span className="min-w-0 flex-1 truncate text-sm font-semibold text-primary">最近任务</span>
+        <span className="min-w-0 flex-1 truncate text-sm font-semibold text-primary">最近会话</span>
       </button>
 
       {!collapsed && (
         <div className="ml-3 max-h-[28vh] overflow-y-auto border-l border-border pl-3">
           {recent.length === 0 ? (
-            <p className="px-1 py-2 text-xs text-muted-foreground">暂无最近任务</p>
+            <p className="px-1 py-2 text-xs text-muted-foreground">暂无最近会话</p>
           ) : (
             <div className="space-y-0.5 py-1">
               {recent.map(({ session, project }) => {

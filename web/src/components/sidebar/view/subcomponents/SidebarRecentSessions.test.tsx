@@ -27,12 +27,12 @@ const mkProject = (
 
 const noop = () => {};
 
-test('renders 最近任务 header and session rows', () => {
+test('renders 最近会话 header and session rows', () => {
   const projects = [mkProject('p1', '项目一', [mkSession('s1', '2026-08-18T01:00:00Z')])];
   const html = renderToStaticMarkup(
     <SidebarRecentSessions projects={projects} onRecentSessionSelect={noop} />,
   );
-  assert.ok(html.includes('最近任务'));
+  assert.ok(html.includes('最近会话'));
   assert.ok(html.includes('摘要s1'));
   assert.ok(html.includes('项目一'));
 });
@@ -49,7 +49,7 @@ test('renders empty state when no sessions', () => {
   const html = renderToStaticMarkup(
     <SidebarRecentSessions projects={[mkProject('p1', '项目一')]} onRecentSessionSelect={noop} />,
   );
-  assert.ok(html.includes('暂无最近任务'));
+  assert.ok(html.includes('暂无最近会话'));
 });
 
 test('renders all rows when under the limit with default expanded state', () => {
@@ -72,14 +72,14 @@ test('stays collapsed on remount when the stored flag is set (survives navigatio
     setItem: (k: string, v: string) => void store.set(k, v),
   };
   try {
-    // 模拟用户在 tasks 面板之间切换前手动收起过最近任务列表
+    // 模拟用户在 tasks 面板之间切换前手动收起过最近会话列表
     store.set('lovdex:sidebar:recent-sessions-collapsed', '1');
     const projects = [mkProject('p1', '项目一', [mkSession('s1', '2026-08-18T01:00:00Z')])];
     const html = renderToStaticMarkup(
       <SidebarRecentSessions projects={projects} onRecentSessionSelect={noop} />,
     );
     // 头部仍在，但列表行被折叠
-    assert.ok(html.includes('最近任务'));
+    assert.ok(html.includes('最近会话'));
     assert.ok(!html.includes('摘要s1'));
   } finally {
     (globalThis as { localStorage?: unknown }).localStorage = original;

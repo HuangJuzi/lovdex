@@ -38,7 +38,7 @@ export interface ProjectSession {
   messageCount?: number;
   provider?: LLMProvider;
   __provider?: LLMProvider;
-  /** 1 = headless auto-verdict (状态判断) session — excluded from 最近任务. */
+  /** 1 = headless auto-verdict (状态判断) session — excluded from 最近会话. */
   is_verdict?: number;
   // Tags the session with the owning project's DB `projectId` so UI handlers
   // (session switching, sidebar focus, etc.) can match against selectedProject.

@@ -207,7 +207,7 @@ export const getAllSessions = (project: Project): SessionWithProvider[] => {
   );
 };
 
-/** 一条「最近任务」记录：会话 + 其所属项目。 */
+/** 一条「最近会话」记录：会话 + 其所属项目。 */
 export type RecentSessionEntry = {
   session: ProjectSession;
   project: Project;

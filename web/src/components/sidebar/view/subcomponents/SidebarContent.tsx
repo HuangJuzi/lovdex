@@ -77,7 +77,7 @@ type SidebarContentProps = {
   hasExpandedProjects: boolean;
   /** 一键收起所有已展开的 Project。 */
   onCollapseAllProjects: () => void;
-  /** 点击「最近任务」里某条会话：打开该会话对话。 */
+  /** 点击「最近会话」里某条会话：打开该会话对话。 */
   onRecentSessionSelect: (session: ProjectSession, project: Project) => void;
   t: TFunction;
 };
@@ -116,7 +116,7 @@ export default function SidebarContent({
   onRecentSessionSelect,
   t,
 }: SidebarContentProps) {
-  // 项目列表整体折叠：与 Lovdex助手 / 最近任务同级的整行入口，收起时整个
+  // 项目列表整体折叠：与 Lovdex助手 / 最近会话同级的整行入口，收起时整个
   // 项目列表一起隐藏。折叠状态持久化，避免切到 /tasks 等独立路由再回来时
   // 被重置为展开。
   const [projectsCollapsed, setProjectsCollapsed] = useState<boolean>(() => {

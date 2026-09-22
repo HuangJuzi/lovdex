@@ -192,7 +192,7 @@ export const sessionsDb = {
   },
 
   /**
-   * Marks a headless auto-verdict session so the sidebar「最近任务」list can
+   * Marks a headless auto-verdict session so the sidebar「最近会话」list can
    * exclude it. A verdict run is a fresh SDK session minted inside the
    * operator workspace (is_operator=0, is_verdict=1), distinct from interactive
    * Lovdex助手 chats (is_operator=1). Upserts so the mark is correct whether it
