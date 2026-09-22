@@ -6,6 +6,7 @@ import type { ScheduledTask, Task } from '../../types/app';
 import { api } from '../../utils/api';
 import type { DeleteOutcome } from './runHistoryDelete';
 import { ScheduledRunHistoryView, runsOf, type ScheduleLookup } from './ScheduledRunHistoryView';
+import { blockingRunsBySchedule, runNowErrorMessage } from './scheduleRunNow';
 import { ScheduledTabBar, type ScheduledTab } from './ScheduledTabBar';
 import { ScheduledTaskForm, toApiBody, type ScheduledTaskDraft } from './ScheduledTaskForm';
 import { ScheduledTasksView } from './ScheduledTasksView';
@@ -42,6 +43,15 @@ export const ScheduledTasksPanel = forwardRef<ScheduledTasksPanelHandle, Schedul
   const submittingRef = useRef(false);
 
   const runs = useMemo(() => runsOf(tasks), [tasks]);
+
+  // 「上一轮还没结束」的调度 → 那个运行。判据见 scheduleRunNow.blockingRunsBySchedule。
+  const blockedRuns = useMemo(() => blockingRunsBySchedule(schedules, tasks), [schedules, tasks]);
+  // 派发中的 schedule_id。ref 是同步闸门（setState 要等下一轮渲染，同一 tick 里的
+  // 第二次点击读到的还是旧值 —— 双击正好是这个 tick 内的场景），state 只负责把按钮
+  // 渲染成 disabled。与同文件 submittingRef 是同一套写法。
+  const [pendingRunNow, setPendingRunNow] = useState<Set<string>>(new Set());
+  const pendingRunNowRef = useRef<Set<string>>(new Set());
+  const [runNowError, setRunNowError] = useState<string | null>(null);
 
   /**
    * 删除运行记录。**逐条**调单个删除接口，而不是 `api.tasks.removeMany` ——
@@ -115,8 +125,29 @@ export const ScheduledTasksPanel = forwardRef<ScheduledTasksPanelHandle, Schedul
   }
 
   async function runNow(t: ScheduledTask) {
-    const res = await api.scheduledTasks.runNow(t.schedule_id);
-    if (res.ok) void refresh();
+    const id = t.schedule_id;
+    // 双保险：按钮在这两种情况下本就是灰的，这里防的是键盘/自动化绕过 disabled。
+    if (pendingRunNowRef.current.has(id) || blockedRuns.has(id)) return;
+    pendingRunNowRef.current.add(id);
+    setPendingRunNow(new Set(pendingRunNowRef.current));
+    setRunNowError(null);
+    try {
+      const res = await api.scheduledTasks.runNow(id);
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        setRunNowError(runNowErrorMessage(t.title, res.status, body));
+        console.error('runNow failed', body ?? res.status);
+      }
+      // 失败也要刷新：例如被另一个标签页抢先派发了一轮，本地列表已经不同步了。
+      void refresh();
+    } catch (e) {
+      // 请求根本没发出去（断网 / 后端没起来）：没有 status 可用，直接说清。
+      setRunNowError(`「${t.title}」立即触发失败：无法连接后端`);
+      console.error('runNow failed', e);
+    } finally {
+      pendingRunNowRef.current.delete(id);
+      setPendingRunNow(new Set(pendingRunNowRef.current));
+    }
   }
 
   // 运行记录不依赖调度请求，所以它不等 loading —— 但必须把「列表还没到」这个事实
@@ -154,6 +185,10 @@ export const ScheduledTasksPanel = forwardRef<ScheduledTasksPanelHandle, Schedul
         onDelete={(t) => void remove(t)}
         onToggle={(t) => void toggle(t)}
         onRunNow={(t) => void runNow(t)}
+        blockedRuns={blockedRuns}
+        pendingRunNow={pendingRunNow}
+        runNowError={runNowError}
+        onDismissRunNowError={() => setRunNowError(null)}
       />
     );
   }
