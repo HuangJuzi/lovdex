@@ -6,7 +6,7 @@ import { cn } from '../../../../lib/utils';
 
 /**
  * 「定时任务」侧边栏整行入口，置于 Lovdex助手 与项目列表之间。
- * 点击跳转任务页的「⏰ 定时」视图（/tasks?view=scheduled）。样式对齐 Lovdex助手 行。
+ * 点击跳转定时任务独立页（/scheduled）。样式对齐 Lovdex助手 行。
  */
 export default function SidebarScheduledEntry() {
   const navigate = useNavigate();
@@ -15,7 +15,7 @@ export default function SidebarScheduledEntry() {
       <Button
         variant="ghost"
         className={cn('flex w-full justify-between p-2 h-auto font-normal hover:bg-muted', 'bg-primary/5')}
-        onClick={() => navigate('/tasks?view=scheduled')}
+        onClick={() => navigate('/scheduled')}
         title="定时任务"
       >
         <div className="flex min-w-0 flex-1 items-center gap-2.5">

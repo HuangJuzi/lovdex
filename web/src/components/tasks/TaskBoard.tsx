@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Clock, LayoutGrid, Plus, SlidersHorizontal, Table, X } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { LayoutGrid, Plus, SlidersHorizontal, Table, X } from 'lucide-react';
 
 import { useWebSocket } from '../../contexts/WebSocketContext';
 import { useTasks } from '../../hooks/useTasks';
@@ -21,8 +21,6 @@ import { buildTaskChatSend, TASK_RETRY_MESSAGE } from './taskExecution';
 import { projectPathOf, taskFormProjects, toProjectOption } from './projectOptions';
 import { STATUS_META, STATUS_ORDER, groupByStatus } from './taskStatus';
 import { TaskFilterBar } from './TaskFilterBar';
-import { ScheduledTasksPanel, type ScheduledTasksPanelHandle } from './ScheduledTasksPanel';
-import type { ScheduledTab } from './ScheduledTabBar';
 import { TaskTableView } from './TaskTableView';
 import { TaskInboxPanel } from './TaskInboxPanel';
 import { CreateTaskDialog } from './CreateTaskDialog';
@@ -34,10 +32,7 @@ export function TaskBoardPage() {
   const { tasks, loading, loadError, refresh, upsert, remove } = useTasks({}, subscribe);
   const [storedFilter, setFilter] = useLocalStorage<unknown>('taskFilter', EMPTY_TASK_FILTER);
   const filter = useMemo(() => normalizeTaskFilter(storedFilter), [storedFilter]);
-  const [viewMode, setViewMode] = useLocalStorage<'board' | 'table' | 'scheduled'>('taskViewMode', 'board');
-  // 定时页的子标签（调度 / 运行记录）。与 viewMode 一样持久化；URL 上的
-  // `?tab=runs` 优先，见下面的挂载 effect。
-  const [scheduledTab, setScheduledTab] = useLocalStorage<ScheduledTab>('scheduledViewTab', 'schedules');
+  const [viewMode, setViewMode] = useLocalStorage<'board' | 'table'>('taskViewMode', 'board');
   // 筛选区折叠：两条筛选行（TaskFilterBar + 表格内的状态 pill 行）常驻时纵向占用过大，
   // 默认收起。由 header 的「筛选」按钮统一控制。
   const [filtersOpen, setFiltersOpen] = useLocalStorage<boolean>('taskFiltersOpen', false);
@@ -48,24 +43,10 @@ export function TaskBoardPage() {
     'taskTableStatusFilter',
     [...STATUS_ORDER],
   );
-  // 侧边栏「定时任务」入口带 ?view=scheduled 进来时，启动选中定时视图；带上
-  // ?tab=runs 时再落到运行记录子标签。URL 优先于 localStorage，但仅在挂载时读一次。
-  //
-  // 注意 `tab` 这个 query key 与工作区深链（?project=&tab=chat|files|git）共用 ——
-  // 今天靠 AppContent 的 isValidTab 白名单互不干扰（'runs' 不在名单里，会被忽略）。
-  // 将来工作区若新增一个叫 runs 的 tab，两套深链会互相劫持，届时应把这里改成 subtab。
-  const [searchParams] = useSearchParams();
-  useEffect(() => {
-    if (searchParams.get('view') === 'scheduled') {
-      setViewMode('scheduled');
-      if (searchParams.get('tab') === 'runs') setScheduledTab('runs');
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
   // 移动端强制看板：表格在手机上体验差，且「表格」按钮已隐藏（hidden sm:inline-flex）。
   // 断点 640 与 Tailwind `sm:` 对齐。
   const { isMobile } = useDeviceSettings({ mobileBreakpoint: 640 });
-  const effectiveView = isMobile && viewMode !== 'scheduled' ? 'board' : viewMode;
+  const effectiveView = isMobile ? 'board' : viewMode;
   // 看板视图不消费状态 pill（列固定渲染全部状态），此时一个非全选的状态 pill
   // 并没有筛掉任何东西，不该点亮圆点 —— 传「全部状态」进去把它排除掉。
   const effectiveStatusFilter = effectiveView === 'table' ? statusFilter : [...STATUS_ORDER];
@@ -205,11 +186,8 @@ export function TaskBoardPage() {
     setCreating(true);
   }
 
-  // 全局「新建任务」按钮：定时视图下唤起定时任务表单，其余视图唤起普通任务表单。
-  const scheduledPanelRef = useRef<ScheduledTasksPanelHandle>(null);
   function handleHeaderNew() {
-    if (effectiveView === 'scheduled') scheduledPanelRef.current?.openNew();
-    else openCreateForm();
+    openCreateForm();
   }
 
   async function startExecution(task: Task) {
@@ -339,57 +317,38 @@ export function TaskBoardPage() {
             <Table className="h-3.5 w-3.5 flex-shrink-0" />
             <span className="hidden sm:inline">表格</span>
           </button>
+        </div>
+        {/* 筛选区折叠开关。放切换器分组外面 —— 放进那个带边框的组里会被当成第三个视图。 */}
+        <div className="flex rounded-xl border border-border/70 bg-muted/50 p-0.5">
           <button
             type="button"
-            aria-pressed={effectiveView === 'scheduled'}
-            onClick={() => setViewMode('scheduled')}
-            title="定时任务"
+            aria-expanded={filtersOpen}
+            title={
+              filtersOpen
+                ? '收起筛选'
+                : hasActiveFilter
+                  ? '展开筛选（当前有筛选条件生效，列表可能只显示部分任务）'
+                  : '展开筛选'
+            }
+            onClick={() => setFiltersOpen((o) => !o)}
             className={cn(
-              'flex items-center justify-center gap-2 rounded-lg px-2.5 py-2 text-sm font-normal transition-all',
-              effectiveView === 'scheduled'
+              'relative flex items-center justify-center gap-2 rounded-lg px-2.5 py-2 text-sm font-normal transition-all',
+              filtersOpen
                 ? 'bg-card text-card-foreground shadow-raised-sm'
                 : 'text-muted-foreground hover:text-foreground',
             )}
           >
-            <Clock className="h-3.5 w-3.5 flex-shrink-0" />
-            {/* 移动端（<640px）只留图标 */}
-            <span className="hidden sm:inline">定时</span>
+            <SlidersHorizontal className="h-3.5 w-3.5 flex-shrink-0" />
+            {/* 移动端（<640px）只留图标，与相邻按钮一致 */}
+            <span className="hidden sm:inline">筛选</span>
+            {hasActiveFilter && !filtersOpen && (
+              <span
+                aria-hidden="true"
+                className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-primary"
+              />
+            )}
           </button>
         </div>
-        {/* 筛选区折叠开关。放切换器分组外面 —— 放进那个带边框的组里会被当成第四个视图。
-            定时视图没有筛选，不渲染。 */}
-        {effectiveView !== 'scheduled' && (
-          <div className="flex rounded-xl border border-border/70 bg-muted/50 p-0.5">
-            <button
-              type="button"
-              aria-expanded={filtersOpen}
-              title={
-                filtersOpen
-                  ? '收起筛选'
-                  : hasActiveFilter
-                    ? '展开筛选（当前有筛选条件生效，列表可能只显示部分任务）'
-                    : '展开筛选'
-              }
-              onClick={() => setFiltersOpen((o) => !o)}
-              className={cn(
-                'relative flex items-center justify-center gap-2 rounded-lg px-2.5 py-2 text-sm font-normal transition-all',
-                filtersOpen
-                  ? 'bg-card text-card-foreground shadow-raised-sm'
-                  : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              <SlidersHorizontal className="h-3.5 w-3.5 flex-shrink-0" />
-              {/* 移动端（<640px）只留图标，与相邻按钮一致 */}
-              <span className="hidden sm:inline">筛选</span>
-              {hasActiveFilter && !filtersOpen && (
-                <span
-                  aria-hidden="true"
-                  className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-primary"
-                />
-              )}
-            </button>
-          </div>
-        )}
         <div className="ml-auto flex items-center gap-2">
           <Button size="toolbar" variant="chunkyPrimary" onClick={handleHeaderNew} disabled={creating} title="新建任务" aria-label="新建任务">
             <Plus />
@@ -422,17 +381,6 @@ export function TaskBoardPage() {
         </div>
       ) : (
         <div className="flex min-h-0 flex-1 flex-col">
-          {effectiveView === 'scheduled' ? (
-            <ScheduledTasksPanel
-              ref={scheduledPanelRef}
-              projectOptions={projectOptions}
-              tasks={tasks}
-              tab={scheduledTab}
-              onTabChange={setScheduledTab}
-              onRunsDeleted={(ids) => ids.forEach(remove)}
-            />
-          ) : (
-          <>
           <TaskFilterBar projectOptions={projectOptions} filter={filter} onChange={setFilter} open={filtersOpen} />
           {filterStillHidesNewTask && hiddenCreated && (
             <div className="flex flex-shrink-0 items-center gap-3 border-b border-border/60 bg-warning/10 px-3 py-2 sm:px-4">
@@ -546,8 +494,6 @@ export function TaskBoardPage() {
                 </div>
               ))}
             </div>
-          )}
-          </>
           )}
         </div>
       )}

@@ -7,7 +7,7 @@ import { ThemeProvider } from './contexts/ThemeContext';
 import { WebSocketProvider } from './contexts/WebSocketContext';
 import AppContent from './components/app/AppContent';
 import AuthGate from './components/auth/AuthGate';
-import { TaskBoardPage, TaskDetailPage } from './components/tasks';
+import { TaskBoardPage, TaskDetailPage, ScheduledTasksPage } from './components/tasks';
 import { StatsPage } from './components/stats';
 import { AssistantPanel } from './components/operators/AssistantPanel';
 import SettingsPage from './components/settings/SettingsPage';
@@ -130,6 +130,7 @@ export default function App() {
                   <Route path="/" element={<AppContent />} />
                   <Route path="/session/:sessionId" element={<AppContent />} />
                   <Route path="/tasks" element={<TaskBoardPage />} />
+                  <Route path="/scheduled" element={<ScheduledTasksPage />} />
                   <Route path="/inbox" element={<AppContent />} />
                   <Route path="/stats" element={<StatsPage />} />
                   <Route path="/task/:taskId" element={<TaskDetailPage />} />

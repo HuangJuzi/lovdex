@@ -62,7 +62,7 @@ const projectOptions = [{ value: '/proj', label: 'proj' }];
 // 顺带钉住「它是对外契约」。
 function render(runs: Task[], schedules: ScheduledTask[] = [baseSchedule], scheduleLookup?: ScheduleLookup) {
   return renderToStaticMarkup(
-    <StaticRouter location="/tasks?view=scheduled&tab=runs">
+    <StaticRouter location="/scheduled?tab=runs">
       <ScheduledRunHistoryView
         runs={runs}
         schedules={schedules}

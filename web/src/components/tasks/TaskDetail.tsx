@@ -497,7 +497,7 @@ export function TaskDetailPage() {
             {task.source_schedule_id && (
               <button
                 className="mt-1 ml-2 inline-flex items-center rounded-full bg-warning/10 px-2 py-0.5 text-2xs font-semibold text-warning hover:bg-warning/20"
-                onClick={() => navigate('/tasks?view=scheduled&tab=runs')}
+                onClick={() => navigate('/scheduled?tab=runs')}
               >
                 ⏰ 定时
               </button>
