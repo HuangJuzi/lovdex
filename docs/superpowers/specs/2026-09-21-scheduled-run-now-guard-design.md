@@ -336,3 +336,17 @@ const title = blocked ? runNowBlockedReason(blocked) : pending ? '正在触发�
 真要修，选项是「跳过这一拍」（简单，但 `computeNext` 的相位推进要跟着改，否则会追着一串
 过期时刻补跑）或「排队等上一轮结束」（要引入待跑队列与状态）。两者都是独立的一件工作，
 不在本次范围。
+
+## 8. 记录备查：`isSessionRunning` 那类 409 之后，按钮仍是可点的（本次不修）
+
+实现完成后的审查发现的用户可见瑕疵，不是 bug：
+
+- 面板的 `refresh` 是 `useScheduledTasks` 的，只重取**调度表**；而 `blockingRunsBySchedule`
+  用的任务行来自 props（`TaskBoard` 的 `useTasks`），面板刷不到它。
+- 于是「人工把一个在跑的任务标成 done」那类 409（前端看不见 `isSessionRunning`，§1）之后：
+  错误条在说「上一轮还没结束」，但按钮**仍是可点的**。
+- 后果有限：后端权威，再点只会再拿一个 409，不会重复派发；WS 的 `task_upserted` 正常时
+  也会自愈（上一轮真正结束后，该行状态变化会重算禁用态）。用户的处置与错误条给的建议一致。
+
+要收口得给面板加一个「刷新任务列表」的回调（`TaskBoard` 已有 `onRunsDeleted` 这个先例，
+`refresh` 就在手边），是独立的一小件工作，不在本次范围。
