@@ -225,6 +225,33 @@ test('createTask persists source_schedule_id and getTask round-trips it', async 
   });
 });
 
+/**
+ * 删定时任务时要按调度找出它跑出来的**全部**任务，所以过滤必须落在 SQL 上。
+ * 这条走真实 SQLite：白名单漏掉参数、列名拼错、索引没建，都只有真库才照得出来。
+ */
+test('listTasks filters by sourceScheduleId and never leaks another schedule or a manual task', async () => {
+  await withIsolatedDatabase(() => {
+    projectsDb.createProjectPath('/p');
+    const a1 = tasksDb.createTask({ projectPath: '/p', title: 'a1', executorProvider: 'claude', sourceScheduleId: 'sched-a' });
+    const a2 = tasksDb.createTask({ projectPath: '/p', title: 'a2', executorProvider: 'claude', sourceScheduleId: 'sched-a' });
+    const b1 = tasksDb.createTask({ projectPath: '/p', title: 'b1', executorProvider: 'claude', sourceScheduleId: 'sched-b' });
+    const manual = tasksDb.createTask({ projectPath: '/p', title: 'manual', executorProvider: 'claude' });
+
+    assert.deepEqual(
+      tasksDb.listTasks({ sourceScheduleId: 'sched-a' }).map((t) => t.task_id).sort(),
+      [a1.task_id, a2.task_id].sort(),
+    );
+    assert.deepEqual(tasksDb.listTasks({ sourceScheduleId: 'sched-b' }).map((t) => t.task_id), [b1.task_id]);
+    assert.deepEqual(tasksDb.listTasks({ sourceScheduleId: 'never-ran' }), []);
+    // 不传过滤 = 全量（现有调用方靠这条）
+    assert.equal(tasksDb.listTasks({}).length, 4);
+    // 过滤与其它条件叠加时是 AND，不是覆盖
+    tasksDb.updateTaskStatus(a1.task_id, 'in_progress');
+    assert.deepEqual(tasksDb.listTasks({ sourceScheduleId: 'sched-a', status: 'in_progress' }).map((t) => t.task_id), [a1.task_id]);
+    assert.ok(tasksDb.getTask(manual.task_id));
+  });
+});
+
 test('updateTask can set priority/deadline/label/remark', async () => {
   await withIsolatedDatabase(() => {
     projectsDb.createProjectPath('/p');

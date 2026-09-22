@@ -5,6 +5,7 @@ import { computeNext, createSchedulerService, isRunActive, type SchedulerDeps } 
 import type { ScheduledTaskDbLike } from '@/modules/scheduler/services/scheduled-task-db-like.js';
 import type { TasksService } from '@/modules/tasks/services/tasks.service.js';
 import type { ScheduledTaskRow, TaskRow } from '@/shared/types.js';
+import { AppError } from '@/shared/utils.js';
 
 type CreateScheduledTaskInput = Parameters<ScheduledTaskDbLike['createScheduledTask']>[0];
 type CreateTaskInput = Parameters<TasksService['createTask']>[0];
@@ -83,6 +84,9 @@ function makeService(nowIso: string, extra: Partial<SchedulerDeps> = {}) {
   const createdTasks: unknown[] = [];
   const launches: Array<{ taskId: string; sessionId: string }> = [];
   const broadcasts: unknown[] = [];
+  // 级联删除的替身：记录被要求清理哪些调度，并允许逐个用例指定返回/抛错。
+  const cascades: string[] = [];
+  let cascadeOutcome: { deletedTaskIds: string[] } | Error = { deletedTaskIds: [] };
   const db = {
     operatorWorkspacePath: '/op-ws',
     createScheduledTask: (i: CreateScheduledTaskInput) => {
@@ -127,6 +131,11 @@ function makeService(nowIso: string, extra: Partial<SchedulerDeps> = {}) {
       startExecution: () => ({ sessionId: 'sess-1' }),
       // 上一轮任务的查表口：守卫读的就是它（真实实现返回 decorate() 之后的行）。
       getTask: (taskId: string) => taskRows.get(taskId) ?? null,
+      deleteTasksBySchedule: async (scheduleId: string) => {
+        cascades.push(scheduleId);
+        if (cascadeOutcome instanceof Error) throw cascadeOutcome;
+        return cascadeOutcome;
+      },
     },
     createSession: () => 'sess-1',
     startTaskRun: (taskId: string, sessionId: string) => { launches.push({ taskId, sessionId }); return true; },
@@ -135,7 +144,10 @@ function makeService(nowIso: string, extra: Partial<SchedulerDeps> = {}) {
     isSessionRunning: (sessionId: string) => runningSessions.has(sessionId),
     ...extra,
   });
-  return { svc, rows, taskRows, runningSessions, createdTasks, launches, broadcasts };
+  return {
+    svc, rows, taskRows, runningSessions, createdTasks, launches, broadcasts, cascades,
+    setCascadeOutcome: (v: { deletedTaskIds: string[] } | Error) => { cascadeOutcome = v; },
+  };
 }
 
 test('tick dispatches once + auto-run, auto-disables once, skips auto_run=0', async () => {
@@ -702,6 +714,7 @@ test('runNow 在派发途中拒绝第二次触发，结束后释放闸门', asyn
       },
       startExecution: () => ({ sessionId: 'sess-1' }),
       getTask: () => null,
+      deleteTasksBySchedule: async () => ({ deletedTaskIds: [] }),
     },
   });
   rows.set('s1', mkRow({ schedule_id: 's1' }));
@@ -722,4 +735,60 @@ test('runNow 在派发途中拒绝第二次触发，结束后释放闸门', asyn
   // 闸门已释放：下一次触发照常
   await svc.runNow('s1');
   assert.equal(createdTasks.length, 2);
+});
+
+/**
+ * 删除调度 = 删模板 + 删它跑出来的任务与会话。级联本身由 tasksService 拥有
+ * （守卫与「任务行 + 会话一起硬删」的语义都在那边，见 deleteTasksBySchedule），
+ * 这里钉的是编排：先清运行、再删模板行、最后广播。
+ */
+test('remove 先级联清掉运行，再删模板行并广播', async () => {
+  const { svc, rows, broadcasts, cascades, setCascadeOutcome } = makeService('2026-08-13T12:00:00.000Z');
+  rows.set('s1', mkRow({ schedule_id: 's1' }));
+  setCascadeOutcome({ deletedTaskIds: ['run-1', 'run-2'] });
+
+  const result = await svc.remove('s1');
+
+  assert.deepEqual(cascades, ['s1'], '必须按 schedule_id 清它自己的运行');
+  assert.equal(rows.has('s1'), false, '模板行必须被删掉');
+  assert.deepEqual(result, { deletedTaskIds: ['run-1', 'run-2'] });
+  const kinds = broadcasts.map((e) => (e as { kind: string }).kind);
+  assert.deepEqual(kinds, ['scheduled_task_deleted']);
+  assert.equal((broadcasts[0] as { scheduleId?: string }).scheduleId, 's1');
+});
+
+test('remove 在没有运行记录时照样删得掉', async () => {
+  const { svc, rows, broadcasts } = makeService('2026-08-13T12:00:00.000Z');
+  rows.set('s1', mkRow({ schedule_id: 's1' }));
+
+  const result = await svc.remove('s1');
+
+  assert.deepEqual(result, { deletedTaskIds: [] });
+  assert.equal(rows.has('s1'), false);
+  assert.equal(broadcasts.length, 1);
+});
+
+/**
+ * 级联被拒（还有一轮在跑）时**模板必须原样留着**：先删模板再清运行会让用户
+ * 拿到 409 却已经丢了模板 —— 下一次点删除就没有入口了。
+ */
+test('remove 在级联被拒时不动模板行，也不广播删除', async () => {
+  const { svc, rows, broadcasts, setCascadeOutcome } = makeService('2026-08-13T12:00:00.000Z');
+  rows.set('s1', mkRow({ schedule_id: 's1' }));
+  setCascadeOutcome(new AppError('still has an unfinished run', { code: 'SESSION_RUNNING', statusCode: 409 }));
+
+  await assert.rejects(
+    () => svc.remove('s1'),
+    (e: { code?: string; statusCode?: number }) => e.code === 'SESSION_RUNNING' && e.statusCode === 409,
+  );
+  assert.ok(rows.get('s1'), '被拒时模板行必须还在');
+  assert.equal(broadcasts.length, 0, '被拒时不许广播 scheduled_task_deleted');
+});
+
+test('remove 对不存在的调度是幂等的（级联查不到运行，删行也是空操作）', async () => {
+  const { svc, rows, broadcasts } = makeService('2026-08-13T12:00:00.000Z');
+  const result = await svc.remove('nope');
+  assert.deepEqual(result, { deletedTaskIds: [] });
+  assert.equal(rows.size, 0);
+  assert.equal(broadcasts.length, 1, '与改动前一致：不存在的 id 也返回成功并广播');
 });

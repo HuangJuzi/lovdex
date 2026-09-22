@@ -50,7 +50,7 @@ function makeSvc() {
       const cur = rows.get(id); if (!cur) return null;
       const next = { ...cur, ...u }; rows.set(id, next); return next;
     },
-    remove: (id: string) => { rows.delete(id); },
+    remove: (id: string) => { rows.delete(id); return { deletedTaskIds: [] }; },
     runNow: (id: string) => rows.has(id) ? { ok: true } : null,
     setEnabled: (id: string, enabled: boolean) => {
       const cur = rows.get(id); if (!cur) return null;
@@ -91,6 +91,44 @@ test('DELETE /:id removes', async () => {
   try {
     const res = await fetch(`${baseUrl}/api/scheduled-tasks/s1`, { method: 'DELETE' });
     assert.equal(res.status, 200);
+  } finally { await close(); }
+});
+
+/**
+ * 级联删掉的任务 id 必须回给前端：WS 不可靠（E2E 里每次连接都报 WebSocket error），
+ * 页面要靠这份 id 把行从本地任务列表里摘掉，否则运行记录会挂着一批已经不在库里的行。
+ */
+test('DELETE /:id returns the ids of the runs it cascaded away', async () => {
+  const svc = {
+    ...makeSvc(),
+    remove: () => ({ deletedTaskIds: ['run-1', 'run-2'] }),
+  };
+  const { baseUrl, close } = await startServer(svc);
+  try {
+    const res = await fetch(`${baseUrl}/api/scheduled-tasks/s1`, { method: 'DELETE' });
+    assert.equal(res.status, 200);
+    const body = await res.json() as { success?: boolean; deletedTaskIds?: string[] };
+    assert.equal(body.success, true);
+    assert.deepEqual(body.deletedTaskIds, ['run-1', 'run-2']);
+  } finally { await close(); }
+});
+
+test('DELETE /:id surfaces the running guard as 409 + code', async () => {
+  const svc = {
+    ...makeSvc(),
+    remove: () => {
+      throw new AppError('schedule s1 still has an unfinished run; settle or interrupt it first', {
+        code: 'SESSION_RUNNING',
+        statusCode: 409,
+      });
+    },
+  };
+  const { baseUrl, close } = await startServer(svc);
+  try {
+    const res = await fetch(`${baseUrl}/api/scheduled-tasks/s1`, { method: 'DELETE' });
+    assert.equal(res.status, 409);
+    const body = await res.json() as { error?: { code?: string } };
+    assert.equal(body.error?.code, 'SESSION_RUNNING', '前端靠这个 code 说人话');
   } finally { await close(); }
 });
 

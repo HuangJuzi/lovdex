@@ -5,7 +5,7 @@ import test from 'node:test';
 
 import { projectsDb } from '@/modules/database/index.js';
 import { getOperatorConfig } from '@/modules/operators/operator.config.js';
-import { createTasksService } from '@/modules/tasks/services/tasks.service.js';
+import { createTasksService, isUndeletable } from '@/modules/tasks/services/tasks.service.js';
 import type { TaskDbLike } from '@/modules/tasks/services/tasks.service.js';
 import { AppError } from '@/shared/utils.js';
 
@@ -28,6 +28,7 @@ type StoredTask = {
   context_mode: 'none' | 'summary' | 'raw';
   context_status: 'pending' | 'ready' | 'failed' | null;
   context_raw: string | null;
+  source_schedule_id: string | null;
 };
 
 function makeDbStub() {
@@ -51,6 +52,7 @@ function makeDbStub() {
     context_mode: 'none',
     context_status: null,
     context_raw: null,
+    source_schedule_id: null,
   });
 
   const calls: { linkSession: { taskId: string; sessionId: string }[] } = { linkSession: [] };
@@ -64,6 +66,7 @@ function makeDbStub() {
       executorModel?: string | null;
       status?: string;
       sessionId?: string | null;
+      sourceScheduleId?: string | null;
       contextSourceSessionId?: string | null;
       contextMode?: 'none' | 'summary' | 'raw';
       contextStatus?: 'pending' | 'ready' | 'failed' | null;
@@ -78,6 +81,7 @@ function makeDbStub() {
         context_mode: input.contextMode ?? 'none',
         context_status: input.contextStatus ?? null,
         context_raw: null,
+        source_schedule_id: input.sourceScheduleId ?? null,
       };
       tasks.set('t1', row as unknown as StoredTask);
       return row;
@@ -89,7 +93,10 @@ function makeDbStub() {
       }
       return null;
     },
-    listTasks: () => [...tasks.values()],
+    listTasks: (filter?: { sourceScheduleId?: string }) =>
+      [...tasks.values()].filter(
+        (t) => filter?.sourceScheduleId === undefined || t.source_schedule_id === filter.sourceScheduleId,
+      ),
     updateTask: (id: string, updates: Record<string, unknown>) => {
       const current = tasks.get(id);
       if (!current) return null;
@@ -129,7 +136,7 @@ function makeDbStub() {
     },
   };
 
-  return { db: db as unknown as TaskDbLike, calls };
+  return { db: db as unknown as TaskDbLike, calls, tasks };
 }
 
 function makeProjectStub(...knownPaths: string[]) {
@@ -277,6 +284,133 @@ test('deleteTasks with an empty list is a no-op', () => {
   assert.equal(db.getTask('t1')?.task_id, 't1');
 });
 
+/** 造一条「定时任务跑出来的」运行记录，挂在指定的调度下。 */
+function seedRun(
+  tasks: Map<string, StoredTask>,
+  taskId: string,
+  over: Partial<StoredTask> = {},
+): void {
+  tasks.set(taskId, {
+    task_id: taskId,
+    project_path: '/p',
+    title: taskId,
+    description: null,
+    status: 'done',
+    executor_provider: 'claude',
+    executor_model: null,
+    position: 0,
+    session_id: null,
+    started_at: null,
+    completed_at: null,
+    created_at: '2026-01-01T00:00:00.000Z',
+    updated_at: '2026-01-01T00:00:00.000Z',
+    context_summary: null,
+    context_source_session_id: null,
+    context_mode: 'none',
+    context_status: null,
+    context_raw: null,
+    source_schedule_id: 'sch-1',
+    ...over,
+  });
+}
+
+/**
+ * 判据本身单测一遍：它是单条删除与级联删除**共用**的那一个，漂了就是「删到一半才 409」。
+ * 尤其钉住最后一条 —— 「没挂会话的 in_progress 任务仍可删」是既有行为，不是漏判。
+ */
+test('isUndeletable: 只有「挂着会话且（在跑 或 会话仍活着）」才删不得', () => {
+  const never = () => false;
+  const always = () => true;
+  assert.equal(isUndeletable({ status: 'in_progress', session_id: 's1' }, always), true, '会话在流式输出');
+  assert.equal(isUndeletable({ status: 'in_progress', session_id: 's1' }, never), true, '停在 in_progress 列');
+  assert.equal(isUndeletable({ status: 'done', session_id: 's1' }, always), true, 'status 骗人，会话还在跑');
+  assert.equal(isUndeletable({ status: 'done', session_id: 's1' }, never), false, '跑完且会话已死');
+  assert.equal(isUndeletable({ status: 'in_review', session_id: 's1' }), false, '没注入判据时退化成只看 status');
+  // 没挂会话 → 一律可删（含 in_progress 的仅提醒任务），与改动前一致
+  assert.equal(isUndeletable({ status: 'in_progress', session_id: null }, always), false, '没会话就不受会话判据影响');
+});
+
+test('deleteTasksBySchedule removes every run of that schedule and hard-deletes their sessions', async () => {
+  const events: unknown[] = [];
+  const { db, tasks } = makeDbStub();
+  seedRun(tasks, 'run-1', { session_id: 'sess-1' });
+  seedRun(tasks, 'run-2', { session_id: 'sess-2' });
+  seedRun(tasks, 'run-3'); // 仅提醒的那一轮没有会话
+  seedRun(tasks, 'other', { source_schedule_id: 'sch-2', session_id: 'sess-other' });
+  const deletedSessions: string[] = [];
+  const svc = createTasksService(db, {
+    broadcast: (e) => events.push(e),
+    deps: { deleteSessionHard: async (sid: string) => { deletedSessions.push(sid); } },
+  });
+
+  const result = await svc.deleteTasksBySchedule('sch-1');
+
+  assert.deepEqual([...result.deletedTaskIds].sort(), ['run-1', 'run-2', 'run-3']);
+  assert.equal(db.getTask('run-1'), null);
+  assert.equal(db.getTask('run-2'), null);
+  assert.equal(db.getTask('run-3'), null);
+  assert.deepEqual(deletedSessions.sort(), ['sess-1', 'sess-2']);
+  // 别的调度跑出来的任务一个都不许碰
+  assert.ok(db.getTask('other'), 'another schedule\'s run must survive');
+  assert.ok(db.getTask('t1'), 'a manual task must survive');
+  // 每条被删的运行都要发自己的 task_deleted（看板/收件箱靠它实时摘行）
+  assert.deepEqual(
+    events.map((e) => (e as { taskId?: string }).taskId).sort(),
+    ['run-1', 'run-2', 'run-3'],
+  );
+  assert.ok(events.every((e) => (e as { kind: string }).kind === 'task_deleted'));
+});
+
+test('deleteTasksBySchedule is a no-op when the schedule never ran', async () => {
+  const events: unknown[] = [];
+  const { db } = makeDbStub();
+  const svc = createTasksService(db, { broadcast: (e) => events.push(e) });
+  const result = await svc.deleteTasksBySchedule('sch-1');
+  assert.deepEqual(result, { deletedTaskIds: [] });
+  assert.equal(events.length, 0);
+});
+
+/**
+ * 级联删的是「模板 + 它跑出来的所有东西」，所以只要还有一轮在跑就**整个拒绝** ——
+ * 不能删一半：删掉一半再抛 409，用户看到的是「调度还在、运行记录却少了几条」。
+ * 判据与 deleteTask 单条路径逐字一致（in_progress 或会话仍在流式输出）。
+ */
+test('deleteTasksBySchedule refuses the whole cascade when one run is still in progress', async () => {
+  const events: unknown[] = [];
+  const { db, tasks } = makeDbStub();
+  seedRun(tasks, 'run-1');
+  seedRun(tasks, 'run-2', { status: 'in_progress', session_id: 'sess-2' });
+  const svc = createTasksService(db, {
+    broadcast: (e) => events.push(e),
+    deps: { isSessionRunning: () => false },
+  });
+
+  await assert.rejects(
+    () => svc.deleteTasksBySchedule('sch-1'),
+    (e: { code?: string; statusCode?: number; details?: { taskId?: string } }) =>
+      e.code === 'SESSION_RUNNING' && e.statusCode === 409 && e.details?.taskId === 'run-2',
+  );
+  assert.ok(db.getTask('run-1'), '已结束的那一轮也不许删 —— 拒绝必须是整体的');
+  assert.ok(db.getTask('run-2'));
+  assert.equal(events.length, 0, '被拒绝时不许广播 task_deleted');
+});
+
+test('deleteTasksBySchedule refuses when a settled task still has a streaming session', async () => {
+  // status 会骗人：人工把在跑的任务标成 done 之后，agent 还在同一个项目里写文件。
+  const { db, tasks } = makeDbStub();
+  seedRun(tasks, 'run-1', { status: 'done', session_id: 'sess-live' });
+  const svc = createTasksService(db, {
+    broadcast: () => {},
+    deps: { isSessionRunning: (sid: string) => sid === 'sess-live' },
+  });
+
+  await assert.rejects(
+    () => svc.deleteTasksBySchedule('sch-1'),
+    (e: { code?: string }) => e.code === 'SESSION_RUNNING',
+  );
+  assert.ok(db.getTask('run-1'));
+});
+
 test('startExecution links a session and returns its id', () => {
   const { db, calls } = makeDbStub();
   const svc = createTasksService(db, { broadcast: () => {} });
@@ -308,6 +442,7 @@ test('getTaskBySessionId returns the decorated task for a linked session', () =>
     context_mode: 'none',
     context_status: null,
     context_raw: null,
+    source_schedule_id: null,
   };
   const db = {
     createTask: () => row,
