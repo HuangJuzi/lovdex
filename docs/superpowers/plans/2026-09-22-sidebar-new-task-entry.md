@@ -515,6 +515,14 @@ test('动作图标带 ! 前缀（否则被 Button 的 [&_svg]:size-4 顶成 16px
   // 高于 svg 上的普通 `.h-3\.5` (0,1,0)，所以不加 ! 会渲染成 16px 而不是 14px。
   assert.ok(render({ hasExpandedProjects: true }).includes('!h-3.5 !w-3.5'));
 });
+
+test('动作按钮带 group-focus-within:opacity-100（键盘 Tab 时也要显形）', () => {
+  // 这条不只是样式断言：`group-focus-within:opacity-100` 此前只写在
+  // SidebarSectionRow 的 JSDoc 注释里，Tailwind 3 的扫描器是**按原始字节正则扫**、
+  // 不剥注释，所以那个工具类是靠注释文本才生成的。这里是它第一个真实消费者 ——
+  // 断言钉住它，免得注释被改写后工具类静默消失、键盘用户又看不见动作按钮。
+  assert.ok(render({ hasExpandedProjects: true }).includes('group-focus-within:opacity-100'));
+});
 ```
 
 > 这个测试会打到 React 的 `useLayoutEffect does nothing on the server` warning（`SidebarFooter` 引起），属正常噪声，不影响断言。
@@ -1096,4 +1104,5 @@ dev server 已在 `:5188`（→ 后端 `:3188`）。用 `/tmp/node_modules` 里�
   2. **动作按钮补 `group-focus-within:opacity-100`。** 否则键盘 Tab 进动作区时焦点落在 `opacity: 0` 的元素上，既看不见按钮也看不见焦点（`touch:` 只覆盖粗指针，不覆盖键盘）。
   3. **Task 2 改用 `className` 透传**（原稿是外层再包一个 div 持有 `border-t`）。与 spec §2.3 一致，少一层 div，且让 `className` 这个 prop 真的有消费者。
   4. **`SidebarSectionRow` 的 `aria-expanded`**：折叠控件，展开态此前在 DOM 里完全不可见。已在 Task 1 的修复提交里加上。
-  5. **未修的已知问题（有意保留）**：行外层是真 `<button>`，内层动作是 `div role="button"` —— 严格说属非法嵌套，内层 `aria-label` 会被并进外层按钮的可访问名。这是仓库既有模式（`SidebarAssistant.tsx:442-481` 就是这么写的），改成合法结构要重排整行并多出一次 Tab 停靠点，收益不抵改动风险。三个既有行同样如此，属既有技术债，不在本次范围。
+  5. **未修的已知问题（有意保留）**：行外层是真 `<button>`，内层动作是 `div role="button"` —— 严格说属非法嵌套，内层 `aria-label` 会被并进外层按钮的可访问名。这是仓库既有模式（`SidebarAssistant.tsx:442-481` 就是这么写的），改成合法结构要重排整行并多出一次 Tab 停靠点，收益不抵改动风险。三个既有行同样如此，属既有技术债，不在本次范围。re-review 也认可保留。
+  6. **`group-focus-within:opacity-100` 的隐形依赖**（`38b7816` re-review 发现）：Tailwind 3 的扫描器是按原始字节正则扫文件、**不剥注释**，所以这个工具类在 Task 3 落地前，是靠在 `SidebarSectionRow.tsx` 的 JSDoc 里出现才被生成进 bundle 的。Task 3 的动作按钮是它第一个真实消费者；Task 3 的测试已加断言钉住，避免注释被改写后工具类静默消失。
