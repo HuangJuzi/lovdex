@@ -231,7 +231,7 @@ test('aggregateByModel 返回四类分量 / 会话数 / 最近使用，并按全
     assert.deepEqual(tokenUsageDb.listModels({ from: bucket, to: bucket + 60_000 }).map((r) => r.model), ['m-cache', 'm-out']);
   }));
 
-test('aggregateMinutePeaks 在 1 分钟粒度上给出三档峰值', () =>
+test('aggregateMinutePeaks 在 1 分钟粒度上给出四档峰值', () =>
   withIsolatedDatabase(() => {
     const minuteA = Math.floor(1_700_000_000_000 / 60_000) * 60_000;
     const minuteB = minuteA + 60_000;
@@ -261,9 +261,9 @@ test('aggregateMinutePeaks 在 1 分钟粒度上给出三档峰值', () =>
     const peaks = tokenUsageDb.aggregateMinutePeaks({ from: minuteA, to: minuteB + 60_000 });
 
     const a = peaks.find((p) => p.model === 'm-a');
-    assert.deepEqual(a, { model: 'm-a', peak_all: 2000, peak_new: 100, peak_output: 10 });
+    assert.deepEqual(a, { model: 'm-a', peak_all: 2000, peak_new: 100, peak_input: 90, peak_output: 10 });
     const b = peaks.find((p) => p.model === 'm-b');
-    assert.deepEqual(b, { model: 'm-b', peak_all: 307, peak_new: 7, peak_output: 7 });
+    assert.deepEqual(b, { model: 'm-b', peak_all: 307, peak_new: 7, peak_input: 0, peak_output: 7 });
     assert.ok(peaks.every((p) => !('peak' in p)), '不应再有合并后的单一 peak 列');
   }));
 

@@ -162,7 +162,7 @@ test('buildTimeseries 模型按全部 token 降序，且每个桶都补齐所有
   assert.equal(buckets[1].byModel['m-out'].output, 2);
 });
 
-test('buildSummary 按模型返回四类分量 / 三档峰值 / 会话数', () => {
+test('buildSummary 按模型返回四类分量 / 四档峰值 / 会话数', () => {
   const from = 1_700_000_000_000;
   const to = from + 10 * MIN;
   const summary = buildSummary(
@@ -180,7 +180,7 @@ test('buildSummary 按模型返回四类分量 / 三档峰值 / 会话数', () =
         last_used_at: from,
       },
     ],
-    [{ model: 'm-a', peak_all: 300, peak_new: 120, peak_output: 30 }],
+    [{ model: 'm-a', peak_all: 300, peak_new: 120, peak_input: 90, peak_output: 30 }],
     { from, to },
   );
 
@@ -188,19 +188,21 @@ test('buildSummary 按模型返回四类分量 / 三档峰值 / 会话数', () =
   const a = summary.byModel.find((m) => m.model === 'm-a');
   assert.ok(a);
   assert.deepEqual(a.tokens, { input: 600, output: 10, cacheRead: 1000, cacheCreation: 0 });
-  // 峰值来自 1 分钟粒度查询，三档各自独立（不是同一个数复制三份）
+  // 峰值来自 1 分钟粒度查询，四档各自独立（不是同一个数复制四份）
   assert.equal(a.peakAll, 300);
   assert.equal(a.peakNew, 120);
+  assert.equal(a.peakInput, 90);
   assert.equal(a.peakOutput, 30);
   assert.equal(a.sessions, 2);
   assert.equal(a.lastUsedAt, from + MIN);
 
-  // 没有峰值记录的模型三档都回落 0 而不是 undefined
+  // 没有峰值记录的模型四档都回落 0 而不是 undefined
   const b = summary.byModel.find((m) => m.model === 'm-b');
   assert.ok(b);
   assert.deepEqual(b.tokens, { input: 400, output: 0, cacheRead: 0, cacheCreation: 5 });
   assert.equal(b.peakAll, 0);
   assert.equal(b.peakNew, 0);
+  assert.equal(b.peakInput, 0);
   assert.equal(b.peakOutput, 0);
 });
 

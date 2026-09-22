@@ -10,6 +10,7 @@ import {
   formatAxisTickParts,
   groupByDimension,
   metricValue,
+  metricLabel,
   METRICS,
   pickAxisTargetTicks,
   pickAxisTickStride,
@@ -265,10 +266,14 @@ test('formatAxisTickParts 跨天时主行随日期变化（不退回只有钟点
 // 附录 A.3：口径 / 维度 / 构成条
 // ---------------------------------------------------------------------------
 
-test('METRICS 覆盖三个口径且默认口径是 all', () => {
+test('METRICS 覆盖四个口径且默认口径是 all', () => {
   assert.deepEqual(
     METRICS.map((m) => m.value),
-    ['all', 'new', 'output'],
+    ['all', 'new', 'input', 'output'],
+  );
+  assert.deepEqual(
+    METRICS.map((m) => m.label),
+    ['全部', '仅新增', '仅输入', '仅输出'],
   );
   for (const metric of METRICS) {
     assert.ok(metric.label.length > 0);
@@ -344,7 +349,7 @@ test('groupByDimension 在 vendor 维度下归并同族模型并相加分量', (
   assert.deepEqual(grouped['llama-3-70b'], components(40, 4, 400, 8));
 
   // 归并是无损的：每个口径的标量总量在归并前后相等
-  for (const metric of ['all', 'new', 'output'] as const) {
+  for (const metric of ['all', 'new', 'input', 'output'] as const) {
     const before = Object.values(byModel).reduce((sum, c) => sum + metricValue(c, metric), 0);
     const after = Object.values(grouped).reduce((sum, c) => sum + metricValue(c, metric), 0);
     assert.equal(after, before);
@@ -464,11 +469,11 @@ test('buildChartRows 无桶时返回空', () => {
 // 附录 A.6：mergeSummaryByVendor
 // ---------------------------------------------------------------------------
 
-/** 构造一行 summary 记录，省得每处都写全字段。 */
+/** 构造一行 summary 记录，省得每处都写全字段。peaks 顺序：all / new / input / output。 */
 function summaryRow(
   model: string,
   tokens: TokenComponents,
-  peaks: [number, number, number],
+  peaks: [number, number, number, number],
   sessions: number,
   lastUsedAt: number,
 ): SummaryRow {
@@ -477,7 +482,8 @@ function summaryRow(
     tokens,
     peakAll: peaks[0],
     peakNew: peaks[1],
-    peakOutput: peaks[2],
+    peakInput: peaks[2],
+    peakOutput: peaks[3],
     sessions,
     lastUsedAt,
   };
@@ -485,9 +491,9 @@ function summaryRow(
 
 test('mergeSummaryByVendor 把同族模型归并成一行', () => {
   const merged = mergeSummaryByVendor([
-    summaryRow('claude-sonnet-4-5', components(10, 1, 100, 5), [500, 50, 10], 3, 1000),
-    summaryRow('claude-opus-4-1', components(20, 2, 200, 6), [900, 80, 20], 4, 2000),
-    summaryRow('deepseek-chat', components(30, 3, 300, 7), [700, 70, 30], 5, 1500),
+    summaryRow('claude-sonnet-4-5', components(10, 1, 100, 5), [500, 50, 45, 10], 3, 1000),
+    summaryRow('claude-opus-4-1', components(20, 2, 200, 6), [900, 80, 70, 20], 4, 2000),
+    summaryRow('deepseek-chat', components(30, 3, 300, 7), [700, 70, 60, 30], 5, 1500),
   ]);
 
   assert.deepEqual(
@@ -508,15 +514,16 @@ test('mergeSummaryByVendor 把同族模型归并成一行', () => {
   // peak* 取 max（不是相加：峰值是瞬时量，相加没有意义）
   assert.equal(claude.peakAll, 900);
   assert.equal(claude.peakNew, 80);
+  assert.equal(claude.peakInput, 70, 'peakInput 取 max（45 vs 70）');
   assert.equal(claude.peakOutput, 20);
   assert.equal(deepseek.peakAll, 700);
 });
 
 test('mergeSummaryByVendor 的 lastUsedAt 取 max', () => {
   const merged = mergeSummaryByVendor([
-    summaryRow('claude-sonnet-4-5', components(1, 0, 0, 0), [1, 1, 1], 1, 1000),
-    summaryRow('claude-opus-4-1', components(1, 0, 0, 0), [1, 1, 1], 1, 9000),
-    summaryRow('claude-haiku', components(1, 0, 0, 0), [1, 1, 1], 1, 5000),
+    summaryRow('claude-sonnet-4-5', components(1, 0, 0, 0), [1, 1, 1, 1], 1, 1000),
+    summaryRow('claude-opus-4-1', components(1, 0, 0, 0), [1, 1, 1, 1], 1, 9000),
+    summaryRow('claude-haiku', components(1, 0, 0, 0), [1, 1, 1, 1], 1, 5000),
   ]);
   assert.equal(merged.length, 1);
   assert.equal(merged[0].lastUsedAt, 9000);
@@ -524,8 +531,8 @@ test('mergeSummaryByVendor 的 lastUsedAt 取 max', () => {
 
 test('mergeSummaryByVendor 认不出的模型各自保留原 id', () => {
   const merged = mergeSummaryByVendor([
-    summaryRow('llama-3-70b', components(1, 0, 0, 0), [1, 1, 1], 1, 100),
-    summaryRow('mistral-large', components(2, 0, 0, 0), [2, 2, 2], 1, 200),
+    summaryRow('llama-3-70b', components(1, 0, 0, 0), [1, 1, 1, 1], 1, 100),
+    summaryRow('mistral-large', components(2, 0, 0, 0), [2, 2, 2, 2], 1, 200),
   ]);
   assert.deepEqual(
     merged.map((row) => row.model).sort(),
@@ -535,14 +542,14 @@ test('mergeSummaryByVendor 认不出的模型各自保留原 id', () => {
 
 test('mergeSummaryByVendor 归并是无损的：各口径总量守恒', () => {
   const rows = [
-    summaryRow('claude-sonnet-4-5', components(10, 1, 100, 5), [500, 50, 10], 3, 1000),
-    summaryRow('claude-opus-4-1', components(20, 2, 200, 6), [900, 80, 20], 4, 2000),
-    summaryRow('deepseek-chat', components(30, 3, 300, 7), [700, 70, 30], 5, 1500),
-    summaryRow('llama-3-70b', components(40, 4, 400, 8), [800, 90, 40], 6, 500),
+    summaryRow('claude-sonnet-4-5', components(10, 1, 100, 5), [500, 50, 45, 10], 3, 1000),
+    summaryRow('claude-opus-4-1', components(20, 2, 200, 6), [900, 80, 70, 20], 4, 2000),
+    summaryRow('deepseek-chat', components(30, 3, 300, 7), [700, 70, 60, 30], 5, 1500),
+    summaryRow('llama-3-70b', components(40, 4, 400, 8), [800, 90, 75, 40], 6, 500),
   ];
   const merged = mergeSummaryByVendor(rows);
 
-  for (const metric of ['all', 'new', 'output'] as const) {
+  for (const metric of ['all', 'new', 'input', 'output'] as const) {
     const before = rows.reduce((sum, row) => sum + metricValue(row.tokens, metric), 0);
     const after = merged.reduce((sum, row) => sum + metricValue(row.tokens, metric), 0);
     assert.equal(after, before, `${metric} 口径归并前后总量应相等`);
@@ -560,11 +567,34 @@ test('mergeSummaryByVendor 空输入返回空数组', () => {
 });
 
 test('mergeSummaryByVendor 单行也换成厂商键', () => {
-  const rows = [summaryRow('deepseek-chat', components(1, 2, 3, 4), [9, 8, 7], 2, 42)];
+  const rows = [summaryRow('deepseek-chat', components(1, 2, 3, 4), [9, 8, 6, 7], 2, 42)];
   assert.deepEqual(mergeSummaryByVendor(rows), [{ ...rows[0], model: 'DeepSeek' }]);
 });
 
 test('mergeSummaryByVendor 认不出的单行原样返回', () => {
-  const rows = [summaryRow('llama-3-70b', components(1, 2, 3, 4), [9, 8, 7], 2, 42)];
+  const rows = [summaryRow('llama-3-70b', components(1, 2, 3, 4), [9, 8, 6, 7], 2, 42)];
   assert.deepEqual(mergeSummaryByVendor(rows), rows);
+});
+
+test('metricLabel 与 METRICS 标签一致', () => {
+  for (const m of METRICS) {
+    assert.equal(metricLabel(m.value), m.label);
+  }
+});
+
+test('metricValue 的仅输入档只取 input', () => {
+  const c = components(600, 10, 1000, 5);
+  assert.equal(metricValue(c, 'all'), 1615);
+  assert.equal(metricValue(c, 'new'), 610);
+  assert.equal(metricValue(c, 'input'), 600);
+  assert.equal(metricValue(c, 'output'), 10);
+});
+
+test('mergeSummaryByVendor 对 peakInput 取 max（瞬时量不能相加）', () => {
+  const merged = mergeSummaryByVendor([
+    summaryRow('deepseek-a', components(0, 0, 0, 0), [10, 5, 3, 1], 1, 100),
+    summaryRow('deepseek-b', components(0, 0, 0, 0), [7, 2, 9, 4], 1, 200),
+  ]);
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].peakInput, 9, 'peakInput 取 max 而不是相加');
 });

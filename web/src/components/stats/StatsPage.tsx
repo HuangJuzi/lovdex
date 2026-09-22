@@ -5,17 +5,13 @@ import { api } from '../../utils/api';
 import { HomeButton } from '../tasks/TaskBackNav';
 import { projectPathOf, taskFormProjects } from '../tasks/projectOptions';
 
-import { DIMENSIONS, METRICS, TIME_RANGES, type TokenDimension, type TokenMetric } from './format';
+import { DIMENSIONS, TIME_RANGES, type TokenDimension, type TokenMetric } from './format';
+import { SEGMENT_ACTIVE, SEGMENT_IDLE } from './segmented';
 import { ModelRankCard } from './widgets/ModelRankCard';
 import { TpmChartCard } from './widgets/TpmChartCard';
 import { useTokenStats } from './useTokenStats';
 
 const ALL_PROJECTS = '__all__';
-
-const SEGMENT_ACTIVE =
-  'rounded-lg bg-card px-2 py-1 text-xs font-normal text-card-foreground shadow-sm';
-const SEGMENT_IDLE =
-  'rounded-lg px-2 py-1 text-xs font-normal text-muted-foreground hover:text-foreground';
 
 /**
  * Token 用量统计页。
@@ -110,23 +106,7 @@ export function StatsPage() {
           ))}
         </div>
 
-        {/* 口径：决定「什么算一个 token」 */}
-        <div className="flex rounded-xl border border-border/70 bg-muted/50 p-0.5">
-          {METRICS.map((m) => (
-            <button
-              key={m.value}
-              type="button"
-              title={m.hint}
-              aria-pressed={metric === m.value}
-              onClick={() => setMetric(m.value)}
-              className={metric === m.value ? SEGMENT_ACTIVE : SEGMENT_IDLE}
-            >
-              {m.label}
-            </button>
-          ))}
-        </div>
-
-        {/* 维度：模型原始 id 还是厂商归并 */}
+        {/* 维度：模型原始 id 还是厂商归并。口径控件已移进 TPM 卡片标题行。 */}
         <div className="flex rounded-xl border border-border/70 bg-muted/50 p-0.5">
           {DIMENSIONS.map((d) => (
             <button
@@ -183,6 +163,7 @@ export function StatsPage() {
               ingest={timeseries?.ingest ?? null}
               metric={metric}
               dimension={dimension}
+              onMetricChange={setMetric}
             />
           </div>
           <ModelRankCard summary={summary} metric={metric} dimension={dimension} />

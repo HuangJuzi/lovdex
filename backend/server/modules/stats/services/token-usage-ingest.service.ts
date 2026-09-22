@@ -222,12 +222,16 @@ export function createTokenUsageIngestService(overrides: Partial<TokenUsageInges
     status.filesTotal += 1;
     try {
       db.pragma('busy_timeout = 2000');
+      // `>=` 而不是 `>`：严格大于时，与游标同一毫秒、但在本轮扫描之后写入的消息
+      // 永远读不到（永久漏读）。`>=` 让边界毫秒每轮重读，靠 dedupe_key 的
+      // INSERT OR IGNORE 保证幂等，代价是每轮多读「恰好等于游标那一毫秒」的行。
       const rows = db
         .prepare(`
-          SELECT m.id AS id, m.session_id AS session_id, m.data AS data, s.directory AS directory
+          SELECT m.id AS id, m.session_id AS session_id, m.data AS data,
+                 m.time_created AS time_created, s.directory AS directory
           FROM message m
           LEFT JOIN session s ON s.id = m.session_id
-          WHERE m.time_created > ?
+          WHERE m.time_created >= ?
             AND json_extract(m.data, '$.role') = 'assistant'
           ORDER BY m.time_created ASC
         `)
@@ -235,16 +239,22 @@ export function createTokenUsageIngestService(overrides: Partial<TokenUsageInges
           id: string;
           session_id: string;
           data: string;
+          time_created: number;
           directory: string | null;
         }[];
 
       const events: TokenUsageEvent[] = [];
       let maxTs = cursor.lastTsMs;
       for (const row of rows) {
+        // 游标与 WHERE 必须用**同一个时钟**：列 m.time_created，而不是 JSON 里的
+        // data.time.created（那是事件的语义时间，走 parseOpencodeRow 单独取）。
+        // 两个时钟实测相等但那是巧合不是契约，一旦 JSON 时间偏大，游标会越过尚未读到的行。
+        //
+        // 无条件推进（不只在解析成功时）：解析失败的行不该被每轮重读。
+        maxTs = Math.max(maxTs, row.time_created);
         const event = parseOpencodeRow(row, row.directory ?? null);
         if (event) {
           events.push(event);
-          maxTs = Math.max(maxTs, event.tsMs);
         }
       }
       status.eventsIndexed += insertInBatches(events);

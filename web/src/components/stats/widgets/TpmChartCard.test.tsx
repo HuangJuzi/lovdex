@@ -24,7 +24,13 @@ function ingestStatus(overrides: Partial<IngestStatus> = {}): IngestStatus {
 // 因此不会渲染 recharts（SSR 下 ResponsiveContainer 量不到尺寸）。
 test('目录还没遍历完（filesTotal 为 0）时不显示 0/0 计数', () => {
   const html = renderToStaticMarkup(
-    <TpmChartCard timeseries={null} ingest={ingestStatus()} metric="all" dimension="model" />,
+    <TpmChartCard
+      timeseries={null}
+      ingest={ingestStatus()}
+      metric="all"
+      dimension="model"
+      onMetricChange={() => {}}
+    />,
   );
   assert.match(html, /首次回填进行中…/);
   assert.doesNotMatch(html, /0\/0/);
@@ -37,6 +43,7 @@ test('有文件计数时显示 x/y 与已入库条数', () => {
       ingest={ingestStatus({ filesTotal: 1333, filesDone: 575, eventsIndexed: 2058 })}
       metric="all"
       dimension="model"
+      onMetricChange={() => {}}
     />,
   );
   assert.match(html, /575\/1333 个文件/);
@@ -50,7 +57,41 @@ test('未在扫描时不显示回填提示', () => {
       ingest={ingestStatus({ scanning: false, filesTotal: 1333, filesDone: 1333 })}
       metric="all"
       dimension="model"
+      onMetricChange={() => {}}
     />,
   );
   assert.doesNotMatch(html, /回填/);
+});
+
+test('标题行渲染四个口径档位，当前档 aria-pressed=true', () => {
+  const html = renderToStaticMarkup(
+    <TpmChartCard
+      timeseries={null}
+      ingest={null}
+      metric="input"
+      dimension="model"
+      onMetricChange={() => {}}
+    />,
+  );
+  for (const label of ['全部', '仅新增', '仅输入', '仅输出']) {
+    assert.match(html, new RegExp(`>${label}<`), `缺少档位 ${label}`);
+  }
+  // 只能有一个按下态，且必须是当前档
+  const pressed = html.match(/aria-pressed="true"[^>]*>([^<]+)</g) ?? [];
+  assert.equal(pressed.length, 1, '只能有一个按下态');
+  assert.match(pressed[0], /仅输入/);
+});
+
+test('空态（暂无用量）下口径控件仍渲染', () => {
+  const html = renderToStaticMarkup(
+    <TpmChartCard
+      timeseries={null}
+      ingest={null}
+      metric="all"
+      dimension="model"
+      onMetricChange={() => {}}
+    />,
+  );
+  assert.match(html, /暂无用量数据/);
+  assert.match(html, /仅输出/, '空态也要能切口径');
 });

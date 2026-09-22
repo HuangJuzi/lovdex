@@ -49,9 +49,10 @@ export type TimeseriesBucket = {
 export type SummaryModelEntry = {
   model: string;
   tokens: TokenComponents;
-  /** 1 分钟粒度峰值，三档口径各一个（前端按当前口径选）。 */
+  /** 1 分钟粒度峰值，四档口径各一个（前端按当前口径选）。 */
   peakAll: number;
   peakNew: number;
+  peakInput: number;
   peakOutput: number;
   sessions: number;
   lastUsedAt: number;
@@ -210,6 +211,7 @@ export function buildSummary(
         },
         peakAll: peak?.peak_all ?? 0,
         peakNew: peak?.peak_new ?? 0,
+        peakInput: peak?.peak_input ?? 0,
         peakOutput: peak?.peak_output ?? 0,
         sessions: row.sessions,
         lastUsedAt: row.last_used_at,

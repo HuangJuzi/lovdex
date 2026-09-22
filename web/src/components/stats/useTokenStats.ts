@@ -30,6 +30,7 @@ export type SummaryModelEntry = {
   tokens: TokenComponents;
   peakAll: number;
   peakNew: number;
+  peakInput: number;
   peakOutput: number;
   sessions: number;
   lastUsedAt: number;

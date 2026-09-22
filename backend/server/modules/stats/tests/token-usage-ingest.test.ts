@@ -5,6 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
+import Database from 'better-sqlite3';
+
 import { closeConnection, initializeDatabase } from '@/modules/database/index.js';
 import { tokenUsageDb } from '@/modules/database/repositories/token-usage.db.js';
 
@@ -45,6 +47,62 @@ function claudeLine(id: string, ts: string, input: number, output: number): stri
 
 function makeTempRoot(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'lovdex-token-ingest-'));
+}
+
+/** 一条 opencode assistant 消息的 data 载荷（形状照抄真实 opencode.db）。 */
+function opencodeAssistant(
+  createdMs: number,
+  input: number,
+  output: number,
+): Record<string, unknown> {
+  return {
+    role: 'assistant',
+    modelID: 'm-oc',
+    path: { cwd: '/proj/oc' },
+    time: { created: createdMs },
+    tokens: { input, output, cache: { read: 0, write: 0 } },
+  };
+}
+
+/** 往已存在的 opencode.db 追加 assistant 消息（供「扫描后再写入」的用例复用）。 */
+function insertOpencodeMessage(
+  db: Database.Database,
+  sessionId: string,
+  rows: { id: string; timeCreated: number; data: Record<string, unknown> }[],
+): void {
+  const insert = db.prepare(
+    'INSERT INTO message (id, session_id, time_created, time_updated, data) VALUES (?, ?, ?, ?, ?)',
+  );
+  for (const row of rows) {
+    insert.run(row.id, sessionId, row.timeCreated, row.timeCreated, JSON.stringify(row.data));
+  }
+}
+
+/**
+ * 建一个最小 opencode.db：只含 scanOpencode 用到的那几列。
+ * 列定义照抄真实 schema（见 `~/.local/share/opencode/opencode.db` 的 `.schema message`），
+ * 但刻意不加外键约束——测试不需要，加了反而要按顺序插。
+ */
+function makeOpencodeDb(
+  dir: string,
+  rows: { id: string; timeCreated: number; data: Record<string, unknown> }[],
+): string {
+  const dbPath = path.join(dir, 'opencode.db');
+  const db = new Database(dbPath);
+  db.exec(`
+    CREATE TABLE session (id text PRIMARY KEY, directory text);
+    CREATE TABLE message (
+      id text PRIMARY KEY,
+      session_id text NOT NULL,
+      time_created integer NOT NULL,
+      time_updated integer NOT NULL,
+      data text NOT NULL
+    );
+  `);
+  db.prepare('INSERT INTO session (id, directory) VALUES (?, ?)').run('sess-oc', '/proj/oc');
+  insertOpencodeMessage(db, 'sess-oc', rows);
+  db.close();
+  return dbPath;
 }
 
 test('扫描 Claude transcript 目录，入库并可增量追加', async () => {
@@ -214,5 +272,73 @@ test('扫描根不存在时不抛错，getStatus 反映已完成', async () => {
     const status = ingest.getStatus();
     assert.equal(status.scanning, false);
     assert.ok(status.lastScanAt);
+  });
+});
+
+test('OpenCode：同一毫秒的第二条 assistant 消息不会被游标跳过', async () => {
+  await withIsolatedDatabase(async () => {
+    const dir = makeTempRoot();
+    const T = 1_700_000_000_000;
+    const dbPath = makeOpencodeDb(dir, [
+      { id: 'msg-a', timeCreated: T, data: opencodeAssistant(T, 100, 10) },
+    ]);
+
+    const ingest = createTokenUsageIngestService({
+      claudeRoot: null,
+      codexRoot: null,
+      opencodeDbPath: dbPath,
+    });
+    await ingest.runScan();
+    assert.equal(tokenUsageDb.countEvents(), 1, '第一条应入库');
+    assert.equal(tokenUsageDb.getCursor('opencode', dbPath).lastTsMs, T);
+
+    // 关键：与第一条**同一毫秒**的第二条，在本轮扫描之后才写入。
+    // 旧实现过滤条件是 `time_created > lastTsMs`，这一条永远满足不了，会永久漏读。
+    const db = new Database(dbPath);
+    insertOpencodeMessage(db, 'sess-oc', [
+      { id: 'msg-b', timeCreated: T, data: opencodeAssistant(T, 200, 20) },
+    ]);
+    db.close();
+
+    await ingest.runScan();
+    assert.equal(tokenUsageDb.countEvents(), 2, '同一毫秒的第二条必须入库');
+
+    // 边界毫秒每轮都会被重读，但 dedupe_key 必须保证不重复入库
+    await ingest.runScan();
+    assert.equal(tokenUsageDb.countEvents(), 2, '重读边界毫秒不得重复计数');
+  });
+});
+
+test('OpenCode：游标按 m.time_created 推进，不被 data.time.created 顶飞', async () => {
+  await withIsolatedDatabase(async () => {
+    const dir = makeTempRoot();
+    // msg-a 的列时间是 1000，但 JSON 时间被写到极远（模拟两个时钟不一致）。
+    // 旧实现用 event.tsMs（JSON 时间）推进游标，会把游标顶到 9999999999999。
+    const dbPath = makeOpencodeDb(dir, [
+      { id: 'msg-a', timeCreated: 1000, data: opencodeAssistant(9_999_999_999_999, 100, 10) },
+    ]);
+
+    const ingest = createTokenUsageIngestService({
+      claudeRoot: null,
+      codexRoot: null,
+      opencodeDbPath: dbPath,
+    });
+    await ingest.runScan();
+    assert.equal(tokenUsageDb.countEvents(), 1);
+    assert.equal(
+      tokenUsageDb.getCursor('opencode', dbPath).lastTsMs,
+      1000,
+      '游标必须按列 m.time_created 推进，而不是 JSON 的 data.time.created',
+    );
+
+    // 游标若被顶到 9999999999999，这一条（time_created=2000）会被永久跳过
+    const db = new Database(dbPath);
+    insertOpencodeMessage(db, 'sess-oc', [
+      { id: 'msg-b', timeCreated: 2000, data: opencodeAssistant(2000, 200, 20) },
+    ]);
+    db.close();
+
+    await ingest.runScan();
+    assert.equal(tokenUsageDb.countEvents(), 2, 'msg-b 不得被顶飞的游标跳过');
   });
 });

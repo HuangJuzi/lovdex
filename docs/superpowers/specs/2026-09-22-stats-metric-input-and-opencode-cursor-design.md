@@ -72,7 +72,7 @@ tokenUsageDb.setCursor('opencode', dbPath, { lastTsMs: maxTs });
 
 ### 2.3 现有测试覆盖
 
-`token-usage-ingest.test.ts` 的 8 个 test **全部覆盖 Claude 路径**，OpenCode 与 Codex 路径覆盖为 0。
+`token-usage-ingest.test.ts` 的 7 个 test **全部覆盖 Claude 路径**，OpenCode 与 Codex 路径覆盖为 0。
 `scanOpencode` 是本设计要改的函数，目前无任何回归网。
 
 ## 3. 关键设计决策

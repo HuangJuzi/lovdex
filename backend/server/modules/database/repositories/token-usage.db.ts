@@ -24,11 +24,12 @@ export type ModelAggregateRow = {
   last_used_at: number;
 };
 
-/** 一个模型在 1 分钟粒度上的峰值，按三种口径各给一个。 */
+/** 一个模型在 1 分钟粒度上的峰值，按四种口径各给一个。 */
 export type ModelPeakRow = {
   model: string;
   peak_all: number;
   peak_new: number;
+  peak_input: number;
   peak_output: number;
 };
 
@@ -166,7 +167,7 @@ export const tokenUsageDb = {
   },
 
   /**
-   * 每个模型在 1 分钟粒度上的三档峰值。必须独立于响应里的 bucketMs 计算
+   * 每个模型在 1 分钟粒度上的四档峰值。必须独立于响应里的 bucketMs 计算
    * （桶越粗峰值越低，图上「峰值」会随缩放跳变）。
    */
   aggregateMinutePeaks(filter: AggregateFilter): ModelPeakRow[] {
@@ -176,12 +177,14 @@ export const tokenUsageDb = {
         SELECT model,
                MAX(bucket_all)    AS peak_all,
                MAX(bucket_new)    AS peak_new,
+               MAX(bucket_input)  AS peak_input,
                MAX(bucket_output) AS peak_output
         FROM (
           SELECT model,
                  (ts_ms / 60000) * 60000 AS bucket_ts,
                  SUM(input_tokens + output_tokens + cache_read_tokens + cache_creation_tokens) AS bucket_all,
                  SUM(input_tokens + output_tokens) AS bucket_new,
+                 SUM(input_tokens) AS bucket_input,
                  SUM(output_tokens) AS bucket_output
           FROM token_usage_events
           WHERE ${where}

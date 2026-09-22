@@ -4,6 +4,7 @@ import {
   formatTokenCount,
   formatTpm,
   mergeSummaryByVendor,
+  metricLabel,
   metricValue,
   type SummaryRow,
   type TokenDimension,
@@ -22,13 +23,15 @@ function formatLastUsed(ts: number): string {
   return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-/** 峰值按口径取对应字段：峰值是「某 1 分钟的瞬时量」，三口径各存一个。 */
+/** 峰值按口径取对应字段：峰值是「某 1 分钟的瞬时量」，四档口径各存一个。 */
 function peakFor(row: SummaryRow, metric: TokenMetric): number {
   switch (metric) {
     case 'all':
       return row.peakAll;
     case 'new':
       return row.peakNew;
+    case 'input':
+      return row.peakInput;
     case 'output':
       return row.peakOutput;
   }
@@ -67,7 +70,15 @@ export function ModelRankCard({
   return (
     <section className="rounded-xl border border-border bg-card p-4">
       <header className="mb-3 flex items-baseline justify-between">
-        <h2 className="text-sm font-medium">{dimensionLabel}用量排行</h2>
+        <h2 className="text-sm font-medium">
+          {dimensionLabel}用量排行
+          {/* 只读标注：这张表的总量 / 占比 / 平均 TPM / 峰值 TPM 全部随口径变，
+              而控件在 TPM 卡片里。不标注的话，数字在无控件的地方悄悄变会让人莫名其妙。
+              刻意不渲染第二个可交互控件——单一真源在 TPM 卡片。 */}
+          <span className="ml-2 text-xs font-normal text-muted-foreground">
+            口径：{metricLabel(metric)}
+          </span>
+        </h2>
         <span className="text-xs text-muted-foreground">
           合计 {formatTokenCount(grandTotal)} tokens
         </span>

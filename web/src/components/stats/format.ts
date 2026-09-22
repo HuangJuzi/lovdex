@@ -252,13 +252,19 @@ export type TokenComponents = {
 export const EMPTY_COMPONENTS: TokenComponents = { input: 0, output: 0, cacheRead: 0, cacheCreation: 0 };
 
 /** TPM 口径。默认 `all`——与 provider 计费/限流口径一致。 */
-export type TokenMetric = 'all' | 'new' | 'output';
+export type TokenMetric = 'all' | 'new' | 'input' | 'output';
 
 export const METRICS: { value: TokenMetric; label: string; hint: string }[] = [
   { value: 'all', label: '全部', hint: 'input + output + 缓存读取 + 缓存写入（provider 计费口径）' },
   { value: 'new', label: '仅新增', hint: 'input + output，排除缓存重读' },
+  { value: 'input', label: '仅输入', hint: '只算 input，不含缓存重读与输出' },
   { value: 'output', label: '仅输出', hint: '只算模型实际生成的内容' },
 ];
+
+/** 口径的中文标签。排行卡片用它做只读标注，避免文案两处各写一遍。 */
+export function metricLabel(metric: TokenMetric): string {
+  return METRICS.find((m) => m.value === metric)?.label ?? metric;
+}
 
 /** 按口径把四类分量折算成一个标量。 */
 export function metricValue(components: TokenComponents, metric: TokenMetric): number {
@@ -267,6 +273,8 @@ export function metricValue(components: TokenComponents, metric: TokenMetric): n
       return components.input + components.output + components.cacheRead + components.cacheCreation;
     case 'new':
       return components.input + components.output;
+    case 'input':
+      return components.input;
     case 'output':
       return components.output;
   }
@@ -393,6 +401,7 @@ export type SummaryRow = {
   tokens: TokenComponents;
   peakAll: number;
   peakNew: number;
+  peakInput: number;
   peakOutput: number;
   sessions: number;
   lastUsedAt: number;
@@ -421,6 +430,7 @@ export function mergeSummaryByVendor(rows: SummaryRow[]): SummaryRow[] {
       tokens: addComponents(existing.tokens, row.tokens),
       peakAll: Math.max(existing.peakAll, row.peakAll),
       peakNew: Math.max(existing.peakNew, row.peakNew),
+      peakInput: Math.max(existing.peakInput, row.peakInput),
       peakOutput: Math.max(existing.peakOutput, row.peakOutput),
       sessions: existing.sessions + row.sessions,
       lastUsedAt: Math.max(existing.lastUsedAt, row.lastUsedAt),

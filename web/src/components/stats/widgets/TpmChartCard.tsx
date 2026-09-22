@@ -19,6 +19,7 @@ import {
   formatBucketLabel,
   formatFullTime,
   formatTpm,
+  METRICS,
   metricValue,
   pickAxisTargetTicks,
   pickAxisTickStride,
@@ -26,6 +27,7 @@ import {
   type TokenDimension,
   type TokenMetric,
 } from '../format';
+import { SEGMENT_ACTIVE, SEGMENT_IDLE } from '../segmented';
 import type { IngestStatus, TimeseriesResponse } from '../useTokenStats';
 import { useElementWidth } from '../useElementWidth';
 
@@ -209,17 +211,21 @@ function CompositionBar({ components }: { components: TokenComponents }) {
  *
  * 口径（`metric`）与维度（`dimension`）都由 `StatsPage` 持有——切换它们
  * 不触发重新请求，同一份响应能本地算出任意口径/维度。
+ * 其中口径控件渲染在**本卡片的标题行**里（它影响的曲线就在眼皮底下），
+ * 维度控件仍在页头。
  */
 export function TpmChartCard({
   timeseries,
   ingest,
   metric,
   dimension,
+  onMetricChange,
 }: {
   timeseries: TimeseriesResponse | null;
   ingest: IngestStatus | null;
   metric: TokenMetric;
   dimension: TokenDimension;
+  onMetricChange: (metric: TokenMetric) => void;
 }) {
   // `timeseries?.buckets ?? []` 每次渲染都是新数组，必须 memo 后再进 useMemo 依赖
   const buckets = useMemo(() => timeseries?.buckets ?? [], [timeseries]);
@@ -306,17 +312,35 @@ export function TpmChartCard({
 
   return (
     <section className="rounded-xl border border-border bg-card p-4">
-      <header className="mb-3 flex items-baseline justify-between">
+      <header className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-sm font-medium">
           TPM 变化（{dimension === 'vendor' ? '按厂商' : '按模型'}）
         </h2>
-        {backfilling && ingest && (
-          <span className="text-xs text-muted-foreground">
-            {hasFileCount
-              ? `正在回填历史 ${ingest.filesDone}/${ingest.filesTotal} 个文件…`
-              : '正在回填历史…'}
-          </span>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          {backfilling && ingest && (
+            <span className="text-xs text-muted-foreground">
+              {hasFileCount
+                ? `正在回填历史 ${ingest.filesDone}/${ingest.filesTotal} 个文件…`
+                : '正在回填历史…'}
+            </span>
+          )}
+          {/* 口径控件住在这里而不是页头：页头原本并排三个外观完全相同的分段控件且都无标题，
+              口径夹在中间，用户根本找不到。放在图旁边，它影响的曲线就在眼皮底下。 */}
+          <div className="flex rounded-xl border border-border/70 bg-muted/50 p-0.5">
+            {METRICS.map((m) => (
+              <button
+                key={m.value}
+                type="button"
+                title={m.hint}
+                aria-pressed={metric === m.value}
+                onClick={() => onMetricChange(m.value)}
+                className={metric === m.value ? SEGMENT_ACTIVE : SEGMENT_IDLE}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
+        </div>
       </header>
 
       {!hasData ? (
