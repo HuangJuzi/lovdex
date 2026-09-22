@@ -301,17 +301,18 @@ import SidebarSectionRow from './SidebarSectionRow';
 
 ```tsx
   return (
-    <div className="flex-shrink-0 border-t border-border/60 pb-2">
+    <>
       <SidebarSectionRow
         icon={History}
         label="最近会话"
         collapsed={collapsed}
         onToggle={toggleCollapsed}
+        // 行组件自带 `px-2 pt-1.5 md:px-1.5`；分隔线与下间距通过 className 挂在它的 wrapper 上。
+        className="border-t border-border/60 pb-2"
       />
 
       {!collapsed && (
-        // 行组件自带 `px-2 md:px-1.5`。列表沿用改造前外层那圈同款水平内边距，
-        // 否则整列会相对标题行左移 8px。
+        // 列表沿用改造前外层那圈同款水平内边距，否则整列会相对标题行左移 8px。
         <div className="px-2 md:px-1.5">
           <div className="ml-3 max-h-[28vh] overflow-y-auto border-l border-border pl-3">
             {recent.length === 0 ? (
@@ -353,7 +354,7 @@ import SidebarSectionRow from './SidebarSectionRow';
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }
 ```
@@ -508,6 +509,12 @@ test('没有展开项时不渲染「收起全部项目」', () => {
 test('有展开项时渲染「收起全部项目」', () => {
   assert.ok(render({ hasExpandedProjects: true }).includes('title="收起全部项目"'));
 });
+
+test('动作图标带 ! 前缀（否则被 Button 的 [&_svg]:size-4 顶成 16px）', () => {
+  // 实测过：`Button` 基础类里的 `[&_svg]:size-4` 是后代选择器，特异度 (0,1,1)，
+  // 高于 svg 上的普通 `.h-3\.5` (0,1,0)，所以不加 ! 会渲染成 16px 而不是 14px。
+  assert.ok(render({ hasExpandedProjects: true }).includes('!h-3.5 !w-3.5'));
+});
 ```
 
 > 这个测试会打到 React 的 `useLayoutEffect does nothing on the server` warning（`SidebarFooter` 引起），属正常噪声，不影响断言。
@@ -556,11 +563,15 @@ import SidebarSectionRow from './SidebarSectionRow';
           <>
             {/* 结构对齐 SidebarAssistant 的「新建会话 +」：外层已经是 <button>，
                 内层再用真 <button> 是非法嵌套，所以用 div role="button"；
-                点击必须 stopPropagation，否则会连带把整行折叠掉。 */}
+                点击必须 stopPropagation，否则会连带把整行折叠掉。
+                图标用 `!h-3.5 !w-3.5`（带 !）—— Button 基础类里的 `[&_svg]:size-4`
+                是后代选择器，特异度高于 svg 上的普通 `h-3.5`，不加 ! 会渲染成 16px。
+                `group-focus-within:opacity-100` 也不能省：Tab 进动作区时 group-hover
+                不触发，焦点会落在 opacity:0 的元素上。 */}
             <div
               role="button"
               tabIndex={0}
-              className="touch:opacity-100 flex h-7 w-7 cursor-pointer items-center justify-center rounded text-muted-foreground opacity-0 transition-all duration-150 hover:bg-primary/20 hover:text-primary hover:ring-1 hover:ring-primary/40 group-hover:opacity-100"
+              className="touch:opacity-100 flex h-7 w-7 cursor-pointer items-center justify-center rounded text-muted-foreground opacity-0 transition-all duration-150 hover:bg-primary/20 hover:text-primary hover:ring-1 hover:ring-primary/40 group-hover:opacity-100 group-focus-within:opacity-100"
               onClick={(e) => {
                 e.stopPropagation();
                 onCreateProject();
@@ -575,7 +586,7 @@ import SidebarSectionRow from './SidebarSectionRow';
               title="新建项目"
               aria-label="新建项目"
             >
-              <FolderPlus className="h-3.5 w-3.5" />
+              <FolderPlus className="!h-3.5 !w-3.5" />
             </div>
             {/* 文案硬编码中文，与紧邻的「项目」「展开 项目 / 收起 项目」一致 ——
                 仓库只 bundle 了 en locale，这一区块本来就是硬编码中文。
@@ -584,7 +595,7 @@ import SidebarSectionRow from './SidebarSectionRow';
               <div
                 role="button"
                 tabIndex={0}
-                className="touch:opacity-100 flex h-7 w-7 cursor-pointer items-center justify-center rounded text-muted-foreground opacity-0 transition-all duration-150 hover:bg-foreground/15 hover:text-foreground hover:ring-1 hover:ring-foreground/30 group-hover:opacity-100"
+                className="touch:opacity-100 flex h-7 w-7 cursor-pointer items-center justify-center rounded text-muted-foreground opacity-0 transition-all duration-150 hover:bg-foreground/15 hover:text-foreground hover:ring-1 hover:ring-foreground/30 group-hover:opacity-100 group-focus-within:opacity-100"
                 onClick={(e) => {
                   e.stopPropagation();
                   onCollapseAllProjects();
@@ -599,7 +610,7 @@ import SidebarSectionRow from './SidebarSectionRow';
                 title="收起全部项目"
                 aria-label="收起全部项目"
               >
-                <ChevronsDownUp className="h-3.5 w-3.5" />
+                <ChevronsDownUp className="!h-3.5 !w-3.5" />
               </div>
             )}
           </>
@@ -1080,3 +1091,9 @@ dev server 已在 `:5188`（→ 后端 `:3188`）。用 `/tmp/node_modules` 里�
 - **编译绿性**：Task 3 结束时顶部按钮仍走 `onCreateProject`（未改名），Task 4 一次性把 `onCreateTask` 贯穿三层，每个提交后 `tsc` 均为 0 error。
 - **无占位符**：每个代码步骤都给了完整代码与确切命令。
 - **已知取舍**：Task 4 是纯接线 + 改名，无独立单测，由 Task 6 的 E2E 覆盖；「收起全部项目」由常显改 hover 显形（spec §2.2 已说明并经用户确认）。
+- **Task 1 code review 后的修订**（2026-09-22，提交 `adccaa5` 之后）：
+  1. **Task 3 的图标尺寸改对了。** 原稿写 `<FolderPlus className="h-3.5 w-3.5" />`，但 `Button` 基础类含 `[&_svg]:size-4`（后代选择器，特异度 (0,1,1)），会盖掉 svg 上的 `.h-3\.5` (0,1,0)。已用 puppeteer 实测确认：侧栏顶部在 `Button` 内的 `ClipboardList h-3.5 w-3.5` 计算宽度是 **16px**，而在 `Input` 内的 `Search h-3.5 w-3.5` 是 14px。已改为 `!h-3.5 !w-3.5`（仓库既有先例：`SidebarAssistant.tsx:460` 的 `!h-5 !w-5`），并补了一条 SSR 断言兜住。
+  2. **动作按钮补 `group-focus-within:opacity-100`。** 否则键盘 Tab 进动作区时焦点落在 `opacity: 0` 的元素上，既看不见按钮也看不见焦点（`touch:` 只覆盖粗指针，不覆盖键盘）。
+  3. **Task 2 改用 `className` 透传**（原稿是外层再包一个 div 持有 `border-t`）。与 spec §2.3 一致，少一层 div，且让 `className` 这个 prop 真的有消费者。
+  4. **`SidebarSectionRow` 的 `aria-expanded`**：折叠控件，展开态此前在 DOM 里完全不可见。已在 Task 1 的修复提交里加上。
+  5. **未修的已知问题（有意保留）**：行外层是真 `<button>`，内层动作是 `div role="button"` —— 严格说属非法嵌套，内层 `aria-label` 会被并进外层按钮的可访问名。这是仓库既有模式（`SidebarAssistant.tsx:442-481` 就是这么写的），改成合法结构要重排整行并多出一次 Tab 停靠点，收益不抵改动风险。三个既有行同样如此，属既有技术债，不在本次范围。
