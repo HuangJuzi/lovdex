@@ -117,16 +117,72 @@ test('有展开项时渲染「收起全部项目」', () => {
   assert.ok(render({ hasExpandedProjects: true }).includes('title="收起全部项目"'));
 });
 
-test('动作图标带 ! 前缀（否则被 Button 的 [&_svg]:size-4 顶成 16px）', () => {
-  // 实测过：`Button` 基础类里的 `[&_svg]:size-4` 是后代选择器，特异度 (0,1,1)，
-  // 高于 svg 上的普通 `.h-3\.5` (0,1,0)，所以不加 ! 会渲染成 16px 而不是 14px。
-  assert.ok(render({ hasExpandedProjects: true }).includes('!h-3.5 !w-3.5'));
-});
+/**
+ * 取出某个动作按钮**自己的 markup 片段**（从它自己的 `class="…"` 到它内部 `<svg>` 结束）。
+ *
+ * 两个动作按钮同时在 DOM 里，只对整份 html 断言的话，任一按钮带该 class 就能满足 ——
+ * 钉不住具体是哪一个。React 按 JSX 里的书写顺序渲染属性，所以按钮的 `class="…"`
+ * 一定紧挨在 `title="…"` 之前：按 title 定位再向前回退到最近的 `class="` 即可。
+ *
+ * 为什么必须圈到 svg 结束而不是只取按钮的 class 属性：图标尺寸类 `!h-3.5 !w-3.5`
+ * 挂在**内层 `<svg>`** 上（`<FolderPlus className="!h-3.5 !w-3.5" />`），
+ * 按钮自己的 class 里根本没有它。只取 class 属性会漏掉尺寸回归。
+ */
+const actionSubtree = (html: string, title: string): string => {
+  const titleIdx = html.indexOf(`title="${title}"`);
+  assert.ok(titleIdx > -1, `找不到 title="${title}" 的动作按钮`);
+  const classAttrIdx = html.lastIndexOf('class="', titleIdx);
+  assert.ok(classAttrIdx > -1, `title="${title}" 之前没有 class 属性`);
+  const svgEnd = html.indexOf('</svg>', titleIdx);
+  assert.ok(svgEnd > -1, `title="${title}" 的按钮里没有 svg 图标`);
+  return html.slice(classAttrIdx, svgEnd + '</svg>'.length);
+};
 
-test('动作按钮带 group-focus-within:opacity-100（键盘 Tab 时也要显形）', () => {
-  // 这条不只是样式断言：`group-focus-within:opacity-100` 此前只写在
+/** 取出某个动作按钮**自己**的 class 串（不含后代元素）。 */
+const classOfAction = (html: string, title: string): string => {
+  const subtree = actionSubtree(html, title);
+  const match = /^class="([^"]*)"/.exec(subtree);
+  assert.ok(match, `title="${title}" 的片段不以 class=" 开头：${subtree.slice(0, 80)}`);
+  const cls = match[1];
+  // 兜底：确认回退到的确实是动作按钮自己的 class（而不是更靠前的某个元素），
+  // 否则下面的断言会在错误的元素上「通过」。
+  assert.ok(
+    cls.includes('cursor-pointer') && cls.includes('opacity-0'),
+    `title="${title}" 前最近的 class 不像动作按钮：${cls}`,
+  );
+  return cls;
+};
+
+test('「新建项目」按钮自己带 !h-3.5 !w-3.5 与 group-focus-within:opacity-100', () => {
+  const html = render({ hasExpandedProjects: true });
+  // 两个动作按钮同时在 DOM 里，必须取按钮自己的片段才钉得住。
+  // 不加 ! 会被 Button 基础类的 `[&_svg]:size-4`（后代选择器，特异度更高）顶成 16px。
+  assert.ok(actionSubtree(html, '新建项目').includes('!h-3.5 !w-3.5'));
+  // 键盘 Tab 时 group-hover 不触发，没有它焦点会落在 opacity:0 的元素上。
+  // 这三条必须落在按钮**自己**的 class 上，不能是后代。
+  //
+  // `group-focus-within:opacity-100` 还不只是样式断言：它此前只写在
   // SidebarSectionRow 的 JSDoc 注释里，Tailwind 3 的扫描器是**按原始字节正则扫**、
   // 不剥注释，所以那个工具类是靠注释文本才生成的。这里是它第一个真实消费者 ——
   // 断言钉住它，免得注释被改写后工具类静默消失、键盘用户又看不见动作按钮。
-  assert.ok(render({ hasExpandedProjects: true }).includes('group-focus-within:opacity-100'));
+  const cls = classOfAction(html, '新建项目');
+  assert.ok(cls.includes('group-focus-within:opacity-100'));
+  assert.ok(cls.includes('group-hover:opacity-100'));
+  assert.ok(cls.includes('touch:opacity-100'));
+});
+
+test('「收起全部项目」按钮也带同款显形与尺寸类', () => {
+  const html = render({ hasExpandedProjects: true });
+  assert.ok(actionSubtree(html, '收起全部项目').includes('!h-3.5 !w-3.5'));
+  const cls = classOfAction(html, '收起全部项目');
+  assert.ok(cls.includes('group-focus-within:opacity-100'));
+  assert.ok(cls.includes('group-hover:opacity-100'));
+  assert.ok(cls.includes('touch:opacity-100'));
+});
+
+test('两个动作按钮的 class 互不串台', () => {
+  // 「新建项目」用 primary 配色、「收起全部项目」用 foreground 配色 —— 取错元素会立刻暴露。
+  const html = render({ hasExpandedProjects: true });
+  assert.ok(classOfAction(html, '新建项目').includes('hover:bg-primary/20'));
+  assert.ok(classOfAction(html, '收起全部项目').includes('hover:bg-foreground/15'));
 });
