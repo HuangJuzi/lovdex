@@ -169,7 +169,13 @@ i18n 新增 `sidebar.tooltips.createTask` = `"Create new task"`（`web/src/i18n/
 >
 > 三条事实错误：① `/tasks`、`/stats`、`/scheduled`、`/task/:id`、`/settings`、`/assistant` 都是**独立路由，侧栏根本不挂载**（`App.tsx:132-140`），不是「在所有 AppContent 路由下常驻」；② `/` ↔ `/session/:id` ↔ `/inbox` 之间切换渲染的是同一个 `AppContent`，React 保持实例不卸载，不会重挂；③ 条件挂载下 `useProviderModels(engine, open)` 因为每次都是新挂载，**每次打开都重拉模型列表**，比常挂更贵。
 >
-> 真正的代价是焦点还原：`Dialog.tsx:123-132` 的还原 effect 以 `open: true → false` 为触发条件，条件挂载下 `open` 恒为 `true`，关闭 = 卸载，该分支永不执行 —— 实测按 Escape 关闭后 `document.activeElement` 掉到 `BODY`，键盘用户下次 Tab 要从文档开头重来。
+> 真正的代价是焦点还原：`Dialog.tsx:123-132` 的还原 effect 以 `open: true → false` 为触发条件，条件挂载下 `open` 恒为 `true`，关闭 = 卸载，该分支永不执行。
+>
+> **更正（同日，二次实测）**：上面这句也是错的。改成常挂之后实测焦点**仍然**掉到 `BODY`，`TaskBoard` 这个"参照物"也一样 —— 也就是说焦点问题**与挂载方式无关**，是既有缺陷。真正的根因是 `CreateTaskDialog.tsx` 的 textarea 上挂了 `autoFocus`：React 在 **commit 阶段**就应用 `autoFocus`，早于 `Dialog` 里记录「打开前焦点」的那个 passive effect，于是 `previousFocusRef.current` 抓到的是 **textarea 自己**；关闭时把焦点"还原"到正在卸载的节点上 → 落到 `body`。`triggerRef.current` 为空（两个调用点都没用 `DialogTrigger`），兜底路径也失效。
+>
+> 修法在 `CreateTaskDialog.tsx`：删掉那个 `autoFocus`。`DialogContent` 本来就有 rAF 兜底聚焦第一个可聚焦元素（`Dialog.tsx:178-186`），而该弹窗里第一个可聚焦元素正是这个 textarea（`DialogTitle` 是 `sr-only` 的 `h2`，不可聚焦；`DialogContent` 自身不渲染关闭按钮），所以删掉后 UX 不变。这一并修好了 `TaskBoard` 的同一缺陷。
+>
+> 常挂本身仍然是对的，但理由是**另一条**：`open` 是 `CreateTaskDialog` 自己的契约，驱动 `useProviderModels(engine, open)` 与表单重置 effect，写死 `open` 会让这两条在侧栏路径上空转。
 >
 > 另外常挂还让 `CreateTaskDialog` 的 `open` prop 恢复单一契约：它自己的 `useProviderModels`（`useProviderModels.ts:45`）与表单重置 effect（`CreateTaskDialog.tsx:141-143`）都以 `open` 为门，硬编码 `open={true}` 会让这两处对侧栏调用方变成空转，将来任何挂在 `open` 上的改动会静默地只对一个调用方生效。
 
