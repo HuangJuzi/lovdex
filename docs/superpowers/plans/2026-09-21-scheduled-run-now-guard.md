@@ -1021,6 +1021,14 @@ function ScheduledTaskCard({ task, projectOptions, onEdit, onDelete, onToggle, o
 
 **关键**：`disabled` 必须排在 `aria-label` 之后（React SSR 按 props 顺序输出属性），测试的正则依赖这个顺序。
 
+**`ScheduledTaskCardProps` 必须跟着改**（本文早先写的「不用改」是错的 —— 卡片调用点不传 `runNowError` / `onDismissRunNowError`，`Omit<ScheduledTasksViewProps, 'tasks'>` 会把这两个也变成卡片的必填项，typecheck 直接报 TS2739）：
+
+```tsx
+type ScheduledTaskCardProps = Omit<ScheduledTasksViewProps, 'tasks' | 'runNowError' | 'onDismissRunNowError'> & { task: ScheduledTask };
+```
+
+错误条是列表级的，卡片不消费那两个 prop —— 剔除它们比往卡片里塞死参数干净。`blockedRuns` / `pendingRunNow` 仍经 `Omit` 自动流入且保持必填（漏传会在调用点报错，本次 Panel 那条 TS2739 正好证明了这一点）。
+
 - [ ] **Step 4: 跑测试，确认通过**
 
 ```bash
