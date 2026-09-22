@@ -533,9 +533,12 @@ async function startServer(svc: unknown): Promise<{ baseUrl: string; close: () =
     res.status(e.statusCode ?? 500).json({ success: false, error: { code: e.code, message: e.message } });
   });
   const server = app.listen(0);
-  await new Promise((resolve) => server.on('listening', resolve));
+  // 顺手修掉这个文件里存量的 TS2345：`(14,102)` 的列 102 落在 `server.close(r)` 上 ——
+  // close 的回调签名是 `(err?: Error) => void`，而 `r` 是 `(value: void | PromiseLike<void>) => void`。
+  // （`'listening'` 的监听器是零参签名，传 `resolve` 本不报错；一并写成显式箭头只为两处风格一致。）
+  await new Promise<void>((resolve) => server.once('listening', () => resolve()));
   const address = server.address() as { port: number };
-  return { baseUrl: `http://127.0.0.1:${address.port}`, close: () => new Promise((r) => server.close(r)) };
+  return { baseUrl: `http://127.0.0.1:${address.port}`, close: () => new Promise((r) => server.close(() => r())) };
 }
 ```
 
