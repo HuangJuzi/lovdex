@@ -1,4 +1,4 @@
-import { BarChart3, ClipboardList, FolderPlus, Plus, RefreshCw, Search, X, PanelLeftClose } from 'lucide-react';
+import { BarChart3, ClipboardList, Plus, RefreshCw, Search, X, PanelLeftClose } from 'lucide-react';
 import type { TFunction } from 'i18next';
 import { useNavigate } from 'react-router-dom';
 
@@ -20,7 +20,7 @@ type SidebarHeaderProps = {
   onClearSearchFilter: () => void;
   onRefresh: () => void;
   isRefreshing: boolean;
-  onCreateProject: () => void;
+  onCreateTask: () => void;
   onCollapseSidebar: () => void;
   t: TFunction;
 };
@@ -36,7 +36,7 @@ export default function SidebarHeader({
   onClearSearchFilter,
   onRefresh,
   isRefreshing,
-  onCreateProject,
+  onCreateTask,
   onCollapseSidebar,
   t,
 }: SidebarHeaderProps) {
@@ -117,8 +117,8 @@ export default function SidebarHeader({
               variant="ghost"
               size="sm"
               className="h-7 w-7 rounded-lg p-0 text-muted-foreground hover:bg-muted hover:text-foreground"
-              onClick={onCreateProject}
-              title={t('tooltips.createProject')}
+              onClick={onCreateTask}
+              title={t('tooltips.createTask')}
             >
               <Plus className="h-3.5 w-3.5" />
             </Button>
@@ -214,9 +214,11 @@ export default function SidebarHeader({
             </button>
             <button
               className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/90 text-primary-foreground transition-all active:scale-95"
-              onClick={onCreateProject}
+              onClick={onCreateTask}
+              title={t('tooltips.createTask')}
+              aria-label={t('tooltips.createTask')}
             >
-              <FolderPlus className="h-4 w-4" />
+              <Plus className="h-4 w-4" />
             </button>
           </div>
         </div>

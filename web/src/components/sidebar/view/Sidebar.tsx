@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 
 import { useDeviceSettings } from '../../../hooks/useDeviceSettings';
@@ -59,6 +60,7 @@ function Sidebar({
   isMobile,
 }: SidebarProps) {
   const { t } = useTranslation(['sidebar', 'common']);
+  const navigate = useNavigate();
   const { isPWA } = useDeviceSettings({ trackMobile: false });
   const { updateAvailable, restartRequired, latestVersion, currentVersion, releaseInfo, installMode } = useVersionCheckStub();
   const { preferences, setPreference } = useUiPreferences();
@@ -72,6 +74,7 @@ function Sidebar({
     expandedProjects,
     editingProject,
     showNewProject,
+    showNewTask,
     editingName,
     initialSessionsLoaded,
     currentTime,
@@ -110,6 +113,7 @@ function Sidebar({
     collapseSidebar: handleCollapseSidebar,
     expandSidebar: handleExpandSidebar,
     setShowNewProject,
+    setShowNewTask,
     setEditingName,
     setEditingSession,
     setEditingSessionName,
@@ -242,6 +246,14 @@ function Sidebar({
         showNewProject={showNewProject}
         onCloseNewProject={() => setShowNewProject(false)}
         onProjectCreated={handleProjectCreated}
+        showNewTask={showNewTask}
+        onCloseNewTask={() => setShowNewTask(false)}
+        onTaskCreated={(task) => {
+          setShowNewTask(false);
+          // 带上 task_id，让 /tasks 那边能认出「刚建的是哪一条」——被用户存下的
+          // 筛选藏住时，TaskBoard 会用它点亮既有的提示条。
+          navigate('/tasks', { state: { createdTaskId: task.task_id } });
+        }}
         deleteConfirmation={deleteConfirmation}
         onCancelDeleteProject={() => setDeleteConfirmation(null)}
         onConfirmDeleteProject={confirmDeleteProject}
@@ -320,6 +332,7 @@ function Sidebar({
             }}
             isRefreshing={isRefreshing}
             onCreateProject={() => setShowNewProject(true)}
+            onCreateTask={() => setShowNewTask(true)}
             onCollapseSidebar={handleCollapseSidebar}
             updateAvailable={updateAvailable}
             restartRequired={restartRequired}

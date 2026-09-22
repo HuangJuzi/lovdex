@@ -38,6 +38,7 @@
     "viewEnvironments": "View Environments",
     "hideSidebar": "Hide sidebar",
     "createProject": "Create new project",
+    "createTask": "Create new task",
     "refresh": "Refresh projects and sessions (Ctrl+R)",
     "tasks": "Tasks",
     "stats": "Token stats",

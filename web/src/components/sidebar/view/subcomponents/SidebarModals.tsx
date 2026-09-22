@@ -3,7 +3,8 @@ import { AlertTriangle, EyeOff, Trash2 } from 'lucide-react';
 import type { TFunction } from 'i18next';
 import { Button } from '../../../../shared/view/ui';
 import ProjectCreationWizard from '../../../project-creation-wizard';
-import type { Project } from '../../../../types/app';
+import { CreateTaskDialog } from '../../../tasks/CreateTaskDialog';
+import type { Project, Task } from '../../../../types/app';
 import type { ReleaseInfo } from '../../../../types/sharedTypes';
 import type { DeleteProjectConfirmation, SessionDeleteConfirmation } from '../../types/types';
 
@@ -20,6 +21,9 @@ type SidebarModalsProps = {
   showNewProject: boolean;
   onCloseNewProject: () => void;
   onProjectCreated: (project?: Record<string, unknown>) => void;
+  showNewTask: boolean;
+  onCloseNewTask: () => void;
+  onTaskCreated: (task: Task) => void;
   deleteConfirmation: DeleteProjectConfirmation | null;
   onCancelDeleteProject: () => void;
   onConfirmDeleteProject: (deleteData?: boolean) => void;
@@ -39,6 +43,9 @@ export default function SidebarModals({
   showNewProject,
   onCloseNewProject,
   onProjectCreated,
+  showNewTask,
+  onCloseNewTask,
+  onTaskCreated,
   deleteConfirmation,
   onCancelDeleteProject,
   onConfirmDeleteProject,
@@ -57,6 +64,13 @@ export default function SidebarModals({
           />,
           document.body,
         )}
+
+      {/* 侧栏「新建任务」的就地弹窗。条件渲染而非常挂 `open={showNewTask}`：
+          CreateTaskDialog 挂载时会拉一次 /api/projects，而侧栏在所有 AppContent
+          路由下常驻，常挂等于每次切路由都白打一次接口。 */}
+      {showNewTask && (
+        <CreateTaskDialog open onClose={onCloseNewTask} onCreated={onTaskCreated} />
+      )}
 
       {deleteConfirmation &&
         ReactDOM.createPortal(

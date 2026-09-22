@@ -76,6 +76,7 @@ const render = (overrides: { hasExpandedProjects?: boolean } = {}) =>
         onRefresh={noop}
         isRefreshing={false}
         onCreateProject={noop}
+        onCreateTask={noop}
         onCollapseSidebar={noop}
         updateAvailable={false}
         restartRequired={false}

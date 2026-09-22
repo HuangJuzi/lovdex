@@ -66,6 +66,8 @@ type SidebarContentProps = {
   onRefresh: () => void;
   isRefreshing: boolean;
   onCreateProject: () => void;
+  /** 侧栏顶部的「新建任务」入口：就地打开新建任务弹窗。 */
+  onCreateTask: () => void;
   onCollapseSidebar: () => void;
   updateAvailable: boolean;
   restartRequired: boolean;
@@ -104,6 +106,7 @@ export default function SidebarContent({
   onRefresh,
   isRefreshing,
   onCreateProject,
+  onCreateTask,
   onCollapseSidebar,
   updateAvailable,
   restartRequired,
@@ -147,7 +150,7 @@ export default function SidebarContent({
         onClearSearchFilter={onClearSearchFilter}
         onRefresh={onRefresh}
         isRefreshing={isRefreshing}
-        onCreateProject={onCreateProject}
+        onCreateTask={onCreateTask}
         onCollapseSidebar={onCollapseSidebar}
         t={t}
       />
