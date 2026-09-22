@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight, History } from 'lucide-react';
+import { History } from 'lucide-react';
 
 import type { Project, ProjectSession } from '../../../../types/app';
 import { resolveSessionTitle } from '../../../../utils/sessionTitle';
 import { formatCompactSessionAge, getRecentSessions, getSessionTime } from '../../utils/utils';
+
+import SidebarSectionRow from './SidebarSectionRow';
 
 type SidebarRecentSessionsProps = {
   projects: Project[];
@@ -40,73 +42,71 @@ export default function SidebarRecentSessions({
 
   const recent = useMemo(() => getRecentSessions(projects, 10), [projects]);
 
+  const toggleCollapsed = () =>
+    setCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(COLLAPSE_KEY, next ? '1' : '0');
+      } catch {
+        // ignore storage failures
+      }
+      return next;
+    });
+
   return (
-    <div className="flex-shrink-0 border-t border-border/60 px-2 pb-2 pt-1.5 md:px-1.5">
-      <button
-        type="button"
-        onClick={() =>
-          setCollapsed((prev) => {
-            const next = !prev;
-            try {
-              localStorage.setItem(COLLAPSE_KEY, next ? '1' : '0');
-            } catch {
-              // ignore storage failures
-            }
-            return next;
-          })
-        }
-        title={collapsed ? '展开 最近会话' : '收起 最近会话'}
-        className="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left hover:bg-muted"
-      >
-        {collapsed ? (
-          <ChevronRight className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
-        ) : (
-          <ChevronDown className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
-        )}
-        <History className="h-4 w-4 flex-shrink-0 text-primary" />
-        <span className="min-w-0 flex-1 truncate text-sm font-semibold text-primary">最近会话</span>
-      </button>
+    <>
+      <SidebarSectionRow
+        icon={History}
+        label="最近会话"
+        collapsed={collapsed}
+        onToggle={toggleCollapsed}
+        // 行组件自带 `px-2 pt-1.5 md:px-1.5`；分隔线与下间距通过 className 挂在它的 wrapper 上。
+        className="border-t border-border/60 pb-2"
+      />
 
       {!collapsed && (
-        <div className="ml-3 max-h-[28vh] overflow-y-auto border-l border-border pl-3">
-          {recent.length === 0 ? (
-            <p className="px-1 py-2 text-xs text-muted-foreground">暂无最近会话</p>
-          ) : (
-            <div className="space-y-0.5 py-1">
-              {recent.map(({ session, project }) => {
-                const provider = session.__provider ?? session.provider;
-                return (
-                  <button
-                    key={`${project.projectId}-${session.id}`}
-                    type="button"
-                    onClick={() => onRecentSessionSelect(session, project)}
-                    className="w-full rounded-md px-2 py-2 text-left transition-colors hover:bg-muted"
-                  >
-                    <div className="flex items-center gap-1.5">
-                      <span className="min-w-0 flex-1 truncate text-xs font-normal text-foreground">
-                        {resolveSessionTitle(session) ?? '新建会话'}
-                      </span>
-                      {provider && provider !== 'claude' && (
-                        <span className="flex-shrink-0 rounded bg-muted px-1 py-0.5 text-4xs uppercase text-muted-foreground">
-                          {provider}
+        // 列表沿用改造前外层那圈同款水平内边距，否则整列会相对标题行左移 8px。
+        <div className="px-2 md:px-1.5">
+          <div className="ml-3 max-h-[28vh] overflow-y-auto border-l border-border pl-3">
+            {recent.length === 0 ? (
+              <p className="px-1 py-2 text-xs text-muted-foreground">暂无最近会话</p>
+            ) : (
+              <div className="space-y-0.5 py-1">
+                {recent.map(({ session, project }) => {
+                  const provider = session.__provider ?? session.provider;
+                  return (
+                    <button
+                      key={`${project.projectId}-${session.id}`}
+                      type="button"
+                      onClick={() => onRecentSessionSelect(session, project)}
+                      className="w-full rounded-md px-2 py-2 text-left transition-colors hover:bg-muted"
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <span className="min-w-0 flex-1 truncate text-xs font-normal text-foreground">
+                          {resolveSessionTitle(session) ?? '新建会话'}
                         </span>
-                      )}
-                    </div>
-                    <div className="mt-0.5 flex items-center gap-1.5 pl-3">
-                      <span className="min-w-0 flex-1 truncate text-3xs text-muted-foreground">
-                        {project.displayName || project.projectId}
-                      </span>
-                      <span className="flex-shrink-0 text-3xs text-muted-foreground/60">
-                        {formatCompactSessionAge(getSessionTime(session), currentTime)}
-                      </span>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          )}
+                        {provider && provider !== 'claude' && (
+                          <span className="flex-shrink-0 rounded bg-muted px-1 py-0.5 text-4xs uppercase text-muted-foreground">
+                            {provider}
+                          </span>
+                        )}
+                      </div>
+                      <div className="mt-0.5 flex items-center gap-1.5 pl-3">
+                        <span className="min-w-0 flex-1 truncate text-3xs text-muted-foreground">
+                          {project.displayName || project.projectId}
+                        </span>
+                        <span className="flex-shrink-0 text-3xs text-muted-foreground/60">
+                          {formatCompactSessionAge(getSessionTime(session), currentTime)}
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
       )}
-    </div>
+    </>
   );
 }

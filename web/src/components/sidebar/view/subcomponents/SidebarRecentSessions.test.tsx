@@ -85,3 +85,12 @@ test('stays collapsed on remount when the stored flag is set (survives navigatio
     (globalThis as { localStorage?: unknown }).localStorage = original;
   }
 });
+
+test('箭头渲染在标题之后（在右）', () => {
+  const projects = [mkProject('p1', '项目一', [mkSession('s1', '2026-08-18T01:00:00Z')])];
+  const html = renderToStaticMarkup(
+    <SidebarRecentSessions projects={projects} onRecentSessionSelect={noop} />,
+  );
+  assert.ok(html.includes('>最近会话</span>'));
+  assert.ok(html.indexOf('lucide-chevron-down') > html.indexOf('>最近会话</span>'));
+});
