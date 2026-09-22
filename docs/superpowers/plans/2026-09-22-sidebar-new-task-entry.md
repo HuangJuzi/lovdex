@@ -780,12 +780,12 @@ import type { Project, Task } from '../../../../types/app';
 **4d.** 在 `{showNewProject && ReactDOM.createPortal(...)}` 之后插入：
 
 ```tsx
-      {/* 侧栏「新建任务」的就地弹窗。条件渲染而非常挂 `open={showNewTask}`：
-          CreateTaskDialog 挂载时会拉一次 /api/projects，而侧栏在所有 AppContent
-          路由下常驻，常挂等于每次切路由都白打一次接口。 */}
-      {showNewTask && (
-        <CreateTaskDialog open onClose={onCloseNewTask} onCreated={onTaskCreated} />
-      )}
+      {/* 与 TaskBoard 同款常挂用法：`CreateTaskDialog` 的 `open` prop 驱动它自己的
+          `useProviderModels` 与表单重置，也驱动 `Dialog` 的焦点还原 —— 条件挂载会
+          让这三者全部失效（实测关闭后焦点掉到 body）。代价是侧栏挂载时多打一次
+          /api/projects；侧栏只在 / 、/session/:id 、/inbox 挂载，且这几个路由之间
+          切换不会重挂，可以忽略。 */}
+      <CreateTaskDialog open={showNewTask} onClose={onCloseNewTask} onCreated={onTaskCreated} />
 ```
 
 - [ ] **Step 5: `SidebarHeader.tsx` 改名**
@@ -918,6 +918,7 @@ git commit -m "feat(sidebar): point the top button at new-task and open it in pl
 - Create: `web/src/components/tasks/createdTaskHandoff.ts`
 - Test: `web/src/components/tasks/createdTaskHandoff.test.ts`
 - Modify: `web/src/components/tasks/TaskBoard.tsx`
+- Modify: `web/src/components/sidebar/view/Sidebar.tsx`（写侧换成 `createdTaskNavState`）
 
 - [ ] **Step 1: 写失败测试**
 
@@ -927,7 +928,7 @@ git commit -m "feat(sidebar): point the top button at new-task and open it in pl
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { readCreatedTaskId } from './createdTaskHandoff';
+import { createdTaskNavState, readCreatedTaskId } from './createdTaskHandoff';
 
 test('读出 createdTaskId', () => {
   assert.equal(readCreatedTaskId({ createdTaskId: 't1' }), 't1');
@@ -951,6 +952,12 @@ test('空串与非字符串的 createdTaskId 当没有', () => {
   assert.equal(readCreatedTaskId({ createdTaskId: null }), null);
   assert.equal(readCreatedTaskId({}), null);
 });
+
+test('写出来的 state 能被读回来（导航契约两端同时钉住）', () => {
+  // 读写两侧在同一个模块里，改 key 名字会同时挂掉这两条 —— 否则 Sidebar.tsx
+  // 改个字段名、TaskBoard 静默读不到，正是这条链路最容易悄悄坏的方式。
+  assert.equal(readCreatedTaskId(createdTaskNavState('t9')), 't9');
+});
 ```
 
 - [ ] **Step 2: 跑测试确认失败**
@@ -966,6 +973,17 @@ Expected: FAIL — `Cannot find module './createdTaskHandoff'`
 创建 `web/src/components/tasks/createdTaskHandoff.ts`：
 
 ```ts
+/**
+ * 侧栏「新建任务」跳 `/tasks` 时携带的 navigation state。
+ *
+ * 读写两侧放在同一个模块里，是为了让「字段名」这份契约只有一个来源 ——
+ * 写侧在 `Sidebar.tsx`，读侧在 `TaskBoard.tsx`，两边隔着一个路由，
+ * 改坏了不会有编译错误。
+ */
+export function createdTaskNavState(taskId: string): { createdTaskId: string } {
+  return { createdTaskId: taskId };
+}
+
 /**
  * 从 `/tasks` 的 `location.state` 里读出侧栏「新建任务」带过来的 task_id。
  *
@@ -999,6 +1017,20 @@ import { useLocation, useNavigate } from 'react-router-dom';
 
 ```tsx
 import { readCreatedTaskId } from './createdTaskHandoff';
+```
+
+**5b-2.** 回到 `web/src/components/sidebar/view/Sidebar.tsx`，把写侧也换成同一个模块的 helper，让「字段名」这份契约只有一处来源：
+
+```tsx
+import { createdTaskNavState } from '../../tasks/createdTaskHandoff';
+```
+
+（放在 `import type { MCPServerStatus, SidebarProps } from '../types/types';` 之后的本地 import 组里。）
+
+并把 `onTaskCreated` 里的 `navigate` 改成：
+
+```tsx
+          navigate('/tasks', { state: createdTaskNavState(task.task_id) });
 ```
 
 **5c.** `const navigate = useNavigate();` 下面加：

@@ -149,19 +149,29 @@ i18n 新增 `sidebar.tooltips.createTask` = `"Create new task"`（`web/src/i18n/
 ### 2.5 就地弹窗 → 建完跳转
 
 - `useSidebarController.ts` 加一份 `showNewTask` state（第 109 行 `showNewProject` 旁），并在 return 里导出。
-- `CreateTaskDialog` 挂在 `SidebarModals.tsx`，与 `ProjectCreationWizard` 同处一个弹窗 hub：
+- `CreateTaskDialog` 挂在 `SidebarModals.tsx`，与 `ProjectCreationWizard` 同处一个弹窗 hub。**常挂，用 `open` 驱动**（与 `TaskBoard.tsx:360-362` 同款）：
 
 ```tsx
-{showNewTask && (
-  <CreateTaskDialog
-    open
-    onClose={onCloseNewTask}
-    onCreated={onTaskCreated}
-  />
-)}
+<CreateTaskDialog
+  open={showNewTask}
+  onClose={onCloseNewTask}
+  onCreated={onTaskCreated}
+/>
 ```
 
-**条件渲染而非 `open={showNewTask}` 常挂**：`CreateTaskDialog` 挂载时会 `api.projects()` 拉一次项目列表（`CreateTaskDialog.tsx:101-117`）。侧栏在所有 `AppContent` 路由下常驻，常挂等于每次切路由都多打一次 `/api/projects`。
+> **修订（2026-09-22，Task 4 code review 后）**：本节最初写的是「条件渲染而非常挂」，理由是省一次 `/api/projects`。**那个理由是错的，实测结论相反**：
+>
+> | | 条件挂载 | 常挂 `open={}` |
+> |---|---|---|
+> | `/api/projects` | 每次打开都重拉 | 侧栏挂载时一次 |
+> | `/api/providers/<engine>/models` | 每次打开都重拉 | 由 `open` 门控，不打开不发 |
+> | 关闭后焦点还原 | **失效** | 正常 |
+>
+> 三条事实错误：① `/tasks`、`/stats`、`/scheduled`、`/task/:id`、`/settings`、`/assistant` 都是**独立路由，侧栏根本不挂载**（`App.tsx:132-140`），不是「在所有 AppContent 路由下常驻」；② `/` ↔ `/session/:id` ↔ `/inbox` 之间切换渲染的是同一个 `AppContent`，React 保持实例不卸载，不会重挂；③ 条件挂载下 `useProviderModels(engine, open)` 因为每次都是新挂载，**每次打开都重拉模型列表**，比常挂更贵。
+>
+> 真正的代价是焦点还原：`Dialog.tsx:123-132` 的还原 effect 以 `open: true → false` 为触发条件，条件挂载下 `open` 恒为 `true`，关闭 = 卸载，该分支永不执行 —— 实测按 Escape 关闭后 `document.activeElement` 掉到 `BODY`，键盘用户下次 Tab 要从文档开头重来。
+>
+> 另外常挂还让 `CreateTaskDialog` 的 `open` prop 恢复单一契约：它自己的 `useProviderModels`（`useProviderModels.ts:45`）与表单重置 effect（`CreateTaskDialog.tsx:141-143`）都以 `open` 为门，硬编码 `open={true}` 会让这两处对侧栏调用方变成空转，将来任何挂在 `open` 上的改动会静默地只对一个调用方生效。
 
 - `Sidebar.tsx` 的 `onCreated` 回调：
 
