@@ -68,6 +68,8 @@ test('runNowBlockedReason: 按 sub_status 说人话', () => {
   assert.equal(runNowBlockedReason(task({ sub_status: 'waiting_approval' })), '上一轮在等你批准权限请求');
   assert.equal(runNowBlockedReason(task({ sub_status: 'running' })), '上一轮还在运行中，先等它结束或中断它');
   assert.equal(runNowBlockedReason(task({ sub_status: null })), '上一轮还在运行中，先等它结束或中断它');
+  // decorate() 对 in_progress 行会保留这几个标签，设计 §4 同样视为「挡」，走的都是默认分支
+  assert.equal(runNowBlockedReason(task({ sub_status: 'blocked' })), '上一轮还在运行中，先等它结束或中断它', 'blocked 也走默认文案');
 });
 
 test('runNowErrorMessage: 409 走专用文案', () => {
@@ -84,4 +86,7 @@ test('runNowErrorMessage: 其它失败带出后端 message，读不到就退回�
   );
   assert.equal(runNowErrorMessage('每日站会', 503, null), '「每日站会」立即触发失败 (503)');
   assert.equal(runNowErrorMessage('每日站会', 502, { error: { message: '   ' } }), '「每日站会」立即触发失败 (502)');
+  // body 来自 JSON 解析，什么都可能是；畸形输入一律走兜底、不抛异常
+  assert.equal(runNowErrorMessage('每日站会', 500, 'oops'), '「每日站会」立即触发失败 (500)', '非对象 body');
+  assert.equal(runNowErrorMessage('每日站会', 500, { error: 5 }), '「每日站会」立即触发失败 (500)', 'error 不是对象');
 });

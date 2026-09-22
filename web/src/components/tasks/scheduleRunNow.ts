@@ -50,12 +50,18 @@ export function runNowBlockedReason(run: Task): string {
 /**
  * 立即触发失败的提示条文案。
  *
- * 409（SCHEDULE_RUNNING）单独说人话：它意味着「按钮本该是灰的，但前端漏挡了」
- * （人工把在跑的任务标成了 done），是用户能自己处理的状态。
+ * 409（SCHEDULE_RUNNING）单独说人话。最常见的原因是前端漏挡（人工把在跑的任务标成了
+ * done）；但跨标签页的第二次点击、或点击与上一轮开跑的竞态也会拿到同一个 code，
+ * 那时按钮在点下去的那一刻是合法可点的。两种情况用户的处置相同：等上一轮结束。
+ *
+ * body 是 unknown：fetch 的 JSON 解析结果什么都可能是，先收窄成对象再逐层读，
+ * 读不到就退回状态码 —— 不靠「对原始值取属性不抛错」这种语言宽松性兜底。
  */
 export function runNowErrorMessage(title: string, status: number, body: unknown): string {
-  const error = (body as { error?: { code?: unknown; message?: unknown } } | null)?.error;
-  if (error?.code === 'SCHEDULE_RUNNING') return `「${title}」上一轮还没结束，先处理或中断它再触发`;
-  const message = typeof error?.message === 'string' ? error.message.trim() : '';
+  const error = (typeof body === 'object' && body !== null ? body : {}) as {
+    error?: { code?: unknown; message?: unknown };
+  };
+  if (error.error?.code === 'SCHEDULE_RUNNING') return `「${title}」上一轮还没结束，先处理或中断它再触发`;
+  const message = typeof error.error?.message === 'string' ? error.error.message.trim() : '';
   return message ? `「${title}」${message}` : `「${title}」立即触发失败 (${status})`;
 }
