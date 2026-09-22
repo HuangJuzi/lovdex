@@ -65,12 +65,17 @@ export default function SidebarModals({
           document.body,
         )}
 
-      {/* 侧栏「新建任务」的就地弹窗。条件渲染而非常挂 `open={showNewTask}`：
-          CreateTaskDialog 挂载时会拉一次 /api/projects，而侧栏在所有 AppContent
-          路由下常驻，常挂等于每次切路由都白打一次接口。 */}
-      {showNewTask && (
-        <CreateTaskDialog open onClose={onCloseNewTask} onCreated={onTaskCreated} />
-      )}
+      {/* 与 TaskBoard 同款常挂用法（`<CreateTaskDialog open={...} />`），而不是
+          `{showNewTask && <CreateTaskDialog open ... />}`：`open` 是弹窗自己的契约，
+          它驱动 `useProviderModels(engine, open)` 与「每次打开重置表单」那个 effect。
+          把 `open` 写死成 true 会让这两者在侧栏这条调用路径上变成空转，日后任何新增的
+          open 驱动逻辑都会静默地只对 TaskBoard 生效。
+          代价只是侧栏挂载时多打一次 /api/projects（实测两次开关弹窗的增量为 0，不会
+          随打开次数重打）；侧栏只在 / 、/session/:id 、/inbox 挂载，这几个路由之间
+          切换也不会重挂，可以忽略。
+          注意：这样改**不会**让关闭后焦点回到触发按钮 —— 焦点还原另有其因（见
+          CreateTaskDialog 的 autoFocus），TaskBoard 同样掉到 body，与本挂载方式无关。 */}
+      <CreateTaskDialog open={showNewTask} onClose={onCloseNewTask} onCreated={onTaskCreated} />
 
       {deleteConfirmation &&
         ReactDOM.createPortal(
