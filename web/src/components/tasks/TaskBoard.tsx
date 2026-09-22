@@ -186,6 +186,11 @@ export function TaskBoardPage() {
 
   // 侧栏「新建任务」跳进来时带过来的 task_id。等任务列表到齐后认领一次，
   // 再清掉 URL state，免得浏览器前进/后退把它重放成又一次提示。
+  //
+  // 只认挂载那一刻的 state：`/tasks` 不挂侧栏（Sidebar 只在 / 、/session/:id 、/inbox，
+  // 见 AppContent），所以从侧栏跳过来必然是全新挂载。若将来 /tasks 也挂侧栏，或者这个
+  // 路由元素变成常驻，这里要改成监听 location.state —— 否则同路径 navigate 不会重挂，
+  // 初值不再执行，提示条不出现且 URL state 不会被清掉（前进/后退会重放）。
   const [pendingCreatedId, setPendingCreatedId] = useState<string | null>(() =>
     readCreatedTaskId(location.state),
   );
@@ -193,6 +198,9 @@ export function TaskBoardPage() {
   useEffect(() => {
     if (!pendingCreatedId || loading) return;
     const task = tasks.find((t) => t.task_id === pendingCreatedId);
+    // 认领即消费：找不到也清掉，否则 state 会一直挂在历史里，前进/后退会重放。
+    // 这里只等 `loading` 落地、不等 `loadError`：加载失败时若把 id 挂着不消费，
+    // 会永久卡在 pending；宁可这次不提示，也不要留下会重放的脏 state。
     setPendingCreatedId(null);
     // 无条件记下：显不显示提示条交给既有的 `filterStillHidesNewTask` 判断
     // （`hiddenCreated` 只是「刚建的任务」标记，不是「被藏住的任务」标记）。
