@@ -1,5 +1,5 @@
 import { type ReactNode, useState } from 'react';
-import { ChevronDown, ChevronRight, ChevronsDownUp, Folder, MessageSquare, Search } from 'lucide-react';
+import { ChevronsDownUp, Folder, FolderPlus, MessageSquare, Search } from 'lucide-react';
 import type { TFunction } from 'i18next';
 
 import { ScrollArea } from '../../../../shared/view/ui';
@@ -16,6 +16,7 @@ import SidebarRecentSessions from './SidebarRecentSessions';
 import SidebarResizeHandle from './SidebarResizeHandle';
 import SidebarScheduledEntry from './SidebarScheduledEntry';
 import SidebarInboxEntry from './SidebarInboxEntry';
+import SidebarSectionRow from './SidebarSectionRow';
 
 function HighlightedSnippet({ snippet, highlights }: { snippet: string; highlights: { start: number; end: number }[] }) {
   const parts: ReactNode[] = [];
@@ -156,46 +157,78 @@ export default function SidebarContent({
         onOpenSession={onAssistantSessionSelect}
       />
 
-      <div className="flex flex-shrink-0 items-center gap-1 px-2 pt-1.5 md:px-1.5">
-        <button
-          type="button"
-          onClick={() =>
-            setProjectsCollapsed((prev) => {
-              const next = !prev;
-              try {
-                localStorage.setItem('lovdex:sidebar:projects-collapsed', next ? '1' : '0');
-              } catch {
-                // ignore storage failures
-              }
-              return next;
-            })
-          }
-          title={projectsCollapsed ? '展开 项目' : '收起 项目'}
-          className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md px-2 py-1.5 text-left hover:bg-muted"
-        >
-          {projectsCollapsed ? (
-            <ChevronRight className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
-          ) : (
-            <ChevronDown className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
-          )}
-          <Folder className="h-4 w-4 flex-shrink-0 text-primary" />
-          <span className="min-w-0 flex-1 truncate text-sm font-semibold text-primary">项目</span>
-        </button>
-        {/* 文案硬编码中文，与紧邻的「项目」「展开 项目 / 收起 项目」一致 ——
-            仓库只有 en locale，这一区块本来就是硬编码中文。
-            区块整体收起时列表被 hidden，此时按钮没有可收起的可见对象，一并藏掉。 */}
-        {hasExpandedProjects && !projectsCollapsed && (
-          <button
-            type="button"
-            onClick={onCollapseAllProjects}
-            title="收起全部项目"
-            aria-label="收起全部项目"
-            className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-          >
-            <ChevronsDownUp className="h-3.5 w-3.5" />
-          </button>
-        )}
-      </div>
+      <SidebarSectionRow
+        icon={Folder}
+        label="项目"
+        collapsed={projectsCollapsed}
+        onToggle={() =>
+          setProjectsCollapsed((prev) => {
+            const next = !prev;
+            try {
+              localStorage.setItem('lovdex:sidebar:projects-collapsed', next ? '1' : '0');
+            } catch {
+              // ignore storage failures
+            }
+            return next;
+          })
+        }
+        actions={
+          <>
+            {/* 结构对齐 SidebarAssistant 的「新建会话 +」：外层已经是 <button>，
+                内层再用真 <button> 是非法嵌套，所以用 div role="button"；
+                点击必须 stopPropagation，否则会连带把整行折叠掉。
+                图标用 `!h-3.5 !w-3.5`（带 !）—— Button 基础类里的 `[&_svg]:size-4`
+                是后代选择器，特异度高于 svg 上的普通 `h-3.5`，不加 ! 会渲染成 16px。
+                `group-focus-within:opacity-100` 也不能省：Tab 进动作区时 group-hover
+                不触发，焦点会落在 opacity:0 的元素上。 */}
+            <div
+              role="button"
+              tabIndex={0}
+              className="touch:opacity-100 flex h-7 w-7 cursor-pointer items-center justify-center rounded text-muted-foreground opacity-0 transition-all duration-150 hover:bg-primary/20 hover:text-primary hover:ring-1 hover:ring-primary/40 group-focus-within:opacity-100 group-hover:opacity-100"
+              onClick={(e) => {
+                e.stopPropagation();
+                onCreateProject();
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onCreateProject();
+                }
+              }}
+              title="新建项目"
+              aria-label="新建项目"
+            >
+              <FolderPlus className="!h-3.5 !w-3.5" />
+            </div>
+            {/* 文案硬编码中文，与紧邻的「项目」「展开 项目 / 收起 项目」一致 ——
+                仓库只 bundle 了 en locale，这一区块本来就是硬编码中文。
+                区块整体收起时列表被 hidden，此时按钮没有可收起的可见对象，一并藏掉。 */}
+            {hasExpandedProjects && !projectsCollapsed && (
+              <div
+                role="button"
+                tabIndex={0}
+                className="touch:opacity-100 flex h-7 w-7 cursor-pointer items-center justify-center rounded text-muted-foreground opacity-0 transition-all duration-150 hover:bg-foreground/15 hover:text-foreground hover:ring-1 hover:ring-foreground/30 group-focus-within:opacity-100 group-hover:opacity-100"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onCollapseAllProjects();
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onCollapseAllProjects();
+                  }
+                }}
+                title="收起全部项目"
+                aria-label="收起全部项目"
+              >
+                <ChevronsDownUp className="!h-3.5 !w-3.5" />
+              </div>
+            )}
+          </>
+        }
+      />
 
       <ScrollArea className={cn('flex-1 overflow-y-auto overscroll-contain md:px-1.5 md:py-2', projectsCollapsed && 'hidden')}>
         {showConversationSearch && (
