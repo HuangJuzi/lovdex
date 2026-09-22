@@ -673,6 +673,9 @@ test('runNowBlockedReason: 按 sub_status 说人话', () => {
   assert.equal(runNowBlockedReason(task({ sub_status: 'waiting_approval' })), '上一轮在等你批准权限请求');
   assert.equal(runNowBlockedReason(task({ sub_status: 'running' })), '上一轮还在运行中，先等它结束或中断它');
   assert.equal(runNowBlockedReason(task({ sub_status: null })), '上一轮还在运行中，先等它结束或中断它');
+  // decorate() 对 in_progress 行会保留 blocked / only_plan / needs_review（tasks.service.ts:243），
+  // 设计 §4 明确这三者也挡 —— 它们走的是同一个默认分支，钉一条防将来 default 被改成按标签枚举。
+  assert.equal(runNowBlockedReason(task({ sub_status: 'blocked' })), '上一轮还在运行中，先等它结束或中断它', 'blocked 也走默认文案');
 });
 
 test('runNowErrorMessage: 409 走专用文案', () => {
@@ -689,6 +692,8 @@ test('runNowErrorMessage: 其它失败带出后端 message，读不到就退回�
   );
   assert.equal(runNowErrorMessage('每日站会', 503, null), '「每日站会」立即触发失败 (503)');
   assert.equal(runNowErrorMessage('每日站会', 502, { error: { message: '   ' } }), '「每日站会」立即触发失败 (502)');
+  assert.equal(runNowErrorMessage('每日站会', 500, 'oops'), '「每日站会」立即触发失败 (500)', '非对象 body');
+  assert.equal(runNowErrorMessage('每日站会', 500, { error: 5 }), '「每日站会」立即触发失败 (500)', 'error 不是对象');
 });
 ```
 
@@ -757,13 +762,16 @@ export function runNowBlockedReason(run: Task): string {
 /**
  * 立即触发失败的提示条文案。
  *
- * 409（SCHEDULE_RUNNING）单独说人话：它意味着「按钮本该是灰的，但前端漏挡了」
- * （人工把在跑的任务标成了 done），是用户能自己处理的状态。
+ * 409（SCHEDULE_RUNNING）单独说人话。最常见的原因是前端漏挡（人工把在跑的任务标成了
+ * done）；但跨标签页的第二次点击、或点击与上一轮开跑的竞态也会拿到同一个 code，
+ * 那时按钮在点下去的那一刻是合法可点的。两种情况用户的处置相同：等上一轮结束。
  */
 export function runNowErrorMessage(title: string, status: number, body: unknown): string {
-  const error = (body as { error?: { code?: unknown; message?: unknown } } | null)?.error;
-  if (error?.code === 'SCHEDULE_RUNNING') return `「${title}」上一轮还没结束，先处理或中断它再触发`;
-  const message = typeof error?.message === 'string' ? error.message.trim() : '';
+  const error = (typeof body === 'object' && body !== null ? body : {}) as {
+    error?: { code?: unknown; message?: unknown };
+  };
+  if (error.error?.code === 'SCHEDULE_RUNNING') return `「${title}」上一轮还没结束，先处理或中断它再触发`;
+  const message = typeof error.error?.message === 'string' ? error.error.message.trim() : '';
   return message ? `「${title}」${message}` : `「${title}」立即触发失败 (${status})`;
 }
 ```
