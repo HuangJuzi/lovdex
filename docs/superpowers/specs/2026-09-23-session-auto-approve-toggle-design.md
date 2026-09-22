@@ -181,14 +181,25 @@ export function useSessionAutoApprove(input: {
 | 层 | 内容 |
 |---|---|
 | 纯函数（后端） | `applyClientAutoApproveOverride` 表驱动：`false` → `false`；`true` / `0` / `'false'` / `null` / `undefined` / 对象 → 保持 `taskFlag` |
-| 纯函数（后端） | `taskFlag = false` 时，**任何** client 值都返回 `false`（不能升级） |
-| 接线（后端） | `chat-websocket` 层断言客户端传 `autoApprove: true` 时 `runtimeOptions.autoApprove` 仍为任务值——**这是安全锁，必须有** |
+| 纯函数（后端） | `taskFlag = false` 时，**任何** client 值都返回 `false`（不能升级）——这是安全锁 |
 | 纯函数（前端） | `resolveEffectiveAutoApprove` 四象限 |
-| 纯函数（前端） | `readAutoApproveOverride` / `writeAutoApproveOverride` 往返；损坏值按 `false` 处理 |
+| 纯函数（前端） | `readAutoApproveOverride` / `writeAutoApproveOverride` 往返；损坏值按 `false` 处理；`sessionId` 为空时不读不写 |
+| 渲染（前端） | `AutoApproveToggle` 两种状态都渲染出标签，`aria-pressed` 反映状态，tooltip 含作用范围 |
 | 渲染（前端） | `taskFlag = false` 不渲染按钮；`= true` 渲染且外观反映 `effective` |
 | options（前端） | `clientAutoApprove === undefined` 时 options **不含** `autoApprove` 键；`=== false` 时含且为 `false` |
 
 前端测试沿用既有 `node:test` + `renderToStaticMarkup`（无 DOM）与纯函数单测，不引入新测试设施。
+
+### 安全锁为什么不在 `chat.send` 层断言
+
+初稿写的「chat-websocket 层断言客户端传 `autoApprove: true` 时 `runtimeOptions.autoApprove` 仍为任务值」，**做不到**：`handleChatSend` 没有导出、也没有测试宿主——它需要 DB 行、WebSocket 与 provider spawn。本仓库对这个函数的既有做法就是把可判定的部分抽成纯函数再测（见 `filterImagesToUploadStore` / `chat-image-filter.test.ts`）。
+
+所以安全锁落在**两层**：
+
+1. `applyClientAutoApproveOverride` 的纯函数测试把「客户端永远不能升级」这条语义钉死；
+2. E2E 手工验证覆盖接线本身（关掉开关 → 恢复弹窗；定时执行 → 仍自动批）。
+
+**未覆盖的回归风险**（明确记下）：如果将来有人把 `chat-websocket.service.ts` 里的调用拆掉、直接把 `clientOptions.autoApprove` 传下去，现有自动化测试**不会**报警。届时只能靠 review 或 E2E 发现。不为它引入 DB 测试宿主——代价大于收益。
 
 后端基线**本来不干净**（typecheck 有 pre-existing 错误、lint 44 errors），验收标准是「零新增」。
 
