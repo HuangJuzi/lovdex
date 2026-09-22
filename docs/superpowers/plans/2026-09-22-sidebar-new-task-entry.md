@@ -1003,7 +1003,7 @@ export function readCreatedTaskId(state: unknown): string | null {
 cd /mnt/b/workdir/github/lovdex/web && env -u TSX_TSCONFIG_PATH npx tsx --test src/components/tasks/createdTaskHandoff.test.ts
 ```
 
-Expected: `# pass 4` / `# fail 0`
+Expected: `# pass 5` / `# fail 0`
 
 - [ ] **Step 5: 接进 `TaskBoard.tsx`**
 
@@ -1074,7 +1074,8 @@ Expected: typecheck **0 errors**；eslint 无 **error**
 cd /mnt/b/workdir/github/lovdex && git add \
   web/src/components/tasks/createdTaskHandoff.ts \
   web/src/components/tasks/createdTaskHandoff.test.ts \
-  web/src/components/tasks/TaskBoard.tsx
+  web/src/components/tasks/TaskBoard.tsx \
+  web/src/components/sidebar/view/Sidebar.tsx
 git commit -m "feat(tasks): surface a sidebar-created task hidden by the current filter"
 ```
 
