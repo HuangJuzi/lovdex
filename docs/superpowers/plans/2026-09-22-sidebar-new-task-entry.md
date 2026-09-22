@@ -781,12 +781,15 @@ import type { Project, Task } from '../../../../types/app';
 
 ```tsx
       {/* 与 TaskBoard 同款常挂用法：`CreateTaskDialog` 的 `open` prop 驱动它自己的
-          `useProviderModels` 与表单重置，也驱动 `Dialog` 的焦点还原 —— 条件挂载会
-          让这三者全部失效（实测关闭后焦点掉到 body）。代价是侧栏挂载时多打一次
-          /api/projects；侧栏只在 / 、/session/:id 、/inbox 挂载，且这几个路由之间
-          切换不会重挂，可以忽略。 */}
+          `useProviderModels` 与表单重置，写死 `open` 会让这两条在侧栏路径上空转。
+          代价是侧栏挂载时多打一次 /api/projects 与 /api/providers/installed
+          （后者来自 useTaskEngineAvailability，不像 useProviderModels 那样被 open
+          门控）；开关弹窗本身不会再重打 /api/projects。侧栏只在 / 、/session/:id 、
+          /inbox 挂载，且这几个路由之间切换不会重挂，可以忽略。 */}
       <CreateTaskDialog open={showNewTask} onClose={onCloseNewTask} onCreated={onTaskCreated} />
 ```
+
+> **修订（2026-09-22，最终评审后）**：这段注释的初稿写的是「也驱动 `Dialog` 的焦点还原 —— 条件挂载会让这三者全部失效」，**该论断已被实测证伪**（见 spec §2.5 的更正：焦点丢失的真正成因是 `CreateTaskDialog` 的 `autoFocus`，与挂载方式无关，已在 `5b74468` 删除）。常挂仍然是对的，但理由只有 `open` 契约这一条。
 
 - [ ] **Step 5: `SidebarHeader.tsx` 改名**
 
@@ -1123,8 +1126,13 @@ dev server 已在 `:5188`（→ 后端 `:3188`）。用 `/tmp/node_modules` 里�
    - 断言弹窗「新建任务」出现
    - textarea 填一句需求 → 点 `[aria-label="创建任务"]`
    - 断言 URL 变成 `/tasks` 且看板里出现该任务标题
-3. **箭头在右**：读 `>项目</span>` 与 `.lucide-chevron-down` 的 `getBoundingClientRect().x`，断言 chevron 的 x 明显更大。
-4. **触屏常显**：用 CDP `Emulation.setEmulatedMedia` 模拟 `hover:none, pointer:coarse`，断言 `[title="新建项目"]` 的 opacity 为 `1`。
+   - 断言到达时 `history.state.usr.createdTaskId` 有值、认领后变 `null`（`replace` 而非 push）
+3. **被筛选藏住时弹提示条**（本功能的主打行为，也是唯一没有单测覆盖的路径）：先在 `/tasks` 用筛选栏把项目收窄到一个不匹配的路径（会持久化到 `localStorage.taskFilter`），再回 `/` 用侧栏 `+` 建一条属于别的项目的任务
+   - 断言落在 `/tasks` 且出现 `任务「…」已创建，但当前筛选未包含它，因此列表中没有显示。`
+   - 点「清除筛选」→ 提示条消失、任务可见
+4. **箭头在右**：读 `>项目</span>` 与 `.lucide-chevron-down` 的 `getBoundingClientRect().x`，断言 chevron 的 x 明显更大。`最近会话` 行同验。
+5. **触屏常显**：**不要**用 CDP `Emulation.setEmulatedMedia` 的 `features` 去凑 `hover: none, pointer: coarse` —— 实测 Chrome 会**静默忽略** `pointer` 特性（不报错也不生效），且 headless 的基线本身就是 `hover: none` + `pointer: none`，永远凑不齐。改用 `Emulation.setTouchEmulationEnabled({ enabled: true, maxTouchPoints: 5 })`（等价于 `page.setViewport({ hasTouch: true })`），然后断言 `[title="新建项目"]` 的 computed opacity 为 `1`。
+6. **焦点还原**：用**真实鼠标点击**（`page.mouse.click()`，不是 `element.click()` —— JS 合成点击不给按钮聚焦，会假失败）打开弹窗，按 Escape，断言 `document.activeElement` 是顶部 `+`（title `Create new task`），不是 `BODY`。
 
 - [ ] **Step 4: 汇报**
 
