@@ -12,8 +12,22 @@
  * - `raceTaskTitle` 的 background 契约改成「reject 也解析成 null」，见该函数注释。
  */
 
-/** 模型生成标题的上限（字素）。与本地提炼的 50 不同 —— 生成名要短到能在表格里一眼扫完。 */
-export const TITLE_MAX_GRAPHEMES = 10;
+/**
+ * 取名提示词里告诉模型的软目标（比硬上限更紧）。模型被要求「不超过 10 个字」就会往短里取；
+ * 外层 `sanitizeGeneratedTitle` 的硬上限给到 `TITLE_MAX_UNITS`（15），给模型轻微超长留出余量，
+ * 避免一超就被劈词截断。
+ */
+export const TITLE_PROMPT_UNITS = 10;
+
+/**
+ * 模型生成标题的硬上限（「字/词」单元）。比提示词的软目标（`TITLE_PROMPT_UNITS`）宽松，
+ * 只负责兜住模型明显超长的输出。与本地提炼的 50 不同 —— 生成名要短到能在表格里一眼扫完。
+ *
+ * 计数口径见 `truncateTitleByUnits`：中文每个字、标点各算 1，连续的英文/数字整体算 1 个词，
+ * 空白只作分隔符不计。这样英文标题不会被逐个字母虚增长度（"yMaaS" 算 1 而不是 5），
+ * 也绝不会把 "OA" 这样的词从中间截断成 "O"。
+ */
+export const TITLE_MAX_UNITS = 15;
 
 /** 送进模型的需求原文上限（字符）。提示词可以粘贴几千字，取名只需要开头。 */
 export const TITLE_PROMPT_MAX_CHARS = 2000;
@@ -86,6 +100,40 @@ function countGraphemes(text: string): number {
   return count;
 }
 
+/** 拉丁字母 / 数字整体算一个「词」，空白只作分隔符。 */
+const WORD_CHAR_RE = /[A-Za-z0-9]/;
+
+/**
+ * 按「字/词」单元截断标题，落在词边界上。
+ *
+ * 计数口径：连续英文/数字 = 1 个词，其余非空白字素（中文每字、标点）各 = 1，空白不计。
+ * 逐字素截断（`truncateGraphemes`）会把 "审批 yMaaS OA" 截成 "审批 yMaaS O"——把末尾的
+ * 拉丁词 "OA" 从中劈开；本函数保证「要么整词保留、要么整词丢弃」，绝不留半个词。
+ */
+export function truncateTitleByUnits(text: string, maxUnits: number): string {
+  const value = String(text ?? '');
+  if (maxUnits <= 0) return '';
+  if (!segmenter) return [...value].slice(0, maxUnits).join('');
+  let count = 0;
+  let inWord = false;
+  let end = 0;
+  for (const { segment, index } of segmenter.segment(value)) {
+    if (WORD_CHAR_RE.test(segment)) {
+      if (!inWord) { count += 1; inWord = true; }
+    } else if (/\s/.test(segment)) {
+      inWord = false;
+    } else {
+      count += 1;
+      inWord = false;
+    }
+    if (count > maxUnits) break;
+    end = index + segment.length;
+  }
+  // 超限的整词被丢弃后，`end` 可能停在它前面的空格上（"…九十 ABC" → "…九十 "），
+  // 别把悬空的尾空格带出去。
+  return value.slice(0, end).trimEnd();
+}
+
 export function buildTitleUserPrompt({ prompt }: { prompt?: string | null } = {}): string {
   // 按**码点**截断，不是 `String.slice` —— slice 按 UTF-16 码元切，会把一个 emoji
   // 劈成孤立代理项再送进提示词。
@@ -93,7 +141,7 @@ export function buildTitleUserPrompt({ prompt }: { prompt?: string | null } = {}
   return `为下面的任务需求起一个标题。
 
 要求：
-- 不超过 ${TITLE_MAX_GRAPHEMES} 个字，越精炼越好；中文按字计
+- 不超过 ${TITLE_PROMPT_UNITS} 个字（中文按字、英文按词计），越精炼越好
 - 动宾结构，直指要做什么（例：修复登录超时、重构任务面板筛选）
 - 只输出标题本身：不要引号、不要结尾标点、不要解释、不要换行
 
@@ -134,7 +182,7 @@ const WRAPPING_QUOTES: [string, string][] = [
 /**
  * 宽容清洗模型输出。任一环出空返回 null（调用方据此降级到本地提炼）。
  *
- * 截断**不加省略号**：10 字已是硬上限，补个 `…` 等于把标题挤成 9 个字。
+ * 截断**不加省略号**：上限已是硬约束，补个 `…` 等于把标题挤得更短。
  */
 export function sanitizeGeneratedTitle(raw: unknown): string | null {
   if (typeof raw !== 'string') return null;
@@ -161,8 +209,8 @@ export function sanitizeGeneratedTitle(raw: unknown): string | null {
   }
 
   // 先截断再剥标点。反过来会把截断**新暴露**出来的标点留在末尾
-  // （「重构任务面板，筛选，排序」截到 10 字素正好停在逗号上 → 「重构任务面板，筛选，」）。
-  const truncated = truncateGraphemes(title, TITLE_MAX_GRAPHEMES).replace(TRAILING_PUNCT_RE, '').trim();
+  // （「重构任务面板，筛选，排序」截到 10 单元正好停在逗号上 → 「重构任务面板，筛选，」）。
+  const truncated = truncateTitleByUnits(title, TITLE_MAX_UNITS).replace(TRAILING_PUNCT_RE, '').trim();
   return truncated || null;
 }
 

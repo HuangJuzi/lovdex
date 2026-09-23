@@ -3,7 +3,8 @@ import test from 'node:test';
 
 import {
   FALLBACK_TITLE,
-  TITLE_MAX_GRAPHEMES,
+  TITLE_MAX_UNITS,
+  TITLE_PROMPT_UNITS,
   TITLE_PROMPT_MAX_CHARS,
   buildTitleUserPrompt,
   deriveFallbackTitle,
@@ -12,6 +13,7 @@ import {
   sanitizeGeneratedTitle,
   shouldApplyGeneratedTitle,
   truncateGraphemes,
+  truncateTitleByUnits,
 } from '@/modules/tasks/services/task-title.js';
 
 // ---------------------------------------------------------------------------
@@ -38,6 +40,22 @@ test('truncateGraphemes keeps a combining mark attached to its base', () => {
   // é 作为 e + U+0301 组合序列时是一个字素，按码点切会切出裸组合符。
   const out = truncateGraphemes('ééé', 2);
   assert.equal(out, 'éé');
+});
+
+// ---------------------------------------------------------------------------
+// truncateTitleByUnits —— 按「字/词」单元截断，落在词边界上
+// ---------------------------------------------------------------------------
+
+test('truncateTitleByUnits counts a Latin run as one word', () => {
+  assert.equal(truncateTitleByUnits('审批 yMaaS OA', 10), '审批 yMaaS OA');
+});
+
+test('truncateTitleByUnits drops a whole word instead of splitting it', () => {
+  assert.equal(truncateTitleByUnits('一二三四五六七八九十 ABC', 10), '一二三四五六七八九十');
+});
+
+test('truncateTitleByUnits counts each CJK char and punctuation as one unit', () => {
+  assert.equal(truncateTitleByUnits('重构任务面板，筛选，排序', 10), '重构任务面板，筛选，');
 });
 
 // ---------------------------------------------------------------------------
@@ -76,7 +94,7 @@ test('deriveFallbackTitle falls back to 未命名任务 for a blank description'
 test('buildTitleUserPrompt embeds the description and the length rule', () => {
   const prompt = buildTitleUserPrompt({ prompt: '把任务面板的筛选做成表格视图' });
   assert.match(prompt, /把任务面板的筛选做成表格视图/);
-  assert.match(prompt, new RegExp(String(TITLE_MAX_GRAPHEMES)));
+  assert.match(prompt, new RegExp(String(TITLE_PROMPT_UNITS)));
 });
 
 test('buildTitleUserPrompt caps the description at 2000 code points', () => {
@@ -138,15 +156,24 @@ test('sanitizeGeneratedTitle collapses internal whitespace', () => {
   assert.equal(sanitizeGeneratedTitle('修复   登录\t超时'), '修复 登录 超时');
 });
 
-test('sanitizeGeneratedTitle truncates to the glyph cap', () => {
+test('sanitizeGeneratedTitle truncates to the unit cap', () => {
   const out = sanitizeGeneratedTitle('修复登录超时并顺带重构整个任务面板的筛选逻辑');
-  assert.equal([...out!].length, TITLE_MAX_GRAPHEMES);
-  assert.equal(out, '修复登录超时并顺带重');
+  assert.equal([...out!].length, TITLE_MAX_UNITS);
+  assert.equal(out, '修复登录超时并顺带重构整个任务');
+});
+
+test('sanitizeGeneratedTitle keeps a mixed Chinese+Latin title under the cap intact', () => {
+  assert.equal(sanitizeGeneratedTitle('审批 yMaaS OA'), '审批 yMaaS OA');
+});
+
+test('sanitizeGeneratedTitle never splits a Latin word at the cap', () => {
+  // "ABC" 是第 16 个单元，超限时整词丢弃，而不是把 "A" 留在末尾。
+  assert.equal(sanitizeGeneratedTitle('一二三四五六七八九十一二三四五 ABC'), '一二三四五六七八九十一二三四五');
 });
 
 test('sanitizeGeneratedTitle strips punctuation newly exposed by truncation', () => {
-  // 「重构任务面板，筛选，排序」截到 10 字素正好停在逗号上；先剥标点再截断会把它留下。
-  assert.equal(sanitizeGeneratedTitle('重构任务面板，筛选，排序'), '重构任务面板，筛选');
+  // 「…优先级、项目负责人…」截到 15 单元正好停在「、」上；先剥标点再截断会把它留下。
+  assert.equal(sanitizeGeneratedTitle('重构任务面板的按状态、优先级、项目负责人和标签筛选'), '重构任务面板的按状态、优先级');
 });
 
 test('sanitizeGeneratedTitle rejects unusable output', () => {
