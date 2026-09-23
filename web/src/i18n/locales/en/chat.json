@@ -98,7 +98,7 @@
     "modesShort": {
       "default": "Default",
       "auto": "Auto",
-      "autoApprove": "AutoApprove",
+      "autoApprove": "Approve",
       "acceptEdits": "Accept",
       "bypassPermissions": "Bypass",
       "plan": "Plan"
@@ -106,6 +106,7 @@
     "descriptions": {
       "default": "Only trusted commands (ls, cat, grep, git status, etc.) run automatically. Other commands are skipped. Can write to workspace.",
       "auto": "A model classifier decides per tool call whether to approve or deny. Hands-off, but safer than Bypass — denials still happen.",
+      "autoApprove": "Answers permission prompts without you. Tool calls run automatically, except a fixed list of destructive commands (sudo, git push, rm -rf /, piping a download into a shell, …) and questions that need a human — those are denied. Meant for unattended task runs.",
       "acceptEdits": "All commands run automatically within the workspace. Full auto mode with sandboxed execution.",
       "bypassPermissions": "Full system access with no restrictions. All commands run automatically with full disk and network access. Use with caution.",
       "plan": "Planning mode - no commands are executed"
