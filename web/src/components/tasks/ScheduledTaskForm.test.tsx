@@ -22,9 +22,9 @@ reactDomCjs.createPortal = (children) => children;
 // has to exist before that import runs — same precedent as
 // MessageComponent.test.tsx / ProviderSelectionEmptyState.test.tsx.
 import '../../i18n/config.js';
-const { ScheduledTaskForm, EMPTY_DRAFT, canSubmitScheduledTask, switchCronMode, toApiBody, toDraft, toProjectChipOptions } = await import('./ScheduledTaskForm');
+const { ScheduledTaskForm, ScheduledTaskFormBody, EMPTY_DRAFT, canSubmitScheduledTask, switchCronMode, toApiBody, toDraft, toProjectChipOptions } = await import('./ScheduledTaskForm');
 const { ASSISTANT_OPTION_VALUE } = await import('./projectOptions');
-const { taskRunPermissionModesFor } = await import('../chat/utils/providerPermissionModes');
+const { permissionModesFor } = await import('../chat/utils/providerPermissionModes');
 
 const onClose = () => {};
 const onSubmit = () => {};
@@ -40,6 +40,22 @@ function renderWithOptions(projectOptions: unknown[], initial: unknown = null) {
       onClose,
       onSubmit,
     }),
+  );
+}
+
+// 表单本体（无 Dialog 壳）。详情面板直接用这个，所以提交入口的形态要能单独断言。
+function renderBody(props: Record<string, unknown> = {}) {
+  return renderToStaticMarkup(
+    React.createElement(ScheduledTaskFormBody, {
+      initial: null,
+      active: true,
+      projectOptions: [],
+      submitting: false,
+      error: null,
+      onCancel: onClose,
+      onSubmit,
+      ...props,
+    } as never),
   );
 }
 
@@ -324,16 +340,69 @@ test('toDraft treats a missing permission mode as default', () => {
   assert.equal(toDraft(withoutMode as never).permissionMode, 'default');
 });
 
-test('plan is not offered for an unattended run', () => {
-  // plan 只规划不执行 —— 定时任务选它等于永远空跑。任务表单与 composer 同源
-  // （PROVIDER_PERMISSION_MODES 减去 plan），这里断言四个引擎都拿不到 plan。
-  for (const provider of ['claude', 'codex', 'opencode', 'qoder']) {
-    assert.equal(taskRunPermissionModesFor(provider).includes('plan'), false, provider);
-  }
+test('the task form offers exactly the composer list, plan included', () => {
+  // 任务表单与 composer 同源：同一份 provider 列表、同一套 codex.modes.* 名称。
+  // `plan` 曾被排除（理由「无人值守空跑」），但那理由站不住——`only_plan` /
+  // `waiting_plan` 在 verdict / sub_status 里都是一等状态。两边对不上才是真问题。
+  assert.deepEqual(permissionModesFor('claude'), [
+    'default',
+    'auto',
+    'autoApprove',
+    'acceptEdits',
+    'bypassPermissions',
+    'plan',
+  ]);
+  // codex 的能力表里本来就没有 auto / plan，这不是本模块过滤掉的。
+  assert.deepEqual(permissionModesFor('codex'), [
+    'default',
+    'autoApprove',
+    'acceptEdits',
+    'bypassPermissions',
+  ]);
 });
 
-test('the composer mode vocabulary renders in the form (i18n names, not Chinese prose)', () => {
-  // 与 composer 同源：同一份列表（减 plan）、同一套 codex.modes.* 名称。
-  const modes = taskRunPermissionModesFor('claude');
-  assert.deepEqual(modes, ['default', 'auto', 'autoApprove', 'acceptEdits', 'bypassPermissions']);
+test('an unknown provider falls back to the claude list rather than rendering nothing', () => {
+  assert.deepEqual(permissionModesFor('nope'), permissionModesFor('claude'));
+});
+
+// 新建弹窗（不传 submitLabel）沿用 composer 的图标按钮：那里的箭头就是「发送」，
+// 语境成立，且底部只有「取消」。
+test('without submitLabel the icon-only composer arrow stays and no footer submit renders', () => {
+  const html = renderBody({ initial: mkScheduledTask({}) });
+  assert.ok(html.includes('aria-label="保存定时任务"'), 'the composer arrow must stay');
+  assert.equal(html.includes('保存修改'), false, 'no labelled footer submit in the create composer');
+});
+
+// 详情面板（传 submitLabel）：提交入口是底部带文字的按钮，composer 里的箭头不再渲染
+// —— 否则同一个表单会有两个提交入口，语义重复。
+test('with submitLabel the footer submit is labelled and the composer arrow is dropped', () => {
+  const html = renderBody({ initial: mkScheduledTask({}), submitLabel: '保存修改' });
+  assert.ok(html.includes('保存修改'), 'the footer button must carry the label');
+  assert.equal(html.includes('aria-label="保存定时任务"'), false, 'the composer arrow must be gone');
+});
+
+// 可用性判据与 composer 箭头一致：描述为空时置灰，而不是渲染成一个点了没反应的按钮。
+test('the footer submit is disabled while the description is blank', () => {
+  const blank = renderBody({ submitLabel: '保存修改' });
+  const blankBtn = /<button[^>]*aria-label="描述为空，暂不能保存"[^>]*>/.exec(blank)?.[0] ?? '';
+  assert.ok(blankBtn.length > 0, 'a blank description must render the disabled footer submit');
+  assert.ok(/ disabled=""/.test(blankBtn), 'it must be disabled');
+
+  const filled = renderBody({ initial: mkScheduledTask({}), submitLabel: '保存修改' });
+  const filledBtn = /<button[^>]*aria-label="保存修改"[^>]*>/.exec(filled)?.[0] ?? '';
+  assert.ok(filledBtn.length > 0, 'a filled description must render the enabled footer submit');
+  assert.equal(/ disabled=""/.test(filledBtn), false, 'it must not be disabled');
+});
+
+// 光有按钮还不够：面板内容（851px）比可视区（789px@1440×900）高，操作条不吸底就会
+// 连同「取消」一起滚到折叠线以下，用户看到的仍是「表单到自动审批就结束了」。
+test('the panel footer sticks to the bottom so the submit stays reachable', () => {
+  const panel = renderBody({ initial: mkScheduledTask({}), submitLabel: '保存修改' });
+  const footer = /<div class="([^"]*sticky[^"]*)"[^>]*>/.exec(panel)?.[1] ?? '';
+  assert.ok(footer.includes('sticky'), 'the detail footer must stick');
+  assert.ok(footer.includes('bottom-0'), 'it must stick to the bottom edge');
+
+  // 新建弹窗不吸底：那里的提交在 composer 里，底部只有「取消」，不需要吸底条。
+  const dialog = renderBody({ initial: mkScheduledTask({}) });
+  assert.equal(dialog.includes('sticky bottom-0'), false, 'the create composer must not gain a sticky bar');
 });

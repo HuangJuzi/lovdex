@@ -16,12 +16,18 @@ export const PROVIDER_PERMISSION_MODES: Record<LLMProvider, PermissionMode[]> = 
 };
 
 /**
- * 任务运行时可选的模式：该 provider 的列表减去 `plan`。
+ * 某个 provider 的模式列表，未知 provider 回落 claude。
  *
- * `plan` 被排除是刻意的——无人值守下它只产出计划、不执行任何工具，任务会永远空跑，
- * 而你要到第二天看历史才发现。这不是「少一个选项」，是避免一个静默失败。
+ * 任务表单与任务运行路径都用它，所以两边看到的档位与 composer **完全一致**——
+ * 之前这里额外过滤掉了 `plan`，理由是「无人值守下任务空跑」；那个理由站不住：
+ * `only_plan` 与 `waiting_plan` 在 `verdict` / `sub_status` 里都是一等状态，有专门的
+ * UI 档位。隐藏一个 composer 有的档位，换来的只是两边对不上。
+ *
+ * 代价说清楚：`plan` 模式下 agent 要结束规划得调 `ExitPlanMode`，而它在
+ * `TOOLS_REQUIRING_INTERACTION` 里 —— 无人值守时开了自动审批会被策略拒掉、没开则
+ * 无限期挂起。所以定时任务选 `plan` 会停在 `waiting_plan` 等你回来批。那是个**有标签、
+ * 看得见**的状态，不是静默挂死。
  */
-export function taskRunPermissionModesFor(provider: LLMProvider | string): PermissionMode[] {
-  const modes = PROVIDER_PERMISSION_MODES[provider as LLMProvider] ?? PROVIDER_PERMISSION_MODES.claude;
-  return modes.filter((mode) => mode !== 'plan');
+export function permissionModesFor(provider: LLMProvider | string): PermissionMode[] {
+  return PROVIDER_PERMISSION_MODES[provider as LLMProvider] ?? PROVIDER_PERMISSION_MODES.claude;
 }

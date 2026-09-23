@@ -1,6 +1,6 @@
 import type { Task } from '../../types/app';
 import { safeLocalStorage } from '../chat/utils/chatStorage';
-import { taskRunPermissionModesFor } from '../chat/utils/providerPermissionModes';
+import { permissionModesFor } from '../chat/utils/providerPermissionModes';
 import { resolvePermissionMode } from '../chat/utils/resolvePermissionMode';
 
 type ToolsSettings = {
@@ -120,13 +120,13 @@ export function buildTaskChatSend(sessionId: string, task: Task, content?: strin
       model: task.executor_model || undefined,
       // 走与 composer 相同的解析：会话键 → 任务 → default。任务运行不关心
       // provider 的交互偏好，所以后两档传 null / 'default'。合法模式按 provider 取
-      // （与任务表单同源），`plan` 天然不在其中——无人值守跑 plan 就是空跑。
+      // （与任务表单同源），所以任务能选的档位和 composer 完全一致，`plan` 也在内。
       permissionMode: resolvePermissionMode({
         sessionMode: safeLocalStorage.getItem(`permissionMode-${sessionId}`),
         taskMode: task.permission_mode,
         providerLastMode: null,
         providerDefault: 'default',
-        validModes: taskRunPermissionModesFor(task.executor_provider),
+        validModes: permissionModesFor(task.executor_provider),
       }),
       toolsSettings,
       skipPermissions: toolsSettings.skipPermissions ?? false,

@@ -138,8 +138,10 @@ test('a task with any other mode runs in that mode', () => {
   assert.equal(buildTaskChatSend('s1', mkTask({ permission_mode: 'acceptEdits' })).options.permissionMode, 'acceptEdits');
 });
 
-test('a task with the plan mode falls back to default (plan would run tools-less forever)', () => {
-  assert.equal(buildTaskChatSend('s1', mkTask({ permission_mode: 'plan' })).options.permissionMode, 'default');
+test('a task in plan mode runs in plan mode, not silently downgraded', () => {
+  // 曾经这里断言 plan 回落到 default（理由「无人值守空跑」）。那理由站不住：
+  // only_plan / waiting_plan 都是一等状态，静默把用户选的模式改掉才是真问题。
+  assert.equal(buildTaskChatSend('s1', mkTask({ permission_mode: 'plan' })).options.permissionMode, 'plan');
 });
 
 test('the session choice overrides the task', () => {

@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { taskRunPermissionModesFor } from '../chat/utils/providerPermissionModes';
+import { permissionModesFor } from '../chat/utils/providerPermissionModes';
 import { getPermissionModeLabelKeys } from '../chat/view/subcomponents/permissionModeLabels';
 
 import type { ChipSelectOption } from './ChipSelect';
@@ -15,7 +15,7 @@ export function useTaskPermissionModeOptions(provider: string): ChipSelectOption
   const { t } = useTranslation('chat');
   return useMemo(
     () =>
-      taskRunPermissionModesFor(provider).map((mode) => ({
+      permissionModesFor(provider).map((mode) => ({
         value: mode,
         label: t(getPermissionModeLabelKeys(mode).fullKey),
       })),
@@ -39,7 +39,7 @@ const TASK_PERMISSION_MODE_DESCRIPTIONS: Record<string, string> = {
     '无人值守时替你回答权限询问。工具调用自动放行，但危险命令（sudo、git push、rm -rf /、把下载管道进 shell 等）和需要人回答的提问会被拒绝。用于定时任务。',
   acceptEdits: '工作区内所有命令自动执行，带沙箱。',
   bypassPermissions: '完全放开，无任何限制，可全盘与网络访问。谨慎使用。',
-  plan: '只做规划，不执行任何命令。',
+  plan: '只做规划、不执行命令。无人值守时会停在等你批准计划（任务会标成 waiting_plan）。',
 };
 
 export function useTaskPermissionModeDescription(mode: string): string {
