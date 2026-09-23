@@ -27,7 +27,7 @@ function mkTask(session_id: string | null): Task {
     is_operator: 0,
     label: 'other',
     remark: null,
-    auto_approve: 0,
+    permission_mode: 'default',
     context_summary: null,
     context_source_session_id: null,
     context_mode: 'none',

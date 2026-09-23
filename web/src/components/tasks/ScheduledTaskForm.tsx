@@ -165,8 +165,8 @@ export function toDraft(initial?: ScheduledTask | null): ScheduledTaskDraft {
     executorProvider: initial.executor_provider,
     executorModel: initial.executor_model ?? '',
     autoRun: initial.auto_run === 1,
-    // 用 === 1 而不是真值判断：老行或后端漏传时得到 false（保持询问），是安全方向。
-    autoApprove: initial.auto_approve === 1,
+    // 缺列/漏传时得到 false（保持询问），是安全方向。
+    autoApprove: initial.permission_mode === 'autoApprove',
     scheduleType: initial.schedule_type,
     cronExpr: initial.cron_expr ?? '',
     cronMode: preset?.mode ?? 'custom',

@@ -87,7 +87,7 @@ export function TaskDetailPage() {
       setRemark(data.remark ?? '');
       setEngine(data.executor_provider);
       setModel(data.executor_model ?? '');
-      setAutoApprove(data.auto_approve === 1);
+      setAutoApprove(data.permission_mode === 'autoApprove');
       setLoadError(false);
     } catch (err) {
       console.error('load task failed', err);
@@ -337,7 +337,7 @@ export function TaskDetailPage() {
   }
 
   async function saveAutoApprove(next: boolean) {
-    if (!task || next === (task.auto_approve === 1)) return;
+    if (!task || next === (task.permission_mode === 'autoApprove')) return;
     setAutoApprove(next);
     try {
       const res = await api.tasks.update(task.task_id, { autoApprove: next });

@@ -24,7 +24,11 @@ export function ModeBadge(task: ScheduledTask) {
  * 而这个徽标的唯一作用是让人扫一眼看出哪些任务在无人值守时会自己批。
  */
 export function AutoApproveBadge(task: ScheduledTask) {
-  if (task.auto_approve !== 1) return null;
+  // INTERIM: still keyed to the legacy auto_approve flag, which the backend no
+  // longer writes — new rows keep the badge dark. Task 15 rekeys this badge
+  // onto permission_mode ('autoApprove'); the ScheduledTasksView test pins this
+  // gap until then.
+  if ((task as { auto_approve?: number }).auto_approve !== 1) return null;
   return (
     <span className="rounded-full bg-info/10 px-2 py-0.5 font-semibold text-info">⚡ 自动审批</span>
   );

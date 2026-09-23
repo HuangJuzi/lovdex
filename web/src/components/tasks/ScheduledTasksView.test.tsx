@@ -12,7 +12,7 @@ import { ScheduledTasksView } from './ScheduledTasksView';
 const baseTask: ScheduledTask = {
   schedule_id: 's1', title: '每日站会', description: null, project_path: '/proj',
   executor_provider: 'claude', executor_model: null, priority: 'P2', label: 'other',
-  is_operator: 0, auto_run: 1, auto_approve: 0, schedule_type: 'cron', cron_expr: '0 9 * * *',
+  is_operator: 0, auto_run: 1, permission_mode: 'default', schedule_type: 'cron', cron_expr: '0 9 * * *',
   interval_seconds: null, run_at: null, timezone: 'local',
   next_run_at: '2026-08-14T09:00:00.000Z', last_run_at: null, last_task_id: null,
   enabled: 1, created_at: '2026-08-13T00:00:00.000Z', updated_at: '2026-08-13T00:00:00.000Z',
@@ -28,7 +28,7 @@ const runningTask: Task = {
   position: 0, session_id: 'sess-1', started_at: null, completed_at: null,
   ai_summary: null, verdict_reason: null, verdict_at: null,
   priority: 'P2', deadline: null, is_operator: 0, label: 'other', remark: null,
-  auto_approve: 0, context_summary: null, context_source_session_id: null,
+  permission_mode: 'default', context_summary: null, context_source_session_id: null,
   context_mode: 'none', context_status: null, context_raw: null,
   source_schedule_id: 's1', created_at: '2026-08-13T00:00:00.000Z', updated_at: '2026-08-13T00:00:00.000Z',
 };
@@ -126,13 +126,16 @@ test('renders empty state', () => {
   assert.match(html, /暂无定时任务/);
 });
 
-test('a scheduled task with auto_approve on shows an auto-approval badge', () => {
-  const html = render([{ ...baseTask, schedule_id: 's1', auto_approve: 1 }]);
-  assert.ok(html.includes('自动审批'), 'the badge must render for flagged schedules');
+// INTERIM: the badge still reads the legacy auto_approve flag (Task 15 rekeys
+// it onto permission_mode), so an autoApprove mode alone must NOT light it.
+// When Task 15 lands, this assertion flips back to "must render".
+test('a scheduled task with autoApprove mode shows no badge until Task 15', () => {
+  const html = render([{ ...baseTask, schedule_id: 's1', permission_mode: 'autoApprove' }]);
+  assert.equal(html.includes('自动审批'), false, 'the badge must not render until Task 15 rekeys it onto permission_mode');
 });
 
 test('a scheduled task without the flag shows no auto-approval badge', () => {
-  const html = render([{ ...baseTask, schedule_id: 's1', auto_approve: 0 }]);
+  const html = render([{ ...baseTask, schedule_id: 's1', permission_mode: 'default' }]);
   assert.equal(html.includes('自动审批'), false, 'the badge must not render when the flag is off');
 });
 

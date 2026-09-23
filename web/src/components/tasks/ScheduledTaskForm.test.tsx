@@ -43,7 +43,7 @@ function mkScheduledTask(over: Record<string, unknown>) {
   return {
     schedule_id: 's1', title: 't', description: 'd', project_path: null,
     executor_provider: 'claude', executor_model: null, priority: 'P2', label: 'other',
-    is_operator: 1, auto_run: 1, auto_approve: 0, schedule_type: 'interval', cron_expr: null,
+    is_operator: 1, auto_run: 1, permission_mode: 'default', schedule_type: 'interval', cron_expr: null,
     interval_seconds: 5400, run_at: null, timezone: 'local',
     next_run_at: '2026-08-14T09:00:00.000Z', last_run_at: null, last_task_id: null,
     enabled: 1, created_at: '2026-08-13T00:00:00.000Z', updated_at: '2026-08-13T00:00:00.000Z',
@@ -310,15 +310,15 @@ test('toApiBody sends autoApprove as a boolean', () => {
   assert.equal(toApiBody({ ...EMPTY_DRAFT, autoApprove: false }).autoApprove, false);
 });
 
-test('toDraft reads the stored auto_approve flag', () => {
-  assert.equal(toDraft(mkScheduledTask({ auto_approve: 1 }) as never).autoApprove, true);
-  assert.equal(toDraft(mkScheduledTask({ auto_approve: 0 }) as never).autoApprove, false);
+test('toDraft reads the stored permission_mode', () => {
+  assert.equal(toDraft(mkScheduledTask({ permission_mode: 'autoApprove' }) as never).autoApprove, true);
+  assert.equal(toDraft(mkScheduledTask({ permission_mode: 'default' }) as never).autoApprove, false);
 });
 
-test('toDraft treats a missing auto_approve as off', () => {
-  const withoutFlag = mkScheduledTask({});
-  delete (withoutFlag as Record<string, unknown>).auto_approve;
-  assert.equal(toDraft(withoutFlag as never).autoApprove, false);
+test('toDraft treats a missing permission_mode as off', () => {
+  const withoutMode = mkScheduledTask({});
+  delete (withoutMode as Record<string, unknown>).permission_mode;
+  assert.equal(toDraft(withoutMode as never).autoApprove, false);
 });
 
 test('renders an auto-approval toggle that explains the consequence', () => {
