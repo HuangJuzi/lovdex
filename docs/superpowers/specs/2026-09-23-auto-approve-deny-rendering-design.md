@@ -31,7 +31,23 @@
 
 `content` 是**纯字符串**、与策略常量逐字相等 —— 这是本设计能精确分类的前提。
 
-这条前提已用真实数据验证过，不是推断：扫全部 `~/.claude/projects/**/*.jsonl` 的 9928 条 tool_result，命中 `interaction` 3 条、**逐字不等的 0 条**。同期命中 `blocked` **0 条**（还没有危险命令被拒过的记录），所以 `'拒绝：'` 前缀那条路径目前只有单测覆盖、没有真实数据背书。
+这条前提在 **claude** 上用真实数据验证过，不是推断：扫全部 `~/.claude/projects/**/*.jsonl` 的 9928 条 tool_result，命中 `interaction` 3 条、**逐字不等的 0 条**。同期命中 `blocked` **0 条**（还没有危险命令被拒过的记录），所以 `'拒绝：'` 前缀那条路径目前只有单测覆盖、没有真实数据背书。
+
+### ⚠️ 但这条前提**不跨 provider** —— qoder 有 CLI 包装（2026-09-23 实测更正）
+
+初稿把上面那条结论当成了通用前提，**这是错的**。qoder 侧的完整链路实测如下：
+
+| 环节 | 证据 |
+|---|---|
+| 宿主发出裸串 | `qoder-runner.js:528` `message: 'Permission request timed out'` |
+| CLI 日志 | `permission.resolved … allowed:false, outcome:"cancel", reason:"Permission request timed out"` |
+| **CLI 落盘** | 同一 `tool_call_id` 在 transcript 里是 `content: "Error: Permission request timed out"`，`is_error: true` |
+
+**qoder CLI 会在 `control_response.message` 前加 `Error: `。** 自动拒绝走的是同一条通道（`qoder-runner.js:498`），所以真实落盘是 `Error: 无人值守执行中，无人可应答。…` —— 而 `classifyAutoApproveDeny` 做的是 trim 后全等/前缀匹配，**在 qoder 上 100% 落空**（把本机全部 33 条真实 qoder error tool_result 喂进分类函数，命中 0 条）。
+
+**教训**：核实「文案是否逐字相同」必须查到**落盘那一层**。初稿的核实步骤只 grep 了宿主（`qoder-runner.js` 确实没加工），漏了 CLI 这一层，而加工恰恰发生在那里。
+
+**修法**：在 qoder 归一化层剥掉这个已知包装后再分类（`stripQoderErrorPrefix`），**不改 `classifyAutoApproveDeny` 本身** —— 它是两个 provider 共用的唯一事实来源，让 claude 也容忍这个前缀会削弱 claude 侧的精确契约（claude 落盘是裸串，有真实记录背书）。
 
 ### 为什么不能只靠现有机制
 
@@ -117,6 +133,14 @@ export function classifyAutoApproveDeny(
 
 只在 `isError` 为真时才调用分类函数——非错误结果的 content 是正常输出，没必要扫。
 
+### 4.1 分类输入用 `.text` 约定解码，不是展示值
+
+provider 里 `content:` 的展示值对数组形态走 `JSON.stringify`（保持既有显示行为不变），但分类必须走 `shared/utils.ts` 的 `toolResultTextForClassification`（数组按 `.text` 拼，与 `transcript-history.ts` 的既有约定一致）。用 `JSON.stringify` 喂分类会让数组形态**静默**丢标（序列化后以 `[{` 开头，前缀匹配不成立）。真实 transcript 里数组形态确实存在（claude 侧 `str` : `list` = 78744 : 2005）。
+
+### 4.2 qoder 要额外剥掉 CLI 的 `Error: ` 包装
+
+见 §0 的实测更正。`qoder-sessions.provider.ts` 的两处分类调用点都先过 `stripQoderErrorPrefix`。
+
 ## 5. 前端渲染
 
 ### 5.1 为什么前端不显示理由原文
@@ -130,6 +154,17 @@ export function classifyAutoApproveDeny(
 | `interaction` | 一行灰字 info：`无人值守，无人可应答 — 已自动跳过 AskUserQuestion` | **前端 UI 文案**（硬编码中文，与 `AutoApproveNotice` 一致）+ `message.toolName` |
 | `blocked` | 醒目框，标题「已自动拒绝」，配色 `warning`，正文用理由原文 | 理由原文（面向用户，直接展示） |
 | `null` + `isError` | 红框 + `Error` | 不变 |
+
+### 5.1b ⚠️ qoder 的 `blocked` 正文会带 `Error: ` 前缀，必须处理
+
+`blocked` 分支直接展示 `toolResult.content`，而 **qoder 的 content 是 `Error: <理由>`**（CLI 包装，见 §0 的实测更正）——用户会在「已自动拒绝」标题下看到 `Error: 拒绝：不允许在无人值守时推送远端…`，自相矛盾。
+
+**必须解决，不能带着这个上**。两条可选路径，实现时二选一并说明理由：
+
+- **(A) 后端剥**（推荐）：qoder 归一化时，对**已判定为自动拒绝**的结果，把 `content` 也剥掉 `Error: ` 前缀。好处：一处解决，下游（渲染、复制）都拿到干净文本；代价：normalized `content` 不再逐字复现 transcript —— 但仅限自动拒绝这一类，而这类结果的呈现本来就要被重新框定。
+- **(B) 前端剥**：`AutoApproveDenyNotice` 的 `blocked` 分支剥掉开头的 `Error: `。好处：后端保持忠实；代价：前端又要认识一段 CLI 文案，与本节「前端不复制任何后端中文」的原则直接冲突。
+
+选 (A) 时测试要断言：自动拒绝的结果 `content` 已无 `Error: ` 前缀，而**非**自动拒绝的错误结果 `content` **原样保留** `Error: `（不能被顺手改坏）。
 
 ### 5.2 改动点
 
