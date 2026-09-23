@@ -23,6 +23,9 @@ const task = {
   updated_at: '2026-01-01T00:00:00.000Z',
 } as Task;
 
+// buildTaskChatSend 只读少数几个字段，测试里按需覆写即可。
+const mkTask = (overrides: Partial<Task> = {}): Task => ({ ...task, ...overrides }) as Task;
+
 test('taskPromptOf sends the description (the execution content) when present', () => {
   assert.equal(taskPromptOf({ title: '修登录', description: '把登录页 500 报错修好' }), '把登录页 500 报错修好');
 });
@@ -121,4 +124,41 @@ test('buildTaskChatSend leaves content unchanged when context_summary absent', (
 test('buildTaskChatSend skips a blank context_summary', () => {
   const frame = buildTaskChatSend('s1', { ...task, context_summary: '   ' } as Task);
   assert.equal(frame.content, '把登录页 500 报错修好');
+});
+
+test('buildTaskChatSend runs a task with no permission_mode in the default mode', () => {
+  assert.equal(buildTaskChatSend('s1', mkTask({ permission_mode: undefined })).options.permissionMode, 'default');
+});
+
+test('a task with the auto-approve mode runs in that mode', () => {
+  assert.equal(buildTaskChatSend('s1', mkTask({ permission_mode: 'autoApprove' })).options.permissionMode, 'autoApprove');
+});
+
+test('a task with any other mode runs in that mode', () => {
+  assert.equal(buildTaskChatSend('s1', mkTask({ permission_mode: 'acceptEdits' })).options.permissionMode, 'acceptEdits');
+});
+
+test('a task with the plan mode falls back to default (plan would run tools-less forever)', () => {
+  assert.equal(buildTaskChatSend('s1', mkTask({ permission_mode: 'plan' })).options.permissionMode, 'default');
+});
+
+test('the session choice overrides the task', () => {
+  // 用户在这个会话里手动切过模式 —— 点重试不该把自动审批偷偷开回来。
+  // node:test 下没有 localStorage，safeLocalStorage 取不到会静默返回 null，
+  // 所以按上面 qoder 测试的同一做法注入 globalThis.localStorage。
+  const original = (globalThis as { localStorage?: unknown }).localStorage;
+  const store = new Map<string, string>();
+  (globalThis as { localStorage?: unknown }).localStorage = {
+    getItem: (k: string) => store.get(k) ?? null,
+    setItem: (k: string, v: string) => void store.set(k, v),
+    removeItem: (k: string) => void store.delete(k),
+  };
+  try {
+    store.set('permissionMode-s1', 'default');
+    assert.equal(buildTaskChatSend('s1', mkTask({ permission_mode: 'autoApprove' })).options.permissionMode, 'default');
+    store.delete('permissionMode-s1');
+    assert.equal(buildTaskChatSend('s1', mkTask({ permission_mode: 'autoApprove' })).options.permissionMode, 'autoApprove');
+  } finally {
+    (globalThis as { localStorage?: unknown }).localStorage = original;
+  }
 });

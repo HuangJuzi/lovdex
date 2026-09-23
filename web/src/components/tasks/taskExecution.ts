@@ -1,5 +1,18 @@
 import type { Task } from '../../types/app';
 import { safeLocalStorage } from '../chat/utils/chatStorage';
+import { resolvePermissionMode } from '../chat/utils/resolvePermissionMode';
+
+/**
+ * 任务运行时允许的模式。**刻意不含 `plan`**：无人值守下 plan 只产出计划、
+ * 不执行任何工具，任务会永远空跑，而你要到第二天看历史才发现。这不是
+ * 「多一个选项」，是一个静默失败。
+ */
+export const TASK_RUN_PERMISSION_MODES = [
+  'default',
+  'autoApprove',
+  'acceptEdits',
+  'bypassPermissions',
+] as const;
 
 type ToolsSettings = {
   allowedTools?: string[];
@@ -84,9 +97,12 @@ export const TASK_RETRY_MESSAGE = '上次执行中断/出错了，请重试继�
  * Build the `chat.send` frame that runs a task on its linked session. Sent over
  * the board/detail's existing socket so execution begins in place — the run
  * streams and persists server-side exactly like an interactive chat, and can be
- * watched later by opening the session. Permission mode is the default (ask):
- * any prompt surfaces as the board's "等你批准" marker until the user opens the
- * session to decide.
+ * watched later by opening the session. Permission mode goes through the same
+ * `resolvePermissionMode` as the composer: the session's own localStorage
+ * choice first (so a mode the user picked inside the session still wins on
+ * retry), then the task's `permission_mode`, then the provider default. A task
+ * created in auto-approve therefore runs unattended instead of stopping at the
+ * board's "等你批准" marker.
  *
  * `content` defaults to the task's execution prompt (`taskPromptOf`). Retry
  * passes `TASK_RETRY_MESSAGE` instead so the agent continues the existing
@@ -113,7 +129,15 @@ export function buildTaskChatSend(sessionId: string, task: Task, content?: strin
     content: finalContent,
     options: {
       model: task.executor_model || undefined,
-      permissionMode: 'default',
+      // 走与 composer 相同的解析：会话键 → 任务 → default。任务运行不关心
+      // provider 的交互偏好，所以后两档传 null / 'default'。
+      permissionMode: resolvePermissionMode({
+        sessionMode: safeLocalStorage.getItem(`permissionMode-${sessionId}`),
+        taskMode: task.permission_mode,
+        providerLastMode: null,
+        providerDefault: 'default',
+        validModes: TASK_RUN_PERMISSION_MODES,
+      }),
       toolsSettings,
       skipPermissions: toolsSettings.skipPermissions ?? false,
       sessionSummary: task.title,
