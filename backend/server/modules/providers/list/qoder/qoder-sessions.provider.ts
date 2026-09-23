@@ -224,9 +224,13 @@ function stripAnsiFormatting(text: string): string {
  * 另一条通道）。这是 CLI 的包装，不是理由的一部分，分类前剥掉。
  *
  * 我们的理由从不以 `Error: ` 开头，所以「CLI 其实没加前缀」时是 no-op。
+ *
+ * 容忍前导空白：调用方先做 `.text` 拼接，数组形态若首个 part 为空会 join 出
+ * 前导 `\n`，`^Error: ` 就匹配不上。qoder 现状是 817/817 纯字符串、0 条数组，
+ * 所以这是防御性写法，对真实形态完全等价。
  */
 function stripQoderErrorPrefix(text: string): string {
-  return text.replace(/^Error: /, '');
+  return text.replace(/^\s*Error: /, '');
 }
 
 export class QoderSessionsProvider implements IProviderSessions {
