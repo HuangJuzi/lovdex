@@ -431,7 +431,9 @@ export function toolResultTextForClassification(content: unknown): string {
       .map((part) => (part as { text?: string } | null)?.text || '')
       .join('\n');
   }
-  return JSON.stringify(content);
+  // `JSON.stringify(undefined)` 返回 undefined，与签名声明的 string 不符。
+  // 调用方（classifyAutoApproveDeny）有 typeof 兜底不会炸，但类型不该说谎。
+  return JSON.stringify(content) ?? '';
 }
 
 /**
