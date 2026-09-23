@@ -216,6 +216,19 @@ function stripAnsiFormatting(text: string): string {
   return text.replace(/\u001B\[[0-9;?]*[ -/]*[@-~]/g, '');
 }
 
+/**
+ * Qoder CLI 会把 `control_response.message` 原样包进 `Error: ` 再落盘 ——
+ * 宿主发的是裸串 `Permission request timed out`（见 `qoder-runner.js` 的超时
+ * 分支），transcript 里存的却是 `Error: Permission request timed out`。本机
+ * 33 条真实 error tool_result 里 32 条带该前缀（唯一例外是人审拒绝，走的是
+ * 另一条通道）。这是 CLI 的包装，不是理由的一部分，分类前剥掉。
+ *
+ * 我们的理由从不以 `Error: ` 开头，所以「CLI 其实没加前缀」时是 no-op。
+ */
+function stripQoderErrorPrefix(text: string): string {
+  return text.replace(/^Error: /, '');
+}
+
 export class QoderSessionsProvider implements IProviderSessions {
   /**
    * Normalizes one Qoder JSONL entry or live SDK stream event into the shared
@@ -268,10 +281,11 @@ export class QoderSessionsProvider implements IProviderSessions {
               toolId: part.tool_use_id,
               content: resultContent,
               isError: Boolean(part.is_error),
-              // 分类用 helper（.text 约定），不是展示值 resultContent ——
-              // 数组形态下 JSON.stringify 会让分类静默失效。
+              // 分类用 helper（.text 约定）并剥掉 CLI 的 `Error: ` 包装，
+              // 不是展示值 resultContent —— 数组形态下 JSON.stringify 会让
+              // 分类静默失效，`Error: ` 前缀则会让真实数据 100% 落空。
               autoApproveDeny: part.is_error
-                ? classifyAutoApproveDeny(true, toolResultTextForClassification(part.content))
+                ? classifyAutoApproveDeny(true, stripQoderErrorPrefix(toolResultTextForClassification(part.content)))
                 : undefined,
               subagentTools: raw.subagentTools,
               toolUseResult: raw.toolUseResult,
@@ -574,7 +588,7 @@ export class QoderSessionsProvider implements IProviderSessions {
               isError: Boolean(part.is_error),
               // 只在错误结果上分类：正常输出没必要解内容。
               autoApproveDeny: part.is_error
-                ? classifyAutoApproveDeny(true, toolResultTextForClassification(part.content))
+                ? classifyAutoApproveDeny(true, stripQoderErrorPrefix(toolResultTextForClassification(part.content)))
                 : undefined,
               subagentTools: raw.subagentTools,
               toolUseResult: raw.toolUseResult,

@@ -66,9 +66,34 @@ test('a successful result is left untagged', () => {
   assert.equal(result?.autoApproveDeny, undefined);
 });
 
-// 真实 transcript 里 content 有 str / list 两种形态（本机实测 78744 : 2005）。
-// 分类必须按 `.text` 约定解码数组，否则序列化后以 `[{` 开头、前缀匹配不成立，
-// 标签会静默丢失。展示用的 content 保持 JSON 形态不变。
+// 真实形状：qoder CLI 会把 `control_response.message` 包进 `Error: ` 再落盘。
+// 本机 33 条真实 error tool_result 里 32 条带该前缀（宿主发裸串
+// `Permission request timed out`，transcript 里是 `Error: Permission request
+// timed out`）。不剥前缀的话分类在真实数据上 100% 落空 —— 合成裸串行会恰好
+// 绕开这个形状，所以下面两条必须钉住带前缀的形态。
+test('a denial wrapped in the CLI Error: prefix is still tagged as interaction', () => {
+  const out = provider.normalizeMessage(
+    transcriptRow('T6', `Error: ${UNATTENDED_INTERACTION_DENY_REASON}`, true),
+    SID,
+  );
+  const result = out.find((m) => m.kind === 'tool_result');
+  assert.equal(result?.autoApproveDeny, 'interaction');
+});
+
+test('a blocked command wrapped in the CLI Error: prefix is still tagged as blocked', () => {
+  const out = provider.normalizeMessage(
+    transcriptRow('T7', 'Error: 拒绝：不允许在无人值守时推送远端（不可逆的外发操作）', true),
+    SID,
+  );
+  const result = out.find((m) => m.kind === 'tool_result');
+  assert.equal(result?.autoApproveDeny, 'blocked');
+});
+
+// content 的 str / list 两种形态：claude 侧已实测两者并存，qoder 本机实测
+// 只有字符串形态（817 条 tool_result，数组 0 条）。这里保持与 claude 同一套
+// `.text` 解码约定，以免将来 qoder 真的写出数组时两种约定漂开、标签静默丢失。
+// 分类必须按 `.text` 解码数组，否则序列化后以 `[{` 开头、前缀匹配不成立。
+// 展示用的 content 保持 JSON 形态不变。
 test('an array-shaped denial is tagged, and the displayed content is unchanged', () => {
   const parts = [{ type: 'text', text: UNATTENDED_INTERACTION_DENY_REASON }];
   const out = provider.normalizeMessage(transcriptRow('T5', parts, true), SID);
@@ -83,14 +108,13 @@ test('an array-shaped denial is tagged, and the displayed content is unchanged',
 // 只在 normalizeMessage 里打标、漏掉这里的 map 构造或预挂，刷新会话后红框就会
 // 回来 —— 计划点名的正是这两个点，删任一处本用例都会红。
 test('fetchHistory pre-attaches the auto-approve deny tag onto the paired tool_use', async () => {
+  // previousDatabasePath 在 try 外读：finally 恢复它需要这个值。
   const previousDatabasePath = process.env.DATABASE_PATH;
   const previousHome = process.env.HOME;
-  const databaseDirectory = await mkdtemp(path.join(tmpdir(), 'qoder-deny-tag-db-'));
-  const fakeHome = await mkdtemp(path.join(tmpdir(), 'qoder-deny-tag-home-'));
-
-  closeConnection();
-  process.env.DATABASE_PATH = path.join(databaseDirectory, 'auth.db');
-  await initializeDatabase();
+  // 临时目录也在 try 内才创建，但变量声明在外，好让 finally 能清理它们 ——
+  // 否则 initializeDatabase() 一抛错，env 与两个 mkdtemp 目录就泄漏了。
+  let databaseDirectory: string | undefined;
+  let fakeHome: string | undefined;
 
   const APP_SESSION_ID = 'app-sess-deny-tag';
   const PROVIDER_SESSION_ID = 'provider-sess-deny-tag';
@@ -98,6 +122,8 @@ test('fetchHistory pre-attaches the auto-approve deny tag onto the paired tool_u
   const TOOL_USE_STR = 'toolu_deny_str';
   const TOOL_USE_ARR = 'toolu_deny_arr';
 
+  // 真实形状：CLI 落盘时把理由包进 `Error: `（见文件顶部说明）。集成用例必须
+  // 用这个形态，否则合成裸串会让「前缀没剥」的回归悄悄溜过去。
   const transcriptRecords = [
     {
       type: 'assistant',
@@ -120,13 +146,13 @@ test('fetchHistory pre-attaches the auto-approve deny tag onto the paired tool_u
           {
             type: 'tool_result',
             tool_use_id: TOOL_USE_STR,
-            content: UNATTENDED_INTERACTION_DENY_REASON,
+            content: `Error: ${UNATTENDED_INTERACTION_DENY_REASON}`,
             is_error: true,
           },
           {
             type: 'tool_result',
             tool_use_id: TOOL_USE_ARR,
-            content: [{ type: 'text', text: UNATTENDED_INTERACTION_DENY_REASON }],
+            content: [{ type: 'text', text: `Error: ${UNATTENDED_INTERACTION_DENY_REASON}` }],
             is_error: true,
           },
         ],
@@ -138,6 +164,12 @@ test('fetchHistory pre-attaches the auto-approve deny tag onto the paired tool_u
   ];
 
   try {
+    databaseDirectory = await mkdtemp(path.join(tmpdir(), 'qoder-deny-tag-db-'));
+    fakeHome = await mkdtemp(path.join(tmpdir(), 'qoder-deny-tag-home-'));
+    closeConnection();
+    process.env.DATABASE_PATH = path.join(databaseDirectory, 'auth.db');
+    await initializeDatabase();
+
     // Same shape startExecution creates: provider_session_id recorded mid-run,
     // jsonl_path never backfilled, so fetchHistory derives the path from HOME.
     sessionsDb.createAppSession(APP_SESSION_ID, 'qoder', PROJECT_PATH, false);
@@ -176,7 +208,7 @@ test('fetchHistory pre-attaches the auto-approve deny tag onto the paired tool_u
       return msg.toolResult;
     };
 
-    // 字符串形态：SDK 拒绝时实际写出的形态。
+    // 字符串形态 + CLI 的 `Error: ` 包装：qoder 拒绝时实际落盘的形态。
     assert.equal(preAttached(TOOL_USE_STR).isError, true);
     assert.equal(preAttached(TOOL_USE_STR).autoApproveDeny, 'interaction');
     // 数组形态：历史路径必须与 normalizeMessage 共用同一套 `.text` 解码，
@@ -190,7 +222,7 @@ test('fetchHistory pre-attaches the auto-approve deny tag onto the paired tool_u
     } else {
       process.env.DATABASE_PATH = previousDatabasePath;
     }
-    await rm(databaseDirectory, { recursive: true, force: true });
-    await rm(fakeHome, { recursive: true, force: true });
+    if (databaseDirectory) await rm(databaseDirectory, { recursive: true, force: true });
+    if (fakeHome) await rm(fakeHome, { recursive: true, force: true });
   }
 });
