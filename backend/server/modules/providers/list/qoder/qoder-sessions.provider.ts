@@ -2,9 +2,10 @@ import os from 'node:os';
 import path from 'node:path';
 
 import type { IProviderSessions } from '@/shared/interfaces.js';
-import type { AnyRecord, FetchHistoryOptions, FetchHistoryResult, NormalizedMessage } from '@/shared/types.js';
+import type { AnyRecord, AutoApproveDenyKind, FetchHistoryOptions, FetchHistoryResult, NormalizedMessage } from '@/shared/types.js';
 import { parseFilesInputTag } from '@/shared/image-attachments.js';
-import { createNormalizedMessage, generateMessageId, readObjectRecord, sliceTailPage } from '@/shared/utils.js';
+import { createNormalizedMessage, generateMessageId, readObjectRecord, sliceTailPage, toolResultTextForClassification } from '@/shared/utils.js';
+import { classifyAutoApproveDeny } from '@/modules/permissions/auto-approve-policy.js';
 import { sessionsDb } from '@/modules/database/index.js';
 import { getRemoteAgentsRuntime } from '@/modules/remote-agents/runtime.js';
 import { lookupRemoteHost } from '@/modules/remote-agents/remote-projects.index.js';
@@ -15,6 +16,8 @@ const PROVIDER = 'qoder';
 type QoderToolResult = {
   content: unknown;
   isError: boolean;
+  /** 见 `AutoApproveDenyKind`。 */
+  autoApproveDeny?: AutoApproveDenyKind;
   subagentTools?: unknown;
   toolUseResult?: unknown;
 };
@@ -253,6 +256,9 @@ export class QoderSessionsProvider implements IProviderSessions {
         for (let partIndex = 0; partIndex < raw.message.content.length; partIndex++) {
           const part = raw.message.content[partIndex];
           if (part.type === 'tool_result') {
+            const resultContent = typeof part.content === 'string'
+              ? part.content
+              : JSON.stringify(part.content);
             messages.push(createNormalizedMessage({
               id: `${baseId}_tr_${part.tool_use_id}`,
               sessionId,
@@ -260,8 +266,13 @@ export class QoderSessionsProvider implements IProviderSessions {
               provider: PROVIDER,
               kind: 'tool_result',
               toolId: part.tool_use_id,
-              content: typeof part.content === 'string' ? part.content : JSON.stringify(part.content),
+              content: resultContent,
               isError: Boolean(part.is_error),
+              // 分类用 helper（.text 约定），不是展示值 resultContent ——
+              // 数组形态下 JSON.stringify 会让分类静默失效。
+              autoApproveDeny: part.is_error
+                ? classifyAutoApproveDeny(true, toolResultTextForClassification(part.content))
+                : undefined,
               subagentTools: raw.subagentTools,
               toolUseResult: raw.toolUseResult,
             }));
@@ -561,6 +572,10 @@ export class QoderSessionsProvider implements IProviderSessions {
             toolResultMap.set(part.tool_use_id, {
               content: part.content,
               isError: Boolean(part.is_error),
+              // 只在错误结果上分类：正常输出没必要解内容。
+              autoApproveDeny: part.is_error
+                ? classifyAutoApproveDeny(true, toolResultTextForClassification(part.content))
+                : undefined,
               subagentTools: raw.subagentTools,
               toolUseResult: raw.toolUseResult,
             });
@@ -586,6 +601,7 @@ export class QoderSessionsProvider implements IProviderSessions {
             ? toolResult.content
             : JSON.stringify(toolResult.content),
           isError: toolResult.isError,
+          autoApproveDeny: toolResult.autoApproveDeny,
           toolUseResult: toolResult.toolUseResult,
         };
         msg.subagentTools = toolResult.subagentTools;
