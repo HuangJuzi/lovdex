@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ClipboardList } from 'lucide-react';
 
+import { useDeviceSettings } from '../../hooks/useDeviceSettings';
 import { useWebSocket } from '../../contexts/WebSocketContext';
 import { Button } from '../../shared/view/ui';
 import { api, authenticatedFetch } from '../../utils/api';
@@ -28,6 +29,7 @@ type ProviderModelsApiResponse = {
   };
 };
 
+import { ChipSelect } from './ChipSelect';
 import { buildTaskChatSend, TASK_RETRY_MESSAGE } from './taskExecution';
 import { TaskResultPanel } from './TaskResultPanel';
 import { pickLastAssistantText } from './taskResult';
@@ -35,12 +37,14 @@ import type { TaskResultState } from './taskResult';
 import { projectPathOf, taskFormProjects } from './projectOptions';
 import { LABEL_META, LABEL_ORDER, PRIORITY_META, PRIORITY_ORDER, STATUS_META, STATUS_ORDER } from './taskStatus';
 import { formatAbsoluteTime } from './taskTimestamp';
+import { TASK_PERMISSION_MODE_OPTIONS } from './taskPermissionModeOptions';
 import { SubStatusBadge } from './SubStatusBadge';
 
 export function TaskDetailPage() {
   const { taskId } = useParams<{ taskId: string }>();
   const navigate = useNavigate();
   const { sendMessage, subscribe } = useWebSocket();
+  const { isMobile } = useDeviceSettings({ mobileBreakpoint: 640 });
   const [task, setTask] = useState<Task | null>(null);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -61,7 +65,7 @@ export function TaskDetailPage() {
   const [remark, setRemark] = useState('');
   const [engine, setEngine] = useState<TaskEngine>('claude');
   const [model, setModel] = useState('');
-  const [autoApprove, setAutoApprove] = useState(false);
+  const [permissionMode, setPermissionMode] = useState('default');
   const [models, setModels] = useState<ProviderModelOption[]>([]);
   const modelsRequestRef = useRef(0);
 
@@ -87,7 +91,7 @@ export function TaskDetailPage() {
       setRemark(data.remark ?? '');
       setEngine(data.executor_provider);
       setModel(data.executor_model ?? '');
-      setAutoApprove(data.permission_mode === 'autoApprove');
+      setPermissionMode(data.permission_mode ?? 'default');
       setLoadError(false);
     } catch (err) {
       console.error('load task failed', err);
@@ -336,14 +340,14 @@ export function TaskDetailPage() {
     } catch (err) { console.error('save model failed', err); }
   }
 
-  async function saveAutoApprove(next: boolean) {
-    if (!task || next === (task.permission_mode === 'autoApprove')) return;
-    setAutoApprove(next);
+  async function savePermissionMode(next: string) {
+    if (!task || next === (task.permission_mode ?? 'default')) return;
+    setPermissionMode(next);
     try {
-      const res = await api.tasks.update(task.task_id, { autoApprove: next });
-      if (!res.ok) { const err = await res.json().catch(() => null); console.error('save autoApprove failed', err?.error?.message ?? res.status); return; }
+      const res = await api.tasks.update(task.task_id, { permissionMode: next });
+      if (!res.ok) { const err = await res.json().catch(() => null); console.error('save permissionMode failed', err?.error?.message ?? res.status); return; }
       setTask(await res.json());
-    } catch (err) { console.error('save autoApprove failed', err); }
+    } catch (err) { console.error('save permissionMode failed', err); }
   }
 
   async function updateStatus(status: TaskStatus) {
@@ -745,22 +749,15 @@ export function TaskDetailPage() {
                   </select>
                 </div>
                 <div className="flex items-center gap-3">
-                  <span className="w-20 shrink-0 text-xs text-muted-foreground">自动审批</span>
-                  {/* 本文件没有 cn，按已有属性的写法用模板串拼 className。 */}
-                  <button
-                    type="button"
-                    aria-label="自动审批"
-                    aria-pressed={autoApprove}
-                    onClick={() => void saveAutoApprove(!autoApprove)}
-                    className={`flex h-8 items-center rounded-full border px-3 text-xs transition-colors ${
-                      autoApprove
-                        ? 'border-primary/60 bg-primary/10 text-primary'
-                        : 'border-border/80 bg-card text-muted-foreground'
-                    }`}
-                  >
-                    {autoApprove ? '已开启' : '已关闭'}
-                  </button>
-                  <span className="text-2xs text-muted-foreground">无人值守时自动放行工具调用（危险操作仍会拒绝）</span>
+                  <span className="w-20 shrink-0 text-xs text-muted-foreground">权限模式</span>
+                  <ChipSelect
+                    ariaLabel="权限模式"
+                    label="权限模式"
+                    options={TASK_PERMISSION_MODE_OPTIONS}
+                    value={permissionMode}
+                    isMobile={isMobile}
+                    onChange={(v) => void savePermissionMode(v)}
+                  />
                 </div>
                 <div className="flex items-center gap-3">
                   <span className="w-20 shrink-0 text-xs text-muted-foreground">优先级</span>
