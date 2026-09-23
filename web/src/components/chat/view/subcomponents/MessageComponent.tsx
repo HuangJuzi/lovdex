@@ -18,6 +18,7 @@ import ChatMessageImages from './ChatMessageImages';
 import { Markdown } from './Markdown';
 import MessageCopyControl from './MessageCopyControl';
 import { AutoApproveNotice } from './AutoApproveNotice';
+import { AutoApproveDenyNotice, resolveToolResultVariant } from './AutoApproveDenyNotice';
 
 type DiffLine = {
   type: string;
@@ -207,7 +208,15 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
 
                 {/* Tool Result Section — Bash renders its output inside the command row above. */}
                 {message.toolResult && message.toolName !== 'Bash' && !shouldHideToolResult(message.toolName || 'UnknownTool', message.toolResult) && (
-                  message.toolResult.isError ? (
+                  resolveToolResultVariant(message.toolResult) === 'auto-denied' ? (
+                    // 自动审批按策略拒绝：不是工具故障，不画红框 Error。
+                    <AutoApproveDenyNotice
+                      kind={message.toolResult.autoApproveDeny!}
+                      toolName={message.toolName}
+                      reason={String(message.toolResult.content || '')}
+                      toolId={message.toolId}
+                    />
+                  ) : message.toolResult.isError ? (
                     // Error results - red error box with content
                     <div
                       id={`tool-result-${message.toolId}`}

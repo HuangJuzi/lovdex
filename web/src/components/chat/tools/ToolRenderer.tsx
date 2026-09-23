@@ -62,6 +62,9 @@ const CLAUDE_DENIAL_MESSAGES = [
 
 function deriveToolStatus(toolResult: any): ToolStatus {
   if (!toolResult) return 'running';
+  // 自动审批按策略拒绝的结果不是工具故障：走琥珀色 Denied，不画红色 Error。
+  // 判据是后端标好的结构化字段，不嗅探文案。
+  if (toolResult.autoApproveDeny) return 'denied';
   if (toolResult.isError) {
     const content = String(toolResult.content || '').toLowerCase().trim();
     if (CLAUDE_DENIAL_MESSAGES.some((msg) => content.includes(msg))) {
