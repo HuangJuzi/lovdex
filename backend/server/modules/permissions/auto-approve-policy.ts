@@ -276,17 +276,3 @@ export function resolveTaskAutoApprove(
     return false;
   }
 }
-
-/**
- * The client may only ever turn auto-approval OFF for its own send.
- *
- * `chat.send` options come from the browser, so honouring a client-supplied
- * `true` would let any client grant itself unattended permissions — exactly what
- * `resolveTaskAutoApprove` exists to prevent. Only the literal `false`
- * downgrades; `true`, `0`, `'false'` and a missing field all leave the task's
- * value alone, so a malformed client cannot accidentally disable the feature for
- * a task that has it on.
- */
-export function applyClientAutoApproveOverride(taskFlag: boolean, clientRequest: unknown): boolean {
-  return taskFlag && clientRequest !== false;
-}
