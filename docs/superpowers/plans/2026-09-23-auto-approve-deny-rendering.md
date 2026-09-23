@@ -392,6 +392,18 @@ test('a successful result is left untagged', () => {
   const result = out.find((m) => m.kind === 'tool_result');
   assert.equal(result?.autoApproveDeny, undefined);
 });
+
+test('array-shaped content is classified through the shared .text convention', () => {
+  // 回归保护：数组形态若走 JSON.stringify，序列化后以 `[{` 开头，前缀匹配不成立，
+  // 分类会**静默**失效。这里钉住两条路径都用 toolResultTextForClassification。
+  const raw = transcriptRow('T5', '', true);
+  (raw.message.content[0] as { content: unknown }).content = [
+    { type: 'text', text: UNATTENDED_INTERACTION_DENY_REASON },
+  ];
+  const out = provider.normalizeMessage(raw, SID);
+  const result = out.find((m) => m.kind === 'tool_result');
+  assert.equal(result?.autoApproveDeny, 'interaction');
+});
 ```
 
 - [ ] **Step 2: 跑测试确认失败**
@@ -436,6 +448,7 @@ env -u TSX_TSCONFIG_PATH npx tsx --tsconfig server/tsconfig.json --test server/m
 
 ```ts
 import { classifyAutoApproveDeny } from '@/modules/permissions/auto-approve-policy.js';
+import { toolResultTextForClassification } from '@/shared/utils.js';
 ```
 
 并把 `AutoApproveDenyKind` 并入该文件已有的 `@/shared/types.js` 类型导入（claude provider 本来就有这一行，加个名字即可）：
@@ -443,6 +456,31 @@ import { classifyAutoApproveDeny } from '@/modules/permissions/auto-approve-poli
 ```ts
 import type { AnyRecord, AutoApproveDenyKind, FetchHistoryOptions, FetchHistoryResult, NormalizedMessage } from '@/shared/types.js';
 ```
+
+**(a2)** 在 `backend/server/shared/utils.ts` 里**新增并导出** `toolResultTextForClassification`（Task 3 的 qoder 也会 import 它，不要复制实现）：
+
+```ts
+/**
+ * 把一条 tool_result 的 content 解成用于**分类**的纯文本。
+ *
+ * 数组形态按仓库既有约定拼 `.text`（见 `providers/list/shared/transcript-history.ts`
+ * 的 `parseAgentToolsContent`），而不是 `JSON.stringify` —— 后者会让
+ * `classifyAutoApproveDeny` 静默失效（序列化后字符串以 `[{` 开头，前缀匹配不成立）。
+ *
+ * 只用于喂分类函数；展示用的 `content` 一律不动。
+ */
+export function toolResultTextForClassification(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => (part as { text?: string } | null)?.text || '')
+      .join('\n');
+  }
+  return JSON.stringify(content);
+}
+```
+
+**不要**改 `providers/list/shared/transcript-history.ts` —— 它已实现同样的 `.text` 约定，改成调用此 helper 是纯重构，且会碰到 spec §7.1 明确排除的 subagent 路径。
 
 **(b)** `ClaudeToolResult`（`:53-58`）加字段：
 
@@ -475,7 +513,11 @@ type ClaudeToolResult = {
               toolId: part.tool_use_id,
               content: resultContent,
               isError: Boolean(part.is_error),
-              autoApproveDeny: classifyAutoApproveDeny(part.is_error, resultContent),
+              // 分类用 helper（.text 约定），不是展示值 resultContent ——
+              // 数组形态下 JSON.stringify 会让分类静默失效。
+              autoApproveDeny: part.is_error
+                ? classifyAutoApproveDeny(true, toolResultTextForClassification(part.content))
+                : undefined,
               subagentTools: raw.subagentTools,
               toolUseResult: raw.toolUseResult,
               // Lift WorkflowOutput fields for local_workflow so the frontend
@@ -499,14 +541,14 @@ type ClaudeToolResult = {
       if (raw.message?.role === 'user' && Array.isArray(raw.message?.content)) {
         for (const part of raw.message.content) {
           if (part.type === 'tool_result' && part.tool_use_id) {
-            // 分类只看文案，所以拿归一化后的字符串来判，而不是原始 part.content。
-            const text = typeof part.content === 'string'
-              ? part.content
-              : JSON.stringify(part.content);
             toolResultMap.set(part.tool_use_id, {
               content: part.content,
               isError: Boolean(part.is_error),
-              autoApproveDeny: classifyAutoApproveDeny(part.is_error, text),
+              // 只在错误结果上分类：正常输出没必要解内容（这里曾对每一条
+              // base64 图片数组跑 JSON.stringify，纯浪费）。
+              autoApproveDeny: part.is_error
+                ? classifyAutoApproveDeny(true, toolResultTextForClassification(part.content))
+                : undefined,
               subagentTools: raw.subagentTools,
               toolUseResult: raw.toolUseResult,
             });
@@ -655,6 +697,7 @@ env -u TSX_TSCONFIG_PATH npx tsx --tsconfig server/tsconfig.json --test server/m
 
 ```ts
 import { classifyAutoApproveDeny } from '@/modules/permissions/auto-approve-policy.js';
+import { toolResultTextForClassification } from '@/shared/utils.js';
 ```
 
 并把 `AutoApproveDenyKind` 并入该文件已有的 `@/shared/types.js` 类型导入（qoder provider 也有这一行）：
@@ -664,6 +707,8 @@ import type { AnyRecord, AutoApproveDenyKind, FetchHistoryOptions, FetchHistoryR
 ```
 
 > 先 `sed -n 1,12p` 看一眼实际的 import 行，按它现有的名字列表加，不要照抄上面这行的完整列表。
+
+> **`toolResultTextForClassification` 是 Task 2 新增到 `backend/server/shared/utils.ts` 的共享 helper**（把数组形态按 `.text` 约定拼接）。**直接 import 复用，不要在本文件复制一份实现。** 先 `grep -n "toolResultTextForClassification" backend/server/shared/utils.ts` 确认它在。
 
 **(b)** `QoderToolResult`（`:15-20`）加字段：
 
@@ -678,7 +723,7 @@ type QoderToolResult = {
 };
 ```
 
-**(c)** `normalizeMessage` 的 tool_result 分支（`:255-268`）改成：
+**(c)** `normalizeMessage` 的 tool_result 分支改成：
 
 ```ts
           if (part.type === 'tool_result') {
@@ -694,14 +739,18 @@ type QoderToolResult = {
               toolId: part.tool_use_id,
               content: resultContent,
               isError: Boolean(part.is_error),
-              autoApproveDeny: classifyAutoApproveDeny(part.is_error, resultContent),
+              // 分类用 helper（.text 约定），不是展示值 resultContent ——
+              // 数组形态下 JSON.stringify 会让分类静默失效。
+              autoApproveDeny: part.is_error
+                ? classifyAutoApproveDeny(true, toolResultTextForClassification(part.content))
+                : undefined,
               subagentTools: raw.subagentTools,
               toolUseResult: raw.toolUseResult,
             }));
           } else if (part.type === 'text') {
 ```
 
-**(d)** `fetchHistory` 的 `toolResultMap`（`:556-570`）改成：
+**(d)** `fetchHistory` 的 `toolResultMap` 改成：
 
 ```ts
     const toolResultMap = new Map<string, QoderToolResult>();
@@ -709,14 +758,13 @@ type QoderToolResult = {
       if (raw.message?.role === 'user' && Array.isArray(raw.message?.content)) {
         for (const part of raw.message.content) {
           if (part.type === 'tool_result' && part.tool_use_id) {
-            // 分类只看文案，所以拿归一化后的字符串来判，而不是原始 part.content。
-            const text = typeof part.content === 'string'
-              ? part.content
-              : JSON.stringify(part.content);
             toolResultMap.set(part.tool_use_id, {
               content: part.content,
               isError: Boolean(part.is_error),
-              autoApproveDeny: classifyAutoApproveDeny(part.is_error, text),
+              // 只在错误结果上分类：正常输出没必要解内容。
+              autoApproveDeny: part.is_error
+                ? classifyAutoApproveDeny(true, toolResultTextForClassification(part.content))
+                : undefined,
               subagentTools: raw.subagentTools,
               toolUseResult: raw.toolUseResult,
             });
