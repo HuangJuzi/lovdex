@@ -1183,24 +1183,32 @@ git commit -m "fix(providers): drop the qoder CLI wrapper from auto-denied displ
 > 1. 叶子：`AutoApproveDenyNotice` 两个变体各自的渲染（下面那份）
 > 2. **接线**：证明 `MessageComponent` 真的会把带 `autoApproveDeny` 的结果路由到它，而不是继续走红框
 >
-> 第 2 部分**不要**去渲染整个 `MessageComponent`（它拉进 ToolRenderer / Markdown / i18n，无 DOM 环境下成本高且脆）。**做法：把三分支判定抽成一个纯函数**，放在 `AutoApproveDenyNotice.tsx` 旁边或同文件导出：
+> 第 2 部分**不要**去渲染整个 `MessageComponent`（它拉进 ToolRenderer / Markdown / i18n，无 DOM 环境下成本高且脆）。**做法：把三分支判定抽成一个纯函数** `resolveToolResultVariant`，**放进已存在的 `web/src/components/chat/utils/autoApproveDeny.ts`**（那里已是前端 auto-approve 逻辑的家）。
+>
+> ⚠️ **初稿要求「组件 + 纯函数同文件导出」，那是错的**：会触发 `react-refresh/only-export-components`。仓库对此有**写在两个文件里**的既定分工 —— `tasks/scheduleDelete.ts` / `tasks/scheduleRunNow.ts` 的注释明确写着「纯逻辑放这里而不是 View.tsx：视图里加普通导出会触发 `react-refresh/only-export-components`，而且 web 测试是 `node:test` + `renderToStaticMarkup`（无 DOM），逻辑必须离开组件才测得到」。实施时同文件方案成了全仓**唯一一处** suppression，故拆开。
 >
 > ```ts
 > /**
->  * 一条 tool_result 该走哪种渲染。抽成纯函数是为了能在无 DOM 环境下测「接线」——
->  * 只渲染叶组件的话，把 MessageComponent 里的分支删掉测试仍会绿。
+>  * 一条 tool_result 该走哪种渲染。
+>  *
+>  * 抽成纯函数是为了能在无 DOM 环境下测「接线」——只渲染叶组件的话，
+>  * 把 MessageComponent 里的分支删掉测试仍会绿。
+>  *
+>  * 优先级：带 autoApproveDeny 标记的结果即使 isError 也走 'auto-denied'，
+>  * 这正是本功能的核心语义（它不是错误，是策略决定）。
 >  */
-> export function resolveToolResultVariant(toolResult: {
->   isError?: boolean;
->   autoApproveDeny?: AutoApproveDenyKind;
-> } | null | undefined): 'auto-denied' | 'error' | 'result' {
+> export function resolveToolResultVariant(
+>   toolResult: { isError?: boolean; autoApproveDeny?: AutoApproveDenyKind } | null | undefined,
+> ): 'auto-denied' | 'error' | 'result' {
 >   if (toolResult?.autoApproveDeny) return 'auto-denied';
 >   if (toolResult?.isError) return 'error';
 >   return 'result';
 > }
 > ```
 >
-> `MessageComponent` 改成 `switch (resolveToolResultVariant(message.toolResult))`，并对该函数写表驱动测试：`{autoApproveDeny:'interaction', isError:true}` → `'auto-denied'`；`{isError:true}` → `'error'`；`{}` → `'result'`；`null`/`undefined` → `'result'`。**优先级必须钉住**：带标记的结果即使 `isError` 也走 `'auto-denied'`（这正是本功能的核心语义）。
+> `MessageComponent` 对该函数的返回值做分支，不要内联三元嵌套。该函数的测试放 `chat/utils/autoApproveDeny.test.ts`（已存在）。表驱动覆盖：`{autoApproveDeny:'interaction', isError:true}` → `'auto-denied'`；`{isError:true}` → `'error'`；`{}` → `'result'`；`null`/`undefined` → `'result'`。**优先级必须钉住**：带标记的结果即使 `isError` 也走 `'auto-denied'`（这正是本功能的核心语义）。
+>
+> **接线**另有一条结构断言（读 `MessageComponent.tsx` 源码，断言 `resolveToolResultVariant( message.toolResult )` 出现且**优先于** `message.toolResult.isError ?`）—— 该测法有仓库先例（`permissionModeLabels.i18n.test.ts` 就是读源码断言结构）。
 
 新建 `web/src/components/chat/view/subcomponents/AutoApproveDenyNotice.test.tsx`：
 
