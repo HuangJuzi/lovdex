@@ -45,6 +45,21 @@
 
 **qoder CLI 会在 `control_response.message` 前加 `Error: `。** 自动拒绝走的是同一条通道（`qoder-runner.js:498`），所以真实落盘是 `Error: 无人值守执行中，无人可应答。…` —— 而 `classifyAutoApproveDeny` 做的是 trim 后全等/前缀匹配，**在 qoder 上 100% 落空**（把本机全部 33 条真实 qoder error tool_result 喂进分类函数，命中 0 条）。
 
+#### 「自动拒绝也会被同样包装」的论证强度
+
+严格说，本机 32 条带前缀的记录里没有一条来自 `decideAutoApproval`（来源是 CLI 自产错误 25 条 + 超时拒绝 5 条）。但两条拒绝路径用的是**完全相同的调用形状**：
+
+```js
+// 自动拒绝 (qoder-runner.js:498)
+buildQoderControlResponse(requestId, { allow: !denied, message: denied ? decision.reason : undefined, updatedInput: parsed.input })
+// 超时拒绝 (qoder-runner.js:528) —— 这条已实测落盘为 "Error: Permission request timed out"
+buildQoderControlResponse(requestId, { allow: false, message: 'Permission request timed out' })
+```
+
+同一个函数、同一个 `message` 字段、同样 `allow: false`，**只有字符串不同**；而 CLI 的 `Error: ` 包装是加在**字段**上的（不是针对特定字符串）。所以这不是「同通道外推」，是「同一字段、同一包装点」的直接推广。
+
+**仍未闭环的部分**：没有在真机上跑过一次真实的自动拒绝并核对落盘。这是 Task 7 的端到端项。
+
 **教训**：核实「文案是否逐字相同」必须查到**落盘那一层**。初稿的核实步骤只 grep 了宿主（`qoder-runner.js` 确实没加工），漏了 CLI 这一层，而加工恰恰发生在那里。
 
 **修法**：在 qoder 归一化层剥掉这个已知包装后再分类（`stripQoderErrorPrefix`），**不改 `classifyAutoApproveDeny` 本身** —— 它是两个 provider 共用的唯一事实来源，让 claude 也容忍这个前缀会削弱 claude 侧的精确契约（claude 落盘是裸串，有真实记录背书）。
