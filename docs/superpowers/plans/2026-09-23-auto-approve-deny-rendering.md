@@ -809,6 +809,14 @@ git commit -m "feat(providers): tag auto-approval denials on qoder tool results"
 
 ## Task 4: 前端契约与透传
 
+> **实施记录（与下方 Files 表的偏离，2026-09-23）**：代码质量复审追补时，同时给后端
+> `backend/server/modules/permissions/auto-approve-policy.ts` 的 `TOOLS_REQUIRING_INTERACTION`
+> 加了 3 行**跨引用注释**（指向前端 `AUTO_APPROVE_INTERACTION_TOOLS` + 「加名字时两处同步」）。
+> 纯注释、零逻辑、零测试影响，后端 tsc/eslint 精确停在基线。原因：前端那份名单是后端集合的
+> 第二份副本，漏同步会让新交互型工具被判成 `blocked`，从而把写给模型的拒绝理由泄漏进 UI。
+> 提交 `1b9b7a4` 的 subject 写的是 `fix(web):`，实际含一个后端文件 —— 记录在此以免将来
+> 拿计划对代码时出现无法解释的后端改动。
+
 **Files:**
 - Create: `web/src/components/chat/utils/autoApproveDeny.ts`
 - Modify: `web/src/stores/useSessionStore.ts`（`autoApproveReason` 在 `:70`，`toolResult` 在 `:73`）
