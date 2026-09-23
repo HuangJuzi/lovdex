@@ -1065,7 +1065,12 @@ export interface ToolResult {
               isError: Boolean(tr.isError),
               toolUseResult: (tr as any).toolUseResult,
               // 自动审批拒绝的分类（后端标好）；普通结果与真·错误都是 undefined。
-              autoApproveDeny: (tr as any).autoApproveDeny,
+              //
+              // 不要写 `(tr as any).autoApproveDeny`：`NormalizedMessage.autoApproveDeny`
+              // 本任务刚加好，直接属性访问就能通过类型检查（实测去掉 cast 后 tsc 仍为 0）。
+              // 加了 cast 会断掉唯一的编译期哨链——将来两边字面量漂开会静默走错渲染分支，
+              // 而测试照样绿，正是本功能最怕的失败模式。
+              autoApproveDeny: tr.autoApproveDeny,
             }
           : null;
 ```
