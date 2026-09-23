@@ -38,8 +38,10 @@ const render = (over: Partial<ChatMessage>) =>
     } as never),
   );
 
+// 刻意**不给** toolName 默认值：默认参数会把用例悄悄引到另一条路径上
+// （比如默认 'Bash' 就走 BashCommandDisplay 而不是 MessageComponent 的红框分支），
+// 断言靠别的路径通过、被测分支其实没覆盖。每条用例显式写出自己走哪条路径。
 const toolMessage = (over: Partial<ChatMessage>): Partial<ChatMessage> => ({
-  toolName: 'Bash',
   toolInput: { command: 'git push origin main' },
   toolId: 'tu_1',
   ...over,
@@ -90,6 +92,7 @@ test('a denied non-Bash tool renders the amber box', () => {
 test('a denied Bash command renders the amber box, not the red one', () => {
   const html = render(
     toolMessage({
+      toolName: 'Bash',
       toolResult: {
         content: '拒绝：不允许在无人值守时推送远端（不可逆的外发操作）',
         isError: true,
@@ -114,6 +117,7 @@ test('a denied Bash command renders the amber box, not the red one', () => {
 test('a genuine Bash error stays red (BashCommandDisplay path)', () => {
   const html = render(
     toolMessage({
+      toolName: 'Bash',
       toolResult: { content: 'ENOENT: no such file or directory', isError: true },
     }),
   );
@@ -149,6 +153,7 @@ test('a genuine non-Bash error keeps its red box AND its body', () => {
 test('a native (text-sniffed) Bash denial is amber, not red', () => {
   const html = render(
     toolMessage({
+      toolName: 'Bash',
       toolResult: { content: 'Error: Permission request timed out', isError: true },
     }),
   );
@@ -188,6 +193,7 @@ test('a plain successful result renders the result view, with neither box', () =
 test('the denied notice carries the jump-to-results anchor', () => {
   const html = render(
     toolMessage({
+      toolName: 'Bash',
       toolResult: {
         content: '拒绝：不允许在无人值守时推送远端',
         isError: true,
@@ -196,4 +202,35 @@ test('the denied notice carries the jump-to-results anchor', () => {
     }),
   );
   assert.ok(html.includes('id="tool-result-tu_1"'), 'the anchor must be emitted');
+});
+
+// 联合将来多一个成员时（后端加了新分类），带标记的结果**不能**退化成红框 Error ——
+// 那正是本功能要根除的东西。
+//
+// 这条钉的是 MessageComponent 的**路由**，不是叶组件：只渲染 AutoApproveDenyNotice
+// 覆盖不到「未知 kind 从三条分支中间漏到 `isError` 红框上」这一整类回归 —— 把
+// 路由改回 `interaction ? … : blocked ? … : isError ? 红框` 的顺序，只有这条会红。
+test('an unknown future deny kind does not fall through to the error box', () => {
+  const html = render(
+    toolMessage({
+      toolName: 'Bash',
+      toolResult: {
+        content: '拒绝：配额用尽，本会话的自动审批已暂停',
+        isError: true,
+        autoApproveDeny: 'rate-limited' as never,
+      },
+    }),
+  );
+  // 肯定式断言：这条 notice 确实渲染了它该渲染的内容。
+  assert.ok(
+    html.includes('拒绝：配额用尽，本会话的自动审批已暂停'),
+    'the notice must actually render its reason',
+  );
+  assert.ok(html.includes('muted-foreground'), 'the quiet line must render');
+  // 红框的两个特征类：边框与 Error 标题。任一个出现即说明掉进了 isError 分支。
+  assert.ok(!html.includes('border-destructive/20'), 'must not fall through to the red box');
+  assert.ok(
+    !html.includes('text-xs font-medium text-destructive'),
+    'must not render the Error title',
+  );
 });

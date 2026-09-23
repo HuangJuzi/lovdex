@@ -13,6 +13,7 @@ import { authenticatedFetch } from '../utils/api';
 import type { LLMProvider } from '../types/app';
 import { applyWorkflowEvent as applyWorkflowEventReducer, seedWorkflowStateFromHistory } from '../components/chat/tools/workflowState';
 import type { WorkflowEvent, WorkflowState } from '../components/chat/tools/workflowState';
+import type { AutoApproveDenyKind } from '../components/chat/utils/autoApproveDeny';
 import { computeRefreshLimit, mergeRefreshedTail } from './sessionRefresh';
 
 // ─── NormalizedMessage (mirrors server/adapters/types.js) ────────────────────
@@ -69,14 +70,14 @@ export interface NormalizedMessage {
   autoApproveBehavior?: 'allow' | 'deny';
   autoApproveReason?: string;
   /** 仅 tool_result：见 ../components/chat/utils/autoApproveDeny.ts 的 AutoApproveDenyKind（与后端 shared/types.ts 同名类型保持一致）。 */
-  autoApproveDeny?: 'interaction' | 'blocked';
+  autoApproveDeny?: AutoApproveDenyKind;
   toolInput?: unknown;
   toolId?: string;
   toolResult?: {
     content: string;
     isError: boolean;
     toolUseResult?: unknown;
-    autoApproveDeny?: 'interaction' | 'blocked';
+    autoApproveDeny?: AutoApproveDenyKind;
   } | null;
   /**
    * Pre-aggregated Workflow tree attached by the backend to Workflow tool_use

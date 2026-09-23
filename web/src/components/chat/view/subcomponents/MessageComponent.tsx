@@ -213,21 +213,14 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
                     except when the auto-approver denied it: then the command row shows what was
                     attempted (amber Denied badge) and the notice below says why. */}
                 {message.toolResult && (message.toolName !== 'Bash' || Boolean(message.toolResult.autoApproveDeny)) && !shouldHideToolResult(message.toolName || 'UnknownTool', message.toolResult) && (
-                  toolResultVariant === 'interaction' ? (
-                    // 自动审批按策略拒绝：不是工具故障，不画红框 Error。
-                    <AutoApproveDenyNotice
-                      kind="interaction"
-                      toolName={message.toolName}
-                      toolId={message.toolId}
-                    />
-                  ) : toolResultVariant === 'blocked' ? (
+                  toolResultVariant === 'blocked' ? (
                     // 拒绝理由本来就是写给用户看的（'拒绝：…'），原样展示。
                     <AutoApproveDenyNotice
                       kind="blocked"
                       reason={String(message.toolResult.content || '')}
                       toolId={message.toolId}
                     />
-                  ) : message.toolResult.isError ? (
+                  ) : toolResultVariant === 'error' ? (
                     // Error results - red error box with content
                     <div
                       id={`tool-result-${message.toolId}`}
@@ -245,7 +238,7 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
                         </Markdown>
                       </div>
                     </div>
-                  ) : (
+                  ) : toolResultVariant === 'result' ? (
                     // Non-error results - route through ToolRenderer (single source of truth)
                     <div id={`tool-result-${message.toolId}`} className="scroll-mt-4">
                       <ToolRenderer
@@ -263,6 +256,19 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
                         onWorkflowResume={onWorkflowResume}
                       />
                     </div>
+                  ) : (
+                    // 自动审批的其余 kind：今天只有 interaction —— 没人可问是预期内
+                    // 结果，不是工具故障，所以不画红框 Error。
+                    //
+                    // 兜底刻意放在这一侧（而不是把 interaction 写死在前面、让未知
+                    // kind 掉进红框）：`AutoApproveDenyKind` 将来多一个成员时，它落
+                    // 到这里安静渲染，而不是退化成本功能要根除的那个红框。
+                    <AutoApproveDenyNotice
+                      kind={toolResultVariant}
+                      toolName={message.toolName}
+                      reason={String(message.toolResult.content || '')}
+                      toolId={message.toolId}
+                    />
                   )
                 )}
               </>

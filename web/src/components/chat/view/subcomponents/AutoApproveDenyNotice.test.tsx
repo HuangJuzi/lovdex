@@ -70,3 +70,32 @@ test('no toolId means no anchor at all, not a literal "undefined"', () => {
   assert.ok(!html.includes('tool-result-'), 'no anchor should be emitted');
   assert.ok(!html.includes('undefined'));
 });
+
+// 联合将来多一个成员时（后端加了新分类），**不能**退化成红框 Error —— 那正是
+// 本功能要根除的东西。用 `as never` 造一个联合里还不存在的 kind 来模拟那一天：
+// 安静渲染是兜底，不需要有人记得同步。
+test('an unknown future kind degrades to the quiet line, never the error box', () => {
+  const html = renderToStaticMarkup(
+    React.createElement(AutoApproveDenyNotice, {
+      kind: 'rate-limited',
+      toolName: 'Bash',
+      reason: '拒绝：配额用尽',
+    } as never),
+  );
+  assert.ok(html.includes('muted-foreground'), 'the quiet line must render');
+  // 肯定式断言：后端给的理由确实渲染了，不是「安静但空白」。
+  assert.ok(html.includes('拒绝：配额用尽'), 'the backend reason must be shown');
+  assert.ok(!html.includes('warning'), 'must not be emphasised either');
+  assert.ok(!html.includes('destructive'), 'must not use the destructive palette');
+});
+
+// 未知 kind 没带理由时的最后兜底：仍是一行安静文案，不是空 div、不是 'undefined'。
+test('an unknown future kind with no reason still renders a quiet line', () => {
+  const html = renderToStaticMarkup(
+    React.createElement(AutoApproveDenyNotice, { kind: 'rate-limited' } as never),
+  );
+  assert.ok(html.includes('muted-foreground'), 'the quiet line must render');
+  assert.ok(html.includes('⚡'), 'the notice marker must render');
+  assert.ok(!html.includes('undefined'), 'no literal "undefined" may leak');
+  assert.ok(!html.includes('destructive'), 'must not use the destructive palette');
+});

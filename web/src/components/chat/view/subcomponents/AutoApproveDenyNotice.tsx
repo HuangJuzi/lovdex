@@ -5,12 +5,26 @@ import { type AutoApproveDenyKind, interactionNoticeCopy } from '../../utils/aut
  * 写成 `reason?: string` 时 TS 允许调用处漏传，渲染出来就是「已自动拒绝」
  * 标题底下一个空盒子 —— 一个类型层面就能禁掉的残缺 UI。
  *
- * 用 `Extract<…>` 而不是直接写 `'interaction'` / `'blocked'` 字面量：kind 的
- * 字面量在前端只有 `utils/autoApproveDeny.ts` 那一份（见那里的模块注释）。
+ * 用 `Extract<…>` / `Exclude<…>` 而不是直接写 `'interaction'` / `'blocked'`
+ * 字面量：kind 的字面量在前端只有 `utils/autoApproveDeny.ts` 那一份（见那里的
+ * 模块注释）。
+ *
+ * 安静那一支刻意写成 `Exclude<AutoApproveDenyKind, 'blocked'>` 而不是
+ * `Extract<…, 'interaction'>`：联合将来多一个成员时，它会**自动并入这一支**，
+ * 而不是从两支中间漏下去、落到 `MessageComponent` 的红框 Error 上（那正是本功能
+ * 要根除的东西）。安全的降级是默认行为，不是需要记得同步的例外。
  */
 type AutoApproveDenyNoticeProps =
-  | { kind: Extract<AutoApproveDenyKind, 'interaction'>; toolName?: string; toolId?: string }
-  | { kind: Extract<AutoApproveDenyKind, 'blocked'>; reason: string; toolId?: string };
+  | { kind: Extract<AutoApproveDenyKind, 'blocked'>; reason: string; toolId?: string }
+  | {
+      kind: Exclude<AutoApproveDenyKind, 'blocked'>;
+      toolName?: string;
+      /**
+       * 仅 `interaction` 以外的新 kind 会用到：交互型有自己的固定文案（见下）。
+       */
+      reason?: string;
+      toolId?: string;
+    };
 
 /**
  * 被自动审批按策略拒绝的 tool_result 的渲染。
@@ -30,34 +44,43 @@ type AutoApproveDenyNoticeProps =
 export function AutoApproveDenyNotice(props: AutoApproveDenyNoticeProps) {
   const anchorId = props.toolId ? `tool-result-${props.toolId}` : undefined;
 
-  // 交互型：没人可问是预期内结果，一行灰字带过。
-  //
-  // 刻意不复用 deny 的理由：它的后半句「请基于现有信息自行判断并继续，不要
-  // 再次请求确认」是写给**模型**的协议指令，不是 UI 文案。而 `'拒绝：…'` 那
-  // 几条本来就是面向用户的，所以下面那个分支直接展示原文。
-  if (props.kind === 'interaction') {
+  // 危险操作被拦：值得人看一眼，所以保留框体，但标题不是 Error、配色不是红。
+  if (props.kind === 'blocked') {
     return (
       <div
         id={anchorId}
-        className="my-1 flex scroll-mt-4 items-start gap-2 px-3 text-xs text-muted-foreground sm:px-0"
+        className="relative mt-2 scroll-mt-4 rounded border border-warning/30 bg-warning/10 p-3"
       >
-        <span aria-hidden="true">⚡</span>
-        <span>{interactionNoticeCopy(props.toolName)}</span>
+        <div className="relative mb-2 flex items-center gap-1.5">
+          <span aria-hidden="true">⚡</span>
+          <span className="text-xs font-medium text-warning">已自动拒绝</span>
+        </div>
+        <div className="relative text-sm text-warning">{props.reason}</div>
       </div>
     );
   }
 
-  // 危险操作被拦：值得人看一眼，所以保留框体，但标题不是 Error、配色不是红。
+  // 其余一律安静：交互型（没人可问是预期内结果），以及联合将来新增的 kind。
+  //
+  // 交互型刻意不复用 deny 的理由：它的后半句「请基于现有信息自行判断并继续，不要
+  // 再次请求确认」是写给**模型**的协议指令，不是 UI 文案。将来新增的 kind 没有这
+  // 层顾虑，直接展示后端给的理由原文 —— 套一句「无人可应答」可能根本不属实。
+  //
+  // `toolName` / `reason` 先解构出来再比较 kind：联合目前只有两个成员，比较完
+  // 之后 `props` 会被收窄成 `never`（那条分支今天不可达），直接取属性是编译错误。
+  const { toolName, reason } = props;
+  const copy =
+    props.kind === 'interaction'
+      ? interactionNoticeCopy(toolName)
+      : reason || interactionNoticeCopy(toolName);
+
   return (
     <div
       id={anchorId}
-      className="relative mt-2 scroll-mt-4 rounded border border-warning/30 bg-warning/10 p-3"
+      className="my-1 flex scroll-mt-4 items-start gap-2 px-3 text-xs text-muted-foreground sm:px-0"
     >
-      <div className="relative mb-2 flex items-center gap-1.5">
-        <span aria-hidden="true">⚡</span>
-        <span className="text-xs font-medium text-warning">已自动拒绝</span>
-      </div>
-      <div className="relative text-sm text-warning">{props.reason}</div>
+      <span aria-hidden="true">⚡</span>
+      <span>{copy}</span>
     </div>
   );
 }
