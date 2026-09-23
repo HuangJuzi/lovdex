@@ -244,8 +244,14 @@ provider 里 `content:` 的展示值对数组形态走 `JSON.stringify`（保持
 - 不改 `decideAutoApproval` 的判定逻辑，一条规则都不动
 - 不改 `permission_auto` 帧的字段与发送时机
 - 不给 remote lite 加协议字段（远程历史复用同一条归一化路径，无需 lite 侧改动）
-- 不处理 `Permission request timed out` 等 SDK 原生拒绝的渲染（那是真问题，应保持红框）
+- 不处理 `Permission request timed out` 等 SDK 原生拒绝的渲染：**不给它做新的渲染分支**（不出现「已自动拒绝」那种自动审批通知）。但注意它**不再保持红框** —— 见下条
 - 不管 `normalizeMessage` 里那条扁平 `raw.type === 'tool_result'` 分支（`:643-666`，`isError` 写死 `false`，不产生红框）
+
+### 7.2 原生拒绝（SDK 文案嗅探）的 Bash：现状是 `Denied`，不是红框
+
+**这是 Task 5 顺带产生的行为变更，不是本 spec 原先设计的目标**（原句写的是「应保持红框」）。实现把 `ToolRenderer.tsx` 传给 `BashCommandDisplay` 的 `isError` 从裸的 `toolResult.isError` 换成了 `toolStatus === 'error'`，好让被自动拒绝的 Bash 不再红（否则同一行上徽标琥珀、边框通红）。`deriveToolStatus` 除 `'error'` 外还会由 `CLAUDE_DENIAL_MESSAGES` 文本嗅探出 `'denied'`（`user denied tool use` / `tool disallowed by settings` / `permission request timed out` / `permission request cancelled`），这些结果 `isError: true` 且**无** `autoApproveDeny` 标记，于是也被一并归入 `Denied`：命令行不再红、也不再因 `isError` 自动展开。
+
+**裁决：接受，并钉住。** 理由是 `toolStatus` 本来就是「这一行算不算故障」的唯一判据，而 `'denied'`（无论策略拒绝还是原生拒绝）都不是故障 —— 徽标早就写着 `Denied`，只有边框还红着本身就是自相矛盾的。要把它排除就得引入**第二个判据**，正是本设计刚消除掉的东西。行为由 `MessageComponent.test.tsx` 的 `a native (text-sniffed) Bash denial is amber, not red` 钉死。
 
 ### 7.1 已知缺口：subagent 子工具（显式不含，非疏漏）
 
