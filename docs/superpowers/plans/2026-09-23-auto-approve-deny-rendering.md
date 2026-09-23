@@ -1352,7 +1352,7 @@ import { AutoApproveDenyNotice } from './AutoApproveDenyNotice';
 
 ```tsx
                 {/* Tool Result Section — Bash renders its output inside the command row above. */}
-                {message.toolResult && message.toolName !== 'Bash' && !shouldHideToolResult(message.toolName || 'UnknownTool', message.toolResult) && (
+                {message.toolResult && (message.toolName !== 'Bash' || Boolean(message.toolResult.autoApproveDeny)) && !shouldHideToolResult(message.toolName || 'UnknownTool', message.toolResult) && (
                   message.toolResult.autoApproveDeny ? (
                     // 自动审批按策略拒绝：不是工具故障，不画红框 Error。
                     <AutoApproveDenyNotice

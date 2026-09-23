@@ -284,3 +284,20 @@ Task 2 的代码审查发现的**计划本身**的缺口，记在此处以免变
 `AutoApproveNotice` 实际只读 `content` 与 `autoApproveDenyKind`，签名却是整个 `ChatMessage`，导致叶子测试只能 `message: {...} as never` —— 而 `as never` 顺带关掉了字段名校验（组件若去读第三个字段，测试照样绿）。
 
 **保持现状**（Task 6 审查倾向）：它是 `MessageComponent` 的 early return、消息对象本来就在手，收窄成 `{ content?, denyKind? }` 会让调用点多一个对象字面量。记录在此，供将来重构时参考。
+
+### 7.5 已知缺口：远程主机的 auto-approve **完全没接线**（预先存在，非本次引入）
+
+最终审查发现，并且我复核确认：
+
+| 位置 | 事实 |
+|---|---|
+| `backend/remote-agent/src/` | `grep autoApprove\|decideAutoApproval` → **零命中** |
+| `backend/server/shared/agent-runtime/protocol.ts:226-238` | `makeSessionStartParamsSchema` 的参数白名单里**没有** `autoApprove` |
+| `backend/remote-agent/src/agent-run.ts` 的 `canUseTool` | 不接策略、不调 `decideAutoApproval` |
+| `backend/remote-agent/src/providers/qoder-runner.ts` 与 lite 的 claude 路径 | 都不设 `autoApproveDeny` |
+
+**后果**：`auto_approve=1` 的任务跑在远程主机上时**并不会自动审批** —— `canUseTool` 仍等人，超时后以 `'approval timed out'` 拒绝，渲染成红框。
+
+**这不是本次工作的缺陷**（本次只做「渲染」，不做「远程放行」），但 §1 决策表里那行「远程主机 | 自动覆盖，无需改协议」讲的是**渲染**路径（远程历史走同一条归一化），读快了会误以为功能在远程可用。**写在这里以免下一个人重新发现。**
+
+**若要做**（backlog）：需要把 `autoApprove` 加进 `session/start` 白名单、在 lite 的 `canUseTool` 里接策略、并让 lite 侧也打 `autoApproveDeny`。
