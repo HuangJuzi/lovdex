@@ -200,9 +200,14 @@ provider 里 `content:` 的展示值对数组形态走 `JSON.stringify`（保持
 
 **这不是边缘情况**：`COMMAND_RULES` 里多数是 Bash 命令规则，全量 transcript 的真实拒绝中 **Bash 占 109/173**。也就是说 `blocked` 的「琥珀框 + 标题『已自动拒绝』」在多数场景下不会生效，用户看到的仍是红框。
 
-**修法**：把排除条件放宽为 `message.toolName !== 'Bash' || Boolean(message.toolResult.autoApproveDeny)`，让**带标记的** Bash 也走 `AutoApproveDenyNotice`。被拦的 Bash 会同时显示命令行那一行（说明**尝试了什么**，徽标已是琥珀 `Denied`）+ 下方的琥珀框（说明**为什么被拒**）——信息互补。
+**修法**：两处，缺一不可。
 
-**否决的替代方案**：改 `BashCommandDisplay` 的配色。那会把「已自动拒绝」的标题与配色**复制到第二处**，且需把字段透传进 `BashCommandDisplayProps`。
+1. **放宽 gate**：`message.toolName !== 'Bash' || Boolean(message.toolResult.autoApproveDeny)`，让**带标记的** Bash 也走 `AutoApproveDenyNotice`。被拦的 Bash 会同时显示命令行那一行（说明**尝试了什么**）+ 下方的琥珀框（说明**为什么被拒**）——信息互补。
+2. **命令行那一行也要走同一个判据**：`ToolRenderer.tsx` 传给 `BashCommandDisplay` 的 `isError` 由裸的 `Boolean(toolResult?.isError)` 改为 `toolStatus === 'error'`（复用已归一的 `deriveToolStatus`）。否则只做第 1 步的话，命令行那行仍按 `isError` 染红，「不含 destructive」的目标落空。
+
+> **第 2 步不是「把 warning 配色复制到第二处」**：它没有引入任何新文案或新配色，只是让「这行该不该看起来像故障」走**同一个** status 判据。真故障（`isError` 且无标记）时 `deriveToolStatus` 仍返回 `'error'`，行为不变。
+
+**否决的替代方案**：在 `BashCommandDisplay` 里按 `autoApproveDeny` 自己判一次配色。那会把「已自动拒绝」的标题与配色**复制到第二处**，且需把字段透传进 `BashCommandDisplayProps`——两处判据也会漂开。
 
 #### ⚠️ 接线测试不要用「读源码断言」
 
