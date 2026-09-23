@@ -102,6 +102,12 @@ test('a denied interaction becomes a notice tagged interaction, without the mode
   assert.ok(content, 'the notice must carry copy');
   assert.ok(content.includes('AskUserQuestion'), 'the tool name must appear');
   assert.equal(notice.autoApproveDenyKind, 'interaction');
+  // 正向锁定这句文案：它同时是 `AutoApproveDenyNotice` 组件里那行（两处共用
+  // `interactionNoticeCopy`）。只写「不含指令」是否定式断言，任一处改字都不会红。
+  assert.ok(
+    content.includes('无人值守，无人可应答'),
+    'the shared interaction copy must be what the notice says',
+  );
   // 后半句是写给模型的协议指令，不是 UI 文案。
   assert.ok(
     !content.includes('请基于现有信息自行判断'),

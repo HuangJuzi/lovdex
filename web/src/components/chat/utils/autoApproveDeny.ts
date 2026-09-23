@@ -42,6 +42,23 @@ export function classifyAutoApproveNotice(
 }
 
 /**
+ * 交互型自动拒绝在 UI 上的那句短文案。
+ *
+ * 两处消费者（`useChatMessages` 的 `permission_auto` 分支、`AutoApproveDenyNotice`
+ * 组件）必须说同一句话 —— 分头写字面量会静默漂开，而这次改动要根除的正是
+ * 对文案的隐式依赖。
+ *
+ * 刻意不复用后端理由原文：它的后半句「请基于现有信息自行判断并继续，不要再次
+ * 请求确认」是写给**模型**的协议指令，不是 UI 文案。
+ *
+ * 放这里而不是组件文件：视图文件加普通导出会触发
+ * `react-refresh/only-export-components`（见 `resolveToolResultVariant` 的注释）。
+ */
+export function interactionNoticeCopy(toolName?: string): string {
+  return `无人值守，无人可应答 — 已自动跳过 ${toolName || '提问'}`;
+}
+
+/**
  * 一条 tool_result 该走哪种渲染。
  *
  * 放在这里而不是 `AutoApproveDenyNotice.tsx`：视图文件里加普通导出会触发

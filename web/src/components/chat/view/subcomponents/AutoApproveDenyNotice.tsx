@@ -1,4 +1,4 @@
-import type { AutoApproveDenyKind } from '../../utils/autoApproveDeny';
+import { type AutoApproveDenyKind, interactionNoticeCopy } from '../../utils/autoApproveDeny';
 
 /**
  * props 用判别联合而不是「一堆可选字段」：`blocked` 的理由是必填的。
@@ -42,7 +42,7 @@ export function AutoApproveDenyNotice(props: AutoApproveDenyNoticeProps) {
         className="my-1 flex scroll-mt-4 items-start gap-2 px-3 text-xs text-muted-foreground sm:px-0"
       >
         <span aria-hidden="true">⚡</span>
-        <span>{`无人值守，无人可应答 — 已自动跳过 ${props.toolName || '提问'}`}</span>
+        <span>{interactionNoticeCopy(props.toolName)}</span>
       </div>
     );
   }
