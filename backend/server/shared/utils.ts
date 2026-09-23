@@ -416,6 +416,25 @@ export function createNormalizedMessage(fields: NormalizedMessageInput): Normali
 }
 
 /**
+ * 把一条 tool_result 的 content 解成用于**分类**的纯文本。
+ *
+ * 数组形态按仓库既有约定拼 `.text`（见 `providers/list/shared/transcript-history.ts`
+ * 的 `parseAgentToolsContent`），而不是 `JSON.stringify` —— 后者会让
+ * `classifyAutoApproveDeny` 静默失效（序列化后字符串以 `[{` 开头，前缀匹配不成立）。
+ *
+ * 只用于喂分类函数；展示用的 `content` 一律不动。
+ */
+export function toolResultTextForClassification(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => (part as { text?: string } | null)?.text || '')
+      .join('\n');
+  }
+  return JSON.stringify(content);
+}
+
+/**
  * Build the unified terminal `complete` lifecycle message.
  *
  * Contract: every provider run ends with exactly one `complete` (the

@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import type { IProviderSessions } from '@/shared/interfaces.js';
 import type { AnyRecord, AutoApproveDenyKind, FetchHistoryOptions, FetchHistoryResult, NormalizedMessage } from '@/shared/types.js';
-import { createNormalizedMessage, generateMessageId, readObjectRecord, sliceTailPage } from '@/shared/utils.js';
+import { createNormalizedMessage, generateMessageId, readObjectRecord, sliceTailPage, toolResultTextForClassification } from '@/shared/utils.js';
 import { sessionsDb } from '@/modules/database/index.js';
 import { classifyAutoApproveDeny } from '@/modules/permissions/auto-approve-policy.js';
 import { getRemoteAgentsRuntime } from '@/modules/remote-agents/runtime.js';
@@ -465,7 +465,11 @@ export class ClaudeSessionsProvider implements IProviderSessions {
               toolId: part.tool_use_id,
               content: resultContent,
               isError: Boolean(part.is_error),
-              autoApproveDeny: classifyAutoApproveDeny(part.is_error, resultContent),
+              // 展示用 `content` 保持 `resultContent`（数组形态是 JSON），
+              // 分类另走 `.text` 解码 —— 两者不能混用。
+              autoApproveDeny: part.is_error
+                ? classifyAutoApproveDeny(true, toolResultTextForClassification(part.content))
+                : undefined,
               subagentTools: raw.subagentTools,
               toolUseResult: raw.toolUseResult,
               // Lift WorkflowOutput fields for local_workflow so the frontend
@@ -769,14 +773,14 @@ export class ClaudeSessionsProvider implements IProviderSessions {
       if (raw.message?.role === 'user' && Array.isArray(raw.message?.content)) {
         for (const part of raw.message.content) {
           if (part.type === 'tool_result' && part.tool_use_id) {
-            // 分类只看文案，所以拿归一化后的字符串来判，而不是原始 part.content。
-            const text = typeof part.content === 'string'
-              ? part.content
-              : JSON.stringify(part.content);
             toolResultMap.set(part.tool_use_id, {
               content: part.content,
               isError: Boolean(part.is_error),
-              autoApproveDeny: classifyAutoApproveDeny(part.is_error, text),
+              // 只在错误结果上分类：正常输出没必要解内容（历史上这里会对
+              // 每一条 base64 图片数组跑 JSON.stringify，纯浪费）。
+              autoApproveDeny: part.is_error
+                ? classifyAutoApproveDeny(true, toolResultTextForClassification(part.content))
+                : undefined,
               subagentTools: raw.subagentTools,
               toolUseResult: raw.toolUseResult,
             });

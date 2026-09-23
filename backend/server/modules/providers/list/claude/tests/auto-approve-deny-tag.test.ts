@@ -8,7 +8,7 @@ const provider = new ClaudeSessionsProvider();
 const SID = 'sess-auto-approve';
 
 /** 造一条 transcript 里的 user 行，里面挂一个 tool_result。 */
-function transcriptRow(toolUseId: string, content: string, isError: boolean) {
+function transcriptRow(toolUseId: string, content: unknown, isError: boolean) {
   return {
     type: 'user',
     uuid: `u-${toolUseId}`,
@@ -57,4 +57,15 @@ test('a successful result is left untagged', () => {
   const out = provider.normalizeMessage(transcriptRow('T4', 'file contents', false), SID);
   const result = out.find((m) => m.kind === 'tool_result');
   assert.equal(result?.autoApproveDeny, undefined);
+});
+
+// 真实 transcript 里 content 有 str / list 两种形态（本机实测 78744 : 2005）。
+// 分类必须按 `.text` 约定解码数组，否则序列化后以 `[{` 开头、前缀匹配不成立，
+// 标签会静默丢失。展示用的 content 保持 JSON 形态不变。
+test('an array-shaped denial is tagged, and the displayed content is unchanged', () => {
+  const parts = [{ type: 'text', text: UNATTENDED_INTERACTION_DENY_REASON }];
+  const out = provider.normalizeMessage(transcriptRow('T5', parts, true), SID);
+  const result = out.find((m) => m.kind === 'tool_result');
+  assert.equal(result?.autoApproveDeny, 'interaction');
+  assert.equal(result?.content, JSON.stringify(parts), 'display value stays JSON');
 });
