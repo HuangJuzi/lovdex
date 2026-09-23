@@ -1177,6 +1177,31 @@ git commit -m "fix(providers): drop the qoder CLI wrapper from auto-denied displ
 
 - [ ] **Step 1: 写失败测试**
 
+> ⚠️ **不要把测试只写成「直接渲染 `AutoApproveDenyNotice`」。** 那样只覆盖叶子组件，**不覆盖接线**——把 `MessageComponent` 里的路由删掉，测试照样全绿。前两个任务的代码审查连续抓到同一类缺口（Task 2 的 `fetchHistory` 两点零覆盖、Task 4b 的 `blocked` 变体零覆盖），都是「测了主路径、没测兄弟变体与接线」。
+>
+> **本任务的测试必须包含两部分**：
+> 1. 叶子：`AutoApproveDenyNotice` 两个变体各自的渲染（下面那份）
+> 2. **接线**：证明 `MessageComponent` 真的会把带 `autoApproveDeny` 的结果路由到它，而不是继续走红框
+>
+> 第 2 部分**不要**去渲染整个 `MessageComponent`（它拉进 ToolRenderer / Markdown / i18n，无 DOM 环境下成本高且脆）。**做法：把三分支判定抽成一个纯函数**，放在 `AutoApproveDenyNotice.tsx` 旁边或同文件导出：
+>
+> ```ts
+> /**
+>  * 一条 tool_result 该走哪种渲染。抽成纯函数是为了能在无 DOM 环境下测「接线」——
+>  * 只渲染叶组件的话，把 MessageComponent 里的分支删掉测试仍会绿。
+>  */
+> export function resolveToolResultVariant(toolResult: {
+>   isError?: boolean;
+>   autoApproveDeny?: AutoApproveDenyKind;
+> } | null | undefined): 'auto-denied' | 'error' | 'result' {
+>   if (toolResult?.autoApproveDeny) return 'auto-denied';
+>   if (toolResult?.isError) return 'error';
+>   return 'result';
+> }
+> ```
+>
+> `MessageComponent` 改成 `switch (resolveToolResultVariant(message.toolResult))`，并对该函数写表驱动测试：`{autoApproveDeny:'interaction', isError:true}` → `'auto-denied'`；`{isError:true}` → `'error'`；`{}` → `'result'`；`null`/`undefined` → `'result'`。**优先级必须钉住**：带标记的结果即使 `isError` 也走 `'auto-denied'`（这正是本功能的核心语义）。
+
 新建 `web/src/components/chat/view/subcomponents/AutoApproveDenyNotice.test.tsx`：
 
 ```tsx
@@ -1406,6 +1431,16 @@ git commit -m "feat(web): render auto-approval denials without the error chrome"
 - Test: `web/src/components/chat/view/subcomponents/AutoApproveNotice.test.tsx`（新建）
 
 - [ ] **Step 1: 写失败测试**
+
+> ⚠️ **与 Task 5 同一类缺口**：只渲染 `AutoApproveNotice` 覆盖的是叶子，**不覆盖接线**——把 `useChatMessages` 的 `permission_auto` 分支里写 `autoApproveDenyKind` 那行删掉，测试照样全绿。
+>
+> **必须额外加一条接线测试**，直接测纯函数 `normalizedToChatMessages`（Task 4 已建好 `web/src/components/chat/hooks/useChatMessages.test.ts`，复用它）：
+>
+> - 一条 `kind: 'permission_auto'`、`autoApproveBehavior: 'deny'`、`toolName: 'AskUserQuestion'` 的消息 → 产出 `type: 'notice'` 且 `autoApproveDenyKind === 'interaction'`，且 `content` **不含**写给模型的那半句（`请基于现有信息自行判断`）
+> - 同样但 `toolName: 'Bash'` → `autoApproveDenyKind === 'blocked'`，`content` 含理由原文
+> - `autoApproveBehavior: 'allow'` → `autoApproveDenyKind === undefined`
+>
+> 这三条同时钉住「判据是工具名」与「交互型文案已换成短 UI 文案」两件事。
 
 新建 `web/src/components/chat/view/subcomponents/AutoApproveNotice.test.tsx`：
 
