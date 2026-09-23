@@ -1096,6 +1096,11 @@ git commit -m "feat(web): thread the auto-approval denial tag into chat messages
 
 ## Task 5: 渲染三分支
 
+> **硬性验收项（不可漏）**：spec §5.1b —— qoder 的 `blocked` 正文是 `Error: <理由>`（CLI 包装），
+> 直接展示会出现「已自动拒绝」标题下跟着 `Error: 拒绝：…` 的自相矛盾。spec 已判定
+> 「**必须解决，不能带着这个上**」，并给了两个方案（A 后端剥 / B 前端剥，推荐 A）。
+> **本任务必须处理并说明选了哪条、为什么。** 这条是 Task 3 的代码审查专门留给本任务的跨任务义务。
+
 **Files:**
 - Create: `web/src/components/chat/view/subcomponents/AutoApproveDenyNotice.tsx`
 - Modify: `web/src/components/chat/view/subcomponents/MessageComponent.tsx`（tool result 区 `:208-240`）
