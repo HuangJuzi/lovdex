@@ -4,10 +4,14 @@ import path from 'node:path';
 import test from 'node:test';
 
 import {
+  AUTO_APPROVE_BLOCKED_PREFIX,
   AUTO_APPROVE_MODE,
+  COMMAND_RULES,
+  classifyAutoApproveDeny,
   decideAutoApproval,
   normalizePermissionMode,
   TOOLS_REQUIRING_INTERACTION,
+  UNATTENDED_INTERACTION_DENY_REASON,
 } from '@/modules/permissions/auto-approve-policy.js';
 
 // --- 放行：普通工具 ---
@@ -250,4 +254,67 @@ test('anything unknown degrades to default, never to auto-approval', () => {
 test('the mode constant is the exact wire value', () => {
   // 前后端与运行时共用同一个字面量；改动它会静默断掉整条链路。
   assert.equal(AUTO_APPROVE_MODE, 'autoApprove');
+});
+
+// --- 分类：自动审批拒绝的 tool_result ---
+
+test('classifies the unattended interaction denial', () => {
+  assert.equal(
+    classifyAutoApproveDeny(true, UNATTENDED_INTERACTION_DENY_REASON),
+    'interaction',
+  );
+});
+
+test('classifies a blocked dangerous command by its reason prefix', () => {
+  const decision = decideAutoApproval('Bash', { command: 'git push origin main' });
+  assert.equal(decision.behavior, 'deny');
+  assert.equal(
+    classifyAutoApproveDeny(true, decision.behavior === 'deny' ? decision.reason : ''),
+    'blocked',
+  );
+});
+
+test('classifies a credential-path denial as blocked too', () => {
+  const decision = decideAutoApproval('Write', { file_path: '~/.ssh/id_rsa' });
+  assert.equal(decision.behavior, 'deny');
+  assert.equal(
+    classifyAutoApproveDeny(true, decision.behavior === 'deny' ? decision.reason : ''),
+    'blocked',
+  );
+});
+
+test('every command rule reason carries the blocked prefix', () => {
+  // 约定：新加规则时漏掉前缀，UI 就会把那条拒绝渲染成红框 Error。这里钉住。
+  assert.ok(COMMAND_RULES.length > 0, 'sanity: the rule list must not be empty');
+  for (const rule of COMMAND_RULES) {
+    assert.ok(
+      rule.reason.startsWith(AUTO_APPROVE_BLOCKED_PREFIX),
+      `rule reason must start with "${AUTO_APPROVE_BLOCKED_PREFIX}": ${rule.reason}`,
+    );
+  }
+});
+
+test('ordinary tool output is not classified as an auto-approval denial', () => {
+  assert.equal(classifyAutoApproveDeny(true, 'file contents'), undefined);
+  assert.equal(classifyAutoApproveDeny(true, ''), undefined);
+  assert.equal(classifyAutoApproveDeny(true, undefined), undefined);
+  assert.equal(classifyAutoApproveDeny(true, { content: 'x' }), undefined);
+  // 必须逐字相等，不能靠「包含关键词」命中——模型可能把这句话抄进正常输出里。
+  assert.equal(
+    classifyAutoApproveDeny(true, `前缀 ${UNATTENDED_INTERACTION_DENY_REASON}`),
+    undefined,
+  );
+});
+
+test('a non-error result is never classified, even with identical content', () => {
+  assert.equal(classifyAutoApproveDeny(false, UNATTENDED_INTERACTION_DENY_REASON), undefined);
+  assert.equal(classifyAutoApproveDeny(undefined, UNATTENDED_INTERACTION_DENY_REASON), undefined);
+});
+
+test('the two classifications are mutually exclusive', () => {
+  assert.equal(
+    classifyAutoApproveDeny(true, UNATTENDED_INTERACTION_DENY_REASON),
+    'interaction',
+  );
+  assert.ok(!UNATTENDED_INTERACTION_DENY_REASON.startsWith(AUTO_APPROVE_BLOCKED_PREFIX));
 });

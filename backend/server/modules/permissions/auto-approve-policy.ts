@@ -37,6 +37,13 @@ export const TOOLS_REQUIRING_INTERACTION: ReadonlySet<string> = new Set([
 export const UNATTENDED_INTERACTION_DENY_REASON =
   '无人值守执行中，无人可应答。请基于现有信息自行判断并继续，不要再次请求确认。';
 
+/**
+ * 危险操作拒绝理由的统一前缀。`COMMAND_RULES` 每条 reason 都必须以它开头 ——
+ * `classifyAutoApproveDeny` 靠它把「策略拦下的危险操作」和「工具真的报错」分开，
+ * 漏一条就会把红框留在会话里。测试遍历规则钉住这个约定。
+ */
+export const AUTO_APPROVE_BLOCKED_PREFIX = '拒绝：';
+
 // ---------------------------------------------------------------------------
 // Bash
 // ---------------------------------------------------------------------------
@@ -119,7 +126,11 @@ function hasPipeToShell(command: string): boolean {
 
 type CommandRule = { reason: string; matches: (command: string) => boolean };
 
-const COMMAND_RULES: readonly CommandRule[] = [
+/**
+ * 危险操作的拒绝规则。导出是为了让测试能遍历断言每条 reason 的前缀约定
+ * （见 `AUTO_APPROVE_BLOCKED_PREFIX`）—— 生产代码只经 `decideAutoApproval` 使用。
+ */
+export const COMMAND_RULES: readonly CommandRule[] = [
   {
     reason: '拒绝：不允许删除根目录或家目录',
     matches: hasDestructiveRm,
@@ -253,6 +264,29 @@ export function decideAutoApproval(toolName: string, input: unknown): AutoApprov
   }
 
   return { behavior: 'allow' };
+}
+
+/**
+ * 把一条 tool_result 分类成自动审批拒绝；不是自动拒绝就返回 undefined。
+ *
+ * 会话里的 tool_result 只带 `isError` 和一段文本 —— SDK 把 `canUseTool` 的
+ * deny message 原样写进 content，所以文案是唯一可得的信号（已核实 transcript
+ * 里 content 是纯字符串、与 reason 逐字相等）。前端据此换渲染，因此它不需要
+ * 认识任何中文。
+ *
+ * `isError` 参与判定：只有被拒的工具调用才会拿到这段文案，正常输出即使碰巧
+ * 相等也不是拒绝。
+ */
+export function classifyAutoApproveDeny(
+  isError: unknown,
+  content: unknown,
+): 'interaction' | 'blocked' | undefined {
+  if (!isError) return undefined;
+  if (typeof content !== 'string') return undefined;
+  const text = content.trim();
+  if (text === UNATTENDED_INTERACTION_DENY_REASON) return 'interaction';
+  if (text.startsWith(AUTO_APPROVE_BLOCKED_PREFIX)) return 'blocked';
+  return undefined;
 }
 
 /**
