@@ -530,9 +530,6 @@ function ChatInterface({
           onAbortSession={handleAbortSession}
           permissionMode={permissionMode}
           onModeSwitch={cyclePermissionMode}
-          showAutoApprove={showAutoApprove}
-          autoApproveEnabled={autoApproveEnabled}
-          onToggleAutoApprove={toggleAutoApprove}
           effort={currentProviderEffort}
           availableEffortOptions={currentProviderEffortOptions}
           onSelectEffort={(nextEffort) => setStoredProviderEffort(provider, nextEffort)}
