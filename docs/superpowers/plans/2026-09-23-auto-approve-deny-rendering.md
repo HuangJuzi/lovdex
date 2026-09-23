@@ -1442,6 +1442,18 @@ git commit -m "feat(web): render auto-approval denials without the error chrome"
 
 > ⚠️ **与 Task 5 同一类缺口**：只渲染 `AutoApproveNotice` 覆盖的是叶子，**不覆盖接线**——把 `useChatMessages` 的 `permission_auto` 分支里写 `autoApproveDenyKind` 那行删掉，测试照样全绿。
 >
+> ### 本仓库测试的三种「看起来测了，其实没测」——逐条自检
+>
+> 前几轮的代码审查连续抓到同一族缺陷，都是**测试本身无效**而非代码错。写测试时逐条对照：
+>
+> | 形态 | 症状 | 自检方法 |
+> |---|---|---|
+> | **测叶子不测接线** | 把组件里的分支删掉，测试仍绿 | 每个「新分支」都要有一个用例能因**删掉该分支**而变红 |
+> | **全否定式断言 → 空转** | 什么都没渲染时，断言全为真 | **至少一条肯定式断言**证明「确实渲染了目标内容」。Task 5 的 `a plain successful result renders neither box` 就栽在这：`Write` + 成功结果被 `shouldHideToolResult` 藏掉，实际零渲染，三条否定断言自然恒绿 |
+> | **默认参数把用例引到别的路径** | 断言靠另一条路径通过 | 显式写出所有会改变分支的字段（`toolName` / `mode` / `isError`…），**不要依赖 helper 的默认值**。Task 5 的「真错误」用例就因为没写 `toolName` 取了默认 `'Bash'`，实际测的是 `BashCommandDisplay` 的红，而非红框分支 |
+>
+> **写完每条用例，问一句：把它声称在测的那段代码改坏，这条会红吗？** 会红才留下。
+>
 > **必须额外加一条接线测试**，直接测纯函数 `normalizedToChatMessages`（Task 4 已建好 `web/src/components/chat/hooks/useChatMessages.test.ts`，复用它）：
 >
 > - 一条 `kind: 'permission_auto'`、`autoApproveBehavior: 'deny'`、`toolName: 'AskUserQuestion'` 的消息 → 产出 `type: 'notice'` 且 `autoApproveDenyKind === 'interaction'`，且 `content` **不含**写给模型的那半句（`请基于现有信息自行判断`）
