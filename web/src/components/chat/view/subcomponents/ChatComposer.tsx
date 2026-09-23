@@ -35,6 +35,7 @@ import FileAttachment from './FileAttachment';
 import PermissionRequestsBanner from './PermissionRequestsBanner';
 import TokenUsageSummary from './TokenUsageSummary';
 import QueuedMessageCard from './QueuedMessageCard';
+import { AutoApproveToggle } from './AutoApproveToggle';
 import { getPermissionModeLabelKeys } from './permissionModeLabels';
 
 interface MentionableFile {
@@ -64,6 +65,11 @@ interface ChatComposerProps {
   onAbortSession: () => void;
   permissionMode: PermissionMode | string;
   onModeSwitch: () => void;
+  /** Whether to render the auto-approval toggle (only for a task that has it on). */
+  showAutoApprove?: boolean;
+  /** The toggle's rendered state: the task flag minus the session override. */
+  autoApproveEnabled?: boolean;
+  onToggleAutoApprove?: () => void;
   effort: string;
   availableEffortOptions: NonNullable<ProviderModelOption['effort']>['values'];
   onSelectEffort: (effort: string) => void;
@@ -131,6 +137,9 @@ export default function ChatComposer({
   onAbortSession,
   permissionMode,
   onModeSwitch,
+  showAutoApprove,
+  autoApproveEnabled,
+  onToggleAutoApprove,
   effort,
   availableEffortOptions,
   onSelectEffort,
@@ -514,6 +523,13 @@ export default function ChatComposer({
                 <span className="hidden whitespace-nowrap sm:inline">{t(modeLabelKeys.fullKey)}</span>
               </div>
             </button>
+
+            {showAutoApprove && (
+              <AutoApproveToggle
+                enabled={Boolean(autoApproveEnabled)}
+                onToggle={onToggleAutoApprove ?? (() => {})}
+              />
+            )}
 
             {modelLabel && onShowModelPicker && (
               <button
