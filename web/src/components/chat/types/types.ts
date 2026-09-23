@@ -7,7 +7,14 @@ import type {
 
 export type Provider = LLMProvider;
 
-export type PermissionMode = 'default' | 'acceptEdits' | 'auto' | 'bypassPermissions' | 'plan';
+export type PermissionMode = 'default' | 'acceptEdits' | 'auto' | 'autoApprove' | 'bypassPermissions' | 'plan';
+
+/**
+ * 与后端 `auto-approve-policy.ts` 的 `AUTO_APPROVE_MODE` **必须逐字一致**：
+ * 它是前后端之间的线上值，任一侧拼错都会静默断掉整条链路（模式能选、但
+ * 后端归一化不到，退化成 default = 不再自动批）。
+ */
+export const AUTO_APPROVE_MODE = 'autoApprove';
 
 export interface ChatImage {
   /** Inline data URL (Claude history stores attachments as base64). */

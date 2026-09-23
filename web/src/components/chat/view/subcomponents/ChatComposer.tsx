@@ -482,9 +482,11 @@ export default function ChatComposer({
                     ? 'border-success/30 bg-success/10 text-success hover:bg-success/20'
                     : permissionMode === 'auto'
                       ? 'border-primary/30 bg-primary/10 text-primary hover:bg-primary/20'
-                      : permissionMode === 'bypassPermissions'
+                      : permissionMode === 'autoApprove'
                         ? 'border-warning/30 bg-warning/10 text-warning hover:bg-warning/20'
-                        : 'border-primary/20 bg-primary/5 text-primary hover:bg-primary/10'
+                        : permissionMode === 'bypassPermissions'
+                          ? 'border-warning/30 bg-warning/10 text-warning hover:bg-warning/20'
+                          : 'border-primary/20 bg-primary/5 text-primary hover:bg-primary/10'
               }`}
               title={t('input.clickToChangeMode')}
               aria-label={t('input.currentMode', {
@@ -501,9 +503,11 @@ export default function ChatComposer({
                         ? 'bg-success'
                         : permissionMode === 'auto'
                           ? 'bg-primary'
-                          : permissionMode === 'bypassPermissions'
+                          : permissionMode === 'autoApprove'
                             ? 'bg-warning'
-                            : 'bg-primary'
+                            : permissionMode === 'bypassPermissions'
+                              ? 'bg-warning'
+                              : 'bg-primary'
                   }`}
                 />
                 {/* Two spans, not one: sm:hidden and sm:inline are both display

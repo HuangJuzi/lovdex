@@ -34,7 +34,7 @@ type ProviderCapabilities = {
 const PROVIDER_CAPABILITIES: Record<LLMProvider, ProviderCapabilities> = {
   claude: {
     provider: 'claude',
-    permissionModes: ['default', 'auto', 'acceptEdits', 'bypassPermissions', 'plan'],
+    permissionModes: ['default', 'auto', 'autoApprove', 'acceptEdits', 'bypassPermissions', 'plan'],
     defaultPermissionMode: 'default',
     supportsImages: true,
     supportsAbort: true,
@@ -44,7 +44,7 @@ const PROVIDER_CAPABILITIES: Record<LLMProvider, ProviderCapabilities> = {
   },
   codex: {
     provider: 'codex',
-    permissionModes: ['default', 'acceptEdits', 'bypassPermissions'],
+    permissionModes: ['default', 'autoApprove', 'acceptEdits', 'bypassPermissions'],
     defaultPermissionMode: 'default',
     supportsImages: true,
     supportsAbort: true,
@@ -54,7 +54,7 @@ const PROVIDER_CAPABILITIES: Record<LLMProvider, ProviderCapabilities> = {
   },
   opencode: {
     provider: 'opencode',
-    permissionModes: ['default', 'acceptEdits', 'bypassPermissions', 'plan'],
+    permissionModes: ['default', 'autoApprove', 'acceptEdits', 'bypassPermissions', 'plan'],
     defaultPermissionMode: 'default',
     supportsImages: true,
     supportsAbort: true,
@@ -64,7 +64,7 @@ const PROVIDER_CAPABILITIES: Record<LLMProvider, ProviderCapabilities> = {
   },
   qoder: {
     provider: 'qoder',
-    permissionModes: ['default', 'acceptEdits', 'bypassPermissions', 'plan'],
+    permissionModes: ['default', 'autoApprove', 'acceptEdits', 'bypassPermissions', 'plan'],
     defaultPermissionMode: 'default',
     supportsImages: true,
     supportsAbort: true,

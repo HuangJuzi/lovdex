@@ -13,11 +13,19 @@ import type { PermissionModeLabelKeys } from './permissionModeLabels';
 // The runtime list below cannot catch a newly added mode on its own; the real
 // guard is the `Record<PermissionMode, …>` in permissionModeLabels.ts — adding a
 // mode to the union without adding a label turns typecheck red.
-const ALL_MODES: PermissionMode[] = ['default', 'auto', 'acceptEdits', 'bypassPermissions', 'plan'];
+const ALL_MODES: PermissionMode[] = [
+  'default',
+  'auto',
+  'autoApprove',
+  'acceptEdits',
+  'bypassPermissions',
+  'plan',
+];
 
 const EXPECTED: Record<PermissionMode, PermissionModeLabelKeys> = {
   default: { shortKey: 'codex.modesShort.default', fullKey: 'codex.modes.default' },
   auto: { shortKey: 'codex.modesShort.auto', fullKey: 'codex.modes.auto' },
+  autoApprove: { shortKey: 'codex.modesShort.autoApprove', fullKey: 'codex.modes.autoApprove' },
   acceptEdits: { shortKey: 'codex.modesShort.acceptEdits', fullKey: 'codex.modes.acceptEdits' },
   bypassPermissions: {
     shortKey: 'codex.modesShort.bypassPermissions',

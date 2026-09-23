@@ -90,6 +90,7 @@
     "modes": {
       "default": "Default Mode",
       "auto": "Auto Mode",
+      "autoApprove": "Auto Approve",
       "acceptEdits": "Accept Edits",
       "bypassPermissions": "Bypass Permissions",
       "plan": "Plan Mode"
@@ -97,6 +98,7 @@
     "modesShort": {
       "default": "Default",
       "auto": "Auto",
+      "autoApprove": "AutoApprove",
       "acceptEdits": "Accept",
       "bypassPermissions": "Bypass",
       "plan": "Plan"

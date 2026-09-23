@@ -50,10 +50,10 @@ const readStoredProvider = (): LLMProvider => {
  * first paint and when the capabilities request fails.
  */
 const FALLBACK_PERMISSION_MODES: Record<LLMProvider, PermissionMode[]> = {
-  claude: ['default', 'auto', 'acceptEdits', 'bypassPermissions', 'plan'],
-  codex: ['default', 'acceptEdits', 'bypassPermissions'],
-  opencode: ['default', 'acceptEdits', 'bypassPermissions', 'plan'],
-  qoder: ['default', 'acceptEdits', 'bypassPermissions', 'plan'],
+  claude: ['default', 'auto', 'autoApprove', 'acceptEdits', 'bypassPermissions', 'plan'],
+  codex: ['default', 'autoApprove', 'acceptEdits', 'bypassPermissions'],
+  opencode: ['default', 'autoApprove', 'acceptEdits', 'bypassPermissions', 'plan'],
+  qoder: ['default', 'autoApprove', 'acceptEdits', 'bypassPermissions', 'plan'],
 };
 
 type ProviderCapabilities = {

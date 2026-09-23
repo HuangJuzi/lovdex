@@ -14,6 +14,7 @@ export interface PermissionModeLabelKeys {
 export const LABEL_KEYS: Record<PermissionMode, PermissionModeLabelKeys> = {
   default: { shortKey: 'codex.modesShort.default', fullKey: 'codex.modes.default' },
   auto: { shortKey: 'codex.modesShort.auto', fullKey: 'codex.modes.auto' },
+  autoApprove: { shortKey: 'codex.modesShort.autoApprove', fullKey: 'codex.modes.autoApprove' },
   acceptEdits: { shortKey: 'codex.modesShort.acceptEdits', fullKey: 'codex.modes.acceptEdits' },
   bypassPermissions: {
     shortKey: 'codex.modesShort.bypassPermissions',
