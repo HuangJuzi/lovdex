@@ -15,7 +15,7 @@ const PROVIDER = 'qoder';
 
 type QoderToolResult = {
   /** 展示用文本，已由 `summarizeQoderToolResult` 按自动拒绝规则处理过。 */
-  content: string;
+  content: string | undefined;
   isError: boolean;
   /** 见 `AutoApproveDenyKind`。 */
   autoApproveDeny?: AutoApproveDenyKind;
@@ -235,8 +235,12 @@ function stripQoderErrorPrefix(text: string): string {
 }
 
 type QoderToolResultSummary = {
-  /** 展示用文本。自动拒绝的已剥掉 CLI 包装，其余语义一字不变。 */
-  content: string;
+  /**
+   * 展示用文本。自动拒绝的已剥掉 CLI 包装，其余语义一字不变。
+   * `undefined` 只在原始 content 为 `undefined` 时出现（`JSON.stringify` 的
+   * 真实行为），如实标出而不是用 `''` 掩盖。
+   */
+  content: string | undefined;
   isError: boolean;
   autoApproveDeny?: AutoApproveDenyKind;
 };
@@ -267,9 +271,14 @@ function summarizeQoderToolResult(rawContent: unknown, rawIsError: unknown): Qod
     ? undefined
     : classifyAutoApproveDeny(true, denialText);
   return {
+    // 自动拒绝的展示文本走已剥前缀的 `denialText`；其余结果语义一字不变。
+    // 类型如实标成 `string | undefined`：`JSON.stringify(undefined)` 运行时返回
+    // undefined（见 `toolResultTextForClassification` 同款说明），收紧成 `string`
+    // 就是谎报。下游 `NormalizedMessage.content?: string` 本就用 undefined 表示
+    // 「无内容」，所以这里不需要 `?? ''` 去伪造一个空串。
     content: autoApproveDeny === undefined
       ? (typeof rawContent === 'string' ? rawContent : JSON.stringify(rawContent))
-      : denialText ?? '',
+      : denialText,
     isError,
     autoApproveDeny,
   };

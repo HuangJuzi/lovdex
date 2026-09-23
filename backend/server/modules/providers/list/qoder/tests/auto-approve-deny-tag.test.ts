@@ -80,6 +80,10 @@ test('a denial wrapped in the CLI Error: prefix is still tagged as interaction',
   assert.equal(result?.autoApproveDeny, 'interaction');
 });
 
+// spec §5.1b 点名的正是 blocked：它的分支**直接展示 `content`**（interaction
+// 那条降成一行固定 UI 文案、根本不读 content），所以「展示值带 `Error: `」的
+// 实际受害路径是 blocked。只断言标签不断言 content 的话，把剥离条件写成
+// `autoApproveDeny === 'interaction'` 全套件仍会绿 —— 这条断言就是防它的。
 test('a blocked command wrapped in the CLI Error: prefix is still tagged as blocked', () => {
   const out = provider.normalizeMessage(
     transcriptRow('T7', 'Error: 拒绝：不允许在无人值守时推送远端（不可逆的外发操作）', true),
@@ -87,6 +91,7 @@ test('a blocked command wrapped in the CLI Error: prefix is still tagged as bloc
   );
   const result = out.find((m) => m.kind === 'tool_result');
   assert.equal(result?.autoApproveDeny, 'blocked');
+  assert.equal(result?.content, '拒绝：不允许在无人值守时推送远端（不可逆的外发操作）');
 });
 
 // content 的 str / list 两种形态：claude 侧已实测两者并存，qoder 本机实测
@@ -161,6 +166,8 @@ test('fetchHistory pre-attaches the auto-approve deny tag onto the paired tool_u
   const PROJECT_PATH = '/mnt/b/workdir/gitlab/deny-tag-demo';
   const TOOL_USE_STR = 'toolu_deny_str';
   const TOOL_USE_ARR = 'toolu_deny_arr';
+  const TOOL_USE_BLOCKED = 'toolu_deny_blocked';
+  const BLOCKED_REASON = '拒绝：不允许在无人值守时推送远端（不可逆的外发操作）';
 
   // 真实形状：CLI 落盘时把理由包进 `Error: `（见文件顶部说明）。集成用例必须
   // 用这个形态，否则合成裸串会让「前缀没剥」的回归悄悄溜过去。
@@ -172,6 +179,7 @@ test('fetchHistory pre-attaches the auto-approve deny tag onto the paired tool_u
         content: [
           { type: 'tool_use', id: TOOL_USE_STR, name: 'AskUserQuestion', input: {} },
           { type: 'tool_use', id: TOOL_USE_ARR, name: 'AskUserQuestion', input: {} },
+          { type: 'tool_use', id: TOOL_USE_BLOCKED, name: 'Bash', input: {} },
         ],
       },
       sessionId: PROVIDER_SESSION_ID,
@@ -193,6 +201,12 @@ test('fetchHistory pre-attaches the auto-approve deny tag onto the paired tool_u
             type: 'tool_result',
             tool_use_id: TOOL_USE_ARR,
             content: [{ type: 'text', text: `Error: ${UNATTENDED_INTERACTION_DENY_REASON}` }],
+            is_error: true,
+          },
+          {
+            type: 'tool_result',
+            tool_use_id: TOOL_USE_BLOCKED,
+            content: `Error: ${BLOCKED_REASON}`,
             is_error: true,
           },
         ],
@@ -258,6 +272,10 @@ test('fetchHistory pre-attaches the auto-approve deny tag onto the paired tool_u
     // 否则两种解码约定会漂开，标签静默丢失。
     assert.equal(preAttached(TOOL_USE_ARR).autoApproveDeny, 'interaction');
     assert.equal(preAttached(TOOL_USE_ARR).content, UNATTENDED_INTERACTION_DENY_REASON);
+    // blocked 是 §5.1b 的实际受害路径（它直接展示 content），历史路径也要钉住 ——
+    // 只钉 interaction 的话，剥离条件退化成 interaction-only 仍会全绿。
+    assert.equal(preAttached(TOOL_USE_BLOCKED).autoApproveDeny, 'blocked');
+    assert.equal(preAttached(TOOL_USE_BLOCKED).content, BLOCKED_REASON);
   } finally {
     process.env.HOME = previousHome;
     closeConnection();
