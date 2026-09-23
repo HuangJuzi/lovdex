@@ -14,7 +14,7 @@ function mkRow(over: Partial<ScheduledTaskRow>): ScheduledTaskRow {
   return {
     schedule_id: 's1', title: 't', description: null, project_path: null,
     executor_provider: 'claude', executor_model: null, priority: 'P2', label: 'other',
-    is_operator: 1, auto_run: 1, auto_approve: 0, schedule_type: 'once', cron_expr: null,
+    is_operator: 1, auto_run: 1, permission_mode: 'default', schedule_type: 'once', cron_expr: null,
     interval_seconds: null, run_at: null, timezone: 'local',
     next_run_at: '2026-08-13T00:00:00.000Z', last_run_at: null, last_task_id: null,
     enabled: 1, created_at: '2026-08-13T00:00:00.000Z', updated_at: '2026-08-13T00:00:00.000Z',
@@ -66,7 +66,7 @@ function mkTaskRow(over: Partial<TaskRow>): TaskRow {
   return {
     task_id: 'task-1', project_path: '/proj', title: '跑', description: null,
     status: 'todo', sub_status: null, executor_provider: 'claude', executor_model: null,
-    position: 0, session_id: null, source_schedule_id: 's1', auto_approve: 0,
+    position: 0, session_id: null, source_schedule_id: 's1', permission_mode: 'default',
     started_at: null, completed_at: null,
     created_at: '2026-08-13T00:00:00.000Z', updated_at: '2026-08-13T00:00:00.000Z',
     ai_summary: null, verdict_reason: null, verdict_at: null,
@@ -100,7 +100,7 @@ function makeService(nowIso: string, extra: Partial<SchedulerDeps> = {}) {
         cron_expr: i.cronExpr ?? null,
         interval_seconds: i.intervalSeconds ?? null,
         run_at: i.runAt ?? null,
-        auto_approve: i.autoApprove ? 1 : 0,
+        permission_mode: i.permissionMode ?? 'default',
         timezone: i.timezone,
         next_run_at: i.nextRunAt,
       });
@@ -110,9 +110,10 @@ function makeService(nowIso: string, extra: Partial<SchedulerDeps> = {}) {
     listScheduledTasks: () => [...rows.values()],
     updateScheduledTask: (id: string, u: Record<string, unknown>) => {
       const cur = rows.get(id); if (!cur) return null;
-      // 与真实 scheduled-tasks.db 对齐：布尔列走 allowed 白名单落库为 0/1，不保留 true/false
+      // 与真实 scheduled-tasks.db 对齐：布尔列走 allowed 白名单落库为 0/1，
+      // permission_mode 是字符串列，原样落库不转换。
       const normalized = { ...u };
-      for (const col of ['is_operator', 'auto_run', 'auto_approve', 'enabled']) {
+      for (const col of ['is_operator', 'auto_run', 'enabled']) {
         if (col in normalized) normalized[col] = normalized[col] ? 1 : 0;
       }
       const next = { ...cur, ...normalized } as ScheduledTaskRow; rows.set(id, next); return next;
@@ -539,17 +540,17 @@ test('update: a legacy row with a broken schedule is surfaced instead of silentl
   );
 });
 
-test('dispatch mirrors auto_approve from the schedule onto the task', async () => {
+test('dispatch mirrors permission_mode from the schedule onto the task', async () => {
   const { svc, rows, createdTasks } = makeService('2026-08-13T12:00:00.000Z');
   rows.set('flagged', mkRow({
     schedule_id: 'flagged',
-    auto_approve: 1,
+    permission_mode: 'autoApprove',
     run_at: '2026-08-13T00:00:00.000Z',
     next_run_at: '2026-08-13T00:00:00.000Z',
   }));
   rows.set('plain', mkRow({
     schedule_id: 'plain',
-    auto_approve: 0,
+    permission_mode: 'default',
     run_at: '2026-08-13T00:00:00.000Z',
     next_run_at: '2026-08-13T00:00:00.000Z',
   }));
@@ -559,58 +560,49 @@ test('dispatch mirrors auto_approve from the schedule onto the task', async () =
   assert.equal(createdTasks.length, 2);
   const flagged = createdTasks.find((t) => (t as { sourceScheduleId?: string }).sourceScheduleId === 'flagged');
   const plain = createdTasks.find((t) => (t as { sourceScheduleId?: string }).sourceScheduleId === 'plain');
-  assert.equal((flagged as { autoApprove?: boolean }).autoApprove, true, 'the flag must reach the task row');
-  assert.equal((plain as { autoApprove?: boolean }).autoApprove, false, 'an unflagged schedule must not auto-approve');
+  assert.equal((flagged as { permissionMode?: string }).permissionMode, 'autoApprove', 'the mode must reach the task row');
+  assert.equal((plain as { permissionMode?: string }).permissionMode, 'default', 'an unflagged schedule must not auto-approve');
 });
 
-test('create defaults auto_approve to false and honours an explicit true', async () => {
+test('create defaults permission_mode to default and honours the autoApprove mode', async () => {
   const { svc } = makeService('2026-08-13T12:00:00.000Z');
 
   const plain = await svc.create({ title: 'a', scheduleType: 'cron', cronExpr: '0 9 * * *' }) as ScheduledTaskRow;
-  assert.equal(plain.auto_approve, 0);
+  assert.equal(plain.permission_mode, 'default');
 
   const flagged = await svc.create({
     title: 'b',
     scheduleType: 'cron',
     cronExpr: '0 9 * * *',
-    autoApprove: true,
+    permissionMode: 'autoApprove',
   }) as ScheduledTaskRow;
-  assert.equal(flagged.auto_approve, 1);
+  assert.equal(flagged.permission_mode, 'autoApprove');
 });
 
 /**
- * 仓储声明的入参是 `boolean | 0 | 1`，服务层若只认 `=== true`，走数字惯例的调用方
- * 会静默落成 0 —— 用户勾了框、定时任务存下了，却什么都没自动放行，而这是无人值守
- * 审批的开关，静默失效是最坏的结果。数字形态单独钉住。
+ * 杂值绝不能打开无人值守审批：normalizePermissionMode 只认白名单里的模式，
+ * 其余一律降级为 'default'。服务层落库前过同一个归一化器，这里钉住约定。
  */
-test('create accepts the numeric autoApprove form the repository declares', async () => {
+test('create degrades an unknown permission mode to default', async () => {
   const { svc } = makeService('2026-08-13T12:00:00.000Z');
 
-  const numeric = await svc.create({
-    title: 'a', scheduleType: 'cron', cronExpr: '0 9 * * *', autoApprove: 1,
-  }) as ScheduledTaskRow;
-  assert.equal(numeric.auto_approve, 1);
-
-  const zero = await svc.create({
-    title: 'b', scheduleType: 'cron', cronExpr: '0 9 * * *', autoApprove: 0,
-  }) as ScheduledTaskRow;
-  assert.equal(zero.auto_approve, 0);
-
-  // 放行数字形态不等于放水：杂值绝不能打开无人值守审批。
-  for (const junk of ['false', 'true', 2, {}]) {
+  for (const junk of ['false', 'true', 2, {}, 'sometimes']) {
     const row = await svc.create({
-      title: 'c', scheduleType: 'cron', cronExpr: '0 9 * * *', autoApprove: junk,
+      title: 'c', scheduleType: 'cron', cronExpr: '0 9 * * *', permissionMode: junk,
     }) as ScheduledTaskRow;
-    assert.equal(row.auto_approve, 0, `expected auto_approve=0 for ${JSON.stringify(junk)}`);
+    assert.equal(row.permission_mode, 'default', `expected permission_mode=default for ${JSON.stringify(junk)}`);
   }
 });
 
-test('update accepts autoApprove and maps it to the auto_approve column', async () => {
+test('update accepts permissionMode and maps it to the permission_mode column', async () => {
   const { svc } = makeService('2026-08-13T12:00:00.000Z');
   const row = await svc.create({ title: 'a', scheduleType: 'cron', cronExpr: '0 9 * * *' }) as ScheduledTaskRow;
 
-  const updated = await svc.update(row.schedule_id, { autoApprove: true }) as ScheduledTaskRow;
-  assert.equal(updated.auto_approve, 1);
+  const updated = await svc.update(row.schedule_id, { permissionMode: 'autoApprove' }) as ScheduledTaskRow;
+  assert.equal(updated.permission_mode, 'autoApprove');
+
+  const reset = await svc.update(row.schedule_id, { permissionMode: 'default' }) as ScheduledTaskRow;
+  assert.equal(reset.permission_mode, 'default');
 });
 
 test('runNow 拒绝在上一轮还没结束时再触发', async () => {

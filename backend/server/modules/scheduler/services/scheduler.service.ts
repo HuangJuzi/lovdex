@@ -1,6 +1,7 @@
 import { Cron } from 'croner';
 
 import { isScheduleType } from '@/modules/database/repositories/scheduled-tasks.db.js';
+import { AUTO_APPROVE_MODE, normalizePermissionMode } from '@/modules/permissions/auto-approve-policy.js';
 import { resolveGeneratedTitle } from '@/modules/tasks/services/task-title.js';
 import type { TasksService } from '@/modules/tasks/services/tasks.service.js';
 import { AppError } from '@/shared/utils.js';
@@ -170,7 +171,7 @@ export function createSchedulerService(deps: SchedulerDeps) {
       label: schedule.label as never,
       isOperator: schedule.is_operator === 1,
       // 镜像到任务行：派发后任务自包含，之后改/删定时任务不影响已在跑的那一次。
-      autoApprove: schedule.auto_approve === 1,
+      permissionMode: schedule.permission_mode ?? 'default',
       sourceScheduleId: schedule.schedule_id,
     });
     if (task && schedule.auto_run === 1) {
@@ -294,6 +295,10 @@ export function createSchedulerService(deps: SchedulerDeps) {
     async create(input: Record<string, unknown>): Promise<unknown> {
       validateScheduleInput(input);
       const description = typeof input.description === 'string' ? input.description : null;
+      // The permission mode is normalized before it reaches the repository: what
+      // is stored is exactly what the runtime will read back.
+      const normalizedScheduleMode = normalizePermissionMode(input.permissionMode);
+      const { permissionMode: scheduleMode, autoApprove: scheduleAutoApprove } = normalizedScheduleMode;
       // 解析放在校验之后：会 400 的请求不该花阻塞窗口（同 tasks.service）。
       const { title, writeBack } = await resolveGeneratedTitle({
         title: String(input.title ?? ''),
@@ -310,9 +315,10 @@ export function createSchedulerService(deps: SchedulerDeps) {
         priority: typeof input.priority === 'string' ? input.priority : undefined,
         label: typeof input.label === 'string' ? input.label : undefined,
         autoRun: input.autoRun !== 0,
-        // 与仓储声明的入参口径一致（boolean | 0 | 1）：只放行显式 true / 1，
-        // 不用真值判断 —— 否则 'false' 之类的杂值会把无人值守审批打开。
-        autoApprove: input.autoApprove === true || input.autoApprove === 1,
+        // Same normalizer the tasks routes use: only a known mode lands in the
+        // DB, and any junk value degrades to 'default' — it can never turn
+        // unattended auto-approval on by accident.
+        permissionMode: scheduleAutoApprove ? AUTO_APPROVE_MODE : scheduleMode,
         scheduleType: input.scheduleType as never,
         cronExpr: typeof input.cronExpr === 'string' ? input.cronExpr : null,
         intervalSeconds: typeof input.intervalSeconds === 'number' ? input.intervalSeconds : null,
@@ -353,7 +359,7 @@ export function createSchedulerService(deps: SchedulerDeps) {
         priority: 'priority',
         label: 'label',
         autoRun: 'auto_run',
-        autoApprove: 'auto_approve',
+        permissionMode: 'permission_mode',
         scheduleType: 'schedule_type',
         cronExpr: 'cron_expr',
         intervalSeconds: 'interval_seconds',
@@ -363,6 +369,12 @@ export function createSchedulerService(deps: SchedulerDeps) {
       };
       for (const [from, to] of Object.entries(keyMap)) {
         if (updates[from] !== undefined) cleaned[to] = updates[from];
+      }
+      // A mode must be whitelisted before it lands in the DB, same as create();
+      // junk values degrade to 'default' rather than reaching the runtime.
+      if (cleaned.permission_mode !== undefined) {
+        const { permissionMode: mode, autoApprove } = normalizePermissionMode(cleaned.permission_mode);
+        cleaned.permission_mode = autoApprove ? AUTO_APPROVE_MODE : mode;
       }
       // 校验合并后的形状：只改部分字段时，危险值可能来自新值与库里旧值的组合。
       // 放在标题解析之前 —— 会 400 的请求不该花模型取名的阻塞窗口。
