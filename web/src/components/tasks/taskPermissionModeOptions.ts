@@ -24,11 +24,24 @@ export function useTaskPermissionModeOptions(provider: string): ChipSelectOption
 }
 
 /**
- * 选中模式的后果说明（composer 同源的 `codex.descriptions.*`）。放在控件旁边的辅助行，
- * 因为 ChipSelect 的芯片只放得下模式名——`autoApprove` 那句「危险操作仍会拒绝」是必须
- * 让人看见的，不能因为换短名就丢掉。
+ * 选中模式的后果说明。
+ *
+ * 刻意**不走 i18n bundle**：`codex.descriptions.*` 只有英文，而这几个表单的其余文案
+ * 全是中文。模式名保持英文是有意的（用户要在 composer 和任务表单之间对上同一串字），
+ * 但那只是标识符；解释是给人读的散文，该用中文。
+ *
+ * `autoApprove` 那条是必须看见的——它说明「不问你就动手」的边界在哪。
  */
+const TASK_PERMISSION_MODE_DESCRIPTIONS: Record<string, string> = {
+  default: '只自动放行可信命令（ls、cat、grep、git status 等），其余会跳过。可写工作区。',
+  auto: '由模型分类器逐个工具判断批不批。不用你管，但比 Bypass 稳——仍会拒绝。',
+  autoApprove:
+    '无人值守时替你回答权限询问。工具调用自动放行，但危险命令（sudo、git push、rm -rf /、把下载管道进 shell 等）和需要人回答的提问会被拒绝。用于定时任务。',
+  acceptEdits: '工作区内所有命令自动执行，带沙箱。',
+  bypassPermissions: '完全放开，无任何限制，可全盘与网络访问。谨慎使用。',
+  plan: '只做规划，不执行任何命令。',
+};
+
 export function useTaskPermissionModeDescription(mode: string): string {
-  const { t } = useTranslation('chat');
-  return t(`codex.descriptions.${mode}`, { defaultValue: '' });
+  return TASK_PERMISSION_MODE_DESCRIPTIONS[mode] ?? '';
 }
