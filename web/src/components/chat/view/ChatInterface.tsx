@@ -9,7 +9,6 @@ import { useChatProviderState } from '../hooks/useChatProviderState';
 import { useChatSessionState } from '../hooks/useChatSessionState';
 import { useChatRealtimeHandlers } from '../hooks/useChatRealtimeHandlers';
 import { useChatComposerState } from '../hooks/useChatComposerState';
-import { useSessionAutoApprove } from '../hooks/useSessionAutoApprove';
 import { useSessionStore } from '../../../stores/useSessionStore';
 
 import ChatMessagesPane from './subcomponents/ChatMessagesPane';
@@ -43,7 +42,6 @@ function ChatInterface({
   newSessionTrigger,
   onShowAllTasks,
   linkedTaskModel,
-  linkedTaskAutoApprove,
   onSessionModelChanged,
 }: ChatInterfaceProps) {
   const { subscribe } = useWebSocket();
@@ -173,9 +171,6 @@ function ChatInterface({
     onNavigateToSession?.(sessionId);
   }, [setCurrentSessionId, onSessionEstablished, onNavigateToSession]);
 
-  const { show: showAutoApprove, enabled: autoApproveEnabled, toggle: toggleAutoApprove, clientAutoApprove } =
-    useSessionAutoApprove({ sessionId: currentSessionId, taskFlag: linkedTaskAutoApprove });
-
   const {
     input,
     setInput,
@@ -244,7 +239,6 @@ function ChatInterface({
     currentSessionId,
     provider,
     permissionMode,
-    clientAutoApprove,
     cyclePermissionMode,
     claudeModel,
     codexModel,

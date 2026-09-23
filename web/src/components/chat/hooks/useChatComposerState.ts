@@ -47,12 +47,6 @@ interface UseChatComposerStateArgs {
   provider: LLMProvider;
   permissionMode: PermissionMode | string;
   cyclePermissionMode: () => void;
-  /**
-   * `false` when the user turned auto-approval off for this session; `undefined`
-   * to leave the server's task-derived value alone. Never `true` — the backend
-   * ignores an upgrade, so the type does not allow one to be sent.
-   */
-  clientAutoApprove?: false | undefined;
   resolvePermissionModeForProvider: (provider: LLMProvider, requestedMode: PermissionMode | string) => PermissionMode;
   claudeModel: string;
   codexModel: string;
@@ -204,7 +198,6 @@ export function useChatComposerState({
   currentSessionId,
   provider,
   permissionMode,
-  clientAutoApprove,
   cyclePermissionMode,
   resolvePermissionModeForProvider,
   claudeModel,
@@ -724,13 +717,9 @@ export function useChatComposerState({
       // over REST, which is exactly the "message doesn't move until I refresh"
       // symptom. The backend only enables partials when this flag is set.
       includePartialMessages: true,
-      // Only ever a downgrade. The backend re-derives auto-approval from the
-      // task row and honours this key only when it is literally `false`.
-      ...(clientAutoApprove === false ? { autoApprove: false } : {}),
     };
   }, [
     claudeModel,
-    clientAutoApprove,
     codexModel,
     currentProviderEffort,
     opencodeModel,
