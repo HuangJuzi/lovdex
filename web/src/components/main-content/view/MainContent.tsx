@@ -186,6 +186,7 @@ function MainContent({
                   newSessionTrigger={newSessionTrigger}
                   onShowAllTasks={null}
                   linkedTaskModel={linkedTask ? (linkedTask.executor_model ?? null) : undefined}
+                  linkedTaskAutoApprove={linkedTask ? linkedTask.auto_approve === 1 : undefined}
                   onSessionModelChanged={handleSessionModelChanged}
                 />
               </ErrorBoundary>

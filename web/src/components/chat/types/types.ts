@@ -145,6 +145,10 @@ export interface ChatInterfaceProps {
    *  yet). Synced into the composer model so the session shows the same model
    *  as the task detail. */
   linkedTaskModel?: string | null;
+  /** The linked task's `auto_approve === 1`. `undefined` when there is no linked
+   *  task (or it has not resolved yet) — the composer then renders no
+   *  auto-approval toggle at all. */
+  linkedTaskAutoApprove?: boolean;
   /** Fired after a session-scoped model change (`/model` / model picker with a
    *  session selected) has been persisted for `sessionId`. The owner writes the
    *  selected session's linked task `executor_model` back so the task's 模型
