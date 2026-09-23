@@ -25,6 +25,7 @@ import {
 import { AnchorPopover } from './AnchorPopover';
 import { ChipSelect, type ChipSelectOption } from './ChipSelect';
 import { ASSISTANT_OPTION_VALUE } from './projectOptions';
+import { TASK_PERMISSION_MODE_OPTIONS } from './taskPermissionModeOptions';
 import type { TaskProjectOption } from './TaskCard';
 import { modelOptionsFor, nextModelOnLoad, useProviderModels } from './useProviderModels';
 import { ENGINE_NAMES, useTaskEngineAvailability } from './useTaskEngineAvailability';
@@ -37,8 +38,8 @@ export type ScheduledTaskDraft = {
   /** 空串 = 不指定，跑 provider 的默认模型槽位（后端见 null）。 */
   executorModel: string;
   autoRun: boolean;
-  /** 无人值守执行时自动放行工具调用（危险操作仍会拒绝）。 */
-  autoApprove: boolean;
+  /** 运行权限模式：'default'（每次询问）；可选值见 TASK_PERMISSION_MODE_OPTIONS。 */
+  permissionMode: string;
   scheduleType: ScheduledTaskScheduleType;
   cronExpr: string;
   // cronExpr 只承载「自定义」模式；其余模式由 cronMode + 下面三个参数拼出
@@ -62,7 +63,7 @@ export const EMPTY_DRAFT: ScheduledTaskDraft = {
   executorProvider: 'claude',
   executorModel: '',
   autoRun: true,
-  autoApprove: false,
+  permissionMode: 'default',
   scheduleType: 'once',
   cronExpr: '',
   cronMode: 'daily',
@@ -111,9 +112,7 @@ export function toApiBody(d: ScheduledTaskDraft) {
     executorProvider: d.executorProvider,
     executorModel: d.executorModel || null,
     autoRun: d.autoRun ? 1 : 0,
-    // 后端用 body.autoApprove === true 判定，所以这里发布尔值（不是 0/1）——
-    // 与 autoRun 的 0|1 不同，发 1 会被后端当成缺失静默丢弃。别顺手统一。
-    autoApprove: d.autoApprove,
+    permissionMode: d.permissionMode,
     scheduleType: d.scheduleType,
     cronExpr: d.scheduleType === 'cron' ? resolveCronExpr(d) : null,
     intervalSeconds: d.scheduleType === 'interval' ? draftIntervalSeconds(d) : null,
@@ -165,8 +164,8 @@ export function toDraft(initial?: ScheduledTask | null): ScheduledTaskDraft {
     executorProvider: initial.executor_provider,
     executorModel: initial.executor_model ?? '',
     autoRun: initial.auto_run === 1,
-    // 缺列/漏传时得到 false（保持询问），是安全方向。
-    autoApprove: initial.permission_mode === 'autoApprove',
+    // 缺列/漏传时落回 'default'（保持询问），是安全方向。
+    permissionMode: initial.permission_mode ?? 'default',
     scheduleType: initial.schedule_type,
     cronExpr: initial.cron_expr ?? '',
     cronMode: preset?.mode ?? 'custom',
@@ -526,23 +525,14 @@ export function ScheduledTaskFormBody({
             自动执行
           </button>
           <span className="text-xs text-muted-foreground">关闭则仅生成提醒任务，不自动开跑</span>
-          <button
-            type="button"
-            aria-label="自动审批"
-            aria-pressed={draft.autoApprove}
-            onClick={() => set('autoApprove', !draft.autoApprove)}
-            className={cn(
-              'flex h-9 items-center rounded-full border px-3 text-sm transition-colors',
-              draft.autoApprove
-                ? 'border-primary/60 bg-primary/10 text-primary'
-                : 'border-border/80 bg-card text-muted-foreground',
-            )}
-          >
-            自动审批
-          </button>
-          <span className="text-xs text-muted-foreground">
-            无人值守时自动放行工具调用（危险操作仍会拒绝）
-          </span>
+          <ChipSelect
+            ariaLabel="权限模式"
+            label="权限模式"
+            options={TASK_PERMISSION_MODE_OPTIONS}
+            value={draft.permissionMode}
+            isMobile={isMobile}
+            onChange={(v) => set('permissionMode', v)}
+          />
         </div>
       </div>
 

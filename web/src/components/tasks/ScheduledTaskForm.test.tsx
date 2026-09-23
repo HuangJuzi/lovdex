@@ -20,6 +20,7 @@ reactDomCjs.createPortal = (children) => children;
 // picks up the inline-rendering stub.
 const { ScheduledTaskForm, EMPTY_DRAFT, canSubmitScheduledTask, switchCronMode, toApiBody, toDraft, toProjectChipOptions } = await import('./ScheduledTaskForm');
 const { ASSISTANT_OPTION_VALUE } = await import('./projectOptions');
+const { TASK_PERMISSION_MODE_OPTIONS } = await import('./taskPermissionModeOptions');
 
 const onClose = () => {};
 const onSubmit = () => {};
@@ -300,32 +301,26 @@ test('model chip shows the 默认模型 fallback before the list arrives', () =>
   assert.ok(html.includes('默认模型'));
 });
 
-test('EMPTY_DRAFT defaults autoApprove to false', () => {
-  // 默认必须是关：新建定时任务不应该悄悄拿到无人监督权限。
-  assert.equal(EMPTY_DRAFT.autoApprove, false);
+test('EMPTY_DRAFT defaults the permission mode to default', () => {
+  // 默认必须是 default：新建定时任务不应该悄悄拿到无人监督权限。
+  assert.equal(EMPTY_DRAFT.permissionMode, 'default');
 });
 
-test('toApiBody sends autoApprove as a boolean', () => {
-  assert.equal(toApiBody({ ...EMPTY_DRAFT, autoApprove: true }).autoApprove, true);
-  assert.equal(toApiBody({ ...EMPTY_DRAFT, autoApprove: false }).autoApprove, false);
+test('toApiBody sends the permission mode', () => {
+  assert.equal(toApiBody({ ...EMPTY_DRAFT, permissionMode: 'autoApprove' }).permissionMode, 'autoApprove');
 });
 
-test('toDraft reads the stored permission_mode', () => {
-  assert.equal(toDraft(mkScheduledTask({ permission_mode: 'autoApprove' }) as never).autoApprove, true);
-  assert.equal(toDraft(mkScheduledTask({ permission_mode: 'default' }) as never).autoApprove, false);
+test('toDraft reads the stored permission mode', () => {
+  assert.equal(toDraft(mkScheduledTask({ permission_mode: 'autoApprove' }) as never).permissionMode, 'autoApprove');
 });
 
-test('toDraft treats a missing permission_mode as off', () => {
-  const withoutMode = mkScheduledTask({});
-  delete (withoutMode as Record<string, unknown>).permission_mode;
-  assert.equal(toDraft(withoutMode as never).autoApprove, false);
+test('toDraft treats a missing permission mode as default', () => {
+  const withoutMode = mkScheduledTask({ permission_mode: 'default' }) as Record<string, unknown>;
+  delete withoutMode.permission_mode;
+  assert.equal(toDraft(withoutMode as never).permissionMode, 'default');
 });
 
-test('renders an auto-approval toggle that explains the consequence', () => {
-  const html = renderWithOptions([]);
-  const toggle = /<button[^>]*aria-label="自动审批"[^>]*>/.exec(html)?.[0] ?? '';
-  assert.ok(toggle.length > 0, 'the auto-approval toggle must render');
-  assert.ok(/ aria-pressed="false"/.test(toggle), 'a new task must default to off');
-  // 只写开关名的文案会让人不知道开了会发生什么。
-  assert.ok(html.includes('危险操作仍会拒绝'), 'the hint must state what turning it on does');
+test('plan is not offered for an unattended run', () => {
+  // plan 只规划不执行 —— 定时任务选它等于永远空跑。
+  assert.equal(TASK_PERMISSION_MODE_OPTIONS.some((o) => o.value === 'plan'), false);
 });
