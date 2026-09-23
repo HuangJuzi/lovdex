@@ -126,17 +126,14 @@ test('renders empty state', () => {
   assert.match(html, /暂无定时任务/);
 });
 
-// INTERIM: the badge still reads the legacy auto_approve flag (Task 15 rekeys
-// it onto permission_mode), so an autoApprove mode alone must NOT light it.
-// When Task 15 lands, this assertion flips back to "must render".
-test('a scheduled task with autoApprove mode shows no badge until Task 15', () => {
+test('a scheduled task in autoApprove mode shows the auto-approval badge', () => {
   const html = render([{ ...baseTask, schedule_id: 's1', permission_mode: 'autoApprove' }]);
-  assert.equal(html.includes('自动审批'), false, 'the badge must not render until Task 15 rekeys it onto permission_mode');
+  assert.match(html, /自动审批/, 'the badge must render when permission_mode is autoApprove');
 });
 
-test('a scheduled task without the flag shows no auto-approval badge', () => {
+test('a scheduled task in default mode shows no auto-approval badge', () => {
   const html = render([{ ...baseTask, schedule_id: 's1', permission_mode: 'default' }]);
-  assert.equal(html.includes('自动审批'), false, 'the badge must not render when the flag is off');
+  assert.equal(html.includes('自动审批'), false, 'the badge must not render when permission_mode is default');
 });
 
 // 本机时区无关的下次触发断言素材：期望日期与任务用同一个时刻推导，
