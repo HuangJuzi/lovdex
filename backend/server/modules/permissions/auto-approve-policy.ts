@@ -1,6 +1,8 @@
 import os from 'node:os';
 import path from 'node:path';
 
+import type { AutoApproveDenyKind } from '@/shared/types.js';
+
 /**
  * Auto-approval policy for unattended task runs.
  *
@@ -280,7 +282,7 @@ export function decideAutoApproval(toolName: string, input: unknown): AutoApprov
 export function classifyAutoApproveDeny(
   isError: unknown,
   content: unknown,
-): 'interaction' | 'blocked' | undefined {
+): AutoApproveDenyKind | undefined {
   if (!isError) return undefined;
   if (typeof content !== 'string') return undefined;
   const text = content.trim();

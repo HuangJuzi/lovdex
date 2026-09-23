@@ -221,6 +221,19 @@ export type GatewayEventKind =
 export type ServerEventKind = MessageKind | GatewayEventKind;
 
 /**
+ * 自动审批按策略拒绝的分类，挂在被拒的 tool_result 上。
+ *
+ * SDK 把 `canUseTool` 的 deny message 原样写成 `is_error: true` 的 tool_result，
+ * 前端只看得到「一个错误 + 一段中文」。这个分类由后端从拒绝理由反推
+ * （理由文案的唯一来源是 permissions 策略模块），让前端不必认识任何中文。
+ *
+ * - `'interaction'`：交互型工具（AskUserQuestion / ExitPlanMode）没人可问 ——
+ *   预期内的正常结果
+ * - `'blocked'`：危险操作被策略拦下 —— 值得看一眼，但不是错误
+ */
+export type AutoApproveDenyKind = 'interaction' | 'blocked';
+
+/**
  * Provider-neutral message envelope used in REST responses and realtime channels.
  *
  * Every provider-specific message must be converted into this shape before being
