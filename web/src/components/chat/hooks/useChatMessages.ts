@@ -5,6 +5,7 @@
 
 import type { NormalizedMessage } from '../../../stores/useSessionStore';
 import type { ChatMessage, SubagentChildTool } from '../types/types';
+import { classifyAutoApproveNotice } from '../utils/autoApproveDeny';
 import { decodeHtmlEntities, unescapeWithMathProtection, formatUsageLimitText } from '../utils/chatFormatting';
 
 function formatToolResultContent(content: unknown): string {
@@ -323,13 +324,18 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
         break;
 
       case 'permission_auto': {
-        const denied = msg.autoApproveBehavior === 'deny';
+        const kind = classifyAutoApproveNotice(msg.toolName, msg.autoApproveBehavior);
         msgOut.push({
           type: 'notice',
-          content: denied
-            ? `已自动拒绝 ${msg.toolName ?? '工具'}：${msg.autoApproveReason ?? '无人值守执行中'}`
+          content: msg.autoApproveBehavior === 'deny'
+            ? (kind === 'interaction'
+                // 与工具卡里那行同一句话：理由原文的后半句是写给模型的指令，
+                // 不该出现在 UI 里。
+                ? `无人值守，无人可应答 — 已自动跳过 ${msg.toolName ?? '提问'}`
+                : `已自动拒绝 ${msg.toolName ?? '工具'}：${msg.autoApproveReason ?? '无人值守执行中'}`)
             : `已自动放行 ${msg.toolName ?? '工具'}`,
           timestamp: msg.timestamp,
+          autoApproveDenyKind: kind,
           ...sharedMetadata,
         });
         break;

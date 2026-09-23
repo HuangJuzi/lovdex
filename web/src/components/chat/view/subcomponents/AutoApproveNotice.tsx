@@ -10,14 +10,17 @@ import type { ChatMessage } from '../../types/types';
  * used to apply — `px-3 sm:px-0` — instead of sitting inside that wrapper.
  */
 export function AutoApproveNotice({ message }: { message: ChatMessage }) {
-  const denied = (message.content ?? '').startsWith('已自动拒绝');
+  // 判据是结构化字段，不是文案：交互型拒绝（没人可问）与放行一样是安静的，
+  // 只有「危险操作被拦」才值得用 warning 色提一下。靠 startsWith 判文案会在
+  // 后端改措辞时静默失效。
+  const emphasized = message.autoApproveDenyKind === 'blocked';
   return (
     <div
       className={`my-1 flex items-start gap-2 px-3 text-xs sm:px-0 ${
-        denied ? 'text-warning' : 'text-muted-foreground'
+        emphasized ? 'text-warning' : 'text-muted-foreground'
       }`}
     >
-      <span aria-hidden="true">{denied ? '⚡' : '⚡'}</span>
+      <span aria-hidden="true">⚡</span>
       <span>{message.content}</span>
     </div>
   );
