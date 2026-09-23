@@ -1,39 +1,37 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
 import { AutoApproveDenyNotice } from './AutoApproveDenyNotice';
 
-// 三分支判定的纯函数用例在 utils/autoApproveDeny.test.ts —— 判定与组件已按
-// 仓库惯例分家（视图文件里加普通导出会触发 react-refresh/only-export-components）。
-// 这里只剩两件事：叶组件的两个变体，以及「组件真的被接上了」的结构断言。
-
-// --- 叶子：两个变体的渲染 ---
+// 这里是**叶组件**的渲染变体。接线（MessageComponent 是否真的把它接上、
+// Bash 那条路径是否也走它）由 MessageComponent.test.tsx 真渲染覆盖 ——
+// 曾经用「读源码 + indexOf 断言结构」代替，那种写法两个方向都会误判
+// （多行书写会误红，路由写反成 `!==` 却全绿），已删。
 
 test('the interaction variant is a quiet info line, never an error', () => {
   const html = renderToStaticMarkup(
     React.createElement(AutoApproveDenyNotice, {
       kind: 'interaction',
       toolName: 'AskUserQuestion',
-      reason: '无人值守执行中，无人可应答。请基于现有信息自行判断并继续，不要再次请求确认。',
     }),
   );
   assert.ok(html.includes('AskUserQuestion'));
   assert.ok(html.includes('无人可应答'));
   assert.ok(!html.includes('Error'), 'must not be labelled Error');
   assert.ok(!html.includes('destructive'), 'must not use the destructive palette');
-  assert.ok(!html.includes('请基于现有信息自行判断'), 'the model-facing instruction must not render');
+  // 交互型**不能**带 reason：模型面协议指令（「请基于现有信息自行判断…」）
+  // 不是 UI 文案。props 判别联合把它变成不可表达的状态 —— 比一条渲染断言强。
+  // 运行时确实没渲染出那句话，由 MessageComponent.test.tsx 覆盖（那里
+  // toolResult.content 真的带着那句指令）。
 });
 
 test('the blocked variant keeps a box but is not an Error', () => {
   const html = renderToStaticMarkup(
     React.createElement(AutoApproveDenyNotice, {
       kind: 'blocked',
-      toolName: 'Bash',
       reason: '拒绝：不允许在无人值守时推送远端（不可逆的外发操作）',
     }),
   );
@@ -52,46 +50,23 @@ test('a missing tool name degrades gracefully', () => {
   assert.ok(!html.includes('undefined'));
 });
 
-// --- 接线：组件真的被 MessageComponent 接上了 ---
-//
-// 上面三组是叶组件，把 MessageComponent 里的分支整个删掉它们仍然全绿。
-// 渲染整个 MessageComponent 又会拉进 ToolRenderer/Markdown/i18n，无 DOM 环境下
-// 成本高且脆。所以这里直接对源码做结构断言：判定必须被**调用**（带上真实实参，
-// 防"import 了却没接"），叶组件必须被渲染，且判定的优先级不能倒过来。
-//
-// 这与 permissionModeLabels.i18n.test.ts 同属一类：手写副本之间的自洽证明不了接线。
+// 两个变体都产出锚点：被自动拒绝的结果同样可能被 `jump-to-results` 指过来。
+test('both variants emit the jump-to-results anchor when a toolId is given', () => {
+  const interaction = renderToStaticMarkup(
+    React.createElement(AutoApproveDenyNotice, { kind: 'interaction', toolId: 'tu_1' }),
+  );
+  assert.ok(interaction.includes('id="tool-result-tu_1"'));
 
-const readSource = (relative: string) =>
-  readFileSync(fileURLToPath(new URL(relative, import.meta.url)), 'utf8');
-
-test('MessageComponent routes tool results through resolveToolResultVariant', () => {
-  const src = readSource('./MessageComponent.tsx');
-  assert.ok(
-    /resolveToolResultVariant\(\s*message\.toolResult\s*\)/.test(src),
-    'MessageComponent must call resolveToolResultVariant(message.toolResult) — importing it is not enough',
+  const blocked = renderToStaticMarkup(
+    React.createElement(AutoApproveDenyNotice, { kind: 'blocked', reason: '拒绝：x', toolId: 'tu_2' }),
   );
-  assert.ok(
-    /<AutoApproveDenyNotice/.test(src),
-    'MessageComponent must render AutoApproveDenyNotice for the auto-denied branch',
-  );
-  // 判定必须出现在红框分支之前，否则带标记的结果仍会被 isError 抢走。
-  const variantAt = src.indexOf('resolveToolResultVariant(message.toolResult)');
-  const errorBranchAt = src.indexOf('message.toolResult.isError ?');
-  assert.ok(variantAt !== -1 && errorBranchAt !== -1, 'both branches must be present');
-  assert.ok(
-    variantAt < errorBranchAt,
-    'the auto-denied check must come before the isError red-box branch',
-  );
+  assert.ok(blocked.includes('id="tool-result-tu_2"'));
 });
 
-test('ToolRenderer derives "denied" from the structured field before sniffing text', () => {
-  const src = readSource('../../tools/ToolRenderer.tsx');
-  const denyAt = src.indexOf('toolResult.autoApproveDeny');
-  const errorAt = src.indexOf('toolResult.isError');
-  assert.ok(denyAt !== -1, 'deriveToolStatus must consult toolResult.autoApproveDeny');
-  assert.ok(errorAt !== -1, 'the isError branch must still exist');
-  assert.ok(
-    denyAt < errorAt,
-    'the structured autoApproveDeny check must precede the isError text-sniffing branch',
+test('no toolId means no anchor at all, not a literal "undefined"', () => {
+  const html = renderToStaticMarkup(
+    React.createElement(AutoApproveDenyNotice, { kind: 'blocked', reason: '拒绝：x' }),
   );
+  assert.ok(!html.includes('tool-result-'), 'no anchor should be emitted');
+  assert.ok(!html.includes('undefined'));
 });

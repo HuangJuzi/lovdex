@@ -91,6 +91,8 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
     return <AutoApproveNotice message={message} />;
   }
 
+  const toolResultVariant = resolveToolResultVariant(message.toolResult);
+
   return (
     <div
       ref={messageRef}
@@ -207,13 +209,21 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
                   />
                 )}
 
-                {/* Tool Result Section — Bash renders its output inside the command row above. */}
-                {message.toolResult && message.toolName !== 'Bash' && !shouldHideToolResult(message.toolName || 'UnknownTool', message.toolResult) && (
-                  resolveToolResultVariant(message.toolResult) === 'auto-denied' ? (
+                {/* Tool Result Section — Bash renders its output inside the command row above,
+                    except when the auto-approver denied it: then the command row shows what was
+                    attempted (amber Denied badge) and the notice below says why. */}
+                {message.toolResult && (message.toolName !== 'Bash' || Boolean(message.toolResult.autoApproveDeny)) && !shouldHideToolResult(message.toolName || 'UnknownTool', message.toolResult) && (
+                  toolResultVariant === 'interaction' ? (
                     // 自动审批按策略拒绝：不是工具故障，不画红框 Error。
                     <AutoApproveDenyNotice
-                      kind={message.toolResult.autoApproveDeny!}
+                      kind="interaction"
                       toolName={message.toolName}
+                      toolId={message.toolId}
+                    />
+                  ) : toolResultVariant === 'blocked' ? (
+                    // 拒绝理由本来就是写给用户看的（'拒绝：…'），原样展示。
+                    <AutoApproveDenyNotice
+                      kind="blocked"
                       reason={String(message.toolResult.content || '')}
                       toolId={message.toolId}
                     />

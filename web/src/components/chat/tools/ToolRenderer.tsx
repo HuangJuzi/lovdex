@@ -160,7 +160,12 @@ export const ToolRenderer: React.FC<ToolRendererProps> = memo(({
         command={command}
         description={description}
         output={output}
-        isError={Boolean(toolResult?.isError)}
+        // 不要直接透传 `toolResult.isError`：被自动审批拒绝的结果也带 isError，
+        // 那会让命令行这一行保留红边框 / 红输出（`border-destructive/30`），
+        // 与同一行上琥珀色的 Denied 徽标自相矛盾 —— 后端 9 条规则里 7 条是
+        // Bash，那正是本功能要消掉的红。走已归一的 `toolStatus`（单一判据），
+        // 只有真·故障才染红。
+        isError={toolStatus === 'error'}
         status={toolStatus !== 'completed' ? toolStatus : undefined}
         // Commands stay collapsed by default; only failures auto-expand so they
         // remain visible.

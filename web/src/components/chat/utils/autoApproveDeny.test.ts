@@ -43,17 +43,18 @@ test('the deny-kind literals are the exact wire values', () => {
   assert.equal(classifyAutoApproveNotice('Bash', 'deny'), 'blocked');
 });
 
-// --- 三分支判定（渲染接线的判据；渲染本身在 AutoApproveDenyNotice.test.tsx）---
+// --- 三分支判定（渲染接线的判据；渲染本身在 MessageComponent.test.tsx）---
 
-test('a tagged result wins over isError', () => {
+test('a tagged result wins over isError, and keeps its kind', () => {
   // 核心语义：带标记的结果不是错误，即使 isError 为真。
+  // 返回的是 kind 本身（而非笼统的 'auto-denied'），调用处收窄后直接拿去选渲染。
   assert.equal(
     resolveToolResultVariant({ isError: true, autoApproveDeny: 'interaction' }),
-    'auto-denied',
+    'interaction',
   );
   assert.equal(
     resolveToolResultVariant({ isError: true, autoApproveDeny: 'blocked' }),
-    'auto-denied',
+    'blocked',
   );
 });
 

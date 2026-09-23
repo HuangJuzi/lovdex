@@ -1,10 +1,14 @@
 /**
- * 自动审批在**前端**侧的分类。
+ * 前端关于「自动审批拒绝」的**全部**知识。
  *
- * 后端已经把「被自动拒绝的 tool_result」标好了（`NormalizedMessage.autoApproveDeny`），
- * 前端渲染直接读那个字段。这里只补一件事：`permission_auto` 那条实时提示帧
- * 不带分类，得靠工具名自己算 —— 交互型工具在无人值守时**必然**被拒（没人可应答），
- * 与「危险操作被拦」不是一回事，渲染强度也不同。
+ * 两个消费者，两种输入，别把它们混起来看：
+ *  - `classifyAutoApproveNotice` —— 输入是 `permission_auto` 的**实时提示帧**
+ *    （`type: 'notice'`）。那条帧不带分类，只能靠工具名自己算：交互型工具在
+ *    无人值守时**必然**被拒（没人可应答），与「危险操作被拦」不是一回事，
+ *    渲染强度也不同。
+ *  - `resolveToolResultVariant` —— 输入是 transcript 里的 `tool_result`，分类
+ *    已由后端标好（`NormalizedMessage.autoApproveDeny`），这里只负责决定它该
+ *    走哪种渲染。
  *
  * 这个联合必须与后端 `backend/server/shared/types.ts` 的 `AutoApproveDenyKind`
  * 保持一致。web 与 backend 是两个独立的包，无法 import 共享，所以这里是
@@ -43,16 +47,19 @@ export function classifyAutoApproveNotice(
  * 放在这里而不是 `AutoApproveDenyNotice.tsx`：视图文件里加普通导出会触发
  * `react-refresh/only-export-components`（与 `tasks/scheduleRunNow.ts` 同款分工）。
  * 而且 web 测试是 `node:test` + `renderToStaticMarkup`（无 DOM），判定逻辑
- * 只有离开组件才测得到 —— 只渲染叶组件的话，把 `MessageComponent` 里的分支
- * 删掉测试仍会绿。
+ * 只有离开组件才测得到。
  *
- * 优先级：带 autoApproveDeny 标记的结果即使 isError 也走 'auto-denied'，
+ * 优先级：带 autoApproveDeny 标记的结果即使 isError 也返回它自己的 kind，
  * 这正是本功能的核心语义（它不是错误，是策略决定）。
+ *
+ * 返回值**原样带出 kind**（而不是笼统的 `'auto-denied'`）：调用处要拿它去选
+ * 渲染强度，收窄后即可直接用，不必再读一次 `toolResult.autoApproveDeny` 或写
+ * 非空断言 —— 那种写法把「第一分支 ⇔ 字段非空」变成一条跨文件的隐式耦合。
  */
 export function resolveToolResultVariant(
   toolResult: { isError?: boolean; autoApproveDeny?: AutoApproveDenyKind } | null | undefined,
-): 'auto-denied' | 'error' | 'result' {
-  if (toolResult?.autoApproveDeny) return 'auto-denied';
+): AutoApproveDenyKind | 'error' | 'result' {
+  if (toolResult?.autoApproveDeny) return toolResult.autoApproveDeny;
   if (toolResult?.isError) return 'error';
   return 'result';
 }
