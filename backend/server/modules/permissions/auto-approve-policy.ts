@@ -276,3 +276,49 @@ export function resolveTaskAutoApprove(
     return false;
   }
 }
+
+/**
+ * The Lovdex-level permission mode that means "answer the permission prompts
+ * yourself". It is NOT a value the Claude SDK understands — `PermissionMode` is
+ * a closed union ('default' | 'acceptEdits' | 'bypassPermissions' | 'plan' |
+ * 'dontAsk' | 'auto') and `claude-sdk.js` forwards any non-'default' value
+ * straight into it. `normalizePermissionMode` is what translates.
+ *
+ * Exported so the frontend, the runtimes and the tests all spell it the same
+ * way; a typo in any one of them would silently disable the feature.
+ */
+export const AUTO_APPROVE_MODE = 'autoApprove';
+
+/** Modes Lovdex has actually verified end to end. `dontAsk` is deliberately absent. */
+const KNOWN_PERMISSION_MODES: ReadonlySet<string> = new Set([
+  'default',
+  'auto',
+  'acceptEdits',
+  'bypassPermissions',
+  'plan',
+]);
+
+/**
+ * Translate a Lovdex permission mode into what the provider runtimes consume.
+ *
+ * `autoApprove` MUST resolve to `'default'`, not to `'bypassPermissions'`:
+ * `canUseTool` is only consulted when the mode is not bypass, and the whole
+ * auto-approval policy hangs off that callback. Resolving it to bypass would
+ * skip the danger rules entirely — the feature would look like it worked while
+ * silently approving `rm -rf /`.
+ *
+ * Unknown values degrade to `'default'`, matching the direction every other
+ * fallback in this codebase takes (ask the human, never grant).
+ */
+export function normalizePermissionMode(mode: unknown): {
+  permissionMode: string;
+  autoApprove: boolean;
+} {
+  if (mode === AUTO_APPROVE_MODE) {
+    return { permissionMode: 'default', autoApprove: true };
+  }
+  if (typeof mode === 'string' && KNOWN_PERMISSION_MODES.has(mode)) {
+    return { permissionMode: mode, autoApprove: false };
+  }
+  return { permissionMode: 'default', autoApprove: false };
+}

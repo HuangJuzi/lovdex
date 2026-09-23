@@ -4,7 +4,9 @@ import path from 'node:path';
 import test from 'node:test';
 
 import {
+  AUTO_APPROVE_MODE,
   decideAutoApproval,
+  normalizePermissionMode,
   resolveTaskAutoApprove,
   TOOLS_REQUIRING_INTERACTION,
 } from '@/modules/permissions/auto-approve-policy.js';
@@ -237,4 +239,38 @@ test('resolveTaskAutoApprove: a throwing lookup degrades to false rather than fa
     throw new Error('db is down');
   };
   assert.equal(resolveTaskAutoApprove('boom', lookup), false);
+});
+
+// --- 权限模式归一化 ---
+
+test('the auto-approve mode becomes default + the flag', () => {
+  assert.deepEqual(normalizePermissionMode(AUTO_APPROVE_MODE), {
+    permissionMode: 'default',
+    autoApprove: true,
+  });
+});
+
+test('every known provider mode passes through with the flag off', () => {
+  for (const mode of ['default', 'auto', 'acceptEdits', 'bypassPermissions', 'plan']) {
+    assert.deepEqual(
+      normalizePermissionMode(mode),
+      { permissionMode: mode, autoApprove: false },
+      `${mode} must pass through untouched`,
+    );
+  }
+});
+
+test('anything unknown degrades to default, never to auto-approval', () => {
+  for (const value of ['dontAsk', 'garbage', '', null, undefined, 0, 1, true, {}, []]) {
+    assert.deepEqual(
+      normalizePermissionMode(value),
+      { permissionMode: 'default', autoApprove: false },
+      `${JSON.stringify(value)} must degrade to default`,
+    );
+  }
+});
+
+test('the mode constant is the exact wire value', () => {
+  // 前后端与运行时共用同一个字面量；改动它会静默断掉整条链路。
+  assert.equal(AUTO_APPROVE_MODE, 'autoApprove');
 });
