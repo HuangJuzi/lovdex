@@ -9,6 +9,7 @@ import type {
   Provider,
 } from '../../types/types';
 import { formatUsageLimitText } from '../../utils/chatFormatting';
+import { resolveToolResultVariant } from '../../utils/autoApproveDeny';
 import type { Project } from '../../../../types/app';
 import { ToolRenderer, shouldHideToolResult } from '../../tools';
 import type { WorkflowState } from '../../tools/workflowState';
@@ -18,7 +19,7 @@ import ChatMessageImages from './ChatMessageImages';
 import { Markdown } from './Markdown';
 import MessageCopyControl from './MessageCopyControl';
 import { AutoApproveNotice } from './AutoApproveNotice';
-import { AutoApproveDenyNotice, resolveToolResultVariant } from './AutoApproveDenyNotice';
+import { AutoApproveDenyNotice } from './AutoApproveDenyNotice';
 
 type DiffLine = {
   type: string;

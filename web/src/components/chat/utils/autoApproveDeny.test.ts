@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   AUTO_APPROVE_INTERACTION_TOOLS,
   classifyAutoApproveNotice,
+  resolveToolResultVariant,
 } from './autoApproveDeny';
 
 test('both interaction tools are covered', () => {
@@ -40,4 +41,28 @@ test('the deny-kind literals are the exact wire values', () => {
   assert.deepEqual([...AUTO_APPROVE_INTERACTION_TOOLS].sort(), ['AskUserQuestion', 'ExitPlanMode']);
   assert.equal(classifyAutoApproveNotice('AskUserQuestion', 'deny'), 'interaction');
   assert.equal(classifyAutoApproveNotice('Bash', 'deny'), 'blocked');
+});
+
+// --- 三分支判定（渲染接线的判据；渲染本身在 AutoApproveDenyNotice.test.tsx）---
+
+test('a tagged result wins over isError', () => {
+  // 核心语义：带标记的结果不是错误，即使 isError 为真。
+  assert.equal(
+    resolveToolResultVariant({ isError: true, autoApproveDeny: 'interaction' }),
+    'auto-denied',
+  );
+  assert.equal(
+    resolveToolResultVariant({ isError: true, autoApproveDeny: 'blocked' }),
+    'auto-denied',
+  );
+});
+
+test('an untagged error stays an error', () => {
+  assert.equal(resolveToolResultVariant({ isError: true }), 'error');
+});
+
+test('a plain result is a result', () => {
+  assert.equal(resolveToolResultVariant({}), 'result');
+  assert.equal(resolveToolResultVariant(null), 'result');
+  assert.equal(resolveToolResultVariant(undefined), 'result');
 });

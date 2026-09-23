@@ -1,28 +1,6 @@
 import type { AutoApproveDenyKind } from '../../utils/autoApproveDeny';
 
 /**
- * 一条 tool_result 该走哪种渲染。
- *
- * 抽成纯函数是为了能在无 DOM 环境下测「接线」——只渲染叶组件的话，
- * 把 MessageComponent 里的分支删掉测试仍会绿。
- *
- * 优先级：带 autoApproveDeny 标记的结果即使 isError 也走 'auto-denied'，
- * 这正是本功能的核心语义（它不是错误，是策略决定）。
- */
-// 纯函数与组件同文件导出是本特性刻意的取舍：接线测试要同时拿到两者
-// （见 AutoApproveDenyNotice.test.tsx）。它会触发 react-refresh 的
-// only-export-components；这里显式抑制而不是另开一个文件，是为了让
-// 「组件 + 判定」始终一起被搬动 —— 拆开正是漏测接线的温床。
-// eslint-disable-next-line react-refresh/only-export-components
-export function resolveToolResultVariant(
-  toolResult: { isError?: boolean; autoApproveDeny?: AutoApproveDenyKind } | null | undefined,
-): 'auto-denied' | 'error' | 'result' {
-  if (toolResult?.autoApproveDeny) return 'auto-denied';
-  if (toolResult?.isError) return 'error';
-  return 'result';
-}
-
-/**
  * 被自动审批按策略拒绝的 tool_result 的渲染。
  *
  * 这类结果在 transcript 里是 `is_error: true` —— SDK 把 `canUseTool` 的 deny

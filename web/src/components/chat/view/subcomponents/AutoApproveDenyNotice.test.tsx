@@ -6,31 +6,11 @@ import { fileURLToPath } from 'node:url';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
-import { AutoApproveDenyNotice, resolveToolResultVariant } from './AutoApproveDenyNotice';
+import { AutoApproveDenyNotice } from './AutoApproveDenyNotice';
 
-// --- 接线：三分支判定 ---
-
-test('a tagged result wins over isError', () => {
-  // 核心语义：带标记的结果不是错误，即使 isError 为真。
-  assert.equal(
-    resolveToolResultVariant({ isError: true, autoApproveDeny: 'interaction' }),
-    'auto-denied',
-  );
-  assert.equal(
-    resolveToolResultVariant({ isError: true, autoApproveDeny: 'blocked' }),
-    'auto-denied',
-  );
-});
-
-test('an untagged error stays an error', () => {
-  assert.equal(resolveToolResultVariant({ isError: true }), 'error');
-});
-
-test('a plain result is a result', () => {
-  assert.equal(resolveToolResultVariant({}), 'result');
-  assert.equal(resolveToolResultVariant(null), 'result');
-  assert.equal(resolveToolResultVariant(undefined), 'result');
-});
+// 三分支判定的纯函数用例在 utils/autoApproveDeny.test.ts —— 判定与组件已按
+// 仓库惯例分家（视图文件里加普通导出会触发 react-refresh/only-export-components）。
+// 这里只剩两件事：叶组件的两个变体，以及「组件真的被接上了」的结构断言。
 
 // --- 叶子：两个变体的渲染 ---
 
@@ -72,9 +52,9 @@ test('a missing tool name degrades gracefully', () => {
   assert.ok(!html.includes('undefined'));
 });
 
-// --- 接线：组件真的调了上面那个判定 ---
+// --- 接线：组件真的被 MessageComponent 接上了 ---
 //
-// 上面三组都是纯函数/叶组件，把 MessageComponent 里的分支整个删掉它们仍然全绿。
+// 上面三组是叶组件，把 MessageComponent 里的分支整个删掉它们仍然全绿。
 // 渲染整个 MessageComponent 又会拉进 ToolRenderer/Markdown/i18n，无 DOM 环境下
 // 成本高且脆。所以这里直接对源码做结构断言：判定必须被**调用**（带上真实实参，
 // 防"import 了却没接"），叶组件必须被渲染，且判定的优先级不能倒过来。

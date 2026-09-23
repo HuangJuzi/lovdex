@@ -36,3 +36,23 @@ export function classifyAutoApproveNotice(
   if (behavior !== 'deny') return undefined;
   return AUTO_APPROVE_INTERACTION_TOOLS.has(toolName ?? '') ? 'interaction' : 'blocked';
 }
+
+/**
+ * 一条 tool_result 该走哪种渲染。
+ *
+ * 放在这里而不是 `AutoApproveDenyNotice.tsx`：视图文件里加普通导出会触发
+ * `react-refresh/only-export-components`（与 `tasks/scheduleRunNow.ts` 同款分工）。
+ * 而且 web 测试是 `node:test` + `renderToStaticMarkup`（无 DOM），判定逻辑
+ * 只有离开组件才测得到 —— 只渲染叶组件的话，把 `MessageComponent` 里的分支
+ * 删掉测试仍会绿。
+ *
+ * 优先级：带 autoApproveDeny 标记的结果即使 isError 也走 'auto-denied'，
+ * 这正是本功能的核心语义（它不是错误，是策略决定）。
+ */
+export function resolveToolResultVariant(
+  toolResult: { isError?: boolean; autoApproveDeny?: AutoApproveDenyKind } | null | undefined,
+): 'auto-denied' | 'error' | 'result' {
+  if (toolResult?.autoApproveDeny) return 'auto-denied';
+  if (toolResult?.isError) return 'error';
+  return 'result';
+}
