@@ -35,11 +35,23 @@ cd backend && env -u TSX_TSCONFIG_PATH npx tsx --tsconfig server/tsconfig.json -
 cd web && env -u TSX_TSCONFIG_PATH npx tsx --test <file>
 ```
 
-**3. 提交只 stage 自己的文件。** 同一工作区有并发会话（探查期间 HEAD 从 `eeab8fb` 漂到 `9ea8f41`），工作区里有 `web/src/components/tasks/AnchorPopover.tsx`、`anchorPlacement.ts`、`anchorPlacement.test.ts` 等**不属于本次改动**的未提交文件。每次 commit 用显式路径 `git add <file> <file>`，**永远不要 `git add -A` / `git add .`**。
+**3. 提交只 stage 自己的文件，且用 pathspec 形式提交。** 同一工作区有并发会话（规划期间 HEAD 从 `eeab8fb` 漂到 `12bd035`），工作区里有 `web/src/components/tasks/AnchorPopover.tsx`、`anchorPlacement.ts`、`anchorPlacement.test.ts` 等**不属于本次改动**的未提交文件。
 
-**4. 不要切分支。** 会抢走并发会话的 HEAD。
+更危险的是：**并发会话可能已经把它的 WIP stage 进 index**。裸 `git commit`（不带 pathspec）提交的是**整个 index**，会把它一起卷进来。所以每个 Task 的提交一律用：
 
-**5. commit message 禁止加 `Co-Authored-By` 署名行。**
+```bash
+git commit -m "<message>" -- <path1> <path2>
+```
+
+pathspec 形式直接提交指定路径的工作区状态，**完全绕过 index**，对 index 污染免疫。不要用 `git add` + 裸 `git commit` 的组合。
+
+**4. 绝对不要在共享工作区跑 `git checkout --` / `git restore` / `git stash` / `git reset`。** 这些动作会丢弃**并发会话**未提交的工作。发现文件状态不对时，先 `git diff <path>` 看清楚，再报告。
+
+**5. 不要切分支。** 会抢走并发会话的 HEAD。
+
+**6. commit message 禁止加 `Co-Authored-By` 署名行。**
+
+**7. 行号会漂。** 计划里的行号取自 2026-09-23 某个时刻，并发会话一直在改同一批文件。**一律按符号名定位**（搜索 `const COMMAND_RULES`、`export function decideAutoApproval` 等），不要相信硬编码行号。
 
 ---
 
@@ -105,7 +117,7 @@ cd /mnt/b/workdir/github/lovdex && git status --short
 
 - [ ] **Step 1: 写失败测试**
 
-打开 `backend/server/modules/permissions/tests/auto-approve-policy.test.ts`，把顶部 import 块改成（只加三项，其余保持原样）：
+打开 `backend/server/modules/permissions/tests/auto-approve-policy.test.ts`，把顶部 import 块改成（**以文件里实际存在的名字为准**；`resolveTaskAutoApprove` 已被并发会话删除，**不要**把它加回来）：
 
 ```ts
 import {
@@ -115,11 +127,12 @@ import {
   classifyAutoApproveDeny,
   decideAutoApproval,
   normalizePermissionMode,
-  resolveTaskAutoApprove,
   TOOLS_REQUIRING_INTERACTION,
   UNATTENDED_INTERACTION_DENY_REASON,
 } from '@/modules/permissions/auto-approve-policy.js';
 ```
+
+> 2026-09-23 实况：该文件在 `12bd035` 时 import 的是 `AUTO_APPROVE_MODE, decideAutoApproval, normalizePermissionMode, TOOLS_REQUIRING_INTERACTION` 四个。并发会话正在这块地上持续施工，**先 `sed -n 1,15p` 看一眼再改**，照抄上面的块可能引入已失效的名字（会变成一条 tsc 错误，违反「零新增」）。
 
 在文件末尾追加：
 
@@ -249,6 +262,41 @@ export function classifyAutoApproveDeny(
 }
 ```
 
+**(d) 把分类联合提取成具名类型（代码审查追补，已实施）。** 否则 `'interaction' | 'blocked'` 会在 `shared/types.ts` 和前端各再写一遍，**漂移是静默的**：将来加第三种拒绝，`types.ts` 不报错、前端走 default 分支、测试照样绿。
+
+类型定义在 `backend/server/shared/types.ts`（纯契约文件，只 import `node:http` 与 `@/shared/task-status.js`），由策略模块 `import type` 使用 —— 这是正确方向（modules → shared）。**反过来是依赖倒挂**，不要那样做。
+
+`shared/types.ts` 里，`export type NormalizedMessage = {` 正上方：
+
+```ts
+/**
+ * 自动审批按策略拒绝的分类，挂在被拒的 tool_result 上。
+ *
+ * SDK 把 `canUseTool` 的 deny message 原样写成 `is_error: true` 的 tool_result，
+ * 前端只看得到「一个错误 + 一段中文」。这个分类由后端从拒绝理由反推
+ * （理由文案的唯一来源是 permissions 策略模块），让前端不必认识任何中文。
+ *
+ * - `'interaction'`：交互型工具（AskUserQuestion / ExitPlanMode）没人可问 ——
+ *   预期内的正常结果
+ * - `'blocked'`：危险操作被策略拦下 —— 值得看一眼，但不是错误
+ */
+export type AutoApproveDenyKind = 'interaction' | 'blocked';
+```
+
+`auto-approve-policy.ts` 顶部加 type-only import（保持 `node:os` / `node:path` 两行不动）：
+
+```ts
+import type { AutoApproveDenyKind } from '@/shared/types.js';
+```
+
+返回类型改用它：
+
+```ts
+): AutoApproveDenyKind | undefined {
+```
+
+纯类型改动、无行为变化，不需要新测试，但**必须**跑一遍确认 29 个测试仍全绿、tsc 仍是 14。
+
 - [ ] **Step 4: 跑测试确认通过**
 
 ```bash
@@ -260,11 +308,14 @@ env -u TSX_TSCONFIG_PATH npx tsx --tsconfig server/tsconfig.json --test server/m
 
 - [ ] **Step 5: 提交**
 
+用 **pathspec 形式**（见「开工前必读」第 3 条），**不要**先 `git add`：
+
 ```bash
 cd /mnt/b/workdir/github/lovdex
-git add backend/server/modules/permissions/auto-approve-policy.ts \
-        backend/server/modules/permissions/tests/auto-approve-policy.test.ts
-git commit -m "feat(permissions): classify auto-approval denials on tool results"
+git commit -m "feat(permissions): classify auto-approval denials on tool results" -- \
+  backend/server/shared/types.ts \
+  backend/server/modules/permissions/auto-approve-policy.ts \
+  backend/server/modules/permissions/tests/auto-approve-policy.test.ts
 ```
 
 ---
@@ -356,22 +407,7 @@ env -u TSX_TSCONFIG_PATH npx tsx --tsconfig server/tsconfig.json --test server/m
 
 改 `backend/server/shared/types.ts`。
 
-在 `export type NormalizedMessage = {`（`:229`）**正上方**插入类型声明：
-
-```ts
-/**
- * 自动审批按策略拒绝的分类，挂在被拒的 tool_result 上。
- *
- * SDK 把 `canUseTool` 的 deny message 原样写成 `is_error: true` 的 tool_result，
- * 前端只看得到「一个错误 + 一段中文」。这个字段由后端从拒绝理由反推
- * （理由文案的唯一来源是 permissions 策略模块），让前端不必认识任何中文。
- *
- * - `'interaction'`：交互型工具（AskUserQuestion / ExitPlanMode）没人可问 ——
- *   预期内的正常结果
- * - `'blocked'`：危险操作被策略拦下 —— 值得看一眼，但不是错误
- */
-export type AutoApproveDenyKind = 'interaction' | 'blocked';
-```
+> **`AutoApproveDenyKind` 类型已由 Task 1 的修复建立**（定义在 `shared/types.ts`，由策略模块 `import type` 使用）。**本任务只加字段，不要重新定义这个类型，也不要再写一遍 `'interaction' | 'blocked'` 字面量。** 先 `grep -n "AutoApproveDenyKind" backend/server/shared/types.ts` 确认它在。
 
 在 `autoApproveReason?: string;`（`:264`）之后加顶层字段：
 
@@ -716,6 +752,10 @@ git commit -m "feat(providers): tag auto-approval denials on qoder tool results"
  * 前端渲染直接读那个字段。这里只补一件事：`permission_auto` 那条实时提示帧
  * 不带分类，得靠工具名自己算 —— 交互型工具在无人值守时**必然**被拒（没人可应答），
  * 与「危险操作被拦」不是一回事，渲染强度也不同。
+ *
+ * 这个联合必须与后端 `backend/server/shared/types.ts` 的 `AutoApproveDenyKind`
+ * 保持一致。web 与 backend 是两个独立的包，无法 import 共享，所以这里是
+ * **唯一**一份前端副本 —— 其余前端文件一律从这里 import，不要再写第二份字面量。
  */
 export type AutoApproveDenyKind = 'interaction' | 'blocked';
 
