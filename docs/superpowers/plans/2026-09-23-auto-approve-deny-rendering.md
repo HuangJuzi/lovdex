@@ -432,10 +432,16 @@ env -u TSX_TSCONFIG_PATH npx tsx --tsconfig server/tsconfig.json --test server/m
 
 改 `backend/server/modules/providers/list/claude/claude-sessions.provider.ts` 四处。
 
-**(a)** 顶部 import 区（`:10` 那批 `@/modules/...` 之间）加：
+**(a)** 顶部 import 区加**两行**（注意：类型要从 `@/shared/types.js` 取，策略模块只 `import type` 了它、**没有** re-export，从策略模块取类型会报 `TS2459`）：
 
 ```ts
-import { classifyAutoApproveDeny, type AutoApproveDenyKind } from '@/modules/permissions/auto-approve-policy.js';
+import { classifyAutoApproveDeny } from '@/modules/permissions/auto-approve-policy.js';
+```
+
+并把 `AutoApproveDenyKind` 并入该文件已有的 `@/shared/types.js` 类型导入（claude provider 本来就有这一行，加个名字即可）：
+
+```ts
+import type { AnyRecord, AutoApproveDenyKind, FetchHistoryOptions, FetchHistoryResult, NormalizedMessage } from '@/shared/types.js';
 ```
 
 **(b)** `ClaudeToolResult`（`:53-58`）加字段：
@@ -565,6 +571,21 @@ git commit -m "feat(providers): tag auto-approval denials on claude tool results
 
 - [ ] **Step 1: 写失败测试**
 
+**动手前先做一件事**：核对 qoder 的拒绝理由文案是否与 claude 的**逐字相同**。
+
+`classifyAutoApproveDeny` 做的是 trim 后**全等**匹配（`blocked` 是前缀匹配）。claude 的理由来自 `claude-sdk.js` 里 `decideAutoApproval(...)` 的 `decision.reason`；qoder 的来自 `backend/server/qoder-runner.js`。两者都调同一个策略模块，理论上同源，但**要亲眼确认**：
+
+```bash
+cd /mnt/b/workdir/github/lovdex
+grep -n "decideAutoApproval\|decision.reason" backend/server/qoder-runner.js
+```
+
+确认它用的是**同一个** `decideAutoApproval` 的返回值、没有二次加工（拼接、包装、截断）。若发现文案被包装过，**停下来报告**——那意味着 qoder 需要单独的处理，不是复制粘贴能解决的。
+
+> **2026-09-23 已核实（规划阶段）**：`qoder-runner.js:25` 从同一个 `./modules/permissions/auto-approve-policy.js` 导入 `decideAutoApproval`，`:485` 调用、`:491` 与 `control_response` 的 `message` 都直接取 `decision.reason`，**无二次加工**。文案同源，可以放心复制 claude 的实现。
+
+> **qoder 侧的诚实缺口**：扫描本机 `~/.qoder/projects/**/*.jsonl` 的 **817 条 tool_result，deny 命中 0 条** —— qoder 的自动拒绝**还没有任何真实落盘记录**。所以「qoder CLI 会把 `decision.reason` 原样写进 tool_result 的 `content`（纯字符串）」这个前提，在 qoder 上**只有推断、没有实测**（claude 侧有 3 条真实记录背书）。本任务的测试用的是**合成** transcript 行，它验证的是「给定这种形状，归一化会正确打标」，**不验证** qoder CLI 真的产出这种形状。这个残余风险请如实写进汇报，不要含糊。
+
 新建 `backend/server/modules/providers/list/qoder/tests/auto-approve-deny-tag.test.ts`：
 
 ```ts
@@ -630,11 +651,19 @@ env -u TSX_TSCONFIG_PATH npx tsx --tsconfig server/tsconfig.json --test server/m
 
 - [ ] **Step 3: 实现**
 
-**(a)** 顶部 import 区加：
+**(a)** 顶部 import 区加**两行**（与 Task 2 同理：类型要从 `@/shared/types.js` 取，策略模块没有 re-export 它）：
 
 ```ts
-import { classifyAutoApproveDeny, type AutoApproveDenyKind } from '@/modules/permissions/auto-approve-policy.js';
+import { classifyAutoApproveDeny } from '@/modules/permissions/auto-approve-policy.js';
 ```
+
+并把 `AutoApproveDenyKind` 并入该文件已有的 `@/shared/types.js` 类型导入（qoder provider 也有这一行）：
+
+```ts
+import type { AnyRecord, AutoApproveDenyKind, FetchHistoryOptions, FetchHistoryResult, NormalizedMessage } from '@/shared/types.js';
+```
+
+> 先 `sed -n 1,12p` 看一眼实际的 import 行，按它现有的名字列表加，不要照抄上面这行的完整列表。
 
 **(b)** `QoderToolResult`（`:15-20`）加字段：
 
@@ -817,6 +846,20 @@ test('an allow has no classification', () => {
 
 test('a missing tool name still classifies as blocked, never interaction', () => {
   assert.equal(classifyAutoApproveNotice(undefined, 'deny'), 'blocked');
+});
+
+test('the deny-kind literals are the exact wire values', () => {
+  // web 与 backend 是两个独立的包，没有共享类型通道（web 里没有 backend 的
+  // tsconfig paths），所以这份联合是**结构性**的跨进程重复，无法消除。
+  // 后端从拒绝理由反推、前端按字段换渲染，两边字面量一旦漂移，UI 会静默走错
+  // 分支而所有测试照样绿。照抄仓库既有先例钉死它 —— 见
+  // backend/server/modules/permissions/tests/auto-approve-policy.test.ts 的
+  // `the mode constant is the exact wire value`。
+  //
+  // 后端对应定义：backend/server/shared/types.ts 的 AutoApproveDenyKind。
+  assert.deepEqual([...AUTO_APPROVE_INTERACTION_TOOLS].sort(), ['AskUserQuestion', 'ExitPlanMode']);
+  assert.equal(classifyAutoApproveNotice('AskUserQuestion', 'deny'), 'interaction');
+  assert.equal(classifyAutoApproveNotice('Bash', 'deny'), 'blocked');
 });
 ```
 

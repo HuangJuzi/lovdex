@@ -175,3 +175,17 @@ export function classifyAutoApproveDeny(
 - 不给 remote lite 加协议字段（远程历史复用同一条归一化路径，无需 lite 侧改动）
 - 不处理 `Permission request timed out` 等 SDK 原生拒绝的渲染（那是真问题，应保持红框）
 - 不管 `normalizeMessage` 里那条扁平 `raw.type === 'tool_result'` 分支（`:643-666`，`isError` 写死 `false`，不产生红框）
+
+### 7.1 已知缺口：subagent 子工具（显式不含，非疏漏）
+
+Task 2 的代码审查发现的**计划本身**的缺口，记在此处以免变成默认沉默：
+
+**问题**：subagent 内部工具调用的结果走的是**另一条构造路径** —— `providers/list/shared/transcript-history.ts` 的 `parseAgentToolsContent` 构造 `toolResult: {content, isError}`，不带 `autoApproveDeny`；前端 `SubagentContainer.tsx:126` 同样认 `isError` 画红色 `(error)`。所以一个被自动拒绝的 `AskUserQuestion` 若发生在 subagent 内，红字照旧。
+
+**为什么本次不做**：
+
+1. 实测全量 transcript（9928 条 tool_result）里 **subagent 内的 deny = 0 条**；
+2. 它是独立的构造路径 + 独立的渲染组件，混进来会让 Task 5 的边界变模糊；
+3. 修它需要动 shared 层 + 前端子工具渲染，属于另一处 UI 语义决策（子工具卡片该不该有 info 态）。
+
+**若要做**（backlog）：在 `parseAgentToolsContent` 里复用 `classifyAutoApproveDeny`（该文件与策略模块同在 shared 层，导入无环），并让 `SubagentContainer` 对带标记的子工具不画红。
