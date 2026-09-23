@@ -159,13 +159,27 @@ test('a native (text-sniffed) Bash denial is amber, not red', () => {
   assert.ok(!html.includes('已自动拒绝'));
 });
 
-test('a plain successful result renders neither box', () => {
+// 第四条分支（else，`mode="result"` 的 ToolRenderer 路径）。
+//
+// 工具选 Grep 而不是 Write/Read：那两家的 result 段配了 `hideOnSuccess` /
+// `hidden`，成功结果被 `shouldHideToolResult` 整段藏掉 —— 实测 Write 的正文
+// 根本不进输出。用它们时这条用例**什么都没测**：三条否定式断言自然恒绿，
+// 区分不了「两个框都不渲染」与「什么都没渲染」。
+test('a plain successful result renders the result view, with neither box', () => {
   const html = render(
     toolMessage({
-      toolName: 'Write',
-      toolResult: { content: 'File written' },
+      toolName: 'Grep',
+      toolInput: { pattern: 'TODO', path: 'src' },
+      toolResult: {
+        content: 'src/a.ts:1:TODO\nsrc/b.ts:2:TODO',
+        toolUseResult: { numFiles: 2, filenames: ['src/a.ts', 'src/b.ts'] },
+      },
     }),
   );
+  // 肯定式断言：ToolRenderer 的 **result** 视图（collapsible 标题）确实渲染了。
+  // 它顺带钉住 else 分支的 `mode="result"` —— 改成 `mode="input"` 会去渲染
+  // input 视图（Grep 的 pattern + jump-to-results 锚），这个标题就消失了。
+  assert.ok(html.includes('Found 2 files'), 'the result view must actually render');
   assert.ok(!html.includes('destructive'));
   assert.ok(!html.includes('已自动拒绝'));
   assert.ok(!html.includes('无人可应答'));
