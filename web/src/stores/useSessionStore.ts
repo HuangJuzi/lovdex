@@ -68,9 +68,16 @@ export interface NormalizedMessage {
   toolName?: string;
   autoApproveBehavior?: 'allow' | 'deny';
   autoApproveReason?: string;
+  /** 仅 tool_result：后端标好的自动审批拒绝分类，见 shared/types.ts 的 AutoApproveDenyKind。 */
+  autoApproveDeny?: 'interaction' | 'blocked';
   toolInput?: unknown;
   toolId?: string;
-  toolResult?: { content: string; isError: boolean; toolUseResult?: unknown } | null;
+  toolResult?: {
+    content: string;
+    isError: boolean;
+    toolUseResult?: unknown;
+    autoApproveDeny?: 'interaction' | 'blocked';
+  } | null;
   /**
    * Pre-aggregated Workflow tree attached by the backend to Workflow tool_use
    * messages in REST history (fetchHistory/aggregateWorkflowState). Seeded into

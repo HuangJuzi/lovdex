@@ -4,6 +4,7 @@ import type {
   MarkSessionProcessing,
   SessionActivityMap,
 } from '../../../hooks/useSessionProtection';
+import type { AutoApproveDenyKind } from '../utils/autoApproveDeny';
 
 export type Provider = LLMProvider;
 
@@ -30,6 +31,8 @@ export interface ToolResult {
   isError?: boolean;
   timestamp?: string | number | Date;
   toolUseResult?: unknown;
+  /** 后端标好的自动审批拒绝分类；真·工具错误上没有这个字段。 */
+  autoApproveDeny?: AutoApproveDenyKind;
   [key: string]: unknown;
 }
 
@@ -56,6 +59,11 @@ export interface ChatMessage {
   toolName?: string;
   toolInput?: unknown;
   toolResult?: ToolResult | null;
+  /**
+   * 仅 `type: 'notice'` 的自动审批提示：分类决定渲染强度。
+   * 由 `useChatMessages` 从 `permission_auto` 帧算出（见 utils/autoApproveDeny.ts）。
+   */
+  autoApproveDenyKind?: AutoApproveDenyKind;
   toolId?: string;
   toolCallId?: string;
   commandName?: string;
