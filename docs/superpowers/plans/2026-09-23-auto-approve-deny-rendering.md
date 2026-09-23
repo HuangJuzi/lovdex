@@ -480,7 +480,7 @@ export function toolResultTextForClassification(content: unknown): string {
 }
 ```
 
-**不要**改 `providers/list/shared/transcript-history.ts` —— 它已实现同样的 `.text` 约定，改成调用此 helper 是纯重构，且会碰到 spec §7.1 明确排除的 subagent 路径。
+**不要**改 `providers/list/shared/transcript-history.ts` —— 它已实现同样的 `.text` 约定，改成调用此 helper 是纯重构，且会碰到 spec §7.2 明确排除的 subagent 路径。
 
 **(b)** `ClaudeToolResult`（`:53-58`）加字段：
 
