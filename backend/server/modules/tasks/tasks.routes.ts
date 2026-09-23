@@ -1,6 +1,7 @@
 import express from 'express';
 
 import { isTaskStatus } from '@/modules/database/repositories/tasks.db.js';
+import { AUTO_APPROVE_MODE, normalizePermissionMode } from '@/modules/permissions/auto-approve-policy.js';
 import type { TasksService } from '@/modules/tasks/services/tasks.service.js';
 import { AppError, asyncHandler } from '@/shared/utils.js';
 import type { TaskEngine, TaskStatus } from '@/shared/types.js';
@@ -36,6 +37,9 @@ export function buildTasksRouter(tasksService: TasksService, deps: { createSessi
       // Awaited: a blank title makes createTask consult the title generator
       // (bounded by the blocking window) before it returns the row. Handing the
       // bare promise to res.json would silently serialize to `{}`.
+      // The normalized mode is what lands in the DB, so what the runtime later
+      // reads back is exactly what was validated here.
+      const normalized = normalizePermissionMode(body.permissionMode);
       const task = await tasksService.createTask({
         projectPath: typeof body.projectPath === 'string' ? body.projectPath : '',
         title: typeof body.title === 'string' ? body.title : '',
@@ -50,7 +54,7 @@ export function buildTasksRouter(tasksService: TasksService, deps: { createSessi
         label: body.label as TaskLabel | undefined,
         remark: typeof body.remark === 'string' ? body.remark : null,
         sourceScheduleId: typeof body.sourceScheduleId === 'string' ? body.sourceScheduleId : null,
-        autoApprove: body.autoApprove === true,
+        permissionMode: normalized.autoApprove ? AUTO_APPROVE_MODE : normalized.permissionMode,
         sourceSessionId: typeof body.sourceSessionId === 'string' ? body.sourceSessionId : null,
         contextMode: body.contextMode as 'none' | 'summary' | 'raw' | undefined,
         // 客户端重试 / 双击 / 两个标签页提交的是同一份意图：由服务端合并成一次落库，
@@ -99,7 +103,7 @@ export function buildTasksRouter(tasksService: TasksService, deps: { createSessi
       if (body.label !== undefined && (typeof body.label !== 'string' || !isTaskLabel(body.label))) {
         throw new AppError(`invalid label: ${String(body.label)}`, { code: 'INVALID_LABEL', statusCode: 400 });
       }
-      const hasFieldUpdates = ['title', 'description', 'executorProvider', 'executorModel', 'sessionId', 'projectPath', 'priority', 'deadline', 'label', 'remark', 'autoApprove'].some((k) => body[k] !== undefined);
+      const hasFieldUpdates = ['title', 'description', 'executorProvider', 'executorModel', 'sessionId', 'projectPath', 'priority', 'deadline', 'label', 'remark', 'permissionMode'].some((k) => body[k] !== undefined);
       if (typeof body.status === 'string' && hasFieldUpdates) {
         throw new AppError('cannot update status and fields in the same request', { code: 'INVALID_REQUEST', statusCode: 400 });
       }
@@ -123,7 +127,7 @@ export function buildTasksRouter(tasksService: TasksService, deps: { createSessi
         deadline?: string | null;
         label?: TaskLabel;
         remark?: string | null;
-        autoApprove?: boolean;
+        permissionMode?: string;
       } = {};
       if (typeof body.title === 'string') updates.title = body.title;
       if (typeof body.description === 'string') updates.description = body.description;
@@ -139,7 +143,13 @@ export function buildTasksRouter(tasksService: TasksService, deps: { createSessi
       if (typeof body.label === 'string') updates.label = body.label as TaskLabel;
       if (typeof body.remark === 'string') updates.remark = body.remark;
       if (body.remark === null) updates.remark = null;
-      if (typeof body.autoApprove === 'boolean') updates.autoApprove = body.autoApprove;
+      // Whitelist through the normalizer: an arbitrary string must not flow
+      // into the DB and back out into the runtime. 'autoApprove' is stored
+      // verbatim (it is the Lovdex-level mode, not an SDK value).
+      if (typeof body.permissionMode === 'string') {
+        const { permissionMode: mode, autoApprove } = normalizePermissionMode(body.permissionMode);
+        updates.permissionMode = autoApprove ? AUTO_APPROVE_MODE : mode;
+      }
       const row = await tasksService.updateTask(taskId, updates);
       if (!row) throw new AppError('task not found', { code: 'TASK_NOT_FOUND', statusCode: 404 });
       res.json(row);

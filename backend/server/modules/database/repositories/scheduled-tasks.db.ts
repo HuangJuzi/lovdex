@@ -40,7 +40,7 @@ export const scheduledTasksDb = {
     priority?: string;
     label?: string;
     autoRun?: boolean | 0 | 1;
-    autoApprove?: boolean | 0 | 1;
+    permissionMode?: string;
     scheduleType: ScheduledTaskScheduleType;
     cronExpr?: string | null;
     intervalSeconds?: number | null;
@@ -51,7 +51,7 @@ export const scheduledTasksDb = {
     const db = getConnection();
     const scheduleId = randomUUID();
     const row = db.prepare(`
-      INSERT INTO scheduled_tasks (schedule_id, title, description, project_path, executor_provider, executor_model, priority, label, is_operator, auto_run, auto_approve, schedule_type, cron_expr, interval_seconds, run_at, timezone, next_run_at)
+      INSERT INTO scheduled_tasks (schedule_id, title, description, project_path, executor_provider, executor_model, priority, label, is_operator, auto_run, permission_mode, schedule_type, cron_expr, interval_seconds, run_at, timezone, next_run_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       RETURNING *
     `).get(
@@ -65,7 +65,7 @@ export const scheduledTasksDb = {
       input.label ?? 'other',
       input.projectPath ? 0 : 1,
       input.autoRun === false || input.autoRun === 0 ? 0 : 1,
-      input.autoApprove === true || input.autoApprove === 1 ? 1 : 0,
+      input.permissionMode ?? 'default',
       input.scheduleType,
       input.cronExpr ?? null,
       input.intervalSeconds ?? null,
@@ -100,7 +100,7 @@ export const scheduledTasksDb = {
       title: (v) => v, description: (v) => v, project_path: (v) => v,
       executor_provider: (v) => v, executor_model: (v) => v, priority: (v) => v, label: (v) => v,
       is_operator: (v) => (v ? 1 : 0), auto_run: (v) => (v ? 1 : 0),
-      auto_approve: (v) => (v ? 1 : 0),
+      permission_mode: (v) => v,
       schedule_type: (v) => v, cron_expr: (v) => v, interval_seconds: (v) => v, run_at: (v) => v,
       timezone: (v) => v, next_run_at: (v) => v, last_run_at: (v) => v, last_task_id: (v) => v,
       enabled: (v) => (v ? 1 : 0),

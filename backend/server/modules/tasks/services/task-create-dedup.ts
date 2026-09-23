@@ -20,6 +20,7 @@
  */
 import { createHash } from 'node:crypto';
 
+import { AUTO_APPROVE_MODE, normalizePermissionMode } from '@/modules/permissions/auto-approve-policy.js';
 import type { TaskRow } from '@/shared/types.js';
 
 /** 已落库的创建在多长时间内算「同一份意图」。 */
@@ -42,7 +43,7 @@ type DedupKeyInput = {
   sourceScheduleId?: string | null;
   sourceSessionId?: string | null;
   contextMode?: string | null;
-  autoApprove?: boolean;
+  permissionMode?: string;
 };
 
 /** undefined / null / 空串 / 首尾空白都归一化，避免同一份意图算出两个指纹。 */
@@ -55,6 +56,10 @@ function normalize(value: unknown): string {
  * 不同的等价请求也能命中同一个指纹，取哈希是为了日志里不落用户原文。
  */
 export function taskCreateDedupKey(input: DedupKeyInput): string {
+  // The mode participates in the fingerprint the same way it is persisted: run
+  // it through the normalizer so 'default', an omitted field and any junk value
+  // collapse into one intent, while 'autoApprove' stays distinct.
+  const { permissionMode: mode, autoApprove } = normalizePermissionMode(input.permissionMode);
   const payload = [
     normalize(input.projectPath),
     normalize(input.title),
@@ -74,7 +79,7 @@ export function taskCreateDedupKey(input: DedupKeyInput): string {
     // 追加在末尾（而不是插进 isOperator 旁边）纯粹是为了让「这次改动的 diff 最小」：
     // 数组多一个元素本来就改变了所有指纹，但指纹只活在进程内的 Map 里（见下方闸门），
     // 重启即清空，所以改动本身不需要考虑旧指纹的兼容。
-    input.autoApprove === true ? 1 : 0,
+    autoApprove ? AUTO_APPROVE_MODE : mode,
   ];
   return createHash('sha1').update(JSON.stringify(payload)).digest('hex');
 }

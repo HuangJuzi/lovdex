@@ -23,7 +23,7 @@ function makeRow(overrides: Partial<TaskRow> = {}): TaskRow {
     position: 1,
     session_id: null,
     source_schedule_id: null,
-    auto_approve: 0,
+    permission_mode: 'default',
     started_at: null,
     completed_at: null,
     created_at: '2026-01-01T00:00:00.000Z',
