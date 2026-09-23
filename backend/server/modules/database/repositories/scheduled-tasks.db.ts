@@ -20,8 +20,11 @@ function normalizeTimestamp(value?: string): string | null {
 }
 
 function normalizeScheduledTaskRow(row: ScheduledTaskRow): ScheduledTaskRow {
+  // Same retired-boolean strip as tasks.db.ts's normalizeTaskRow — see the note
+  // there. `SELECT *` would otherwise leak the frozen `auto_approve` value.
+  const { auto_approve: _retired, ...live } = row as ScheduledTaskRow & { auto_approve?: number };
   return {
-    ...row,
+    ...live,
     next_run_at: normalizeTimestamp(row.next_run_at) ?? row.next_run_at,
     last_run_at: row.last_run_at ? (normalizeTimestamp(row.last_run_at) ?? row.last_run_at) : null,
     run_at: row.run_at ? (normalizeTimestamp(row.run_at) ?? row.run_at) : null,

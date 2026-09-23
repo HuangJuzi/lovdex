@@ -56,8 +56,15 @@ function statusTimestampSets(from: TaskStatus, to: TaskStatus): string[] {
 }
 
 function normalizeTaskRow(row: TaskRow): TaskRow {
+  // `auto_approve` is the retired boolean this feature replaced (spec
+  // 2026-09-23). The column stays in the schema so the one-time backfill can be
+  // replayed, but `SELECT *` would otherwise leak it into every API response —
+  // and since nothing writes it any more, its value freezes at backfill time and
+  // silently drifts from `permission_mode` the moment a user picks another mode.
+  // Stripped here because this mapper sits on every read path.
+  const { auto_approve: _retired, ...live } = row as TaskRow & { auto_approve?: number };
   return {
-    ...row,
+    ...live,
     created_at: normalizeTimestamp(row.created_at) ?? row.created_at,
     updated_at: normalizeTimestamp(row.updated_at) ?? row.updated_at,
     started_at: row.started_at ? (normalizeTimestamp(row.started_at) ?? row.started_at) : null,
