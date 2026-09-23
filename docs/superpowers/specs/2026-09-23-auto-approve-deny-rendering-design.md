@@ -276,3 +276,11 @@ Task 2 的代码审查发现的**计划本身**的缺口，记在此处以免变
 **暂不处理**：Task 4 的代码审查判定「不阻塞合并」。若将来还要再动这块，把类型挪到一个中立的 web 模块（例如挨着 `web/src/types/app.ts`），让 `stores/` 与 `components/` 都从那里 import，store 那两份内联字面量就自然消掉。
 
 **另一条同时记录的边界**：`autoApproveDeny.test.ts` 的 wire-value 测试**防不住跨进程漂移**——它只能冻结前端侧字面量，后端改了它不会红。真正的跨包 guard 成本高、可能不值得，但注释里不应声称已解决漂移。
+
+**一条可行的补法（Task 6 审查建议，未实施）**：类型通道确实没有，但**文本级对账有** —— `web/` 与 `backend/` 是同仓库兄弟目录，web 测试可读 `../backend/server/modules/permissions/auto-approve-policy.ts`、正则抽出 `TOOLS_REQUIRING_INTERACTION` 的成员，与前端 `AUTO_APPROVE_INTERACTION_TOOLS` 做集合相等断言。这比现有 `permissionModeLabels.i18n.test.ts`（读源码断言结构）并不更脆，却直接堵住上面那条「漏同步 ⇒ 新交互型工具被判 `blocked` ⇒ 写给模型的拒绝理由泄漏进 UI」。代价是 web 测试耦合到后端文件路径。
+
+### 7.4 记录：`AutoApproveNotice` 的 props 偏宽（不阻塞）
+
+`AutoApproveNotice` 实际只读 `content` 与 `autoApproveDenyKind`，签名却是整个 `ChatMessage`，导致叶子测试只能 `message: {...} as never` —— 而 `as never` 顺带关掉了字段名校验（组件若去读第三个字段，测试照样绿）。
+
+**保持现状**（Task 6 审查倾向）：它是 `MessageComponent` 的 early return、消息对象本来就在手，收窄成 `{ content?, denyKind? }` 会让调用点多一个对象字面量。记录在此，供将来重构时参考。
