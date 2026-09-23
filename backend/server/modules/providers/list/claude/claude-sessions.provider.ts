@@ -3,9 +3,10 @@ import os from 'node:os';
 import path from 'node:path';
 
 import type { IProviderSessions } from '@/shared/interfaces.js';
-import type { AnyRecord, FetchHistoryOptions, FetchHistoryResult, NormalizedMessage } from '@/shared/types.js';
+import type { AnyRecord, AutoApproveDenyKind, FetchHistoryOptions, FetchHistoryResult, NormalizedMessage } from '@/shared/types.js';
 import { createNormalizedMessage, generateMessageId, readObjectRecord, sliceTailPage } from '@/shared/utils.js';
 import { sessionsDb } from '@/modules/database/index.js';
+import { classifyAutoApproveDeny } from '@/modules/permissions/auto-approve-policy.js';
 import { getRemoteAgentsRuntime } from '@/modules/remote-agents/runtime.js';
 import { lookupRemoteHost } from '@/modules/remote-agents/remote-projects.index.js';
 import { assembleHistoryRecords, readTranscriptDir } from '@/modules/providers/list/shared/transcript-history.js';
@@ -53,6 +54,8 @@ export function resolveClaudeTranscriptPath(
 type ClaudeToolResult = {
   content: unknown;
   isError: boolean;
+  /** 见 `AutoApproveDenyKind`。 */
+  autoApproveDeny?: AutoApproveDenyKind;
   subagentTools?: unknown;
   toolUseResult?: unknown;
 };
@@ -450,6 +453,9 @@ export class ClaudeSessionsProvider implements IProviderSessions {
           if (part.type === 'tool_result') {
             const tur = (raw.toolUseResult || part.toolUseResult) as AnyRecord | undefined;
             const isLocalWorkflow = tur?.taskType === 'local_workflow';
+            const resultContent = typeof part.content === 'string'
+              ? part.content
+              : JSON.stringify(part.content);
             messages.push(createNormalizedMessage({
               id: `${baseId}_tr_${part.tool_use_id}`,
               sessionId,
@@ -457,8 +463,9 @@ export class ClaudeSessionsProvider implements IProviderSessions {
               provider: PROVIDER,
               kind: 'tool_result',
               toolId: part.tool_use_id,
-              content: typeof part.content === 'string' ? part.content : JSON.stringify(part.content),
+              content: resultContent,
               isError: Boolean(part.is_error),
+              autoApproveDeny: classifyAutoApproveDeny(part.is_error, resultContent),
               subagentTools: raw.subagentTools,
               toolUseResult: raw.toolUseResult,
               // Lift WorkflowOutput fields for local_workflow so the frontend
@@ -762,9 +769,14 @@ export class ClaudeSessionsProvider implements IProviderSessions {
       if (raw.message?.role === 'user' && Array.isArray(raw.message?.content)) {
         for (const part of raw.message.content) {
           if (part.type === 'tool_result' && part.tool_use_id) {
+            // 分类只看文案，所以拿归一化后的字符串来判，而不是原始 part.content。
+            const text = typeof part.content === 'string'
+              ? part.content
+              : JSON.stringify(part.content);
             toolResultMap.set(part.tool_use_id, {
               content: part.content,
               isError: Boolean(part.is_error),
+              autoApproveDeny: classifyAutoApproveDeny(part.is_error, text),
               subagentTools: raw.subagentTools,
               toolUseResult: raw.toolUseResult,
             });
@@ -790,6 +802,7 @@ export class ClaudeSessionsProvider implements IProviderSessions {
             ? toolResult.content
             : JSON.stringify(toolResult.content),
           isError: toolResult.isError,
+          autoApproveDeny: toolResult.autoApproveDeny,
           toolUseResult: toolResult.toolUseResult,
         };
         msg.subagentTools = toolResult.subagentTools;

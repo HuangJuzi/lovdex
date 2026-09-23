@@ -275,12 +275,16 @@ export type NormalizedMessage = {
   autoApproveBehavior?: 'allow' | 'deny';
   /** 仅 permission_auto：拒绝时的理由，直接展示给用户。 */
   autoApproveReason?: string;
+  /** 仅 tool_result：见 `AutoApproveDenyKind`。 */
+  autoApproveDeny?: AutoApproveDenyKind;
   toolInput?: unknown;
   toolId?: string;
   toolResult?: {
     content?: string;
     isError?: boolean;
     toolUseResult?: unknown;
+    /** 仅 tool_result：见 `AutoApproveDenyKind`。 */
+    autoApproveDeny?: AutoApproveDenyKind;
   };
   isError?: boolean;
   text?: string;
