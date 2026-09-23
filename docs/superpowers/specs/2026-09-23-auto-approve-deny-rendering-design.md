@@ -31,6 +31,8 @@
 
 `content` 是**纯字符串**、与策略常量逐字相等 —— 这是本设计能精确分类的前提。
 
+这条前提已用真实数据验证过，不是推断：扫全部 `~/.claude/projects/**/*.jsonl` 的 9928 条 tool_result，命中 `interaction` 3 条、**逐字不等的 0 条**。同期命中 `blocked` **0 条**（还没有危险命令被拒过的记录），所以 `'拒绝：'` 前缀那条路径目前只有单测覆盖、没有真实数据背书。
+
 ### 为什么不能只靠现有机制
 
 `claude-sdk.js:846-855` 确实已经发了一条 `permission_auto` 的 ws 帧，前端渲染成 `⚡ 已自动拒绝 …`（`AutoApproveNotice.tsx`）。但：
@@ -82,15 +84,19 @@ autoApproveDeny?: 'interaction' | 'blocked';
 /** 危险操作拒绝理由的统一前缀；COMMAND_RULES 每条 reason 都必须以它开头。 */
 export const AUTO_APPROVE_BLOCKED_PREFIX = '拒绝：';
 
-/** 把一条 tool_result 的内容分类成自动审批拒绝；不是自动拒绝就返回 null。 */
-export function classifyAutoApproveDeny(content: unknown): 'interaction' | 'blocked' | null
+/** 把一条 tool_result 分类成自动审批拒绝；不是自动拒绝就返回 undefined。 */
+export function classifyAutoApproveDeny(
+  isError: unknown,
+  content: unknown,
+): 'interaction' | 'blocked' | undefined
 ```
 
 判定：
 
-1. `String(content).trim()` 精确等于 `UNATTENDED_INTERACTION_DENY_REASON` → `'interaction'`
-2. 以 `AUTO_APPROVE_BLOCKED_PREFIX` 开头 → `'blocked'`
-3. 其余（含非字符串、空串）→ `null`
+1. `isError` 非真 → `undefined`。**`isError` 必须参与分类**：只有被拒的工具调用才会拿到这段文案，正常输出即使碰巧相等也不是拒绝。
+2. `String(content).trim()` 精确等于 `UNATTENDED_INTERACTION_DENY_REASON` → `'interaction'`
+3. 以 `AUTO_APPROVE_BLOCKED_PREFIX` 开头 → `'blocked'`
+4. 其余（含非字符串、空串）→ `undefined`
 
 两条路径互斥（交互型那条以「无人值守」开头，不以「拒绝：」开头）。
 
@@ -140,9 +146,13 @@ export function classifyAutoApproveDeny(content: unknown): 'interaction' | 'bloc
 
 ### 5.3 ⚡ 实时提示的判据要一起改
 
-`AutoApproveNotice.tsx` 现在靠 `content.startsWith('已自动拒绝')` 决定用 warning 还是 muted 配色。交互型的新文案以「无人值守」开头，会**不再匹配**，配色会意外变化。
+`AutoApproveNotice.tsx` 现在靠 `content.startsWith('已自动拒绝')` 决定用 warning 还是 muted 配色。
 
-不靠巧合，直接把判据换成结构化字段：`useChatMessages.ts:323-334` 的 `permission_auto` 分支已经知道 `toolName` 和 `autoApproveBehavior`，在那里算出分类挂到 `ChatMessage` 上（`autoApproveDenyKind`），`AutoApproveNotice` 按它选配色。判据用 `toolName` 是否属于交互型工具（`AskUserQuestion` / `ExitPlanMode`，与 `toolConfigs.ts:504`、`:548` 同一集合），**不嗅探文案**。
+**注意这不是在修一个已经出错的行为**：交互型的新文案以「无人值守」开头，旧判据下落到 muted，而交互型本来就该是 muted —— 结果碰巧是对的。要改是因为**这个「对」完全依赖文案前缀碰巧一致**，后端改一次措辞（比如把理由改成「无人值守中…」以外的主语）就会静默错色，而且没有任何测试会红。
+
+所以把判据换成结构化字段：`useChatMessages.ts:323-334` 的 `permission_auto` 分支已经知道 `toolName` 和 `autoApproveBehavior`，在那里算出分类挂到 `ChatMessage` 上（`autoApproveDenyKind`），`AutoApproveNotice` 按它选配色。判据用 `toolName` 是否属于交互型工具（`AskUserQuestion` / `ExitPlanMode`，与 `toolConfigs.ts:504`、`:548` 同一集合），**不嗅探文案**。
+
+因为这是纯契约收紧、不改变现有三种输入下的观感，测试必须**让文案与分类正交**才能真正钉住它（同一段文案、只换分类字段，断言颜色跟着字段走）——否则新旧实现都会绿。
 
 顺带把交互型拒绝的 ⚡ 文案也换成同一句短 UI 文案，避免和工具卡那行重复一长串给模型看的指令。两处并存（⚡ 实时、工具卡持久），各自简短。
 
