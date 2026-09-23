@@ -29,17 +29,20 @@ type TableInfoRow = {
   pk: number;
 };
 
+// Returns true only when the column was actually added this run — callers use
+// it to gate one-time backfills (migrations run on every boot, so an
+// unconditional backfill would keep re-applying itself).
 const addColumnToTableIfNotExists = (
   db: Database,
   tableName: string,
   columnNames: string[],
   columnName: string,
   columnType: string
-) => {
-  if (!columnNames.includes(columnName)) {
-    console.log(`Running migration: Adding ${columnName} column to ${tableName} table`);
-    db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnType}`);
-  }
+): boolean => {
+  if (columnNames.includes(columnName)) return false;
+  console.log(`Running migration: Adding ${columnName} column to ${tableName} table`);
+  db.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnType}`);
+  return true;
 };
 
 const tableExists = (db: Database, tableName: string): boolean =>
@@ -700,6 +703,27 @@ const migrateTasksTable = (db: Database): void => {
   // than this column), but a new one must either carry auto_approve through the
   // copy or add itself below this line.
   addColumnToTableIfNotExists(db, 'tasks', getTableInfo(db, 'tasks').map((column) => column.name), 'auto_approve', 'INTEGER DEFAULT 0');
+
+  // Permission mode (spec 2026-09-23): the string replacement for the boolean
+  // auto_approve flag ('default' | 'autoApprove'). Backfill ONLY when the
+  // column was actually added this run: migrations run on every boot, and an
+  // unconditional backfill would silently flip any task the user manually
+  // switched back to 'default' back to auto-approve on every restart. Placed
+  // at the very end like auto_approve so no rebuild gate above can drop it;
+  // the backfill can read auto_approve because the call above guarantees the
+  // column exists by this point. The invariant above now applies to BOTH
+  // columns: a future rebuild gate must place itself below this block (not
+  // just below auto_approve) or carry both columns through its copy.
+  const addedTaskMode = addColumnToTableIfNotExists(
+    db,
+    'tasks',
+    getTableInfo(db, 'tasks').map((column) => column.name),
+    'permission_mode',
+    "TEXT DEFAULT 'default'"
+  );
+  if (addedTaskMode) {
+    db.exec("UPDATE tasks SET permission_mode = 'autoApprove' WHERE auto_approve = 1");
+  }
 };
 
 /**
@@ -879,6 +903,20 @@ export const runMigrations = (db: Database) => {
       // table, which would make the ALTER below throw. Upgraded installs get it
       // in place here; fresh DBs already have it via SCHEDULED_TASKS_TABLE_SCHEMA_SQL.
       addColumnToTableIfNotExists(db, 'scheduled_tasks', getTableInfo(db, 'scheduled_tasks').map((column) => column.name), 'auto_approve', 'INTEGER DEFAULT 0');
+
+      // Permission mode, same gating rule as the tasks column above: backfill
+      // only on the run that actually adds the column, so a schedule the user
+      // switched back to 'default' is never re-flipped by a restart.
+      const addedScheduleMode = addColumnToTableIfNotExists(
+        db,
+        'scheduled_tasks',
+        getTableInfo(db, 'scheduled_tasks').map((column) => column.name),
+        'permission_mode',
+        "TEXT DEFAULT 'default'"
+      );
+      if (addedScheduleMode) {
+        db.exec("UPDATE scheduled_tasks SET permission_mode = 'autoApprove' WHERE auto_approve = 1");
+      }
     }
 
     db.exec('CREATE INDEX IF NOT EXISTS idx_session_ids_lookup ON sessions(session_id)');

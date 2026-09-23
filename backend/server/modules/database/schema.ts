@@ -195,7 +195,8 @@ CREATE TABLE IF NOT EXISTS tasks (
                       CHECK (context_status IS NULL OR context_status IN ('pending','ready','failed')),
     context_raw       TEXT,
     source_schedule_id TEXT,
-    auto_approve      INTEGER DEFAULT 0
+    auto_approve      INTEGER DEFAULT 0,
+    permission_mode   TEXT DEFAULT 'default'
 );
 `;
 
@@ -221,6 +222,7 @@ CREATE TABLE IF NOT EXISTS scheduled_tasks (
     next_run_at       DATETIME NOT NULL,
     last_run_at       DATETIME,
     auto_approve      INTEGER DEFAULT 0,
+    permission_mode   TEXT DEFAULT 'default',
     last_task_id      TEXT,
     enabled           INTEGER DEFAULT 1,
     created_at        DATETIME DEFAULT CURRENT_TIMESTAMP,

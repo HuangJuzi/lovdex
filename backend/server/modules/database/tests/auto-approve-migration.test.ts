@@ -201,3 +201,97 @@ test('auto_approve is added in place to an existing scheduled_tasks table', asyn
     await rm(tempDirectory, { recursive: true, force: true });
   }
 });
+
+test('a fresh database gets permission_mode on both tables, defaulting to default', async () => {
+  const previousDatabasePath = process.env.DATABASE_PATH;
+  const tempDirectory = await mkdtemp(path.join(tmpdir(), 'perm-mode-fresh-'));
+  closeConnection();
+  process.env.DATABASE_PATH = path.join(tempDirectory, 'auth.db');
+
+  await initializeDatabase();
+
+  try {
+    const db = getConnection();
+    assert.ok(columnNames(db, 'tasks').includes('permission_mode'), 'tasks.permission_mode');
+    assert.ok(
+      columnNames(db, 'scheduled_tasks').includes('permission_mode'),
+      'scheduled_tasks.permission_mode',
+    );
+  } finally {
+    closeConnection();
+    if (previousDatabasePath === undefined) delete process.env.DATABASE_PATH;
+    else process.env.DATABASE_PATH = previousDatabasePath;
+    await rm(tempDirectory, { recursive: true, force: true });
+  }
+});
+
+test('an existing auto_approve = 1 row is backfilled to the auto-approve mode', async () => {
+  const previousDatabasePath = process.env.DATABASE_PATH;
+  const tempDirectory = await mkdtemp(path.join(tmpdir(), 'perm-mode-backfill-'));
+  const databasePath = path.join(tempDirectory, 'auth.db');
+
+  closeConnection();
+  process.env.DATABASE_PATH = databasePath;
+
+  // Simulate the "previous release already shipped" database: auto_approve
+  // exists, permission_mode does not.
+  const legacy = new Database(databasePath);
+  legacy.exec(PROJECTS_DDL);
+  legacy.prepare('INSERT INTO projects (project_id, project_path) VALUES (?, ?)').run('p1', '/tmp/repo');
+  legacy.exec(TASKS_WITHOUT_AUTO_APPROVE_DDL);
+  legacy.exec('ALTER TABLE tasks ADD COLUMN auto_approve INTEGER DEFAULT 0');
+  legacy.prepare('INSERT INTO tasks (task_id, project_path, title, auto_approve) VALUES (?, ?, ?, ?)')
+    .run('t1', '/tmp/repo', 'on', 1);
+  legacy.prepare('INSERT INTO tasks (task_id, project_path, title, auto_approve) VALUES (?, ?, ?, ?)')
+    .run('t2', '/tmp/repo', 'off', 0);
+  legacy.close();
+
+  await initializeDatabase();
+
+  try {
+    const rows = getConnection()
+      .prepare('SELECT task_id, permission_mode FROM tasks ORDER BY task_id')
+      .all() as { task_id: string; permission_mode: string }[];
+    assert.deepEqual(rows, [
+      { task_id: 't1', permission_mode: 'autoApprove' },
+      { task_id: 't2', permission_mode: 'default' },
+    ]);
+  } finally {
+    closeConnection();
+    if (previousDatabasePath === undefined) delete process.env.DATABASE_PATH;
+    else process.env.DATABASE_PATH = previousDatabasePath;
+    await rm(tempDirectory, { recursive: true, force: true });
+  }
+});
+
+test('re-running the migration does not undo a manual switch back to default', async () => {
+  const previousDatabasePath = process.env.DATABASE_PATH;
+  const tempDirectory = await mkdtemp(path.join(tmpdir(), 'perm-mode-idempotent-'));
+  closeConnection();
+  process.env.DATABASE_PATH = path.join(tempDirectory, 'auth.db');
+
+  await initializeDatabase();
+  // The user switched a task from autoApprove back to default in the UI.
+  getConnection()
+    .prepare('INSERT INTO projects (project_id, project_path) VALUES (?, ?)').run('p1', '/tmp/repo');
+  getConnection()
+    .prepare('INSERT INTO tasks (task_id, project_path, title, auto_approve, permission_mode) VALUES (?, ?, ?, ?, ?)')
+    .run('t1', '/tmp/repo', 'x', 1, 'default');
+  closeConnection();
+
+  // Second migration run: the column already exists, so the whole backfill
+  // block must be skipped.
+  await initializeDatabase();
+
+  try {
+    const row = getConnection()
+      .prepare("SELECT permission_mode FROM tasks WHERE task_id = 't1'")
+      .get() as { permission_mode: string };
+    assert.equal(row.permission_mode, 'default', 'a manual switch must survive a restart');
+  } finally {
+    closeConnection();
+    if (previousDatabasePath === undefined) delete process.env.DATABASE_PATH;
+    else process.env.DATABASE_PATH = previousDatabasePath;
+    await rm(tempDirectory, { recursive: true, force: true });
+  }
+});
