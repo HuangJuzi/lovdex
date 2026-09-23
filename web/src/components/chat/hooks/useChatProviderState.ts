@@ -15,6 +15,7 @@ import {
   FALLBACK_PROVIDER_EFFORT_VALUES,
   toProviderEffortOptions,
 } from '../constants/providerEffort';
+import { resolvePermissionMode } from '../utils/resolvePermissionMode';
 
 const FALLBACK_DEFAULT_MODEL: Record<LLMProvider, string> = {
   claude: 'default',
@@ -91,6 +92,12 @@ interface UseChatProviderStateArgs {
    * detail's 模型 field and the session's model indicator consistent.
    */
   linkedTaskModel?: string | null;
+  /**
+   * The linked task's `permission_mode` for the selected session. `undefined`
+   * means "no linked task (or the reverse-lookup has not resolved yet)"; the
+   * mode resolver then falls through to the provider's memory/default.
+   */
+  linkedTaskPermissionMode?: string | null;
 }
 
 /**
@@ -158,7 +165,7 @@ type ChangeActiveModelApiResponse = {
   };
 };
 
-export function useChatProviderState({ selectedSession, selectedProject: _selectedProject, linkedTaskModel }: UseChatProviderStateArgs) {
+export function useChatProviderState({ selectedSession, selectedProject: _selectedProject, linkedTaskModel, linkedTaskPermissionMode }: UseChatProviderStateArgs) {
   const [permissionMode, setPermissionMode] = useState<PermissionMode>('default');
   const [pendingPermissionRequests, setPendingPermissionRequests] = useState<PendingPermissionRequest[]>([]);
   const [provider, setProvider] = useState<LLMProvider>(readStoredProvider);
@@ -601,19 +608,24 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
 
   useEffect(() => {
     const validModes = getPermissionModesForProvider(provider);
-    const sessionSavedMode = selectedSession?.id
-      ? (localStorage.getItem(`permissionMode-${selectedSession.id}`) as PermissionMode | null)
-      : null;
-    // Fall back to the last mode picked for this provider: a brand-new chat
-    // only receives its session id after the first send, so without this the
-    // mode chosen beforehand would snap back to the default as soon as the
-    // session id appears.
-    const providerSavedMode = localStorage.getItem(`permissionMode-last-${provider}`) as PermissionMode | null;
-    const savedMode = [sessionSavedMode, providerSavedMode].find(
-      (mode): mode is PermissionMode => Boolean(mode && validModes.includes(mode)),
+    // 会话键 → 任务 → provider 记忆 → provider 默认。任务那一档让「打开任务
+    // 会话就跟随任务的模式」成立；用户一旦手动切过，会话键就永久压过它。
+    setPermissionMode(
+      resolvePermissionMode({
+        sessionMode: selectedSession?.id
+          ? localStorage.getItem(`permissionMode-${selectedSession.id}`)
+          : null,
+        taskMode: linkedTaskPermissionMode,
+        // Fall back to the last mode picked for this provider: a brand-new chat
+        // only receives its session id after the first send, so without this the
+        // mode chosen beforehand would snap back to the default as soon as the
+        // session id appears.
+        providerLastMode: localStorage.getItem(`permissionMode-last-${provider}`),
+        providerDefault: getDefaultPermissionModeForProvider(provider),
+        validModes,
+      }) as PermissionMode,
     );
-    setPermissionMode(savedMode ?? getDefaultPermissionModeForProvider(provider));
-  }, [selectedSession?.id, provider, getDefaultPermissionModeForProvider, getPermissionModesForProvider]);
+  }, [selectedSession?.id, provider, linkedTaskPermissionMode, getDefaultPermissionModeForProvider, getPermissionModesForProvider]);
 
   useEffect(() => {
     if (!selectedSession?.__provider || selectedSession.__provider === provider) {

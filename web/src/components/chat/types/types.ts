@@ -160,6 +160,9 @@ export interface ChatInterfaceProps {
    *  yet). Synced into the composer model so the session shows the same model
    *  as the task detail. */
   linkedTaskModel?: string | null;
+  /** The linked task's `permission_mode`. `undefined` when there is no linked
+   *  task — the composer then falls back to the provider's memory/default. */
+  linkedTaskPermissionMode?: string | null;
   /** Fired after a session-scoped model change (`/model` / model picker with a
    *  session selected) has been persisted for `sessionId`. The owner writes the
    *  selected session's linked task `executor_model` back so the task's 模型

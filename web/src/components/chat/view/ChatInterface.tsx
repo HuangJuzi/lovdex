@@ -42,6 +42,7 @@ function ChatInterface({
   newSessionTrigger,
   onShowAllTasks,
   linkedTaskModel,
+  linkedTaskPermissionMode,
   onSessionModelChanged,
 }: ChatInterfaceProps) {
   const { subscribe } = useWebSocket();
@@ -100,6 +101,7 @@ function ChatInterface({
     selectedSession,
     selectedProject,
     linkedTaskModel,
+    linkedTaskPermissionMode,
   });
 
   // Wraps the provider-state model change so the owner can write a session-
