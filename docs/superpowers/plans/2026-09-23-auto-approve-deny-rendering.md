@@ -1099,12 +1099,67 @@ git commit -m "feat(web): thread the auto-approval denial tag into chat messages
 
 ---
 
+## Task 4b: qoder 剥掉展示值里的 CLI 包装（spec §5.1b）
+
+> **为什么单独成一个任务**：spec §5.1b 判定「必须解决，不能带着这个上」，且推荐的做法 (A) 是**后端**剥。把它塞进 Task 5 会让「Task 5 = 渲染三分支」的边界变糊，也让一个后端改动藏在前端任务里。
+
+**Files:**
+- Modify: `backend/server/modules/providers/list/qoder/qoder-sessions.provider.ts`
+- Test: `backend/server/modules/providers/list/qoder/tests/auto-approve-deny-tag.test.ts`
+
+- [ ] **Step 1: 写失败测试**
+
+在既有测试文件里加用例：
+
+- 一条**自动拒绝**的结果（`content` = `'Error: ' + UNATTENDED_INTERACTION_DENY_REASON`，`is_error: true`）→ 归一化后 `content` **不含** `Error: ` 前缀，且 `autoApproveDeny === 'interaction'`
+- 一条**非自动拒绝**的错误结果（`content` = `'Error: boom: command failed'`，`is_error: true`）→ `content` **原样保留** `Error: ` 前缀，且 `autoApproveDeny === undefined`
+- `fetchHistory` 集成用例同样断言预挂对象上的 `content` 已剥前缀
+
+> 第二条是关键：它防的是「顺手把非自动拒绝的结果也剥了」——那会改变无关结果的展示。
+
+- [ ] **Step 2: 跑测试确认失败**
+
+```bash
+cd /mnt/b/workdir/github/lovdex/backend
+env -u TSX_TSCONFIG_PATH npx tsx --tsconfig server/tsconfig.json --test server/modules/providers/list/qoder/tests/auto-approve-deny-tag.test.ts
+```
+
+- [ ] **Step 3: 实现**
+
+在 `normalizeMessage` 的 tool_result 分支与 `fetchHistory` 的 `toolResultMap` 两处，**对已判定为自动拒绝的结果**用剥过前缀的文本作为 `content`：
+
+```ts
+const isError = Boolean(part.is_error);
+const classified = isError
+  ? classifyAutoApproveDeny(true, stripQoderErrorPrefix(toolResultTextForClassification(part.content)))
+  : undefined;
+// 自动拒绝的结果：CLI 把它包成 `Error: <理由>`，但这不是错误、是策略决定，
+// 展示层不该带着 CLI 的错误标记（见 spec §5.1b）。只剥这一类，
+// 非自动拒绝的结果原样保留前缀。
+const displayContent = classified
+  ? stripQoderErrorPrefix(toolResultTextForClassification(part.content))
+  : (typeof part.content === 'string' ? part.content : JSON.stringify(part.content));
+```
+
+**注意**：`displayContent` 对数组形态走的是 `.text` 拼接（因为自动拒绝的结果实际永远是纯字符串，这是等价变换）。非自动拒绝走原来的 `JSON.stringify` 语义，**不得改变**。
+
+- [ ] **Step 4: 跑测试确认通过** + tsc 保持 14
+
+- [ ] **Step 5: 提交**（pathspec）
+
+```bash
+git commit -m "fix(providers): drop the qoder CLI wrapper from auto-denied display text" -- \
+  backend/server/modules/providers/list/qoder/qoder-sessions.provider.ts \
+  backend/server/modules/providers/list/qoder/tests/auto-approve-deny-tag.test.ts
+```
+
+---
+
 ## Task 5: 渲染三分支
 
 > **硬性验收项（不可漏）**：spec §5.1b —— qoder 的 `blocked` 正文是 `Error: <理由>`（CLI 包装），
-> 直接展示会出现「已自动拒绝」标题下跟着 `Error: 拒绝：…` 的自相矛盾。spec 已判定
-> 「**必须解决，不能带着这个上**」，并给了两个方案（A 后端剥 / B 前端剥，推荐 A）。
-> **本任务必须处理并说明选了哪条、为什么。** 这条是 Task 3 的代码审查专门留给本任务的跨任务义务。
+> 直接展示会出现「已自动拒绝」标题下跟着 `Error: 拒绝：…` 的自相矛盾。
+> **该问题由 Task 4b 在后端解决**；本任务只需确认渲染拿到的 `content` 已干净，并在测试里断言 `blocked` 正文**不含** `Error: ` 前缀。
 
 **Files:**
 - Create: `web/src/components/chat/view/subcomponents/AutoApproveDenyNotice.tsx`
