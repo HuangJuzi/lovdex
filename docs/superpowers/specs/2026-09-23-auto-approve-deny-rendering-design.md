@@ -194,6 +194,22 @@ provider 里 `content:` 的展示值对数组形态走 `JSON.stringify`（保持
 
 `ToolStatusBadge.tsx` 已有 `denied`（琥珀色 `bg-warning/10 text-warning`），工具卡徽标直接复用，不再显示红色 `Error`。
 
+#### ⚠️ Bash 是一条独立的渲染路径（2026-09-23 实施时发现，初稿漏了）
+
+初稿的 §5.1 表格只描述了 `MessageComponent.tsx` 的红框分支，**漏了 `MessageComponent.tsx:211` 的 `message.toolName !== 'Bash'` 排除**（继承自「Bash 输出画在命令行里」）。后果：**被拦的 Bash 命令永远进不了新组件**，只能走 `ToolRenderer` 的 input 路径 → `BashCommandDisplay.tsx`，而那里 `:70` / `:147` 在 `isError` 时仍用 `destructive` 染红边框与正文 —— 只有徽标从红 `Error` 变成琥珀 `Denied`。
+
+**这不是边缘情况**：`COMMAND_RULES` 里多数是 Bash 命令规则，全量 transcript 的真实拒绝中 **Bash 占 109/173**。也就是说 `blocked` 的「琥珀框 + 标题『已自动拒绝』」在多数场景下不会生效，用户看到的仍是红框。
+
+**修法**：把排除条件放宽为 `message.toolName !== 'Bash' || Boolean(message.toolResult.autoApproveDeny)`，让**带标记的** Bash 也走 `AutoApproveDenyNotice`。被拦的 Bash 会同时显示命令行那一行（说明**尝试了什么**，徽标已是琥珀 `Denied`）+ 下方的琥珀框（说明**为什么被拒**）——信息互补。
+
+**否决的替代方案**：改 `BashCommandDisplay` 的配色。那会把「已自动拒绝」的标题与配色**复制到第二处**，且需把字段透传进 `BashCommandDisplayProps`。
+
+#### ⚠️ 接线测试不要用「读源码断言」
+
+初稿在「无 DOM 环境渲染不了 `MessageComponent`」的前提下，退而用读源码 + `indexOf` 的结构断言。**该前提是错的**：只需 `import './i18n/config.js'`（同目录的 `ProviderSelectionEmptyState.test.tsx` 已有先例），`renderToStaticMarkup` 一个 `MessageComponent` 13ms 跑通。
+
+结构断言两个方向都会误判：**误红**（多行书写、等价的可选链、改写成 `switch` 都会让字面量匹配失败）与**漏红**（路由写成 `!== 'auto-denied'` 时字面量与顺序都还成立，测试全绿而行为全错）。**用真渲染，不要用读源码。**
+
 ### 5.3 ⚡ 实时提示的判据要一起改
 
 `AutoApproveNotice.tsx` 现在靠 `content.startsWith('已自动拒绝')` 决定用 warning 还是 muted 配色。
