@@ -226,16 +226,6 @@ provider 里 `content:` 的展示值对数组形态走 `JSON.stringify`（保持
 - 不处理 `Permission request timed out` 等 SDK 原生拒绝的渲染（那是真问题，应保持红框）
 - 不管 `normalizeMessage` 里那条扁平 `raw.type === 'tool_result'` 分支（`:643-666`，`isError` 写死 `false`，不产生红框）
 
-### 7.2 已知架构债：`AutoApproveDenyKind` 的住处（记录，暂不处理）
-
-`AutoApproveDenyKind` 是**线协议**概念（后端 `shared/types.ts` 定义），前端却把权威副本放在 `components/chat/utils/` 这个 **UI 目录**里。而 `web/src/stores/useSessionStore.ts` 的 `NormalizedMessage` 自述是线协议契约（「mirrors server/adapters/types.js」），是线协议类型的既有住处。
-
-后果：store 要么从 UI 层反向 import（方向拧），要么再抄一份字面量（现状，且这份**没有任何测试或编译期约束**——wire-value 钉死测试只冻结了 `utils/` 那一份）。
-
-**暂不处理**：Task 4 的代码审查判定「不阻塞合并」。若将来还要再动这块，把类型挪到一个中立的 web 模块（例如挨着 `web/src/types/app.ts`），让 `stores/` 与 `components/` 都从那里 import，store 那两份内联字面量就自然消掉。
-
-**另一条同时记录的边界**：`autoApproveDeny.test.ts` 的 wire-value 测试**防不住跨进程漂移**——它只能冻结前端侧字面量，后端改了它不会红。真正的跨包 guard 成本高、可能不值得，但注释里不应声称已解决漂移。
-
 ### 7.1 已知缺口：subagent 子工具（显式不含，非疏漏）
 
 Task 2 的代码审查发现的**计划本身**的缺口，记在此处以免变成默认沉默：
@@ -249,3 +239,13 @@ Task 2 的代码审查发现的**计划本身**的缺口，记在此处以免变
 3. 修它需要动 shared 层 + 前端子工具渲染，属于另一处 UI 语义决策（子工具卡片该不该有 info 态）。
 
 **若要做**（backlog）：在 `parseAgentToolsContent` 里复用 `classifyAutoApproveDeny`（该文件与策略模块同在 shared 层，导入无环），并让 `SubagentContainer` 对带标记的子工具不画红。
+
+### 7.2 已知架构债：`AutoApproveDenyKind` 的住处（记录，暂不处理）
+
+`AutoApproveDenyKind` 是**线协议**概念（后端 `shared/types.ts` 定义），前端却把权威副本放在 `components/chat/utils/` 这个 **UI 目录**里。而 `web/src/stores/useSessionStore.ts` 的 `NormalizedMessage` 自述是线协议契约（「mirrors server/adapters/types.js」），是线协议类型的既有住处。
+
+后果：store 要么从 UI 层反向 import（方向拧），要么再抄一份字面量（现状，且这份**没有任何测试或编译期约束**——wire-value 钉死测试只冻结了 `utils/` 那一份）。
+
+**暂不处理**：Task 4 的代码审查判定「不阻塞合并」。若将来还要再动这块，把类型挪到一个中立的 web 模块（例如挨着 `web/src/types/app.ts`），让 `stores/` 与 `components/` 都从那里 import，store 那两份内联字面量就自然消掉。
+
+**另一条同时记录的边界**：`autoApproveDeny.test.ts` 的 wire-value 测试**防不住跨进程漂移**——它只能冻结前端侧字面量，后端改了它不会红。真正的跨包 guard 成本高、可能不值得，但注释里不应声称已解决漂移。
