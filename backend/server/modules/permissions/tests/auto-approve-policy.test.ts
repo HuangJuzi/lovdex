@@ -4,6 +4,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import {
+  applyClientAutoApproveOverride,
   decideAutoApproval,
   resolveTaskAutoApprove,
   TOOLS_REQUIRING_INTERACTION,
@@ -237,4 +238,30 @@ test('resolveTaskAutoApprove: a throwing lookup degrades to false rather than fa
     throw new Error('db is down');
   };
   assert.equal(resolveTaskAutoApprove('boom', lookup), false);
+});
+
+// --- 客户端降级（会话级开关）---
+
+test('a client may downgrade auto-approval for its own send', () => {
+  assert.equal(applyClientAutoApproveOverride(true, false), false);
+});
+
+test('a client may NOT upgrade auto-approval, whatever it sends', () => {
+  for (const value of [true, 1, 0, 'false', '', null, undefined, {}, []]) {
+    assert.equal(
+      applyClientAutoApproveOverride(false, value),
+      false,
+      `client value ${JSON.stringify(value)} must not turn auto-approval on`,
+    );
+  }
+});
+
+test('only the literal false downgrades; every other value keeps the task value', () => {
+  for (const value of [true, 1, 0, 'false', '', null, undefined, {}, []]) {
+    assert.equal(
+      applyClientAutoApproveOverride(true, value),
+      true,
+      `client value ${JSON.stringify(value)} must leave the task value alone`,
+    );
+  }
 });
