@@ -14,7 +14,8 @@ import { assembleHistoryRecords, readTranscriptDir } from '@/modules/providers/l
 const PROVIDER = 'qoder';
 
 type QoderToolResult = {
-  content: unknown;
+  /** 展示用文本，已由 `summarizeQoderToolResult` 按自动拒绝规则处理过。 */
+  content: string;
   isError: boolean;
   /** 见 `AutoApproveDenyKind`。 */
   autoApproveDeny?: AutoApproveDenyKind;
@@ -233,6 +234,47 @@ function stripQoderErrorPrefix(text: string): string {
   return text.replace(/^\s*Error: /, '');
 }
 
+type QoderToolResultSummary = {
+  /** 展示用文本。自动拒绝的已剥掉 CLI 包装，其余语义一字不变。 */
+  content: string;
+  isError: boolean;
+  autoApproveDeny?: AutoApproveDenyKind;
+};
+
+/**
+ * 从一条原始 tool_result 的 content / is_error 算出展示文本与自动拒绝标签。
+ *
+ * 解码只在错误结果上跑，且只跑一次 —— 正常输出没必要扫内容（历史上这里曾对
+ * 每一条 base64 图片数组跑 JSON.stringify，纯浪费）。
+ *
+ * 自动拒绝的结果连展示文本也剥掉 CLI 的 `Error: ` 包装（见
+ * `stripQoderErrorPrefix`）：那是策略决定、不是工具报错，展示层不该带着 CLI
+ * 的错误标记（spec §5.1b），否则用户在「已自动拒绝」标题下会读到
+ * `Error: 拒绝：…` 这种自相矛盾的文本。
+ *
+ * 非自动拒绝的结果 content 语义一字不变：字符串原样、其余 JSON.stringify ——
+ * `Error: ` 在那类结果上是真的错误标记，不能顺手改掉无关结果的展示。
+ *
+ * `normalizeMessage` 与 `fetchHistory` 的 toolResultMap 共用它，避免两处的
+ * 解码 / 剥前缀约定漂开。
+ */
+function summarizeQoderToolResult(rawContent: unknown, rawIsError: unknown): QoderToolResultSummary {
+  const isError = Boolean(rawIsError);
+  const denialText = isError
+    ? stripQoderErrorPrefix(toolResultTextForClassification(rawContent))
+    : undefined;
+  const autoApproveDeny = denialText === undefined
+    ? undefined
+    : classifyAutoApproveDeny(true, denialText);
+  return {
+    content: autoApproveDeny === undefined
+      ? (typeof rawContent === 'string' ? rawContent : JSON.stringify(rawContent))
+      : denialText ?? '',
+    isError,
+    autoApproveDeny,
+  };
+}
+
 export class QoderSessionsProvider implements IProviderSessions {
   /**
    * Normalizes one Qoder JSONL entry or live SDK stream event into the shared
@@ -273,9 +315,8 @@ export class QoderSessionsProvider implements IProviderSessions {
         for (let partIndex = 0; partIndex < raw.message.content.length; partIndex++) {
           const part = raw.message.content[partIndex];
           if (part.type === 'tool_result') {
-            const resultContent = typeof part.content === 'string'
-              ? part.content
-              : JSON.stringify(part.content);
+            // 解码 + 分类 + 展示文本一次算清，两处调用点共用同一套约定。
+            const summary = summarizeQoderToolResult(part.content, part.is_error);
             messages.push(createNormalizedMessage({
               id: `${baseId}_tr_${part.tool_use_id}`,
               sessionId,
@@ -283,14 +324,9 @@ export class QoderSessionsProvider implements IProviderSessions {
               provider: PROVIDER,
               kind: 'tool_result',
               toolId: part.tool_use_id,
-              content: resultContent,
-              isError: Boolean(part.is_error),
-              // 分类用 helper（.text 约定）并剥掉 CLI 的 `Error: ` 包装，
-              // 不是展示值 resultContent —— 数组形态下 JSON.stringify 会让
-              // 分类静默失效，`Error: ` 前缀则会让真实数据 100% 落空。
-              autoApproveDeny: part.is_error
-                ? classifyAutoApproveDeny(true, stripQoderErrorPrefix(toolResultTextForClassification(part.content)))
-                : undefined,
+              content: summary.content,
+              isError: summary.isError,
+              autoApproveDeny: summary.autoApproveDeny,
               subagentTools: raw.subagentTools,
               toolUseResult: raw.toolUseResult,
             }));
@@ -588,12 +624,7 @@ export class QoderSessionsProvider implements IProviderSessions {
         for (const part of raw.message.content) {
           if (part.type === 'tool_result' && part.tool_use_id) {
             toolResultMap.set(part.tool_use_id, {
-              content: part.content,
-              isError: Boolean(part.is_error),
-              // 只在错误结果上分类：正常输出没必要解内容。
-              autoApproveDeny: part.is_error
-                ? classifyAutoApproveDeny(true, stripQoderErrorPrefix(toolResultTextForClassification(part.content)))
-                : undefined,
+              ...summarizeQoderToolResult(part.content, part.is_error),
               subagentTools: raw.subagentTools,
               toolUseResult: raw.toolUseResult,
             });
@@ -615,9 +646,8 @@ export class QoderSessionsProvider implements IProviderSessions {
         }
 
         msg.toolResult = {
-          content: typeof toolResult.content === 'string'
-            ? toolResult.content
-            : JSON.stringify(toolResult.content),
+          // 已是展示文本：剥前缀 / JSON.stringify 都已在 summarizeQoderToolResult 里做完。
+          content: toolResult.content,
           isError: toolResult.isError,
           autoApproveDeny: toolResult.autoApproveDeny,
           toolUseResult: toolResult.toolUseResult,

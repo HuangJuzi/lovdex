@@ -93,13 +93,53 @@ test('a blocked command wrapped in the CLI Error: prefix is still tagged as bloc
 // 只有字符串形态（817 条 tool_result，数组 0 条）。这里保持与 claude 同一套
 // `.text` 解码约定，以免将来 qoder 真的写出数组时两种约定漂开、标签静默丢失。
 // 分类必须按 `.text` 解码数组，否则序列化后以 `[{` 开头、前缀匹配不成立。
-// 展示用的 content 保持 JSON 形态不变。
-test('an array-shaped denial is tagged, and the displayed content is unchanged', () => {
+test('an array-shaped denial is tagged, and the display text is the decoded reason', () => {
   const parts = [{ type: 'text', text: UNATTENDED_INTERACTION_DENY_REASON }];
   const out = provider.normalizeMessage(transcriptRow('T5', parts, true), SID);
   const result = out.find((m) => m.kind === 'tool_result');
   assert.equal(result?.autoApproveDeny, 'interaction');
-  assert.equal(result?.content, JSON.stringify(parts), 'display value stays JSON');
+  // 自动拒绝的展示文本走 `.text` 解码后的理由，不再是 JSON —— 前端要原文展示
+  // 这段理由（spec §5.1b），JSON 形态会把它埋进 `[{"type":"text",...}]`。
+  assert.equal(result?.content, UNATTENDED_INTERACTION_DENY_REASON);
+});
+
+// ── spec §5.1b：自动拒绝的展示文本也要剥掉 CLI 的 `Error: ` 包装 ──────────
+// 自动拒绝是策略决定、不是工具报错，展示层带着 CLI 的错误标记会让用户在
+// 「已自动拒绝」标题下读到 `Error: 拒绝：…`，自相矛盾。
+test('an auto-denied result drops the CLI Error: wrapper from the display text', () => {
+  const out = provider.normalizeMessage(
+    transcriptRow('T8', `Error: ${UNATTENDED_INTERACTION_DENY_REASON}`, true),
+    SID,
+  );
+  const result = out.find((m) => m.kind === 'tool_result');
+  assert.equal(result?.autoApproveDeny, 'interaction');
+  assert.equal(result?.content, UNATTENDED_INTERACTION_DENY_REASON);
+  assert.ok(!result?.content?.includes('Error:'), 'no CLI error marker on a policy denial');
+});
+
+// 反向约束：非自动拒绝的错误结果，`Error: ` 是真的错误标记，必须原样保留 ——
+// 不能因为剥前缀的逻辑顺手改掉无关结果的展示。
+test('a genuine error keeps its Error: prefix in the display text', () => {
+  const out = provider.normalizeMessage(transcriptRow('T9', 'Error: boom: command failed', true), SID);
+  const result = out.find((m) => m.kind === 'tool_result');
+  assert.equal(result?.autoApproveDeny, undefined);
+  assert.equal(result?.content, 'Error: boom: command failed');
+});
+
+// 非自动拒绝的数组结果：展示语义一字不变（仍是 JSON.stringify）。
+test('a non-denied array result keeps the JSON display shape', () => {
+  const parts = [{ type: 'text', text: 'Error: boom: command failed' }];
+  const out = provider.normalizeMessage(transcriptRow('T10', parts, true), SID);
+  const result = out.find((m) => m.kind === 'tool_result');
+  assert.equal(result?.autoApproveDeny, undefined);
+  assert.equal(result?.content, JSON.stringify(parts));
+});
+
+test('a successful string result keeps its content untouched', () => {
+  const out = provider.normalizeMessage(transcriptRow('T11', 'Error: not really an error', false), SID);
+  const result = out.find((m) => m.kind === 'tool_result');
+  assert.equal(result?.autoApproveDeny, undefined);
+  assert.equal(result?.content, 'Error: not really an error');
 });
 
 // ── fetchHistory pre-attach: the auto-approve tag must survive a refresh ──
@@ -211,9 +251,13 @@ test('fetchHistory pre-attaches the auto-approve deny tag onto the paired tool_u
     // 字符串形态 + CLI 的 `Error: ` 包装：qoder 拒绝时实际落盘的形态。
     assert.equal(preAttached(TOOL_USE_STR).isError, true);
     assert.equal(preAttached(TOOL_USE_STR).autoApproveDeny, 'interaction');
+    // 历史路径同样要剥掉 CLI 包装，否则刷新会话后「已自动拒绝」下面又冒出
+    // `Error: …`（spec §5.1b 的连带问题）。
+    assert.equal(preAttached(TOOL_USE_STR).content, UNATTENDED_INTERACTION_DENY_REASON);
     // 数组形态：历史路径必须与 normalizeMessage 共用同一套 `.text` 解码，
     // 否则两种解码约定会漂开，标签静默丢失。
     assert.equal(preAttached(TOOL_USE_ARR).autoApproveDeny, 'interaction');
+    assert.equal(preAttached(TOOL_USE_ARR).content, UNATTENDED_INTERACTION_DENY_REASON);
   } finally {
     process.env.HOME = previousHome;
     closeConnection();
