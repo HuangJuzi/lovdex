@@ -9,6 +9,8 @@ import type { Project, Task, TaskEngine, TaskLabel, TaskPriority } from '../../t
 import { api } from '../../utils/api';
 import { resolveSessionTitle } from '../../utils/sessionTitle';
 import { ASSISTANT_OPTION_VALUE, projectPathOf, taskFormProjects, taskProjectLabel } from './projectOptions';
+import { AUTO_APPROVE_MODE } from '../chat/types/types';
+import { TASK_RUN_PERMISSION_MODES } from './taskExecution';
 import { modelOptionsFor, useProviderModels } from './useProviderModels';
 import { useTaskEngineAvailability } from './useTaskEngineAvailability';
 import { LABEL_META, LABEL_ORDER, PRIORITY_META, PRIORITY_ORDER } from './taskStatus';
@@ -54,7 +56,7 @@ export function CreateTaskDialog({
   const [contextMode, setContextMode] = useState<'summary' | 'raw'>('summary');
   const [projects, setProjects] = useState<Project[]>([]);
   const [model, setModel] = useState('');
-  const [autoApprove, setAutoApprove] = useState(false);
+  const [permissionMode, setPermissionMode] = useState('default');
   const [error, setError] = useState('');
   // 创建在途（后端取名期间）。state 只驱动按钮的禁用/转圈，拦截靠下面那个 ref。
   const [submitting, setSubmitting] = useState(false);
@@ -133,7 +135,7 @@ export function CreateTaskDialog({
     setRemark('');
     setSourceSessionId('');
     setContextMode('summary');
-    setAutoApprove(false);
+    setPermissionMode('default');
     setError('');
   }
 
@@ -171,7 +173,7 @@ export function CreateTaskDialog({
         deadline: deadline || null,
         isOperator: isAssistant,
         // 助手任务也照常带上：这是人在 UI 上做的决定，不随 executor 一起被忽略。
-        autoApprove,
+        permissionMode,
         label,
         remark: remark.trim() || null,
         sourceSessionId: sourceSessionId || undefined,
@@ -208,6 +210,16 @@ export function CreateTaskDialog({
     ? newEngineAvailability.options.map((e) => ({ value: e, label: e }))
     : [];
   const modelOptions: ChipSelectOption[] = modelOptionsFor(models, model);
+  // 权限模式选项：选 autoApprove 意味着无人值守时不再逐个问你，必须把后果写进
+  // 选项文案，而不是只给一个模式名。其余模式沿用运行时允许的那一档（刻意不含
+  // plan —— 见 taskExecution.ts 的说明）。
+  const permissionModeOptions: ChipSelectOption[] = TASK_RUN_PERMISSION_MODES.map((mode) => ({
+    value: mode,
+    label:
+      mode === AUTO_APPROVE_MODE
+        ? '自动审批（无人值守时自动放行工具调用，危险操作仍会拒绝）'
+        : mode,
+  }));
   const sourceOptions: ChipSelectOption[] = [
     { value: '', label: '（无）白纸开始' },
     ...sourceSessionOptions.map((s) => ({ value: s.id ?? '', label: resolveSessionTitle(s) || (s.id ?? '').slice(0, 8) })),
@@ -290,21 +302,14 @@ export function CreateTaskDialog({
                 isMobile={isMobile}
                 onChange={(v) => setModel(v)}
               />
-              <button
-                type="button"
-                aria-label="自动审批"
-                aria-pressed={autoApprove}
-                onClick={() => setAutoApprove((v) => !v)}
-                className={cn(
-                  'flex h-9 items-center rounded-full border px-3 text-sm transition-colors',
-                  autoApprove
-                    ? 'border-primary/60 bg-primary/10 text-primary'
-                    : 'border-border/80 bg-card text-muted-foreground',
-                )}
-              >
-                自动审批
-              </button>
-              <span className="text-xs text-muted-foreground">无人值守时自动放行工具调用（危险操作仍会拒绝）</span>
+              <ChipSelect
+                ariaLabel="权限模式"
+                label="权限模式"
+                options={permissionModeOptions}
+                value={permissionMode}
+                isMobile={isMobile}
+                onChange={(v) => setPermissionMode(v)}
+              />
               <MoreChip
                 moreCount={moreCount}
                 isMobile={isMobile}
