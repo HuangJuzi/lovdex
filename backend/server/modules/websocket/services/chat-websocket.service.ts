@@ -16,7 +16,10 @@ import { appConfig as getAppConfig } from '@/modules/config/config.js';
 import { buildProviderConfigEnv } from '@/modules/config/env-sync.js';
 import { lookupRemoteHost } from '@/modules/remote-agents/remote-projects.index.js';
 import { hostSupportsLlmForward } from '@/modules/remote-agents/runtime.js';
-import { resolveTaskAutoApprove } from '@/modules/permissions/auto-approve-policy.js';
+import {
+  applyClientAutoApproveOverride,
+  resolveTaskAutoApprove,
+} from '@/modules/permissions/auto-approve-policy.js';
 import { chatRunRegistry, getTaskLinkage } from '@/modules/websocket/services/chat-run-registry.service.js';
 import { connectedClients, WS_OPEN_STATE } from '@/modules/websocket/services/websocket-state.service.js';
 import { getGlobalImageAssetsDir, normalizeImageDescriptors } from '@/shared/image-attachments.js';
@@ -262,8 +265,13 @@ async function handleChatSend(
   const runtimeOptions: AnyRecord = {
     ...clientOptions,
     // Placed after the ...clientOptions spread so a client-supplied
-    // `autoApprove` is discarded — this value is server-authoritative.
-    autoApprove: resolveTaskAutoApprove(sessionId, getTaskAutoApprove),
+    // `autoApprove` cannot upgrade: the only client value that is honoured is a
+    // literal `false`, which downgrades this send back to asking the human.
+    // Everything else (including `true`) leaves the task's value alone.
+    autoApprove: applyClientAutoApproveOverride(
+      resolveTaskAutoApprove(sessionId, getTaskAutoApprove),
+      clientOptions.autoApprove,
+    ),
     // Image attachments are re-validated server-side: only files inside the
     // global upload store may reach the provider runtimes' file reads.
     images: filterImagesToUploadStore(clientOptions.images),
