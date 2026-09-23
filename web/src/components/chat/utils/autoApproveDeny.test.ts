@@ -31,12 +31,10 @@ test('a missing tool name still classifies as blocked, never interaction', () =>
 });
 
 test('the deny-kind literals are the exact wire values', () => {
-  // web 与 backend 是两个独立的包，没有共享类型通道（web 里没有 backend 的
-  // tsconfig paths），所以这份联合是**结构性**的跨进程重复，无法消除。
-  // 后端从拒绝理由反推、前端按字段换渲染，两边字面量一旦漂移，UI 会静默走错
-  // 分支而所有测试照样绿。照抄仓库既有先例钉死它 —— 见
-  // backend/server/modules/permissions/tests/auto-approve-policy.test.ts 的
-  // `the mode constant is the exact wire value`。
+  // 这条测试**冻结的是前端侧的字面量**：防止前端重构时把 `'blocked'` 写成别的。
+  // 它**防不住跨进程漂移** —— 后端改 `AutoApproveDenyKind`（或加交互型工具名）时
+  // 这条测试不会红，因为 web 与 backend 是两个独立的包，没有共享类型通道
+  // （web 里没有 backend 的 tsconfig paths）。别把它当成跨进程契约的保证。
   //
   // 后端对应定义：backend/server/shared/types.ts 的 AutoApproveDenyKind。
   assert.deepEqual([...AUTO_APPROVE_INTERACTION_TOOLS].sort(), ['AskUserQuestion', 'ExitPlanMode']);

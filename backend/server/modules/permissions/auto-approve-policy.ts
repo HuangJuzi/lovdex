@@ -30,6 +30,10 @@ export type AutoApproveDecision =
  *
  * Defined here rather than in `claude-sdk.js` so the policy module and the
  * runtimes cannot drift apart; `claude-sdk.js` imports it back.
+ *
+ * 前端有一份对应的副本：`web/src/components/chat/utils/autoApproveDeny.ts` 的
+ * `AUTO_APPROVE_INTERACTION_TOOLS`（用于 `permission_auto` 帧的分类）。**加名字时两处同步**——
+ * 漏改会让新工具被判成 `blocked`，从而把写给模型的拒绝理由泄漏到 UI。
  */
 export const TOOLS_REQUIRING_INTERACTION: ReadonlySet<string> = new Set([
   'AskUserQuestion',

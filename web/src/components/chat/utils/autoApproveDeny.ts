@@ -14,7 +14,10 @@ export type AutoApproveDenyKind = 'interaction' | 'blocked';
 
 /**
  * 交互型工具：它们需要有人在对端回答问题，无人值守时必然被策略拒绝。
- * 与 `tools/configs/toolConfigs.ts` 里注册的 `AskUserQuestion` / `ExitPlanMode` 同名。
+ *
+ * 判据来源是后端策略模块的 `TOOLS_REQUIRING_INTERACTION`
+ * （`backend/server/modules/permissions/auto-approve-policy.ts`）——**加名字时两处同步**。
+ * `tools/configs/toolConfigs.ts` 里只是碰巧注册了同名工具，不是契约来源。
  */
 export const AUTO_APPROVE_INTERACTION_TOOLS: ReadonlySet<string> = new Set([
   'AskUserQuestion',
@@ -28,7 +31,7 @@ export const AUTO_APPROVE_INTERACTION_TOOLS: ReadonlySet<string> = new Set([
  */
 export function classifyAutoApproveNotice(
   toolName: string | undefined,
-  behavior: string | undefined,
+  behavior: 'allow' | 'deny' | undefined,
 ): AutoApproveDenyKind | undefined {
   if (behavior !== 'deny') return undefined;
   return AUTO_APPROVE_INTERACTION_TOOLS.has(toolName ?? '') ? 'interaction' : 'blocked';

@@ -11,7 +11,13 @@ const base = {
   provider: 'claude',
 } as const;
 
-/** 测试只需要几个字段，但函数签名要完整消息；一处收口，别在每个用例里写 cast。 */
+/**
+ * 测试只需要几个字段，但函数签名要完整消息；一处收口，别在每个用例里写 cast。
+ *
+ * 注意这个 cast **关掉了多余属性检查与字段名检查**：这些用例验证的是「给定这种
+ * 形状时的行为」，**不**验证「这种形状真的会从线上到达」。后者由后端
+ * `auto-approve-deny-tag.test.ts` 负责。
+ */
 function rows(partial: Array<Record<string, unknown>>): NormalizedMessage[] {
   return partial as unknown as NormalizedMessage[];
 }

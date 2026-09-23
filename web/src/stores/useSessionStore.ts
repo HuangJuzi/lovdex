@@ -68,7 +68,7 @@ export interface NormalizedMessage {
   toolName?: string;
   autoApproveBehavior?: 'allow' | 'deny';
   autoApproveReason?: string;
-  /** 仅 tool_result：后端标好的自动审批拒绝分类，见 shared/types.ts 的 AutoApproveDenyKind。 */
+  /** 仅 tool_result：见 ../components/chat/utils/autoApproveDeny.ts 的 AutoApproveDenyKind（与后端 shared/types.ts 同名类型保持一致）。 */
   autoApproveDeny?: 'interaction' | 'blocked';
   toolInput?: unknown;
   toolId?: string;

@@ -234,7 +234,7 @@ export function normalizedToChatMessages(messages: NormalizedMessage[]): ChatMes
               isError: Boolean(tr.isError),
               toolUseResult: (tr as any).toolUseResult,
               // 自动审批拒绝的分类（后端标好）；普通结果与真·错误都是 undefined。
-              autoApproveDeny: (tr as any).autoApproveDeny,
+              autoApproveDeny: tr.autoApproveDeny,
             }
           : null;
 
