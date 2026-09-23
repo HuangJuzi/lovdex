@@ -7,7 +7,6 @@ import {
   AUTO_APPROVE_MODE,
   decideAutoApproval,
   normalizePermissionMode,
-  resolveTaskAutoApprove,
   TOOLS_REQUIRING_INTERACTION,
 } from '@/modules/permissions/auto-approve-policy.js';
 
@@ -217,28 +216,6 @@ test('substring matches inside an argument are not treated as commands', () => {
   // `grep sudo notes.txt` 不是提权；误伤会让正常任务无谓失败。
   assert.equal(decideAutoApproval('Bash', { command: 'grep sudo notes.txt' }).behavior, 'allow');
   assert.equal(decideAutoApproval('Bash', { command: 'echo "git push"' }).behavior, 'allow');
-});
-
-// --- 任务板「执行」路径的服务端反查 ---
-
-test('resolveTaskAutoApprove: true only for an explicit auto_approve = 1', () => {
-  const lookup = (sessionId: string) =>
-    sessionId === 'flagged' ? { auto_approve: 1 } : sessionId === 'plain' ? { auto_approve: 0 } : null;
-
-  assert.equal(resolveTaskAutoApprove('flagged', lookup), true);
-  assert.equal(resolveTaskAutoApprove('plain', lookup), false);
-  assert.equal(resolveTaskAutoApprove('no-task', lookup), false, 'a session with no task must not auto-approve');
-});
-
-test('resolveTaskAutoApprove: ignores a truthy-but-not-1 value a stale row might carry', () => {
-  assert.equal(resolveTaskAutoApprove('weird', () => ({ auto_approve: 2 })), false);
-});
-
-test('resolveTaskAutoApprove: a throwing lookup degrades to false rather than failing the send', () => {
-  const lookup = () => {
-    throw new Error('db is down');
-  };
-  assert.equal(resolveTaskAutoApprove('boom', lookup), false);
 });
 
 // --- 权限模式归一化 ---

@@ -160,13 +160,13 @@ test('a throwing spawnFn is swallowed and the safety net still runs', async () =
   assert.equal(completeCalls, 1, 'finally must still complete the run after a runtime error');
 });
 
-test('carries autoApprove into runtimeOptions when the task opted in', async () => {
+test('normalises the autoApprove permission mode into default + the flag', async () => {
   const captured: { options?: Record<string, unknown> } = {};
   startHeadlessTaskRun(
     'sess-auto',
     {
       content: 'unattended work',
-      autoApprove: true,
+      permissionMode: 'autoApprove',
       spawnFns: { claude: makeSpawnFn(captured as never) } as never,
     },
     {
@@ -177,12 +177,12 @@ test('carries autoApprove into runtimeOptions when the task opted in', async () 
   );
   await new Promise((r) => setImmediate(r));
   assert.equal(captured.options?.autoApprove, true);
-  // 开关只替换「问人」这一步，权限模式本身必须保持 default —— 正是 default
+  // 'autoApprove' 不是 SDK 认识的值，必须归一化成 default —— 正是 default
   // 才会调用 canUseTool，改成 bypassPermissions 会让 SDK 整个跳过审批回调。
   assert.equal(captured.options?.permissionMode, 'default');
 });
 
-test('omits autoApprove entirely when the task did not opt in', async () => {
+test('a run without a permission mode stays on default with auto-approval off', async () => {
   const captured: { options?: Record<string, unknown> } = {};
   startHeadlessTaskRun(
     'sess-plain',
@@ -194,6 +194,6 @@ test('omits autoApprove entirely when the task did not opt in', async () => {
     },
   );
   await new Promise((r) => setImmediate(r));
-  assert.equal('autoApprove' in (captured.options ?? {}), false, 'the key must be absent, not merely falsy');
+  assert.equal(captured.options?.autoApprove, false, 'no mode → no auto-approval');
   assert.equal(captured.options?.permissionMode, 'default');
 });

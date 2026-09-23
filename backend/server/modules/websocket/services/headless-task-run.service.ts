@@ -15,6 +15,7 @@ import { appConfig as getAppConfig } from '@/modules/config/config.js';
 import { buildProviderConfigEnv } from '@/modules/config/env-sync.js';
 import { lookupRemoteHost } from '@/modules/remote-agents/remote-projects.index.js';
 import { hostSupportsLlmForward } from '@/modules/remote-agents/runtime.js';
+import { normalizePermissionMode } from '@/modules/permissions/auto-approve-policy.js';
 import { chatRunRegistry } from './chat-run-registry.service.js';
 import type { LLMProvider, RealtimeClientConnection } from '@/shared/types.js';
 
@@ -30,11 +31,11 @@ export type HeadlessTaskRunOptions = {
   /** Task executor model override, if any. */
   model?: string | null;
   /**
-   * Answer this run's own permission requests instead of asking the human.
-   * Comes from the task row's `auto_approve`; the caller (startTaskRun) is
-   * responsible for reading it server-side — never from a client payload.
+   * The Lovdex-level permission mode for this run. Comes from the task row's
+   * `permission_mode`; the caller (startTaskRun) is responsible for reading it
+   * server-side — never from a client payload.
    */
-  autoApprove?: boolean;
+  permissionMode?: string;
   /** Provider runtimes keyed by provider id (same map the WS server uses). */
   spawnFns: Record<LLMProvider, ProviderSpawnFn>;
 };
@@ -112,12 +113,11 @@ export function startHeadlessTaskRun(
   // the caller — same trust boundary as the interactive path.
   const runtimeOptions: Record<string, unknown> = {
     model: options.model || undefined,
-    // 'default' so canUseTool keeps being consulted — that callback is where
-    // auto-approval short-circuits, and bypassPermissions would skip it
-    // entirely. Without autoApprove these prompts surface as the board's
-    // "等你批准" marker for the user to decide, identical to the manual button.
-    permissionMode: 'default',
-    ...(options.autoApprove === true ? { autoApprove: true } : {}),
+    // Same normalisation as the interactive path — see normalizePermissionMode.
+    // 'autoApprove' resolves to 'default' + the flag precisely so canUseTool
+    // keeps being consulted (it is where the policy runs, and bypassPermissions
+    // would skip it entirely).
+    ...normalizePermissionMode(options.permissionMode),
     toolsSettings: { allowedTools: [], disallowedTools: [], skipPermissions: false },
     skipPermissions: false,
     includePartialMessages: true,

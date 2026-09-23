@@ -16,7 +16,7 @@ import { appConfig as getAppConfig } from '@/modules/config/config.js';
 import { buildProviderConfigEnv } from '@/modules/config/env-sync.js';
 import { lookupRemoteHost } from '@/modules/remote-agents/remote-projects.index.js';
 import { hostSupportsLlmForward } from '@/modules/remote-agents/runtime.js';
-import { resolveTaskAutoApprove } from '@/modules/permissions/auto-approve-policy.js';
+import { normalizePermissionMode } from '@/modules/permissions/auto-approve-policy.js';
 import { chatRunRegistry, getTaskLinkage } from '@/modules/websocket/services/chat-run-registry.service.js';
 import { connectedClients, WS_OPEN_STATE } from '@/modules/websocket/services/websocket-state.service.js';
 import { getGlobalImageAssetsDir, normalizeImageDescriptors } from '@/shared/image-attachments.js';
@@ -127,12 +127,6 @@ type ChatWebSocketDependencies = {
   ) => void;
   /** Claude-only today: pending tool approvals included in `chat_subscribed`. */
   getPendingApprovalsForSession: (providerSessionId: string) => unknown[];
-  /**
-   * The task linked to this app session, for auto-approval resolution. Optional
-   * and defaulting to "no task" — a missing wiring degrades to today's
-   * ask-the-human behaviour, which is the safe direction.
-   */
-  getTaskAutoApprove?: (sessionId: string) => { auto_approve: number } | null;
 };
 
 /**
@@ -254,16 +248,16 @@ async function handleChatSend(
   const command = typeof data.content === 'string' ? data.content : '';
   dbg(`[chat.send] options keys=${Object.keys(clientOptions).join(',')} includePartial=${clientOptions.includePartialMessages === true ? 'YES' : 'NO'}`);
 
-  const getTaskAutoApprove = dependencies.getTaskAutoApprove ?? (() => null);
   // The provider runtimes receive the provider-native session id (that is the
   // id their CLI/SDK understands for resume). Brand-new sessions have no
   // provider id yet, so the runtime starts fresh and announces one, which the
   // gateway writer captures and maps back to the app session id.
   const runtimeOptions: AnyRecord = {
     ...clientOptions,
-    // Placed after the ...clientOptions spread so a client-supplied
-    // `autoApprove` is discarded — this value is server-authoritative.
-    autoApprove: resolveTaskAutoApprove(sessionId, getTaskAutoApprove),
+    // 客户端传来的是 Lovdex 层模式（可能是 'autoApprove'）。归一化在这里发生，
+    // 所以四家 provider 运行时拿到的永远只有它们已经认识的
+    // permissionMode + autoApprove 组合，无需任何改动。
+    ...normalizePermissionMode(clientOptions.permissionMode),
     // Image attachments are re-validated server-side: only files inside the
     // global upload store may reach the provider runtimes' file reads.
     images: filterImagesToUploadStore(clientOptions.images),

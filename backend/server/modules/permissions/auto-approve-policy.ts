@@ -256,28 +256,6 @@ export function decideAutoApproval(toolName: string, input: unknown): AutoApprov
 }
 
 /**
- * Resolve the auto-approval flag for a session's linked task.
- *
- * `chat.send` options come from the browser, so this must be resolved
- * server-side: trusting a client-supplied flag would let any client grant
- * itself unattended permissions. Returns true only for an explicit
- * `auto_approve === 1`; anything else (no task, flag 0, an unexpected value, a
- * DB error) resolves to false so the run keeps asking the human — exactly what
- * happens today.
- */
-export function resolveTaskAutoApprove(
-  sessionId: string,
-  lookup: (sessionId: string) => { auto_approve: number } | null,
-): boolean {
-  try {
-    return lookup(sessionId)?.auto_approve === 1;
-  } catch (error) {
-    console.error('[auto-approve] task lookup failed; falling back to asking the human', error);
-    return false;
-  }
-}
-
-/**
  * The Lovdex-level permission mode that means "answer the permission prompts
  * yourself". It is NOT a value the Claude SDK understands — `PermissionMode` is
  * a closed union ('default' | 'acceptEdits' | 'bypassPermissions' | 'plan' |

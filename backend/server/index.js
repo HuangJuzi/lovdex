@@ -273,9 +273,6 @@ const wss = createWebSocketServer(server, {
                 ...getQoderPendingApprovalsForSession(providerSessionId),
             ];
         },
-        // 任务板「执行」按钮走的是浏览器的 chat.send，不经过 startTaskRun ——
-        // 这里按 sessionId 反查关联任务，开关才对该路径生效。
-        getTaskAutoApprove: (sessionId) => tasksDb.getTaskBySessionId(sessionId),
     },
     terminal: {
         spawnPty: (shell, args, options) => pty.spawn(shell, args, options),
