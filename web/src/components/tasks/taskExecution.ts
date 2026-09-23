@@ -1,18 +1,7 @@
 import type { Task } from '../../types/app';
 import { safeLocalStorage } from '../chat/utils/chatStorage';
+import { taskRunPermissionModesFor } from '../chat/utils/providerPermissionModes';
 import { resolvePermissionMode } from '../chat/utils/resolvePermissionMode';
-
-/**
- * 任务运行时允许的模式。**刻意不含 `plan`**：无人值守下 plan 只产出计划、
- * 不执行任何工具，任务会永远空跑，而你要到第二天看历史才发现。这不是
- * 「多一个选项」，是一个静默失败。
- */
-export const TASK_RUN_PERMISSION_MODES = [
-  'default',
-  'autoApprove',
-  'acceptEdits',
-  'bypassPermissions',
-] as const;
 
 type ToolsSettings = {
   allowedTools?: string[];
@@ -130,13 +119,14 @@ export function buildTaskChatSend(sessionId: string, task: Task, content?: strin
     options: {
       model: task.executor_model || undefined,
       // 走与 composer 相同的解析：会话键 → 任务 → default。任务运行不关心
-      // provider 的交互偏好，所以后两档传 null / 'default'。
+      // provider 的交互偏好，所以后两档传 null / 'default'。合法模式按 provider 取
+      // （与任务表单同源），`plan` 天然不在其中——无人值守跑 plan 就是空跑。
       permissionMode: resolvePermissionMode({
         sessionMode: safeLocalStorage.getItem(`permissionMode-${sessionId}`),
         taskMode: task.permission_mode,
         providerLastMode: null,
         providerDefault: 'default',
-        validModes: TASK_RUN_PERMISSION_MODES,
+        validModes: taskRunPermissionModesFor(task.executor_provider),
       }),
       toolsSettings,
       skipPermissions: toolsSettings.skipPermissions ?? false,

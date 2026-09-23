@@ -37,7 +37,7 @@ import type { TaskResultState } from './taskResult';
 import { projectPathOf, taskFormProjects } from './projectOptions';
 import { LABEL_META, LABEL_ORDER, PRIORITY_META, PRIORITY_ORDER, STATUS_META, STATUS_ORDER } from './taskStatus';
 import { formatAbsoluteTime } from './taskTimestamp';
-import { TASK_PERMISSION_MODE_OPTIONS } from './taskPermissionModeOptions';
+import { useTaskPermissionModeDescription, useTaskPermissionModeOptions } from './taskPermissionModeOptions';
 import { SubStatusBadge } from './SubStatusBadge';
 
 export function TaskDetailPage() {
@@ -68,6 +68,9 @@ export function TaskDetailPage() {
   const [permissionMode, setPermissionMode] = useState('default');
   const [models, setModels] = useState<ProviderModelOption[]>([]);
   const modelsRequestRef = useRef(0);
+  // 与 composer 同源的模式词汇（同一份 provider 列表、同一套 i18n 名称），随引擎切换。
+  const permissionModeOptions = useTaskPermissionModeOptions(engine);
+  const permissionModeDescription = useTaskPermissionModeDescription(permissionMode);
 
   const load = useCallback(async () => {
     if (!taskId) return;
@@ -753,11 +756,14 @@ export function TaskDetailPage() {
                   <ChipSelect
                     ariaLabel="权限模式"
                     label="权限模式"
-                    options={TASK_PERMISSION_MODE_OPTIONS}
+                    options={permissionModeOptions}
                     value={permissionMode}
                     isMobile={isMobile}
                     onChange={(v) => void savePermissionMode(v)}
                   />
+                  {permissionModeDescription && (
+                    <span className="text-xs text-muted-foreground">{permissionModeDescription}</span>
+                  )}
                 </div>
                 <div className="flex items-center gap-3">
                   <span className="w-20 shrink-0 text-xs text-muted-foreground">优先级</span>

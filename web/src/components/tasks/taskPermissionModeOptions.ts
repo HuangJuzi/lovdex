@@ -1,39 +1,34 @@
-import { AUTO_APPROVE_MODE } from '../chat/types/types';
+import { useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 
-import { TASK_RUN_PERMISSION_MODES } from './taskExecution';
+import { taskRunPermissionModesFor } from '../chat/utils/providerPermissionModes';
+import { getPermissionModeLabelKeys } from '../chat/view/subcomponents/permissionModeLabels';
 
-/**
- * The permission-mode choices a task form offers, shared by all three entry
- * points (create dialog, scheduled-task form, task detail) so the wording cannot
- * drift between them.
- *
- * Labels are hard-coded Chinese rather than routed through the chat bundle's
- * `codex.modes.*` keys: these forms have no i18n context and every other field on
- * them is hard-coded too. Introducing `t()` here for one field would be the odd
- * one out.
- *
- * `autoApprove` gets a sentence rather than a name because it is the only option
- * that changes what happens *without you present* — the label has to say what
- * that is. The others keep the composer's short names so a user who has seen the
- * mode button recognises them.
- */
-export const TASK_PERMISSION_MODE_LABELS: Record<string, string> = {
-  default: '默认（每次询问）',
-  [AUTO_APPROVE_MODE]: '自动审批（无人值守时自动放行工具调用，危险操作仍会拒绝）',
-  acceptEdits: '自动接受编辑',
-  bypassPermissions: '跳过全部权限检查',
-};
-
-export type TaskPermissionModeOption = { value: string; label: string };
+import type { ChipSelectOption } from './ChipSelect';
 
 /**
- * Options for the task forms. Derived from `TASK_RUN_PERMISSION_MODES` — the same
- * list the run path validates against — so a mode can never be offered here and
- * then rejected (or silently ignored) at run time. `plan` is absent by design;
- * see that constant.
+ * 任务表单的权限模式选项：与 composer 的模式按钮**同源**——同一份 provider 列表、
+ * 同一套 i18n 名称。任务页其余字段是中文，但模式名保持英文是刻意的：用户在 composer
+ * 里看到的是 `Auto Approve`，在任务表单里必须看到同一串字才能建立对应关系。
  */
-export const TASK_PERMISSION_MODE_OPTIONS: TaskPermissionModeOption[] =
-  TASK_RUN_PERMISSION_MODES.map((mode) => ({
-    value: mode,
-    label: TASK_PERMISSION_MODE_LABELS[mode] ?? mode,
-  }));
+export function useTaskPermissionModeOptions(provider: string): ChipSelectOption[] {
+  const { t } = useTranslation('chat');
+  return useMemo(
+    () =>
+      taskRunPermissionModesFor(provider).map((mode) => ({
+        value: mode,
+        label: t(getPermissionModeLabelKeys(mode).fullKey),
+      })),
+    [provider, t],
+  );
+}
+
+/**
+ * 选中模式的后果说明（composer 同源的 `codex.descriptions.*`）。放在控件旁边的辅助行，
+ * 因为 ChipSelect 的芯片只放得下模式名——`autoApprove` 那句「危险操作仍会拒绝」是必须
+ * 让人看见的，不能因为换短名就丢掉。
+ */
+export function useTaskPermissionModeDescription(mode: string): string {
+  const { t } = useTranslation('chat');
+  return t(`codex.descriptions.${mode}`, { defaultValue: '' });
+}

@@ -9,7 +9,7 @@ import type { Project, Task, TaskEngine, TaskLabel, TaskPriority } from '../../t
 import { api } from '../../utils/api';
 import { resolveSessionTitle } from '../../utils/sessionTitle';
 import { ASSISTANT_OPTION_VALUE, projectPathOf, taskFormProjects, taskProjectLabel } from './projectOptions';
-import { TASK_PERMISSION_MODE_OPTIONS } from './taskPermissionModeOptions';
+import { useTaskPermissionModeDescription, useTaskPermissionModeOptions } from './taskPermissionModeOptions';
 import { modelOptionsFor, useProviderModels } from './useProviderModels';
 import { useTaskEngineAvailability } from './useTaskEngineAvailability';
 import { LABEL_META, LABEL_ORDER, PRIORITY_META, PRIORITY_ORDER } from './taskStatus';
@@ -209,8 +209,9 @@ export function CreateTaskDialog({
     ? newEngineAvailability.options.map((e) => ({ value: e, label: e }))
     : [];
   const modelOptions: ChipSelectOption[] = modelOptionsFor(models, model);
-  // 权限模式选项由共享模块派生（三个任务表单入口共用一套文案，见该文件说明）。
-  const permissionModeOptions: ChipSelectOption[] = TASK_PERMISSION_MODE_OPTIONS;
+  // 权限模式选项由共享 hook 派生（与 composer 同源的模式词汇，随引擎切换）。
+  const permissionModeOptions = useTaskPermissionModeOptions(engine);
+  const permissionModeDescription = useTaskPermissionModeDescription(permissionMode);
   const sourceOptions: ChipSelectOption[] = [
     { value: '', label: '（无）白纸开始' },
     ...sourceSessionOptions.map((s) => ({ value: s.id ?? '', label: resolveSessionTitle(s) || (s.id ?? '').slice(0, 8) })),
@@ -301,6 +302,9 @@ export function CreateTaskDialog({
                 isMobile={isMobile}
                 onChange={(v) => setPermissionMode(v)}
               />
+              {permissionModeDescription && (
+                <span className="text-xs text-muted-foreground">{permissionModeDescription}</span>
+              )}
               <MoreChip
                 moreCount={moreCount}
                 isMobile={isMobile}

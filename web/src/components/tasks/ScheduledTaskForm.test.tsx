@@ -17,10 +17,14 @@ const reactDomCjs = require('react-dom') as { createPortal: (children: React.Rea
 reactDomCjs.createPortal = (children) => children;
 
 // Imported after the createPortal patch so ScheduledTaskForm's DialogContent
-// picks up the inline-rendering stub.
+// picks up the inline-rendering stub. The form now pulls its permission-mode
+// labels through useTranslation, so the shared i18n instance (chat namespace)
+// has to exist before that import runs — same precedent as
+// MessageComponent.test.tsx / ProviderSelectionEmptyState.test.tsx.
+import '../../i18n/config.js';
 const { ScheduledTaskForm, EMPTY_DRAFT, canSubmitScheduledTask, switchCronMode, toApiBody, toDraft, toProjectChipOptions } = await import('./ScheduledTaskForm');
 const { ASSISTANT_OPTION_VALUE } = await import('./projectOptions');
-const { TASK_PERMISSION_MODE_OPTIONS } = await import('./taskPermissionModeOptions');
+const { taskRunPermissionModesFor } = await import('../chat/utils/providerPermissionModes');
 
 const onClose = () => {};
 const onSubmit = () => {};
@@ -321,6 +325,15 @@ test('toDraft treats a missing permission mode as default', () => {
 });
 
 test('plan is not offered for an unattended run', () => {
-  // plan 只规划不执行 —— 定时任务选它等于永远空跑。
-  assert.equal(TASK_PERMISSION_MODE_OPTIONS.some((o) => o.value === 'plan'), false);
+  // plan 只规划不执行 —— 定时任务选它等于永远空跑。任务表单与 composer 同源
+  // （PROVIDER_PERMISSION_MODES 减去 plan），这里断言四个引擎都拿不到 plan。
+  for (const provider of ['claude', 'codex', 'opencode', 'qoder']) {
+    assert.equal(taskRunPermissionModesFor(provider).includes('plan'), false, provider);
+  }
+});
+
+test('the composer mode vocabulary renders in the form (i18n names, not Chinese prose)', () => {
+  // 与 composer 同源：同一份列表（减 plan）、同一套 codex.modes.* 名称。
+  const modes = taskRunPermissionModesFor('claude');
+  assert.deepEqual(modes, ['default', 'auto', 'autoApprove', 'acceptEdits', 'bypassPermissions']);
 });

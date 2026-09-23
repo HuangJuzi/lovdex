@@ -25,7 +25,7 @@ import {
 import { AnchorPopover } from './AnchorPopover';
 import { ChipSelect, type ChipSelectOption } from './ChipSelect';
 import { ASSISTANT_OPTION_VALUE } from './projectOptions';
-import { TASK_PERMISSION_MODE_OPTIONS } from './taskPermissionModeOptions';
+import { useTaskPermissionModeDescription, useTaskPermissionModeOptions } from './taskPermissionModeOptions';
 import type { TaskProjectOption } from './TaskCard';
 import { modelOptionsFor, nextModelOnLoad, useProviderModels } from './useProviderModels';
 import { ENGINE_NAMES, useTaskEngineAvailability } from './useTaskEngineAvailability';
@@ -38,7 +38,7 @@ export type ScheduledTaskDraft = {
   /** 空串 = 不指定，跑 provider 的默认模型槽位（后端见 null）。 */
   executorModel: string;
   autoRun: boolean;
-  /** 运行权限模式：'default'（每次询问）；可选值见 TASK_PERMISSION_MODE_OPTIONS。 */
+  /** 运行权限模式：'default'（每次询问）；可选值随引擎走，见 useTaskPermissionModeOptions。 */
   permissionMode: string;
   scheduleType: ScheduledTaskScheduleType;
   cronExpr: string;
@@ -347,6 +347,9 @@ export function ScheduledTaskFormBody({
   const engineHint = 'hint' in engineAvailability ? engineAvailability.hint : undefined;
   const projectChipOptions = toProjectChipOptions(projectOptions);
   const canSubmit = canSubmitScheduledTask(draft.description, submitting);
+  // 与 composer 同源的模式词汇（同一份 provider 列表、同一套 i18n 名称），随引擎切换。
+  const permissionModeOptions = useTaskPermissionModeOptions(draft.executorProvider);
+  const permissionModeDescription = useTaskPermissionModeDescription(draft.permissionMode);
 
   return (
     <>
@@ -528,12 +531,15 @@ export function ScheduledTaskFormBody({
           <ChipSelect
             ariaLabel="权限模式"
             label="权限模式"
-            options={TASK_PERMISSION_MODE_OPTIONS}
+            options={permissionModeOptions}
             value={draft.permissionMode}
             isMobile={isMobile}
             onChange={(v) => set('permissionMode', v)}
           />
         </div>
+        {permissionModeDescription && (
+          <span className="text-xs text-muted-foreground">{permissionModeDescription}</span>
+        )}
       </div>
 
       {(localError || error) && <p className="mt-2 text-sm text-destructive">{localError ?? error}</p>}

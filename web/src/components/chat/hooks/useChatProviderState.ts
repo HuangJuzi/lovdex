@@ -15,6 +15,7 @@ import {
   FALLBACK_PROVIDER_EFFORT_VALUES,
   toProviderEffortOptions,
 } from '../constants/providerEffort';
+import { PROVIDER_PERMISSION_MODES } from '../utils/providerPermissionModes';
 import { resolvePermissionMode } from '../utils/resolvePermissionMode';
 
 const FALLBACK_DEFAULT_MODEL: Record<LLMProvider, string> = {
@@ -42,19 +43,6 @@ const readStoredProvider = (): LLMProvider => {
   return PROVIDERS.includes(storedProvider as LLMProvider)
     ? storedProvider as LLMProvider
     : 'claude';
-};
-
-/**
- * Fallback permission-mode matrix used only until the backend capability
- * matrix (`GET /api/providers/capabilities`) has loaded. The backend is the
- * source of truth; this mirror exists so the composer renders sensibly on
- * first paint and when the capabilities request fails.
- */
-const FALLBACK_PERMISSION_MODES: Record<LLMProvider, PermissionMode[]> = {
-  claude: ['default', 'auto', 'autoApprove', 'acceptEdits', 'bypassPermissions', 'plan'],
-  codex: ['default', 'autoApprove', 'acceptEdits', 'bypassPermissions'],
-  opencode: ['default', 'autoApprove', 'acceptEdits', 'bypassPermissions', 'plan'],
-  qoder: ['default', 'autoApprove', 'acceptEdits', 'bypassPermissions', 'plan'],
 };
 
 type ProviderCapabilities = {
@@ -355,7 +343,7 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     if (capabilityModes && capabilityModes.length > 0) {
       return capabilityModes as PermissionMode[];
     }
-    return FALLBACK_PERMISSION_MODES[targetProvider] ?? ['default'];
+    return PROVIDER_PERMISSION_MODES[targetProvider] ?? ['default'];
   }, [providerCapabilities]);
 
   const getDefaultPermissionModeForProvider = useCallback((targetProvider: LLMProvider): PermissionMode => {
