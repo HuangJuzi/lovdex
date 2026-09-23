@@ -9,8 +9,7 @@ import type { Project, Task, TaskEngine, TaskLabel, TaskPriority } from '../../t
 import { api } from '../../utils/api';
 import { resolveSessionTitle } from '../../utils/sessionTitle';
 import { ASSISTANT_OPTION_VALUE, projectPathOf, taskFormProjects, taskProjectLabel } from './projectOptions';
-import { AUTO_APPROVE_MODE } from '../chat/types/types';
-import { TASK_RUN_PERMISSION_MODES } from './taskExecution';
+import { TASK_PERMISSION_MODE_OPTIONS } from './taskPermissionModeOptions';
 import { modelOptionsFor, useProviderModels } from './useProviderModels';
 import { useTaskEngineAvailability } from './useTaskEngineAvailability';
 import { LABEL_META, LABEL_ORDER, PRIORITY_META, PRIORITY_ORDER } from './taskStatus';
@@ -210,16 +209,8 @@ export function CreateTaskDialog({
     ? newEngineAvailability.options.map((e) => ({ value: e, label: e }))
     : [];
   const modelOptions: ChipSelectOption[] = modelOptionsFor(models, model);
-  // 权限模式选项：选 autoApprove 意味着无人值守时不再逐个问你，必须把后果写进
-  // 选项文案，而不是只给一个模式名。其余模式沿用运行时允许的那一档（刻意不含
-  // plan —— 见 taskExecution.ts 的说明）。
-  const permissionModeOptions: ChipSelectOption[] = TASK_RUN_PERMISSION_MODES.map((mode) => ({
-    value: mode,
-    label:
-      mode === AUTO_APPROVE_MODE
-        ? '自动审批（无人值守时自动放行工具调用，危险操作仍会拒绝）'
-        : mode,
-  }));
+  // 权限模式选项由共享模块派生（三个任务表单入口共用一套文案，见该文件说明）。
+  const permissionModeOptions: ChipSelectOption[] = TASK_PERMISSION_MODE_OPTIONS;
   const sourceOptions: ChipSelectOption[] = [
     { value: '', label: '（无）白纸开始' },
     ...sourceSessionOptions.map((s) => ({ value: s.id ?? '', label: resolveSessionTitle(s) || (s.id ?? '').slice(0, 8) })),
