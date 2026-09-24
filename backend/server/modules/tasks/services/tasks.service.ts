@@ -355,13 +355,16 @@ export function createTasksService(
     }
     const row = resolveDb.getTask(taskId);
     if (!row) return null;
-    // archived 是纯用户动作：只有 done 能进、只有 archived 能出（回到 done），
-    // 引擎永不写入 archived（double guard）。
+    // archived 是纯用户动作：done 能进，「已结算的失败运行」也能进 —— 收件箱失败
+    // 条目的「忽略」= 归档（提醒消失、历史保留，见 spec 2026-09-24-inbox-ignore-action）。
+    // 其余状态照旧拒绝；archived 只能出（回 done），引擎永不写入 archived（double guard）。
+    // 取消归档回 done 而非 failed：失败标签已在归档转变时清掉，不复活（认账语义）。
     if (status === 'archived') {
       if (actor !== 'user') {
         throw new AppError('only a user can archive a task', { code: 'INVALID_STATUS', statusCode: 400 });
       }
-      if (row.status !== 'done') {
+      const failedSettled = row.status === 'in_progress' && row.sub_status === 'failed';
+      if (row.status !== 'done' && !failedSettled) {
         throw new AppError(`only completed tasks can be archived (current: ${row.status})`, { code: 'INVALID_STATUS', statusCode: 400 });
       }
     } else if (row.status === 'archived') {

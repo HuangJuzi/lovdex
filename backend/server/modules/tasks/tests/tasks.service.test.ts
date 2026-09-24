@@ -464,6 +464,54 @@ test('startExecution on an archived task is rejected', () => {
   assert.deepEqual(calls.linkSession, []);
 });
 
+test('applyStatusChange archives a settled failed run and hides its linked session', () => {
+  // 收件箱「忽略」= 归档：失败运行（in_progress + 持久化 failed）必须能进 archived，
+  // 且沿 done 归档同一条副作用路径隐藏关联会话。
+  const { db } = makeDbStub();
+  const archivedCalls: Array<[string, boolean]> = [];
+  const svc = createTasksService(db, {
+    broadcast: () => {},
+    deps: {
+      sessionsDb: {
+        updateSessionIsArchived: (sessionId: string, isArchived: boolean) => {
+          archivedCalls.push([sessionId, isArchived]);
+        },
+      },
+    } as unknown as Parameters<typeof createTasksService>[1]['deps'],
+  });
+  db.updateTaskStatus('t1', 'in_progress');
+  db.updateTaskSubStatus('t1', 'failed');
+  db.linkSession('t1', 's1');
+  svc.applyStatusChange('t1', 'archived', 'user');
+  assert.equal(db.getTask('t1')?.status, 'archived');
+  assert.equal(db.getTask('t1')?.sub_status, null, '归档清掉失败标签');
+  assert.deepEqual(archivedCalls, [['s1', true]], '失败归档与 done 归档走同一条会话隐藏路径');
+});
+
+test('applyStatusChange still rejects archiving a genuinely running task', () => {
+  const { db } = makeDbStub();
+  const svc = createTasksService(db, { broadcast: () => {} });
+  db.updateTaskStatus('t1', 'in_progress'); // sub_status 持久化值为 null → 真在跑
+  assert.throws(() => svc.applyStatusChange('t1', 'archived', 'user'), /only completed tasks can be archived/);
+  assert.equal(db.getTask('t1')?.status, 'in_progress');
+});
+
+test('applyStatusChange still rejects archiving a blocked task', () => {
+  const { db } = makeDbStub();
+  const svc = createTasksService(db, { broadcast: () => {} });
+  db.updateTaskStatus('t1', 'in_progress');
+  db.updateTaskSubStatus('t1', 'blocked');
+  assert.throws(() => svc.applyStatusChange('t1', 'archived', 'user'), /only completed tasks can be archived/);
+});
+
+test('applyStatusChange rejects un-archiving into anything but done', () => {
+  const { db } = makeDbStub();
+  const svc = createTasksService(db, { broadcast: () => {} });
+  db.updateTaskStatus('t1', 'done');
+  svc.applyStatusChange('t1', 'archived', 'user');
+  assert.throws(() => svc.applyStatusChange('t1', 'in_progress', 'user'), /can only return to done/);
+});
+
 test('getTaskBySessionId returns the decorated task for a linked session', () => {
   const row: StoredTask = {
     task_id: 't1', project_path: '/p', title: 't', description: null,
