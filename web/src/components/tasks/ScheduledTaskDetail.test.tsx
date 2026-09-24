@@ -67,7 +67,23 @@ test('renders the title and enabled switch', () => {
 test('renders the inline edit form body', () => {
   const html = render(baseTask);
   assert.match(html, /说清楚要做什么就行，名称留空会自动生成/);
-  assert.match(html, /aria-label="保存定时任务"/);
+});
+
+// 提交入口必须是**带文字**的底部按钮：此前详情面板只有 composer 里那个无标签的圆形
+// 箭头，底部又只剩一个「取消」，用户找不到「确认修改」，以为没法改定时任务。
+test('offers a labelled 保存修改 submit instead of the icon-only composer arrow', () => {
+  const html = render(baseTask);
+  assert.match(html, /aria-label="保存修改"/);
+  assert.doesNotMatch(html, /aria-label="保存定时任务"/);
+});
+
+// 位置也要对：得挨着「取消」。面板内容（855px）比可视区（789px@1440×900）高，
+// 底部本来就会先滚出屏幕，按钮再往上藏就没有意义了。
+test('places the submit next to 取消 in the footer', () => {
+  const html = render(baseTask);
+  const cancelAt = html.indexOf('取消');
+  assert.ok(cancelAt >= 0, '取消 must render');
+  assert.ok(html.indexOf('保存修改') > cancelAt, 'the submit must come after 取消 in the footer');
 });
 
 test('renders schedule meta: schedule label and project', () => {

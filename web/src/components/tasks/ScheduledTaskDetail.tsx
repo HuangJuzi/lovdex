@@ -79,7 +79,9 @@ export function ScheduledTaskDetail({
         <FieldRow label="上次" value={<LastRunLink schedule={task} taskById={taskById} />} />
       </div>
 
-      {/* 内联编辑表单：新建弹窗共用同一套 ScheduledTaskFormBody。 */}
+      {/* 内联编辑表单：新建弹窗共用同一套 ScheduledTaskFormBody。提交入口必须是底部
+          带文字的按钮 —— composer 里那个无标签的圆形箭头在详情面板里不像「确认修改」，
+          用户找不到它就没法改定时任务。 */}
       <div className="p-4">
         <ScheduledTaskFormBody
           initial={task}
@@ -89,6 +91,7 @@ export function ScheduledTaskDetail({
           error={error}
           onCancel={onClose}
           onSubmit={onSubmit}
+          submitLabel="保存修改"
         />
       </div>
     </div>

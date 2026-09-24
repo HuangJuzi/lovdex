@@ -249,6 +249,16 @@ export type ScheduledTaskFormBodyProps = {
   error: string | null;
   onCancel: () => void;
   onSubmit: (draft: ScheduledTaskDraft) => void;
+  /**
+   * 传入即把提交入口从 composer 里那个图标箭头挪到底部，与「取消」并排并显示这段文字
+   * （详情面板传「保存修改」）。不传 = 新建弹窗的旧形态：箭头留在 composer 里
+   * —— 那里它就是「发送」，语境成立。
+   *
+   * 两个入口二选一，不并存：同一个表单出现两个提交按钮，用户不知道该点哪个。
+   * 详情面板必须用带文字的形态 —— 无标签的圆形箭头在那里既不像「确认修改」，
+   * 又会被面板的滚动挤到折叠线附近，等于没有提交入口。
+   */
+  submitLabel?: string;
 };
 
 export function ScheduledTaskFormBody({
@@ -259,6 +269,7 @@ export function ScheduledTaskFormBody({
   error,
   onCancel,
   onSubmit,
+  submitLabel,
 }: ScheduledTaskFormBodyProps) {
   const [draft, setDraft] = useState<ScheduledTaskDraft>(() => toDraft(initial));
   const [localError, setLocalError] = useState<string | null>(null);
@@ -395,20 +406,22 @@ export function ScheduledTaskFormBody({
               set('executorModel', v);
             }}
           />
-          <button
-            type="button"
-            aria-label={submitting ? '保存中，请稍候' : canSubmit ? '保存定时任务' : '描述为空，暂不能保存'}
-            aria-busy={submitting}
-            title="保存"
-            disabled={!canSubmit}
-            onClick={submit}
-            className={cn(
-              'ml-auto flex h-10 w-10 items-center justify-center rounded-full bg-primary text-primary-foreground transition-colors hover:bg-primary/90',
-              submitting ? 'cursor-wait opacity-70' : 'disabled:cursor-not-allowed disabled:opacity-40',
-            )}
-          >
-            {submitting ? <Loader2 className="h-5 w-5 animate-spin" /> : <ArrowUp className="h-5 w-5" />}
-          </button>
+          {!submitLabel && (
+            <button
+              type="button"
+              aria-label={submitting ? '保存中，请稍候' : canSubmit ? '保存定时任务' : '描述为空，暂不能保存'}
+              aria-busy={submitting}
+              title="保存"
+              disabled={!canSubmit}
+              onClick={submit}
+              className={cn(
+                'ml-auto flex h-10 w-10 items-center justify-center rounded-full bg-primary text-primary-foreground transition-colors hover:bg-primary/90',
+                submitting ? 'cursor-wait opacity-70' : 'disabled:cursor-not-allowed disabled:opacity-40',
+              )}
+            >
+              {submitting ? <Loader2 className="h-5 w-5 animate-spin" /> : <ArrowUp className="h-5 w-5" />}
+            </button>
+          )}
         </div>
       </div>
 
@@ -544,10 +557,32 @@ export function ScheduledTaskFormBody({
 
       {(localError || error) && <p className="mt-2 text-sm text-destructive">{localError ?? error}</p>}
 
-      <div className="mt-3 flex items-center justify-end gap-2">
+      {/* 详情面板（有 submitLabel）把操作条吸底：面板内容比可视区高 —— 1440×900 下
+          内容 851px、可视区 789px —— 不吸底的话「保存修改」正好落在折叠线以下，
+          用户看到的还是「表单到自动审批就结束了」，等于没修。新建弹窗不受影响。 */}
+      <div
+        className={cn(
+          'flex items-center justify-end gap-2',
+          submitLabel ? 'sticky bottom-0 bg-card pt-3' : 'mt-3',
+        )}
+      >
         <Button size="sm" variant="ghost" onClick={onCancel} disabled={submitting}>
           取消
         </Button>
+        {/* 详情面板的提交入口：与「取消」并排的带文字主按钮。可用性判据与 composer
+            箭头同源（canSubmitScheduledTask），描述为空时置灰而不是点了没反应。 */}
+        {submitLabel && (
+          <Button
+            size="sm"
+            aria-label={submitting ? '保存中，请稍候' : canSubmit ? submitLabel : '描述为空，暂不能保存'}
+            aria-busy={submitting}
+            disabled={!canSubmit}
+            onClick={submit}
+          >
+            {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
+            {submitting ? '保存中…' : submitLabel}
+          </Button>
+        )}
       </div>
     </>
   );
