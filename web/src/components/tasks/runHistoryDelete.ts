@@ -14,14 +14,16 @@ export type DeleteOutcome = {
 };
 
 /**
- * 可删除的运行。运行中的删不掉（后端 409），从源头不给勾 —— 免得用户白选一轮再被拒。
- * 其余状态（含 archived）都能删：这是一份历史，要删的就是跑完的那些。
+ * 可删除的运行。两层状态下失败任务停在 in_progress 列、只标 sub_status='failed'
+ * （跑挂的不会挪列），只看 status 会把失败运行永久判成"运行中"——线上曾因此删不掉、
+ * 收件箱失败提醒清不掉。所以已结算的失败态放行；其余 in_progress 标签（running /
+ * waiting_* 等）是真在跑或等人工，照旧不给勾。
  *
  * 注意这只是**尽力预过滤**：前端拿不到「会话是否仍在流式输出」这个信号，所以即便是
  * 这些行，删除时仍可能被 409 拒掉 —— 那条路径由 `DeleteOutcome.running` 兜住。
  */
 export function selectableRuns(runs: Task[]): Task[] {
-  return runs.filter((t) => t.status !== 'in_progress');
+  return runs.filter((t) => t.status !== 'in_progress' || t.sub_status === 'failed');
 }
 
 /**

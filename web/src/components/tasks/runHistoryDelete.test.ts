@@ -56,6 +56,17 @@ test('selectableRuns 滤掉运行中的运行', () => {
   assert.deepEqual(selectableRuns(runs).map((t) => t.task_id), ['a', 'c']);
 });
 
+test('selectableRuns 保留失败态运行（两层状态：失败任务停在 in_progress 列）', () => {
+  const failed: Task = { ...task('f', 'in_progress'), sub_status: 'failed' };
+  assert.deepEqual(selectableRuns([failed]).map((t) => t.task_id), ['f']);
+});
+
+test('selectableRuns 仍滤掉真正在跑/等人工的运行', () => {
+  const running: Task = { ...task('r', 'in_progress'), sub_status: 'running' };
+  const waiting: Task = { ...task('w', 'in_progress'), sub_status: 'waiting_answer' };
+  assert.deepEqual(selectableRuns([running, waiting]).map((t) => t.task_id), []);
+});
+
 test('selectableRuns 保留所有非运行中状态', () => {
   const runs = (['todo', 'in_review', 'done', 'archived'] as const).map((s) => task(s, s));
   assert.deepEqual(selectableRuns(runs).map((t) => t.status), ['todo', 'in_review', 'done', 'archived']);

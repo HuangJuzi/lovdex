@@ -242,8 +242,9 @@ export function ScheduledRunHistoryView({
           </thead>
           <tbody>
             {ordered.map((task) => {
-              // 运行中的删不掉（后端 409），勾选框与删除按钮都从源头挡住。
-              const canDelete = task.status !== 'in_progress';
+              // 已结算的失败运行可删（两层状态下它停在 in_progress 列、标 failed），
+              // 真在跑/等人工的删不掉（后端 409），勾选框与删除按钮都从源头挡住。
+              const canDelete = task.status !== 'in_progress' || task.sub_status === 'failed';
               return (
                 <tr key={task.task_id} className="bg-card shadow-sm">
                   <td className="rounded-l-lg bg-card px-2 py-3">
@@ -285,7 +286,8 @@ export function ScheduledRunHistoryView({
       {/* Mobile/tablet cards (<1024px) */}
       <div className="grid min-h-0 w-full flex-1 auto-rows-min grid-cols-1 gap-3 overflow-y-auto px-3 pb-4 sm:grid-cols-2 sm:px-4 lg:hidden">
         {ordered.map((task) => {
-          const canDelete = task.status !== 'in_progress';
+          // 与桌面表格同一条 canDelete 规则：失败运行可删，在跑/等人工的挡住。
+          const canDelete = task.status !== 'in_progress' || task.sub_status === 'failed';
           return (
             <div key={task.task_id} className="flex flex-col gap-1.5 rounded-lg border border-border bg-card p-3 shadow-sm">
               <div className="flex items-start gap-2">

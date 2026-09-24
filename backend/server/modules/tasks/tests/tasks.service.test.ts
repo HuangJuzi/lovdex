@@ -263,6 +263,36 @@ test('deleteTask rejects an in_progress task even when the run registry is empty
   assert.ok(db.getTask('t1'));
 });
 
+test('deleteTask allows a failed in_progress task whose run has settled', async () => {
+  // 失败运行停在 in_progress 列、持久化 sub_status='failed'（两层状态）。它已结算，
+  // 必须可删 —— 否则收件箱的失败提醒永远清不掉（线上死锁的根因）。
+  const { db } = makeDbStub();
+  db.updateTaskStatus('t1', 'in_progress');
+  db.updateTaskSubStatus('t1', 'failed');
+  db.linkSession('t1', 's1');
+  const svc = createTasksService(db, {
+    broadcast: () => {},
+    deps: { isSessionRunning: () => false, deleteSessionHard: async () => {} },
+  });
+  const result = await svc.deleteTask('t1');
+  assert.deepEqual(result, { taskId: 't1', deletedSessionId: 's1' });
+  assert.equal(db.getTask('t1'), null);
+});
+
+test('deleteTask still rejects a failed in_progress task whose session is streaming', async () => {
+  // 失败标签会与仍在写 transcript 的会话并存（registry 说了算），这条兜底不能松。
+  const { db } = makeDbStub();
+  db.updateTaskStatus('t1', 'in_progress');
+  db.updateTaskSubStatus('t1', 'failed');
+  db.linkSession('t1', 's1');
+  const svc = createTasksService(db, {
+    broadcast: () => {},
+    deps: { isSessionRunning: () => true, deleteSessionHard: async () => {} },
+  });
+  await assert.rejects(() => svc.deleteTask('t1'), /running\/in_progress/);
+  assert.ok(db.getTask('t1'), 'task must survive a rejected delete');
+});
+
 test('deleteTasks deletes each id and broadcasts task_deleted per id', () => {
   const events: unknown[] = [];
   const { db } = makeDbStub();
@@ -321,13 +351,16 @@ function seedRun(
 test('isUndeletable: 只有「挂着会话且（在跑 或 会话仍活着）」才删不得', () => {
   const never = () => false;
   const always = () => true;
-  assert.equal(isUndeletable({ status: 'in_progress', session_id: 's1' }, always), true, '会话在流式输出');
-  assert.equal(isUndeletable({ status: 'in_progress', session_id: 's1' }, never), true, '停在 in_progress 列');
-  assert.equal(isUndeletable({ status: 'done', session_id: 's1' }, always), true, 'status 骗人，会话还在跑');
-  assert.equal(isUndeletable({ status: 'done', session_id: 's1' }, never), false, '跑完且会话已死');
-  assert.equal(isUndeletable({ status: 'in_review', session_id: 's1' }), false, '没注入判据时退化成只看 status');
+  assert.equal(isUndeletable({ status: 'in_progress', sub_status: null, session_id: 's1' }, always), true, '会话在流式输出');
+  assert.equal(isUndeletable({ status: 'in_progress', sub_status: null, session_id: 's1' }, never), true, '停在 in_progress 列');
+  assert.equal(isUndeletable({ status: 'done', sub_status: null, session_id: 's1' }, always), true, 'status 骗人，会话还在跑');
+  assert.equal(isUndeletable({ status: 'done', sub_status: null, session_id: 's1' }, never), false, '跑完且会话已死');
+  assert.equal(isUndeletable({ status: 'in_review', sub_status: null, session_id: 's1' }), false, '没注入判据时退化成只看 status');
+  assert.equal(isUndeletable({ status: 'in_progress', sub_status: 'failed', session_id: 's1' }, never), false, '失败运行已结算，可删（两层状态：失败任务停在 in_progress 列）');
+  assert.equal(isUndeletable({ status: 'in_progress', sub_status: 'failed', session_id: 's1' }, always), true, '失败标签压不过仍在流式输出的会话');
+  assert.equal(isUndeletable({ status: 'in_progress', sub_status: 'blocked', session_id: 's1' }, never), true, 'blocked 是等人工不是已结算，仍挡');
   // 没挂会话 → 一律可删（含 in_progress 的仅提醒任务），与改动前一致
-  assert.equal(isUndeletable({ status: 'in_progress', session_id: null }, always), false, '没会话就不受会话判据影响');
+  assert.equal(isUndeletable({ status: 'in_progress', sub_status: null, session_id: null }, always), false, '没会话就不受会话判据影响');
 });
 
 test('deleteTasksBySchedule removes every run of that schedule and hard-deletes their sessions', async () => {

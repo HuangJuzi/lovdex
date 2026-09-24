@@ -64,11 +64,20 @@ function isContextMode(value: unknown): value is ContextMode {
 }
 
 /**
- * 「这条任务现在删不得」：任务还停在 in_progress 列，**或**它关联的会话仍在流式输出。
+ * 「这条任务现在删不得」：任务还没结算地停在 in_progress 列，**或**它关联的会话仍在
+ * 流式输出。
  *
- * 两个判据缺一不可：status 会骗人（人工能把正在跑的任务标成 done），而会话是否在跑
- * 只有运行时知道；反过来只看会话也不行 —— 没挂会话的 in_progress 任务（仅提醒/尚未
- * 启动）同样不能删。
+ * 三个判据合起来才完整：
+ * - status 会骗人（人工能把正在跑的任务标成 done），而会话是否在跑只有运行时知道；
+ * - 反过来只看会话也不行 —— 没挂会话的 in_progress 任务（仅提醒/尚未启动）同样不能删；
+ * - status 还会「骗」出另一个方向：失败的任务**留在 in_progress 列**、只持久化
+ *   sub_status='failed'（两层状态，见 writeVerdict）。仅看 status 会把所有失败运行
+ *   判成运行中，线上曾因此死锁 —— 失败运行永远删不掉，收件箱的失败提醒永远清不掉。
+ *   失败 = 已结算，可删（与 scheduler 的 isRunActive「跑挂的放行」同一判据）；blocked /
+ *   only_plan / needs_review 仍算等人工，继续挡。失败标签压不过 registry：会话真在
+ *   写 transcript 时照样拒绝。
+ *
+ * 入参是**裸 DB 行**（getTask / listTasks），sub_status 是持久化子集，正是这里要看的。
  *
  * 抽成模块级函数是因为两条删除路径共用它：单条 `deleteTask`，以及删定时任务时的
  * 级联 `deleteTasksBySchedule`（后者要**先整批判、再动手**）。各写一遍迟早会漂，
@@ -78,11 +87,12 @@ function isContextMode(value: unknown): value is ContextMode {
  * 生效），保持不变。
  */
 export function isUndeletable(
-  row: Pick<TaskRow, 'status' | 'session_id'>,
+  row: Pick<TaskRow, 'status' | 'sub_status' | 'session_id'>,
   isSessionRunning?: (sessionId: string) => boolean,
 ): boolean {
   if (!row.session_id) return false;
-  return row.status === 'in_progress' || (isSessionRunning?.(row.session_id) ?? false);
+  if (isSessionRunning?.(row.session_id)) return true;
+  return row.status === 'in_progress' && row.sub_status !== 'failed';
 }
 
 type CreateTaskInput = {
