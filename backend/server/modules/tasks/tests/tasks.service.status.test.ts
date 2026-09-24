@@ -170,6 +170,35 @@ test('moveTask to a different column clears sub_status', async () => {
   });
 });
 
+test('archived failed run keeps the row, clears the persisted failed tag', async () => {
+  await withIsolatedDatabase(() => {
+    const id = seedTask();
+    const svc = makeService();
+    svc.onSessionStatus('s1', 'running');
+    svc.onSessionStatus('s1', 'failed'); // 两层状态：in_progress + 持久化 failed
+    assert.equal(tasksDb.getTask(id)?.sub_status, 'failed');
+    svc.applyStatusChange(id, 'archived', 'user');
+    assert.equal(tasksDb.getTask(id)?.status, 'archived');
+    assert.equal(tasksDb.getTask(id)?.sub_status, null);
+    // 关联会话 's1' 在测试库不存在（悬空外键）——归档副作用必须容忍并跳过，不阻断。
+    assert.equal(svc.getTask(id)?.status, 'archived');
+  });
+});
+
+test('un-archiving a failed run settles on done, the failed tag does not come back', async () => {
+  await withIsolatedDatabase(() => {
+    const id = seedTask();
+    const svc = makeService();
+    svc.onSessionStatus('s1', 'running');
+    svc.onSessionStatus('s1', 'failed');
+    svc.applyStatusChange(id, 'archived', 'user');
+    // 取消归档：认账语义 —— 落 done，failed 标签不复活。
+    svc.applyStatusChange(id, 'done', 'user');
+    assert.equal(tasksDb.getTask(id)?.status, 'done');
+    assert.equal(tasksDb.getTask(id)?.sub_status, null);
+  });
+});
+
 test('applyStatusChange to the same status does not clear sub_status', async () => {
   await withIsolatedDatabase(() => {
     const id = seedTask();
