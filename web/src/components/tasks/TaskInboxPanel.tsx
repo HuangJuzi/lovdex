@@ -13,6 +13,7 @@ type TaskInboxPanelProps = {
   onRetry?: (task: Task) => void;
   onStart?: (task: Task) => void;
   onAccept?: (task: Task) => void;
+  onIgnore?: (task: Task) => void;
   onOpenSession?: (task: Task) => void;
   onOpenTask?: (task: Task) => void;
 };
@@ -29,6 +30,7 @@ const ACTION_META: Record<AttentionAction, { label: string; className: string }>
   retry:       { label: '↻ 重试', className: 'bg-primary/10 text-primary hover:bg-primary/20' },
   start:       { label: '▶ 开始执行', className: 'bg-primary/10 text-primary hover:bg-primary/20' },
   accept:      { label: '✓ 标记完成', className: 'bg-success/10 text-success hover:bg-success/20' },
+  ignore:      { label: '🗄 忽略', className: 'bg-muted text-muted-foreground hover:bg-primary/10 hover:text-primary' },
   openSession: { label: '打开会话', className: 'bg-muted text-muted-foreground hover:bg-primary/10 hover:text-primary' },
   openTask:    { label: '查看', className: 'bg-muted text-muted-foreground hover:bg-primary/10 hover:text-primary' },
 };
@@ -40,7 +42,7 @@ function projectInfo(task: Task, projectOptions: TaskProjectOption[]): { label: 
 }
 
 export function TaskInboxPanel({
-  tasks, now, projectOptions = [], onRetry, onStart, onAccept, onOpenSession, onOpenTask,
+  tasks, now, projectOptions = [], onRetry, onStart, onAccept, onIgnore, onOpenSession, onOpenTask,
 }: TaskInboxPanelProps) {
   const items = useMemo(() => attentionItems(tasks, now), [tasks, now]);
   const [collapsed, setCollapsed] = useState(false);
@@ -50,6 +52,7 @@ export function TaskInboxPanel({
     retry: onRetry,
     start: onStart,
     accept: onAccept,
+    ignore: onIgnore,
     openSession: onOpenSession,
     openTask: onOpenTask,
   };
@@ -72,6 +75,7 @@ export function TaskInboxPanel({
           const handler = handlers[item.action];
           const info = projectInfo(item.task, projectOptions);
           const showOpenSession = item.action !== 'openSession' && hasOpenableSession(item.task);
+          const showIgnore = item.signal === 'failed' && item.action !== 'ignore' && !!onIgnore;
           return (
             <div key={item.task.task_id} className="flex items-center gap-2.5 px-3 py-2 sm:px-4">
               <span
@@ -111,6 +115,15 @@ export function TaskInboxPanel({
                       className={`whitespace-nowrap rounded-lg px-2.5 py-1 text-2xs font-semibold transition-colors ${ACTION_META[item.action].className}`}
                     >
                       {ACTION_META[item.action].label}
+                    </button>
+                  )}
+                  {showIgnore && onIgnore && (
+                    <button
+                      type="button"
+                      onClick={() => onIgnore(item.task)}
+                      className={`whitespace-nowrap rounded-lg px-2.5 py-1 text-2xs font-semibold transition-colors ${ACTION_META.ignore.className}`}
+                    >
+                      {ACTION_META.ignore.label}
                     </button>
                   )}
                   {showOpenSession && onOpenSession && (

@@ -106,6 +106,42 @@ test('omits the action button when the matching handler is not provided', () => 
   assert.doesNotMatch(html, /↻ 重试/);
 });
 
+test('failed item with onIgnore offers 忽略 next to 重试', () => {
+  const html = renderToStaticMarkup(
+    React.createElement(TaskInboxPanel, {
+      tasks: [mkTask({ task_id: 'f1', status: 'in_progress', sub_status: 'failed' })],
+      now: NOW,
+      onRetry: () => {},
+      onIgnore: () => {},
+    }),
+  );
+  assert.match(html, /↻ 重试/);
+  assert.match(html, /🗄 忽略/);
+});
+
+test('failed item without onIgnore does not render 忽略', () => {
+  const html = renderToStaticMarkup(
+    React.createElement(TaskInboxPanel, {
+      tasks: [mkTask({ task_id: 'f1', status: 'in_progress', sub_status: 'failed' })],
+      now: NOW,
+      onRetry: () => {},
+    }),
+  );
+  assert.match(html, /↻ 重试/);
+  assert.doesNotMatch(html, /忽略/);
+});
+
+test('blocked item does not render 忽略 even with onIgnore provided', () => {
+  const html = renderToStaticMarkup(
+    React.createElement(TaskInboxPanel, {
+      tasks: [mkTask({ task_id: 'b1', status: 'in_progress', sub_status: 'blocked' })],
+      now: NOW,
+      onIgnore: () => {},
+    }),
+  );
+  assert.doesNotMatch(html, /忽略/);
+});
+
 test('failed item with a session offers 重试 and 打开会话 side by side', () => {
   const html = renderToStaticMarkup(
     React.createElement(TaskInboxPanel, {

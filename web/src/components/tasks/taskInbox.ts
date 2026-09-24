@@ -4,7 +4,7 @@ import { canOpenSession } from './taskActions';
 import { deadlineInfo } from './taskDeadline';
 import { SUB_STATUS_META } from './taskStatus';
 
-export type AttentionAction = 'retry' | 'start' | 'accept' | 'openSession' | 'openTask';
+export type AttentionAction = 'retry' | 'start' | 'accept' | 'ignore' | 'openSession' | 'openTask';
 export type AttentionTone = 'wait' | 'fail' | 'accept' | 'plan' | 'late';
 
 export type AttentionItem = {
