@@ -136,8 +136,8 @@ test('toApiBody: the assistant project is sent as a null projectPath', () => {
 
 test('toApiBody: the assistant target pins the engine to claude and drops the model', () => {
   // 后端对「isOperator 且 provider 非 claude」抛 INVALID_EXECUTOR 400
-  // (tasks.service.ts:484-486)。派发路径上这个错误被 scheduler 的 tick catch
-  // 吞掉，而 next_run_at 的推进写在那段 try/catch 之后 —— 于是任务每 15 秒重试
+  // (tasks.service.ts:498)。派发路径上这个错误被 scheduler 的 tick catch
+  // 吞掉、而 next_run_at 的推进写在那段 try/catch 之后 —— 于是任务每 15 秒重试
   // 一次、永远不执行，用户只看到「定时任务莫名其妙不跑」。
   const body = toApiBody({
     ...EMPTY_DRAFT,

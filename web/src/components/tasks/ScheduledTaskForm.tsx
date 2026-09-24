@@ -105,10 +105,11 @@ function draftIntervalSeconds(d: ScheduledTaskDraft): number {
  *
  * 助手目标（`isAssistantTarget`）的引擎/模型在这里**强制归一化**：后端对
  * 「isOperator 且 provider 非 claude」抛 INVALID_EXECUTOR 400
- * （tasks.service.ts:484-486），而派发路径上这个错误被 scheduler 的 tick catch
- * 吞掉、`next_run_at` 的推进又写在那段 try/catch 之后（scheduler.service.ts:186-193）
- * —— 不归一化的话，一个「助手 + qoder」的定时任务会每 15 秒静默重试一次、永不执行。
- * 放在出口而不是 UI 上：编辑老任务保存时同样生效，也不依赖用户有没有动过那两个 chip。
+ * （tasks.service.ts:498），而派发路径上这个错误被 scheduler 的 tick catch
+ * 吞掉（scheduler.service.ts:204）、`next_run_at` 的推进又写在那段 try/catch 之后
+ * （`:185-189`）—— 不归一化的话，一个「助手 + qoder」的定时任务会每 15 秒静默
+ * 重试一次、永不执行。放在出口而不是 UI 上：编辑老任务保存时同样生效，也不依赖
+ * 用户有没有动过那两个 chip。
  */
 export function toApiBody(d: ScheduledTaskDraft) {
   const isAssistant = isAssistantTarget(d.projectPath);
