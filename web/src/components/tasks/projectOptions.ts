@@ -1,5 +1,8 @@
 import type { Project } from '../../types/app';
 
+import type { ChipSelectOption } from './ChipSelect';
+import type { TaskProjectOption } from './TaskCard';
+
 /** 「Lovdex 助手」选项的哨兵 value。 */
 export const ASSISTANT_OPTION_VALUE = '__lovdex_assistant__';
 
@@ -47,4 +50,39 @@ export function toProjectOption(
     remoteHostId: project.remoteHostId ?? null,
     remoteHostName: project.remoteHostName ?? null,
   };
+}
+
+/**
+ * 该「项目路径」是否指向 Lovdex 助手（而非某个真实项目目录）。
+ *
+ * 判据与 `CreateTaskDialog.tsx:64` 逐字一致：哨兵值或空串。空串这一支是必要的
+ * ——后端把助手目标的 `project_path` 存成 NULL，`toDraft` 会回填哨兵值，但任何
+ * 漏了回填的路径传进来都是空串，两种写法都得当助手处理。
+ *
+ * 抽成纯函数是为了能在无 DOM 环境下直接断言：组件里两处消费（chip 置灰、提示行）
+ * 依赖它，而静态渲染下两个 chip 本来就因「加载中」而 disabled，断言不出这个改动。
+ */
+export function isAssistantTarget(projectPath: string): boolean {
+  return projectPath === ASSISTANT_OPTION_VALUE || !projectPath;
+}
+
+/**
+ * 定时任务表单「项目」chip 的选项：助手选项**恒排第一**，其后是项目列表。
+ *
+ * 助手那一项不在 `projectOptions` 里 —— 调用方传进来的已经过 `taskFormProjects()`
+ * 过滤（助手工作区被排除）。少了这一项，`EMPTY_DRAFT.projectPath` 的助手哨兵值
+ * 就找不到匹配项，ChipSelect 会回退显示裸的「项目」二字：用户既看不出新建的表单
+ * 其实指向助手，一旦选了别的项目也切不回来。
+ *
+ * 文案与排序对齐 `CreateTaskDialog.tsx:199` 的同名选项（🤖 前缀 + 置顶）。
+ */
+export function taskFormProjectChipOptions(projectOptions: TaskProjectOption[]): ChipSelectOption[] {
+  return [
+    { value: ASSISTANT_OPTION_VALUE, label: '🤖 Lovdex助手' },
+    ...projectOptions.map((o) => ({
+      value: o.value,
+      label: o.label,
+      hint: o.remoteHostName ?? undefined,
+    })),
+  ];
 }
