@@ -108,7 +108,18 @@ export const scheduledTasksDb = {
       timezone: (v) => v, next_run_at: (v) => v, last_run_at: (v) => v, last_task_id: (v) => v,
       enabled: (v) => (v ? 1 : 0),
     };
-    for (const [key, value] of Object.entries(updates)) {
+    const effective = { ...updates };
+    // is_operator 是 project_path 的派生列，create 时由 `input.projectPath ? 0 : 1`
+    // 算出来 —— 这里必须同样重算。否则把一条普通项目的定时任务改成「🤖 Lovdex助手」
+    // （前端发 projectPath: null）会落成 project_path=NULL 而 is_operator=0：
+    // 派发时 isOperator=false 对 null 路径查项目表 → PROJECT_NOT_FOUND，错误被
+    // scheduler 的 tick catch 吞掉、next_run_at 不推进，表现成每 15 秒重试一次的
+    // 静默失败。反向（助手 → 普通项目）同理会把 run 落进助手工作区。
+    // 调用方显式传了 is_operator 则以其为准（测试与内部调用需要这个口子）。
+    if (effective.is_operator === undefined && 'project_path' in effective) {
+      effective.is_operator = effective.project_path ? 0 : 1;
+    }
+    for (const [key, value] of Object.entries(effective)) {
       if (!(key in allowed)) continue;
       sets.push(`${key} = ?`);
       params.push(allowed[key](value));
