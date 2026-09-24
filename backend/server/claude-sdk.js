@@ -275,7 +275,16 @@ function mapCliOptionsToSDK(options = {}) {
   let allowedTools = [...(settings.allowedTools || [])];
 
   if (permissionMode === 'plan') {
-    const planModeTools = ['Read', 'Task', 'exit_plan_mode', 'TodoRead', 'TodoWrite', 'WebFetch', 'WebSearch'];
+    // Research tools the agent needs while planning. `ExitPlanMode` is
+    // deliberately NOT here, and used to be spelled 'exit_plan_mode' — which
+    // matches no real tool (the SDK's name is `ExitPlanMode`, sdk.d.ts), so that
+    // entry did nothing. Spelling it correctly would be worse than dead: the SDK
+    // treats `allowedTools` as "auto-allowed without prompting", so the plan
+    // would be accepted without ever asking, turning plan mode into default mode.
+    // Leaving it out routes the exit through `canUseTool`, where the plan
+    // approval stays a real decision (and, unattended, auto-approval denies it
+    // with "无人值守执行中" rather than hanging on an answer that cannot come).
+    const planModeTools = ['Read', 'Task', 'TodoRead', 'TodoWrite', 'WebFetch', 'WebSearch'];
     for (const tool of planModeTools) {
       if (!allowedTools.includes(tool)) {
         allowedTools.push(tool);
