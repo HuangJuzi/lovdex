@@ -24,7 +24,7 @@ import {
 
 import { AnchorPopover } from './AnchorPopover';
 import { ChipSelect, type ChipSelectOption } from './ChipSelect';
-import { ASSISTANT_OPTION_VALUE } from './projectOptions';
+import { ASSISTANT_OPTION_VALUE, taskFormProjectChipOptions } from './projectOptions';
 import { useTaskPermissionModeDescription, useTaskPermissionModeOptions } from './taskPermissionModeOptions';
 import type { TaskProjectOption } from './TaskCard';
 import { modelOptionsFor, nextModelOnLoad, useProviderModels } from './useProviderModels';
@@ -126,18 +126,6 @@ const SCHEDULE_TYPES: { value: ScheduledTaskScheduleType; label: string }[] = [
   { value: 'cron', label: 'Cron' },
 ];
 
-/**
- * 项目 chip 的选项：远端项目把主机名挂在弹层行的右侧（同 CreateTaskDialog）。
- * 抽成纯函数是为了能在无 DOM 环境下直接断言。
- */
-export function toProjectChipOptions(projectOptions: TaskProjectOption[]): ChipSelectOption[] {
-  return projectOptions.map((o) => ({
-    value: o.value,
-    label: o.label,
-    hint: o.remoteHostName ?? undefined,
-  }));
-}
-
 function toLocalDateTimeInput(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
@@ -185,7 +173,7 @@ export function toDraft(initial?: ScheduledTask | null): ScheduledTaskDraft {
  *
  * 只在模式切换这个显式动作里播种一次，之后用户在裸输入框里逐字敲的内容不会再被
  * 回写覆盖（那正是计划里担心的 clobber）。抽成纯函数是为了能在无 DOM 环境下直接
- * 断言（同 toProjectChipOptions）。
+ * 断言（同 projectOptions.ts 的 taskFormProjectChipOptions）。
  */
 export function switchCronMode(d: ScheduledTaskDraft, mode: CronMode): ScheduledTaskDraft {
   if (mode !== 'custom') return { ...d, cronMode: mode };
@@ -356,7 +344,7 @@ export function ScheduledTaskFormBody({
       : // 非 ready 时保留一项，芯片才显示得出当前引擎的中文名而不是裸的「引擎」二字。
         [{ value: draft.executorProvider, label: ENGINE_NAMES[draft.executorProvider] }];
   const engineHint = 'hint' in engineAvailability ? engineAvailability.hint : undefined;
-  const projectChipOptions = toProjectChipOptions(projectOptions);
+  const projectChipOptions = taskFormProjectChipOptions(projectOptions);
   const canSubmit = canSubmitScheduledTask(draft.description, submitting);
   // 与 composer 同源的模式词汇（同一份 provider 列表、同一套 i18n 名称），随引擎切换。
   const permissionModeOptions = useTaskPermissionModeOptions(draft.executorProvider);

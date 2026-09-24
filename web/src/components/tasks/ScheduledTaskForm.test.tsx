@@ -22,8 +22,8 @@ reactDomCjs.createPortal = (children) => children;
 // has to exist before that import runs — same precedent as
 // MessageComponent.test.tsx / ProviderSelectionEmptyState.test.tsx.
 import '../../i18n/config.js';
-const { ScheduledTaskForm, ScheduledTaskFormBody, EMPTY_DRAFT, canSubmitScheduledTask, switchCronMode, toApiBody, toDraft, toProjectChipOptions } = await import('./ScheduledTaskForm');
-const { ASSISTANT_OPTION_VALUE } = await import('./projectOptions');
+const { ScheduledTaskForm, ScheduledTaskFormBody, EMPTY_DRAFT, canSubmitScheduledTask, switchCronMode, toApiBody, toDraft } = await import('./ScheduledTaskForm');
+const { ASSISTANT_OPTION_VALUE, taskFormProjectChipOptions } = await import('./projectOptions');
 const { permissionModesFor } = await import('../chat/utils/providerPermissionModes');
 
 const onClose = () => {};
@@ -99,13 +99,15 @@ test('renders the schedule section segmented control, defaulting to 单次', () 
   assert.ok(html.includes('自动执行'));
 });
 
-test('toProjectChipOptions: a remote project carries its host name as a hint', () => {
-  const options = toProjectChipOptions([
+test('taskFormProjectChipOptions: the assistant option is prepended to the remote-aware project list', () => {
+  const options = taskFormProjectChipOptions([
     { value: '/r/app', label: 'MyApp', remoteHostId: 'h1', remoteHostName: 'dev-01' },
     { value: '/l/app', label: 'LocalApp' },
   ]);
-  assert.deepEqual(options[0], { value: '/r/app', label: 'MyApp', hint: 'dev-01' });
-  assert.deepEqual(options[1], { value: '/l/app', label: 'LocalApp', hint: undefined });
+  // 入参里没有助手项（taskFormProjects 把它过滤掉了），但它必须出现在结果首位。
+  assert.deepEqual(options[0], { value: ASSISTANT_OPTION_VALUE, label: '🤖 Lovdex助手' });
+  assert.deepEqual(options[1], { value: '/r/app', label: 'MyApp', hint: 'dev-01' });
+  assert.deepEqual(options[2], { value: '/l/app', label: 'LocalApp', hint: undefined });
 });
 
 test('canSubmitScheduledTask: only a non-empty description may be submitted', () => {
