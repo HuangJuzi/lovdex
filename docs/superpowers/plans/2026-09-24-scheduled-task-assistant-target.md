@@ -243,8 +243,10 @@ Expected: FAIL —— `The requested module './ScheduledTaskForm' does not provi
 `ScheduledTaskForm.tsx:27` 的 import 改为：
 
 ```ts
-import { ASSISTANT_OPTION_VALUE, isAssistantTarget, taskFormProjectChipOptions } from './projectOptions';
+import { ASSISTANT_OPTION_VALUE, taskFormProjectChipOptions } from './projectOptions';
 ```
+
+（`isAssistantTarget` 到 Task 4 才接进来，这里先不导 —— 本仓库 `tsconfig.json` 没开 `noUnusedLocals`、eslint 的 `no-unused-vars` 也是关的，未使用的 import **不会报错**，所以别指望工具拦住。）
 
 删掉 `:129-139` 整块（`toProjectChipOptions` 及其 JSDoc 注释，从 `/**\n * 项目 chip 的选项` 到函数结束的 `}`）。
 
@@ -256,7 +258,7 @@ import { ASSISTANT_OPTION_VALUE, isAssistantTarget, taskFormProjectChipOptions }
 
 **保留** `:29` 的 `import type { TaskProjectOption } from './TaskCard';` —— `ScheduledTaskFormBodyProps.projectOptions` 还在用它。
 
-**暂时不要删** `:27` 之外对 `ASSISTANT_OPTION_VALUE` 的引用（`:62`、`:163`、`:292` 仍在用），也别把 `isAssistantTarget` 接进 `:292` —— 那处的第三个实参是「是否助手」的布尔，语义相同但本任务不重构它，留给 Task 3/4 统一。
+**本任务不动** `:62`、`:163`、`:292` 三处对 `ASSISTANT_OPTION_VALUE` 的引用，留给 Task 4 统一换成 `isAssistantTarget`。
 
 - [ ] **Step 4: 跑测试确认通过**
 
