@@ -461,6 +461,7 @@ export function TaskBoardPage() {
             onRetry={runTask}
             onStart={runTask}
             onAccept={(task) => updateStatus(task, 'done')}
+            onIgnore={(task) => updateStatus(task, 'archived')}
             onOpenSession={(task) => task.session_id && navigate(`/session/${task.session_id}`)}
             onOpenTask={(task) => navigate(`/task/${task.task_id}`)}
           />
