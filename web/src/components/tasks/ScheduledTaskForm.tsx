@@ -24,7 +24,7 @@ import {
 
 import { AnchorPopover } from './AnchorPopover';
 import { ChipSelect, type ChipSelectOption } from './ChipSelect';
-import { ASSISTANT_OPTION_VALUE, taskFormProjectChipOptions } from './projectOptions';
+import { ASSISTANT_OPTION_VALUE, isAssistantTarget, taskFormProjectChipOptions } from './projectOptions';
 import { useTaskPermissionModeDescription, useTaskPermissionModeOptions } from './taskPermissionModeOptions';
 import type { TaskProjectOption } from './TaskCard';
 import { modelOptionsFor, nextModelOnLoad, useProviderModels } from './useProviderModels';
@@ -102,15 +102,22 @@ function draftIntervalSeconds(d: ScheduledTaskDraft): number {
  *
  * `title` 原样透传，**不做任何本地兜底**：空串是「让后端用 LLM 从描述取名」的信号，
  * 前端一旦在这里填了名字，后端的取名分支就永远不会进入（同 CreateTaskDialog）。
+ *
+ * 助手目标（`isAssistantTarget`）的引擎/模型在这里**强制归一化**：后端对
+ * 「isOperator 且 provider 非 claude」抛 INVALID_EXECUTOR 400
+ * （tasks.service.ts:484-486），而派发路径上这个错误被 scheduler 的 tick catch
+ * 吞掉、`next_run_at` 的推进又写在那段 try/catch 之后（scheduler.service.ts:186-193）
+ * —— 不归一化的话，一个「助手 + qoder」的定时任务会每 15 秒静默重试一次、永不执行。
+ * 放在出口而不是 UI 上：编辑老任务保存时同样生效，也不依赖用户有没有动过那两个 chip。
  */
 export function toApiBody(d: ScheduledTaskDraft) {
-  const projectPath = d.projectPath === ASSISTANT_OPTION_VALUE || !d.projectPath ? null : d.projectPath;
+  const isAssistant = isAssistantTarget(d.projectPath);
   return {
     title: d.title,
     description: d.description || null,
-    projectPath,
-    executorProvider: d.executorProvider,
-    executorModel: d.executorModel || null,
+    projectPath: isAssistant ? null : d.projectPath,
+    executorProvider: isAssistant ? 'claude' : d.executorProvider,
+    executorModel: isAssistant ? null : d.executorModel || null,
     autoRun: d.autoRun ? 1 : 0,
     permissionMode: d.permissionMode,
     scheduleType: d.scheduleType,

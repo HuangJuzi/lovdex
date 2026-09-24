@@ -134,6 +134,35 @@ test('toApiBody: the assistant project is sent as a null projectPath', () => {
   assert.equal(body.projectPath, null);
 });
 
+test('toApiBody: the assistant target pins the engine to claude and drops the model', () => {
+  // 后端对「isOperator 且 provider 非 claude」抛 INVALID_EXECUTOR 400
+  // (tasks.service.ts:484-486)。派发路径上这个错误被 scheduler 的 tick catch
+  // 吞掉，而 next_run_at 的推进写在那段 try/catch 之后 —— 于是任务每 15 秒重试
+  // 一次、永远不执行，用户只看到「定时任务莫名其妙不跑」。
+  const body = toApiBody({
+    ...EMPTY_DRAFT,
+    projectPath: ASSISTANT_OPTION_VALUE,
+    executorProvider: 'qoder',
+    executorModel: 'gpt-5',
+  });
+  assert.equal(body.executorProvider, 'claude');
+  assert.equal(body.executorModel, null);
+});
+
+test('toApiBody: a real project keeps the picked engine and model', () => {
+  // 归一化只作用于助手模式，别把普通项目的选择一起吞掉。
+  const body = toApiBody({ ...EMPTY_DRAFT, projectPath: '/p/app', executorProvider: 'qoder', executorModel: 'gpt-5' });
+  assert.equal(body.projectPath, '/p/app');
+  assert.equal(body.executorProvider, 'qoder');
+  assert.equal(body.executorModel, 'gpt-5');
+});
+
+test('toApiBody: an empty projectPath is treated as the assistant target', () => {
+  const body = toApiBody({ ...EMPTY_DRAFT, projectPath: '', executorProvider: 'qoder' });
+  assert.equal(body.projectPath, null);
+  assert.equal(body.executorProvider, 'claude');
+});
+
 test('toApiBody: only the field matching the schedule type is populated', () => {
   const once = toApiBody({ ...EMPTY_DRAFT, scheduleType: 'once', runAt: '2026-09-19T01:00', cronExpr: '0 9 * * *' });
   assert.equal(once.cronExpr, null);
@@ -274,14 +303,15 @@ test('draft no longer carries priority or label', () => {
 });
 
 test('toApiBody carries executorModel and drops priority/label', () => {
-  const body = toApiBody({ ...EMPTY_DRAFT, executorModel: 'opus' });
+  // 用真实项目路径：助手目标会把模型强制归一成 null（见上面的归一化测试）。
+  const body = toApiBody({ ...EMPTY_DRAFT, projectPath: '/p/app', executorModel: 'opus' });
   assert.equal(body.executorModel, 'opus');
   assert.equal('priority' in body, false);
   assert.equal('label' in body, false);
 });
 
 test('toApiBody maps an empty executorModel to null (provider default slot)', () => {
-  assert.equal(toApiBody({ ...EMPTY_DRAFT, executorModel: '' }).executorModel, null);
+  assert.equal(toApiBody({ ...EMPTY_DRAFT, projectPath: '/p/app', executorModel: '' }).executorModel, null);
 });
 
 test('toDraft keeps a stored executor_model', () => {
