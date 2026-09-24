@@ -172,6 +172,8 @@ test('moveTask to a different column clears sub_status', async () => {
 
 test('archived failed run keeps the row, clears the persisted failed tag', async () => {
   await withIsolatedDatabase(() => {
+    // 真实会话行（参考既有 archive 测试的种法）：归档必须把关联会话一并隐藏。
+    sessionsDb.createSession('s1', 'claude', '/tmp/example-repo');
     const id = seedTask();
     const svc = makeService();
     svc.onSessionStatus('s1', 'running');
@@ -180,8 +182,17 @@ test('archived failed run keeps the row, clears the persisted failed tag', async
     svc.applyStatusChange(id, 'archived', 'user');
     assert.equal(tasksDb.getTask(id)?.status, 'archived');
     assert.equal(tasksDb.getTask(id)?.sub_status, null);
-    // 关联会话 's1' 在测试库不存在（悬空外键）——归档副作用必须容忍并跳过，不阻断。
     assert.equal(svc.getTask(id)?.status, 'archived');
+    // 归档隐藏关联会话（真库层）：项目侧列表查询都以 isArchived = 0 过滤。
+    assert.equal(sessionsDb.getSessionById('s1')?.isArchived, 1);
+    // 悬空外键容忍：第二个任务只 link 一个不存在的会话 's2'（无会话行），
+    // 归档副作用 UPDATE 落 0 行 —— 必须容忍并跳过，不阻断。
+    const id2 = tasksDb.createTask({ projectPath: '/tmp/example-repo', title: 't2', executorProvider: 'claude' }).task_id;
+    tasksDb.linkSession(id2, 's2');
+    svc.onSessionStatus('s2', 'running');
+    svc.onSessionStatus('s2', 'failed');
+    svc.applyStatusChange(id2, 'archived', 'user');
+    assert.equal(svc.getTask(id2)?.status, 'archived');
   });
 });
 
@@ -196,6 +207,9 @@ test('un-archiving a failed run settles on done, the failed tag does not come ba
     svc.applyStatusChange(id, 'done', 'user');
     assert.equal(tasksDb.getTask(id)?.status, 'done');
     assert.equal(tasksDb.getTask(id)?.sub_status, null);
+    // 认账 ≠ 补完成时间：这条路是全库唯一 done 且 completed_at 为空的组合
+    // （completed_at 只在「从非 archived 进入 done」时落，archived→done 保持原样）。
+    assert.equal(tasksDb.getTask(id)?.completed_at, null);
   });
 });
 
