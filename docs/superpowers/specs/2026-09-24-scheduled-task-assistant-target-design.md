@@ -39,22 +39,23 @@
 
 纯前端改动，三处。
 
-### 1. `toProjectChipOptions` 前置助手选项
+### 1. 新增 `taskFormProjectChipOptions`，助手选项置顶
 
-`ScheduledTaskForm.tsx:133`：
+`projectOptions.ts`（新函数）：
 
 ```ts
-export function toProjectChipOptions(projectOptions: TaskProjectOption[]): ChipSelectOption[] {
+export function taskFormProjectChipOptions(projectOptions: TaskProjectOption[]): ChipSelectOption[] {
   return [
     { value: ASSISTANT_OPTION_VALUE, label: '🤖 Lovdex助手' },
-    ...projectOptions.map(/* 原样：value / label / hint */),
+    ...projectOptions.map((o) => ({ value: o.value, label: o.label, hint: o.remoteHostName ?? undefined })),
   ];
 }
 ```
 
-- 文案与写法照抄 `CreateTaskDialog.tsx:199`，两处入口的词汇保持一致。
-- 放进纯函数而不是组件内联：`web` 测试无 DOM 环境，只有纯函数能直接断言（该文件已有 `toProjectChipOptions` 的测试先例，`ScheduledTaskForm.test.tsx:102`）。
+- 文案与排序照抄 `CreateTaskDialog.tsx:199`，两处入口的词汇保持一致。
+- 放在 `projectOptions.ts` 而不是 `ScheduledTaskForm.tsx`：`ASSISTANT_OPTION_VALUE` 本来就住在这个模块，放一起才不用反向 import；且该模块是纯 `.ts` 工具文件，不触发 `react-refresh/only-export-components`（表单文件已有 6 条该警告）。
 - 助手选项固定排第一，与 `ProjectMultiSelect.tsx:29` 的排序一致。
+- 表单里原来的 `toProjectChipOptions` 随之删除，调用点改为 `taskFormProjectChipOptions(projectOptions)`。
 
 ### 2. `toApiBody` 在助手模式下归一化引擎与模型
 
@@ -71,27 +72,32 @@ executorModel: isAssistant ? null : (d.executorModel || null),
 
 写法照抄 `CreateTaskDialog.tsx:169-170`（同一处归一化，同一处语义）。
 
-### 3. 助手模式下给一行提示
+### 3. 助手模式下置灰引擎/模型 chip，并给一行提示
 
 在 composer 工具条下方加一行说明文案，照 `CreateTaskDialog.tsx:337`：
 
 > 🤖 Lovdex助手任务固定使用 Claude + 默认模型，以上引擎/模型设置将被忽略。
 
-引擎与模型 chip **保持可点、不置灰** —— 与 CreateTaskDialog 的处理一致（它也是保留可点 + 提示，而不是 disabled）。
+引擎与模型 chip 在助手模式下**置灰**（`disabled={isAssistant || …}`），对齐 `CreateTaskDialog.tsx:284,293` 的既有实现 —— 它同样禁用这两个 chip、只留提示文案。两处入口的交互保持一致，比 spec 初稿设想的「保持可点 + 提示」更贴合已有代码。
+
+判据抽成 `isAssistantTarget(projectPath)` 放进 `projectOptions.ts`：`ScheduledTaskForm.tsx` 里 `toApiBody`、chip 的 `disabled`、提示行的条件、以及 `useTaskEngineAvailability` 的第三个实参共四处消费它，重复写四遍 `=== ASSISTANT_OPTION_VALUE || !…` 迟早会漂移。
 
 ## 数据流与错误处理
 
 - 无后端改动，无新接口。
 - 编辑已有助手定时任务：`toDraft` 已把 `project_path === null` 映射回 `ASSISTANT_OPTION_VALUE`（`ScheduledTaskForm.tsx:163`），无需改动；归一化在 `toApiBody` 里做，编辑保存同样生效。
-- 引擎可用性探测已处理助手分支：`useTaskEngineAvailability(..., draft.projectPath === ASSISTANT_OPTION_VALUE)`（`:288-293`）走本机 provider 探测。
-- 引擎可用性 effect（`:296-302`）可能自动纠正 `executorProvider`，但归一化发生在 `toApiBody` 出口，纠正结果不影响最终请求体。
+- 引擎可用性探测已处理助手分支：`useTaskEngineAvailability(..., isAssistantTarget(draft.projectPath))`（`:288-293`）返回 `{ status: 'assistant' }`，两个 chip 因此保持基线已有的禁用态。
 
 ## 测试
 
-`ScheduledTaskForm.test.tsx` 补两条（现有测试已覆盖 `toApiBody` 的助手分支，`:131`）：
+`projectOptions.test.ts` 补四条、`ScheduledTaskForm.test.tsx` 补四条：
 
-1. `toProjectChipOptions`：助手选项排第一，且后续项目项原样保留（含远端 hint）。
-2. `toApiBody`：draft 为「助手 + `qoder` + 指定模型」时，请求体仍是 `executorProvider: 'claude'`、`executorModel: null`。
+1. `isAssistantTarget`：哨兵值与空串都为真、真实路径为假。
+2. `taskFormProjectChipOptions`：助手选项恒排第一（入参为空时也出现）；项目项原样保留（含远端 hint）；哨兵值不与真实路径形态冲突。
+3. `toApiBody`：「助手 + `qoder` + 指定模型」→ `claude` + `null`；真实项目不被归一化；空串路径按助手处理。
+4. 提示行的正反两向静态渲染断言（反向用 `mkScheduledTask({ project_path: '/p/app' })` 构造普通项目态）。
+
+**chip 置灰不做静态渲染断言**：`renderToStaticMarkup` 不执行 effect，两个 chip 在基线版本里就因「加载中 / 模型列表为空」而已是 `disabled=""`，断言它等于没测。判据由 `isAssistantTarget` 覆盖，接线只做代码评审。
 
 跑法：`cd web && env -u TSX_TSCONFIG_PATH npx tsx --test src/components/tasks/ScheduledTaskForm.test.tsx`
 
@@ -99,13 +105,16 @@ executorModel: isAssistant ? null : (d.executorModel || null),
 
 | 文件 | 改动 |
 |---|---|
-| `web/src/components/tasks/ScheduledTaskForm.tsx` | `toProjectChipOptions` 前置助手选项；`toApiBody` 助手模式归一化引擎/模型；助手模式提示文案 |
-| `web/src/components/tasks/ScheduledTaskForm.test.tsx` | 新增两条断言 |
+| `web/src/components/tasks/projectOptions.ts` | 新增 `isAssistantTarget`、`taskFormProjectChipOptions` |
+| `web/src/components/tasks/ScheduledTaskForm.tsx` | 删 `toProjectChipOptions`、改调新函数；`toApiBody` 归一化引擎/模型；两个 chip 置灰；助手模式提示行 |
+| `web/src/components/tasks/projectOptions.test.ts` | 新增四条断言 |
+| `web/src/components/tasks/ScheduledTaskForm.test.tsx` | 新增四条断言（含一条改名替换） |
 
 ## 非目标
 
 - 不改后端 `scheduled-tasks` 的 create/update 校验（UI 侧归一化后已构造不出非法行；API 直连仍可构造，见「残留风险」）。
 - 不改 operator 的 system prompt。
+- 不改 `ChipSelect.tsx` / `AnchorPopover.tsx`（后者的并发改动与本方案无关）。
 - 不做表单里的清理规则描述模板。
 - 不做保留策略（TTL / 保留天数）、不做单轮删除上限、不做归档两阶段 —— 用户明确选择「助手自主判断 + 不加额外护栏」，靠 `delete_session` 已有的三道守卫。
 
