@@ -59,8 +59,9 @@ export function toProjectOption(
  * ——后端把助手目标的 `project_path` 存成 NULL，`toDraft` 会回填哨兵值，但任何
  * 漏了回填的路径传进来都是空串，两种写法都得当助手处理。
  *
- * 抽成纯函数是为了能在无 DOM 环境下直接断言：组件里两处消费（chip 置灰、提示行）
- * 依赖它，而静态渲染下两个 chip 本来就因「加载中」而 disabled，断言不出这个改动。
+ * 抽成纯函数是为了能在无 DOM 环境下直接断言：表单里有四处消费（`toApiBody` 的
+ * 归一化、`useTaskEngineAvailability` 的助手标记、两个 chip 的 disabled、提示行），
+ * 而静态渲染下两个 chip 本来就因「加载中」而 disabled，断言不出接线。
  */
 export function isAssistantTarget(projectPath: string): boolean {
   return projectPath === ASSISTANT_OPTION_VALUE || !projectPath;
