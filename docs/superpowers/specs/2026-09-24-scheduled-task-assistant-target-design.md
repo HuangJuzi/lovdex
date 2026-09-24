@@ -41,7 +41,7 @@
 
 ### 1. 新增 `taskFormProjectChipOptions`，助手选项置顶
 
-`projectOptions.ts`（新函数）：
+`projectOptions.ts`（新函数，`TaskProjectOption` 与 `ChipSelectOption` 以 type-only import 引入）：
 
 ```ts
 export function taskFormProjectChipOptions(projectOptions: TaskProjectOption[]): ChipSelectOption[] {
@@ -62,16 +62,16 @@ export function taskFormProjectChipOptions(projectOptions: TaskProjectOption[]):
 `ScheduledTaskForm.tsx:106`：
 
 ```ts
-const isAssistant = d.projectPath === ASSISTANT_OPTION_VALUE || !d.projectPath;
+const isAssistant = isAssistantTarget(d.projectPath);   // projectOptions.ts
 // ...
+projectPath: isAssistant ? null : d.projectPath,
 executorProvider: isAssistant ? 'claude' : d.executorProvider,
-executorModel: isAssistant ? null : (d.executorModel || null),
+executorModel: isAssistant ? null : d.executorModel || null,
 ```
 
 **为什么必须做**：`tasks.service.ts:484-486` 对「`isOperator` 且 provider 非 claude」抛 `INVALID_EXECUTOR` 400。派发路径上这个错误被 `tick` 的 `catch` 吞掉（`scheduler.service.ts:204`），而 `next_run_at` 的推进写在这段 try/catch **之后**（`:186-193`）——于是任务每 15 秒重试一次、永远不执行，日志里只有一行 `[scheduler] tick dispatch failed`。用户视角是「定时任务莫名其妙不跑」。
 
 写法照抄 `CreateTaskDialog.tsx:169-170`（同一处归一化，同一处语义）。
-
 ### 3. 助手模式下置灰引擎/模型 chip，并给一行提示
 
 在 composer 工具条下方加一行说明文案，照 `CreateTaskDialog.tsx:337`：
