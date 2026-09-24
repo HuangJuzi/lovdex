@@ -64,4 +64,4 @@
 
 - 后端：`tasks.service.ts`（1 处条件 + 注释）、测试。
 - 前端：`taskInbox.ts`（`AttentionAction` 加 `'ignore'`）、`TaskInboxPanel.tsx`（按钮 + handlers 映射）、`TaskBoard.tsx`（传 `onIgnore={(t) => updateStatus(t, 'archived')}`）、测试。
-- 无 schema 变更、无新端点（复用 `POST /api/tasks/:taskId/move`）。
+- 无 schema 变更、无新端点（复用 `PATCH /api/tasks/:taskId`；`moveTask` 端点显式拒绝 archived，不可走）。
