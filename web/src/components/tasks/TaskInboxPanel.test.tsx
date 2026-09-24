@@ -142,6 +142,19 @@ test('blocked item does not render 忽略 even with onIgnore provided', () => {
   assert.doesNotMatch(html, /忽略/);
 });
 
+test('ignore button alone props up the action row when no primary handler exists', () => {
+  // 调用方只传 onIgnore（无 onRetry、无会话）：次级动作必须自己撑起动作区，
+  // 不能被外层「有主操作或打开会话才渲染」的条件吞掉。
+  const html = renderToStaticMarkup(
+    React.createElement(TaskInboxPanel, {
+      tasks: [mkTask({ task_id: 'f1', status: 'in_progress', sub_status: 'failed' })],
+      now: NOW,
+      onIgnore: () => {},
+    }),
+  );
+  assert.match(html, /🗄 忽略/);
+});
+
 test('failed item with a session offers 重试 and 打开会话 side by side', () => {
   const html = renderToStaticMarkup(
     React.createElement(TaskInboxPanel, {

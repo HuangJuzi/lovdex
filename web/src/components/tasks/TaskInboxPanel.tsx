@@ -103,10 +103,11 @@ export function TaskInboxPanel({
               <span className="hidden shrink-0 text-2xs text-muted-foreground sm:inline">
                 {item.task.task_id}
               </span>
-              {/* 主操作 + 「打开会话」并列：只要有会话就能点进会话页看现场（失败任务
+              {/* 主操作 + 「忽略/打开会话」并列：只要有会话就能点进会话页看现场（失败任务
                   因此同时出现「重试」和「打开会话」）。主操作本身就是「打开会话」时
-                  不再重复渲染第二个。 */}
-              {(handler || showOpenSession) && (
+                  不再重复渲染第二个。失败条目的「忽略」是次级动作——即便调用方没传
+                  主 handler（无 onRetry），它也必须自己撑起整个动作区。 */}
+              {(handler || showIgnore || showOpenSession) && (
                 <span className="flex shrink-0 items-center gap-1.5">
                   {handler && (
                     <button
