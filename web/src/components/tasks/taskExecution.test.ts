@@ -89,8 +89,11 @@ test('buildTaskChatSend reads qoder tools settings from the qoder-settings key',
     store.set('qoder-settings', JSON.stringify({ allowedTools: ['Read'], disallowedTools: [], skipPermissions: true }));
     store.set('claude-settings', JSON.stringify({ allowedTools: ['Write'], disallowedTools: [], skipPermissions: false }));
     const frame = buildTaskChatSend('s1', { ...task, executor_provider: 'qoder' });
-    assert.deepEqual(frame.options.toolsSettings, { allowedTools: ['Read'], disallowedTools: [], skipPermissions: true });
-    assert.equal(frame.options.skipPermissions, true);
+    // 只镜像 allow/deny 列表；skipPermissions 刻意不带过来 —— 它会在运行时把模式
+    // 覆盖成 bypassPermissions，让任务选好的 Auto Approve 退化成完全放开。
+    assert.deepEqual(frame.options.toolsSettings, { allowedTools: ['Read'], disallowedTools: [] });
+    assert.equal('skipPermissions' in frame.options, false);
+    assert.equal('skipPermissions' in frame.options.toolsSettings, false);
   } finally {
     (globalThis as { localStorage?: unknown }).localStorage = original;
   }

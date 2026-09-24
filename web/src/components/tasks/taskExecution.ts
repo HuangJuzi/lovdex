@@ -6,7 +6,6 @@ import { resolvePermissionMode } from '../chat/utils/resolvePermissionMode';
 type ToolsSettings = {
   allowedTools?: string[];
   disallowedTools?: string[];
-  skipPermissions?: boolean;
 };
 
 /**
@@ -22,7 +21,6 @@ export type TaskChatSend = {
     model?: string;
     permissionMode: string;
     toolsSettings: ToolsSettings;
-    skipPermissions: boolean;
     sessionSummary: string;
     /**
      * Opt the provider runtime into per-token streaming (SDKPartialAssistantMessage)
@@ -35,8 +33,20 @@ export type TaskChatSend = {
 };
 
 // Mirror the composer's per-provider tools-settings storage keys so a task run
-// respects the same allow/deny lists and skip-permissions choice the user set
-// for interactive chats.
+// respects the same allow/deny lists the user set for interactive chats.
+//
+// `skipPermissions` is deliberately NOT mirrored. It is a separate switch in that
+// same blob, and at run time it does this (claude-sdk.js):
+//
+//   if (settings.skipPermissions && permissionMode !== 'plan') {
+//     sdkOptions.permissionMode = 'bypassPermissions';
+//   }
+//
+// i.e. it silently overwrites whichever mode the task was configured with — and
+// because bypassPermissions short-circuits canUseTool, an `Auto Approve` task
+// would run with no danger rules at all. The task's `permission_mode` is the one
+// authority for how a task answers permission prompts; a task that wants full
+// bypass picks `Bypass Permissions` explicitly.
 function settingsKeyFor(provider: string): string {
   switch (provider) {
     case 'codex':
@@ -53,11 +63,14 @@ function settingsKeyFor(provider: string): string {
 function readToolsSettings(provider: string): ToolsSettings {
   try {
     const raw = safeLocalStorage.getItem(settingsKeyFor(provider));
-    if (raw) return JSON.parse(raw) as ToolsSettings;
+    if (raw) {
+      const parsed = JSON.parse(raw) as ToolsSettings;
+      return { allowedTools: parsed.allowedTools ?? [], disallowedTools: parsed.disallowedTools ?? [] };
+    }
   } catch (error) {
     console.error('read task tools settings failed', error);
   }
-  return { allowedTools: [], disallowedTools: [], skipPermissions: false };
+  return { allowedTools: [], disallowedTools: [] };
 }
 
 /**
@@ -129,7 +142,6 @@ export function buildTaskChatSend(sessionId: string, task: Task, content?: strin
         validModes: permissionModesFor(task.executor_provider),
       }),
       toolsSettings,
-      skipPermissions: toolsSettings.skipPermissions ?? false,
       sessionSummary: task.title,
       includePartialMessages: true,
     },
