@@ -285,7 +285,7 @@ export function ScheduledTaskFormBody({
     selectedProjectOption
       ? { value: selectedProjectOption.value, remoteHostId: selectedProjectOption.remoteHostId ?? null }
       : null,
-    draft.projectPath === ASSISTANT_OPTION_VALUE,
+    isAssistantTarget(draft.projectPath),
   );
 
   // Keep the picked engine valid once availability settles.
@@ -353,6 +353,7 @@ export function ScheduledTaskFormBody({
         [{ value: draft.executorProvider, label: ENGINE_NAMES[draft.executorProvider] }];
   const engineHint = 'hint' in engineAvailability ? engineAvailability.hint : undefined;
   const projectChipOptions = taskFormProjectChipOptions(projectOptions);
+  const isAssistant = isAssistantTarget(draft.projectPath);
   const canSubmit = canSubmitScheduledTask(draft.description, submitting);
   // 与 composer 同源的模式词汇（同一份 provider 列表、同一套 i18n 名称），随引擎切换。
   const permissionModeOptions = useTaskPermissionModeOptions(draft.executorProvider);
@@ -383,7 +384,7 @@ export function ScheduledTaskFormBody({
             label="引擎"
             options={engineOptions}
             value={draft.executorProvider}
-            disabled={engineAvailability.status !== 'ready'}
+            disabled={isAssistant || engineAvailability.status !== 'ready'}
             isMobile={isMobile}
             onChange={(v) => {
               modelPickedRef.current = false;
@@ -395,7 +396,7 @@ export function ScheduledTaskFormBody({
             label="模型"
             options={modelOptionsFor(models, draft.executorModel)}
             value={draft.executorModel}
-            disabled={models.length === 0}
+            disabled={isAssistant || models.length === 0}
             isMobile={isMobile}
             onChange={(v) => {
               modelPickedRef.current = true;
@@ -422,6 +423,10 @@ export function ScheduledTaskFormBody({
       </div>
 
       {engineHint && <p className="mt-2 text-xs text-muted-foreground">{engineHint}</p>}
+
+      {isAssistant && (
+        <p className="mt-2 text-xs text-muted-foreground">🤖 Lovdex助手任务固定使用 Claude + 默认模型，以上引擎/模型设置将被忽略。</p>
+      )}
 
       <div className="mt-3 flex flex-col gap-3 rounded-xl border border-border p-3">
         <span className="text-2xs font-semibold tracking-wide text-muted-foreground">调度</span>

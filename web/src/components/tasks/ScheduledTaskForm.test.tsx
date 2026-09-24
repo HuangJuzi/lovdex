@@ -93,6 +93,20 @@ test('engine chip is disabled while availability resolves (loading)', () => {
   assert.ok(/ disabled=""/.test(engineChip), 'engine chip must be disabled while availability is loading');
 });
 
+test('the assistant target shows the fixed-engine hint', () => {
+  // EMPTY_DRAFT.projectPath 默认就是助手哨兵值，静态渲染即可命中。
+  const html = renderWithOptions([]);
+  assert.ok(html.includes('🤖 Lovdex助手任务固定使用 Claude + 默认模型，以上引擎/模型设置将被忽略。'));
+});
+
+test('a real project does not show the fixed-engine hint', () => {
+  // 反向断言走 `initial` 而不是「切项目」：renderWithOptions 的第二参是已有的
+  // ScheduledTask，toDraft 会把它还原成 draft —— project_path 非空即普通项目，
+  // 静态渲染也能构造出这个态（mkScheduledTask 就在本文件里）。
+  const html = renderWithOptions([], mkScheduledTask({ project_path: '/p/app', is_operator: 0 }));
+  assert.ok(!html.includes('🤖 Lovdex助手任务固定使用 Claude + 默认模型'));
+});
+
 test('renders the schedule section segmented control, defaulting to 单次', () => {
   const html = renderWithOptions([]);
   for (const label of ['单次', '间隔', 'Cron']) assert.ok(html.includes(label));
