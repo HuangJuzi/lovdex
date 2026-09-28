@@ -62,19 +62,23 @@ function TimeoutHint({ request, nowMs, timeoutMs }: { request: PendingPermission
 /**
  * AskUserQuestion：逐题列选项。
  *
- * 答案形状 `Record<questionText, answer>` 与聊天页的 `AskUserQuestionPanel` 一致：
+ * 答案载荷 `Record<questionText, answer>` 与聊天页的 `AskUserQuestionPanel` 一致：
  * 多选把 label 用 `', '` 拼成一串，单选就是 label 本身（`formatAnswers`）。
  * 两种模式都**答满全部题目才提交** —— 提前提交会让后端拿到一份缺项的答案，模型
- * 的提问就等于被吞了。
+ * 的提问就等于被吞了。（这条比聊天页更严：那边可以带着未作答的前序题目前进，
+ * 见 `pendingPromptAnswers.ts` 的文件头。）
  *
- * 交互差异照着聊天页抄：单选点一下即选中并提交（若其余题目也已答完）；多选点一下
- * 是**切换**（再点取消），必须按「提交选择」才发出去。会给模型一个多选问题时，用户
- * 的意图就是「可以选好几个」—— 单选式的一击即发会让模型拿到一个偏窄的答案，
- * 而界面上没有任何东西提示他本可以多选。所以这里不复用单选的路径。
+ * 交互**不是**聊天页的样子，这是刻意的：聊天页选项点击不提交（提交在页脚的
+ * Submit/Next，见 `AskUserQuestionPanel.tsx:362`），因为它有常驻页脚与键盘层；
+ * 本卡片没有页脚的位置，单选点一下即选中并提交（若其余题目也已答完）以省掉
+ * 那第二下，多选点一下是**切换**（再点取消）、必须按「提交选择」才发出。会给
+ * 模型一个多选问题时，用户的意图就是「可以选好几个」—— 单选式的一击即发会让
+ * 模型拿到一个偏窄的答案，而界面上没有任何东西提示他本可以多选。
  *
  * 这些点击语义**全部**在 `pendingPromptAnswers.ts` 里（有 node:test 覆盖）——
  * 本文件只负责接线：本仓库的 web 测试没有 DOM、不能模拟点击，逻辑留在这个
- * `onClick` 闭包里就等于没有任何测试碰得到它。
+ * `onClick` 闭包里就等于没有任何测试碰得到它。**代价**：接线本身（`pick` /
+ * `respondWith`）测不到，见该文件与计划 Task 4 Step 6 的边界说明。
  *
  * 刻意**不**移植聊天页的键盘层（1-9 选号、0 = Other、Enter = 前进/提交、
  * Esc = 跳过）与 Back/Next 分步器：任务面板是鼠标优先、且还没有焦点模型，
@@ -186,7 +190,17 @@ function AskUserQuestionBody({
   );
 }
 
-/** ExitPlanMode：计划原文 + 两个动作。文案与聊天页 `PlanDisplay` 逐字一致。 */
+/**
+ * ExitPlanMode：计划原文 + 两个动作。
+ *
+ * **决定的载荷**与聊天页 `PlanDisplay` 逐字一致：`{ allow: false, message:
+ * 'User asked to revise the plan' }` 与 `{ allow: true }`。前者是给**模型**读的
+ * 协议指令（`PlanDisplay.tsx` 的 `handleRevise` 同一串，模型据此知道要改计划），
+ * 拼错一个字就会静默失效，所以它是本卡片里最不能自由发挥的一处。
+ *
+ * 按钮**标签**则不同：聊天页是英文 `Revise` / `Build`（`PlanDisplay.tsx` 页脚），
+ * 这里按任务面板的中文口径写成「让它改 / 开始执行」。标签只给人看，不影响模型。
+ */
 function PlanBody({
   request,
   onRespond,
@@ -230,8 +244,10 @@ function PlanBody({
  * `rememberEntry` 不自己拼格式：用聊天页同一个
  * `buildClaudeToolPermissionEntry`，否则「总是允许」写进 `allowedTools` 的规则
  * 与聊天页写的不是同一条，用户的许可会在两处表现不一致。它只对 `Bash` 产出具
- * 体规则（`Bash(git commit:*)`），别的工具返回裸工具名（配合发送侧现有的
- * 行为一致），因此这里仅当它返回非空时启用按钮。
+ * 体规则（`git commit -m "..."` → `Bash(git commit:*)`，是**前缀**不是整条命令），
+ * 别的工具返回裸工具名，因此这里仅当它返回非空时启用按钮。
+ * 按钮**标签**不同（聊天页是 `Allow & remember` / `Allow (saved)`，本卡片是
+ * 「总是允许」）—— 标签给人看，载荷才是契约。
  */
 function ToolApprovalBody({
   request,
@@ -299,10 +315,12 @@ function ToolApprovalBody({
 /**
  * 单条待办。按 toolName 分派到三种形态。
  *
- * 为什么不用聊天页的 `AskUserQuestionPanel` / `PlanDisplay`：前者可以（纯 props
- * 驱动），后者不行 —— 它从 `PermissionContext` 取待办，而那个 Provider 只存在于
- * `ChatInterface` 内部，本面板在任务详情里，不在其组件树下。为了让两条路的行为
- * 一致、且给倒计时这类新信息一个落脚点，这里统一自绘。
+ * 为什么不用聊天页的 `AskUserQuestionPanel` / `PlanDisplay`：前者是纯 props 驱动
+ * 的、技术上能用（`permissionPanelRegistry` 就是按 props 接的），但它是带常驻
+ * 页脚与键盘层的多步对话框，塞进 428px 侧栏就散架；后者根本不能用 —— 它从
+ * `PermissionContext` 取待办，而那个 Provider 只存在于 `ChatInterface` 内部，
+ * 本面板在任务详情里，不在其组件树下。为了给倒计时这类新信息一个落脚点、并
+ * 让布局适配侧栏，这里统一自绘。
  */
 export function PendingPromptCard({ request, nowMs, timeoutMs, onRespond }: PendingPromptCardProps) {
   const isQuestion = request.toolName === 'AskUserQuestion';

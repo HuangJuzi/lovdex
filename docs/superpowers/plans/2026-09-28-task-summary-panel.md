@@ -1380,10 +1380,13 @@ git commit -m "feat(tasks): subscribe the task panel to a session's pending appr
 **实施中发现的三处对原计划的修正**（评审已确认）：
 
 1. **「总是允许」的 `rememberEntry` 用 `chat/utils/chatPermissions.ts` 的 `buildClaudeToolPermissionEntry`，不要照抄本计划原先草拟的 `Bash(${command})`。** 那个草稿写的是「整条命令」作规则，而聊天页实际生成的是**前缀式**规则（`git commit -m "fix(csv)"` → `Bash(git commit:*)`）。两处若各拼各的，同一句「总是允许」会往 `allowedTools` 里写两条不同的规则，用户此后在聊天页与任务面板看到的行为就不一致。该函数无 DOM 依赖、可直接 import（已实测）。它只对 `Bash` 产出具体规则，其余工具返回裸工具名，故仅当返回值非空时启用按钮。
-2. **多选（`multiSelect: true`）必须单独处理。** 原计划只做了单选式的一击即发。多选题目的语义就是「可以选好几个」，一击即发会让模型拿到一个偏窄的答案，而界面上没有任何东西提示他本可以多选 —— 这不是精简，是把同一个功能渲染错。现在：多选点一下是切换（再点取消），必须按「提交选择」才发出；答案串按聊天页的 `join(', ')` 拼接（顺序 = 点击顺序，聊天页是 `Set` 插入序，不许排序）。
+2. **多选（`multiSelect: true`）必须单独处理。** 原计划的单选式一击即发**不是**聊天页一致性 —— 它就是个图省事的捷径，别把它当成「对齐了聊天页」来读。多选必须有自己的处理，因为题目的语义就是「可以选好几个」，一击即发会给模型一个偏窄的答案，而界面上没有任何东西提示用户本可以多选。**一条容易重复走错的取证**（这次的原假设就是错的）：聊天页的选项点击**不提交** —— `AskUserQuestionPanel.tsx:228` 的 `onClick` 只调 `toggleOption`，提交在页脚那个常驻按钮上（`:362`，`handleSubmit`），键盘路径还得额外按一次 Enter（`:120` 的 `if (isLast) handleSubmit()`）。所以「聊天页多选也一击即发」从来就不成立；反过来，本卡片的单选一击即发是**主动偏离**聊天页，理由是没有页脚的位置、且第二下点击对最常见的一题情形是纯摩擦（详见 `pendingPromptAnswers.ts` 的文件头注释）。
+   现在：多选点一下是切换（再点取消），必须按「提交选择」才发出；答案串按聊天页的 `join(', ')` 拼接（顺序 = 点击顺序，聊天页是 `Set` 插入序，不许排序）。
 3. **点击语义必须搬进纯函数文件（`pendingPromptAnswers.ts`）才测得到。** 本仓库的 web 测试是 `node:test` + `renderToStaticMarkup`（无 DOM、不能模拟点击）。逻辑留在组件的 `onClick` 闭包里时，「单选误写成切换」「多选误写成一击即发」「答满全部题目才提交」这三类错误在静态标记上完全看不出来（按钮与文案都还在），却会改变发给模型的答案。搬出后这三条都有测试钉着（见 Step 4 的 `pendingPromptAnswers.test.ts` 与 Step 6 的变异核对表）。
 
 **不做的部分**（刻意）：聊天页的键盘层（1-9 选号、0 = Other、Enter、Esc）与 Back/Next 分步器不移植 —— 任务面板是鼠标优先、且还没有焦点模型；「Other」自由输入也不做，它需要一个受控 input 与焦点管理。
+
+**「与聊天页一致」这句话在本任务里只对载荷成立**（连「答满全部题目才提交」都不是共有的：聊天页的 Next 没有 disabled（`AskUserQuestionPanel.tsx:366-378`）、非末题 Enter 无条件前进（`:120`）、末页 Submit 的 disabled 只看当前题（`:363`），所以它能带缺项提交；本卡片的全答完闸门是主动加严）：答案形状（`Record<questionText, answer>` / `join(', ')` / 插入序 / 未作答的题不出现）、`rememberEntry` 的规则串、以及 ExitPlanMode 那两个**载荷**（`'User asked to revise the plan'` / `allow: true`）都必须逐字一致 —— 模型读的是它们。**交互与中文标签是故意不同的**：卡片在 428px 侧栏里没有页脚的位置，单选一击即发、按钮写「让它改 / 开始执行」（聊天页是 `Revise` / `Build`）。改这卡片时请按这条分界线判断哪边能动。
 
 **测试边界：** `PendingPromptCard.test.tsx` 是**静态渲染断言**，只验证「渲染出了哪些文案/标记」，不能验证点击。点击语义由 `pendingPromptAnswers.test.ts` 以纯函数形式覆盖（这是唯一能在本仓库测到它们的方式）。浏览器手测留给 Task 13。
 
@@ -1598,10 +1601,24 @@ import type { Question } from '../chat/types/types';
  * 看不出来（按钮还在、文案还在），但它们会改变**发给模型的答案**。所以这里
  * 把「点一下会发生什么」整体收进可测的纯函数，组件只剩接线。
  *
- * 形状对齐聊天页 `AskUserQuestionPanel`：那边每问题一个 `Set<string>`，单选
- * `clear()` 后 `add()`，多选 `has ? delete : add`；迭代序即插入序；提交时
- * `Array.from(set).join(', ')` 塞进 `answers[question]`。这里的函数就是那条
- * 链路的等价物。
+ * **与聊天页 `AskUserQuestionPanel` 的关系分两层，别混：**
+ *
+ * *答案载荷*逐字一致：`Record<questionText, answer>`、多选 `join(', ')`、保点击
+ * 顺序、未作答的题不出现在 `answers` 里。模型读的是这个串，两边必须一样。
+ *
+ * *交互*是**故意不一样**的。聊天页是个多步对话框：选项点击只调 `toggleOption`
+ * （`AskUserQuestionPanel.tsx:228`，不提交），提交发生在页脚那个常驻按钮上
+ * （`:362` 的 `handleSubmit`），键盘路径还要额外按一次 Enter（`:120`）。它撑得起
+ * 这套东西是因为有常驻页脚与分层键盘。本卡片是 428px 侧栏里的一张紧凑卡，没有
+ * 页脚的位置；为了最常见的一题单选再逼用户点第二下是纯粹的摩擦。所以这里：
+ * **单选点一下即选中并提交**，多选点一下只切换、必须按卡片自己的「提交选择」。
+ *
+ * 两边**唯一**真实一致的地方是答案载荷（上面那段）。连「答满全部题目才提交」
+ * 也**不**是共有的：聊天页的 Next 按钮没有 disabled（`:366-378`），非末题的
+ * Enter 也是无条件前进（`:120`），末页 Submit 的 disabled 只看**当前这一题**
+ * 有没有选（`:363`）—— 所以聊天页可以带着未作答的前序题目提交，`buildAnswers`
+ * 只把有选的写进 `answers`。本卡片的全答完闸门比它**更严**，这是刻意的：
+ * 一份缺项的答案会让模型的提问被静默吞掉，宁可不让点。
  */
 
 /** 选择状态：题目原文 → 已选 label（保点击顺序）。 */
@@ -1637,8 +1654,9 @@ export function applyPick(picks: readonly string[], label: string, question: Que
  * 点某一题的某个选项的**完整结果**：新状态，以及「现在该不该提交」。
  *
  * `submit` 的判据有两条，缺一不可：
- *  - 这一题是单选 —— 单选用聊天页的手感「最后一题选完即发」；多选必须等用户
- *    按确认按钮，否则多选就退化成单选的一击即发（用户本可以再点几个）。
+ *  - 这一题是单选 —— 单选在本卡片上是「点完即发」（见文件头：这是**刻意的**交互
+ *    差异，不是聊天页的行为）；多选必须等用户按「提交选择」，否则多选就退化成
+ *    单选的一击即发（用户本可以再点几个）。
  *  - 全部题目都已有选择 —— 提前提交会让后端拿到一份缺项的答案，模型的提问
  *    就等于被吞了。
  */
@@ -1753,19 +1771,23 @@ function TimeoutHint({ request, nowMs, timeoutMs }: { request: PendingPermission
 /**
  * AskUserQuestion：逐题列选项。
  *
- * 答案形状 `Record<questionText, answer>` 与聊天页的 `AskUserQuestionPanel` 一致：
+ * 答案载荷 `Record<questionText, answer>` 与聊天页的 `AskUserQuestionPanel` 一致：
  * 多选把 label 用 `', '` 拼成一串，单选就是 label 本身（`formatAnswers`）。
  * 两种模式都**答满全部题目才提交** —— 提前提交会让后端拿到一份缺项的答案，模型
- * 的提问就等于被吞了。
+ * 的提问就等于被吞了。（这条比聊天页更严：那边可以带着未作答的前序题目前进，
+ * 见 `pendingPromptAnswers.ts` 的文件头。）
  *
- * 交互差异照着聊天页抄：单选点一下即选中并提交（若其余题目也已答完）；多选点一下
- * 是**切换**（再点取消），必须按「提交选择」才发出去。会给模型一个多选问题时，用户
- * 的意图就是「可以选好几个」—— 单选式的一击即发会让模型拿到一个偏窄的答案，
- * 而界面上没有任何东西提示他本可以多选。所以这里不复用单选的路径。
+ * 交互**不是**聊天页的样子，这是刻意的：聊天页选项点击不提交（提交在页脚的
+ * Submit/Next，见 `AskUserQuestionPanel.tsx:362`），因为它有常驻页脚与键盘层；
+ * 本卡片没有页脚的位置，单选点一下即选中并提交（若其余题目也已答完）以省掉
+ * 那第二下，多选点一下是**切换**（再点取消）、必须按「提交选择」才发出。会给
+ * 模型一个多选问题时，用户的意图就是「可以选好几个」—— 单选式的一击即发会让
+ * 模型拿到一个偏窄的答案，而界面上没有任何东西提示他本可以多选。
  *
  * 这些点击语义**全部**在 `pendingPromptAnswers.ts` 里（有 node:test 覆盖）——
  * 本文件只负责接线：本仓库的 web 测试没有 DOM、不能模拟点击，逻辑留在这个
- * `onClick` 闭包里就等于没有任何测试碰得到它。
+ * `onClick` 闭包里就等于没有任何测试碰得到它。**代价**：接线本身（`pick` /
+ * `respondWith`）测不到，见该文件与计划 Task 4 Step 6 的边界说明。
  *
  * 刻意**不**移植聊天页的键盘层（1-9 选号、0 = Other、Enter = 前进/提交、
  * Esc = 跳过）与 Back/Next 分步器：任务面板是鼠标优先、且还没有焦点模型，
@@ -1877,7 +1899,17 @@ function AskUserQuestionBody({
   );
 }
 
-/** ExitPlanMode：计划原文 + 两个动作。文案与聊天页 `PlanDisplay` 逐字一致。 */
+/**
+ * ExitPlanMode：计划原文 + 两个动作。
+ *
+ * **决定的载荷**与聊天页 `PlanDisplay` 逐字一致：`{ allow: false, message:
+ * 'User asked to revise the plan' }` 与 `{ allow: true }`。前者是给**模型**读的
+ * 协议指令（`PlanDisplay.tsx` 的 `handleRevise` 同一串，模型据此知道要改计划），
+ * 拼错一个字就会静默失效，所以它是本卡片里最不能自由发挥的一处。
+ *
+ * 按钮**标签**则不同：聊天页是英文 `Revise` / `Build`（`PlanDisplay.tsx` 页脚），
+ * 这里按任务面板的中文口径写成「让它改 / 开始执行」。标签只给人看，不影响模型。
+ */
 function PlanBody({
   request,
   onRespond,
@@ -1921,8 +1953,10 @@ function PlanBody({
  * `rememberEntry` 不自己拼格式：用聊天页同一个
  * `buildClaudeToolPermissionEntry`，否则「总是允许」写进 `allowedTools` 的规则
  * 与聊天页写的不是同一条，用户的许可会在两处表现不一致。它只对 `Bash` 产出具
- * 体规则（`Bash(git commit:*)`），别的工具返回裸工具名（配合发送侧现有的
- * 行为一致），因此这里仅当它返回非空时启用按钮。
+ * 体规则（`git commit -m "..."` → `Bash(git commit:*)`，是**前缀**不是整条命令），
+ * 别的工具返回裸工具名，因此这里仅当它返回非空时启用按钮。
+ * 按钮**标签**不同（聊天页是 `Allow & remember` / `Allow (saved)`，本卡片是
+ * 「总是允许」）—— 标签给人看，载荷才是契约。
  */
 function ToolApprovalBody({
   request,
@@ -1990,10 +2024,12 @@ function ToolApprovalBody({
 /**
  * 单条待办。按 toolName 分派到三种形态。
  *
- * 为什么不用聊天页的 `AskUserQuestionPanel` / `PlanDisplay`：前者可以（纯 props
- * 驱动），后者不行 —— 它从 `PermissionContext` 取待办，而那个 Provider 只存在于
- * `ChatInterface` 内部，本面板在任务详情里，不在其组件树下。为了让两条路的行为
- * 一致、且给倒计时这类新信息一个落脚点，这里统一自绘。
+ * 为什么不用聊天页的 `AskUserQuestionPanel` / `PlanDisplay`：前者是纯 props 驱动
+ * 的、技术上能用（`permissionPanelRegistry` 就是按 props 接的），但它是带常驻
+ * 页脚与键盘层的多步对话框，塞进 428px 侧栏就散架；后者根本不能用 —— 它从
+ * `PermissionContext` 取待办，而那个 Provider 只存在于 `ChatInterface` 内部，
+ * 本面板在任务详情里，不在其组件树下。为了给倒计时这类新信息一个落脚点、并
+ * 让布局适配侧栏，这里统一自绘。
  */
 export function PendingPromptCard({ request, nowMs, timeoutMs, onRespond }: PendingPromptCardProps) {
   const isQuestion = request.toolName === 'AskUserQuestion';
@@ -2173,7 +2209,9 @@ Expected: PASS —— `# pass 24`、`# fail 0`
 
 **实测结果**（2026-09-28 手工跑，改坏 → 跑 → 改回 → 逐字节 diff 确认还原）：上表每一行都至少让一条用例变红，没有一行是「改坏了却全绿」。其中前三表面上的「卡片静态标记」格（倒计时 / 无超时 / 多选确认按钮 / 标记符）只证明**渲染**对，点击语义那几格才是真正守住答案形状的东西 —— 所以 `pendingPromptAnswers.ts` 的存在本身是这张表的前提：没有它，表里后八行改坏之后静态断言**全绿**。
 
-**这张表仍然测不到的**（静态渲染 + 纯函数的固有边界，不是遗漏）：`pick()` / `respondWith()` 的接线本身（把 `nextSelection` 的返回值丢掉、把 `questionIndex` 传成常量、按钮 `onClick` 接到空函数）。这三处的错法不改变渲染出的任何标记，也不经过纯函数 —— 只能靠 Task 13 的浏览器手测。评审时若要看这一层，读 `PendingPromptCard.tsx` 的 `pick` / `respondWith` 两个函数体（共约 12 行）比读测试更直接。
+**接线层：这是一条边界，不是一个缺口。** 上表覆盖不到 `pick()` / `respondWith()` 的接线本身（把 `nextSelection` 的返回值丢掉、把 `questionIndex` 传成常量、按钮 `onClick` 接到空函数）。这不是「漏测」—— 它是本仓库无 DOM 环境的固有边界，而且这一层的规模使它可以被**读**完：`PendingPromptCard.tsx` 里 `pick` 与 `respondWith` 两个函数体合计约 12 行，没有分支、没有状态机，逐行读一遍即可判定对错。评审这一层请直接读那 12 行，不要指望测试。
+
+**残留风险一句话**：静态渲染测试证明**按钮在**，纯函数测试证明**决定是对的**，但没有任何自动化测试证明**按钮接的是对的决定** —— 那道缝就是 Task 13 的浏览器核对项 17-20。
 
 `nextSelection` / `applyPick` / `formatAnswers` 这三组语义**没有静态标记**可断言，所以它们的守卫就是上面这张表 —— 六格覆盖（多选/单选 × 提交/不提交 × 缺项 × 越界）。
 
@@ -3495,6 +3533,12 @@ cd /mnt/b/workdir/github/lovdex/web && npm run dev
 14. 找一条无 `session_id` 的任务 → 回复区禁用、无常用语、无待办区。
 15. 窄屏（视口 <1024px）→ 面板变为底部 sheet，能上下拉。
 16. 375px 视口 → 只有看板，无「表格」按钮。
+17. **接线核对（单选）**：找一个 `AskUserQuestion` 且**只有一题、非多选**的待办，点其中一个选项 → 该条待办**立刻消失**（乐观移除），不需要再点第二个按钮；任务随后恢复运行（状态回到 `running` / 面板里出现后续输出）。点下去没反应 = `pick` 的接线断了；要再点一次「提交选择」才消失 = 单选被误接成了多选路径。
+18. **接线核对（多选）**：找一个 `multiSelect: true` 的待办，依次点**两个**选项 → 两个都保持高亮、方框变 `☑`、旁边计数读作「已选 2 项」，且**此时待办仍在**（点一下不会提交）；再点其中一个取消 → 计数回到 1；最后点「提交选择」→ 待办消失。模型侧最终应拿到两个 label 以 `', '` 连接的答案（有回显就核对连接符与顺序 = 点击顺序）。
+19. **接线核对（跨题闸门）**：造一个**两题**的提问（第一题单选、第二题多选）→ 先答第二题（多选）并点「提交选择」→ **不应发出**、待办仍在；回到第一题点一个选项 → 两题都答完，待办才消失。
+20. **接线核对（计划）**：`ExitPlanMode` 待办点「开始执行」→ 待办消失、任务继续；点「让它改」→ 待办消失、模型的下一段输出是在**修订计划**（不是直接开工）—— 这一条同时验证了那句给模型读的 `'User asked to revise the plan'` 没被改坏。
+
+> 17-20 是**唯一**能覆盖卡片接线层（`pick` / `respondWith`）的地方：纯函数测试证明「决定是对的」，静态渲染测试证明「按钮在」，而**没有任何自动化测试能证明「按钮接的是对的决定」** —— 这三者之间的那道缝就是这里。详见 Task 4 Step 6。
 
 - [ ] **Step 3: 记录结果**
 
