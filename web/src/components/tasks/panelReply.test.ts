@@ -61,3 +61,21 @@ test('每种形态都给出非空提示文案', () => {
     assert.ok(s.hint.length > 0, `mode=${s.mode} 的 hint 不能为空`);
   }
 });
+
+// hasPendingPrompt 唯一可观察的出口就是 hint：不钉住两个分支的差异，
+// 一个「忽略 hasPendingPrompt」的实现照样能全绿。
+test('排队中：有/无待办给出不同文案，且在跑的文案要点出「回答」', () => {
+  const withPrompt = replyState({ task: task({}), isProcessing: true, hasPendingPrompt: true });
+  const without = replyState({ task: task({}), isProcessing: true, hasPendingPrompt: false });
+
+  assert.notEqual(withPrompt.hint, without.hint);
+  assert.match(withPrompt.hint, /回答/);
+  assert.match(without.hint, /排队/);
+});
+
+test('空闲：有/无待办给出不同文案', () => {
+  const withPrompt = replyState({ task: task({}), isProcessing: false, hasPendingPrompt: true });
+  const without = replyState({ task: task({}), isProcessing: false, hasPendingPrompt: false });
+
+  assert.notEqual(withPrompt.hint, without.hint);
+});
