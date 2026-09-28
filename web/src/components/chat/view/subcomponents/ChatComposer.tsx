@@ -80,6 +80,7 @@ interface ChatComposerProps {
   quickReplyItems: QuickReply[];
   isQuickRepliesLoading: boolean;
   quickRepliesError: string | null;
+  onRefreshQuickReplies: () => Promise<void>;
   onCreateQuickReply: (content: string) => Promise<void>;
   onUpdateQuickReply: (quickReplyId: string, content: string) => Promise<void>;
   onRemoveQuickReply: (quickReplyId: string) => Promise<void>;
@@ -197,6 +198,7 @@ export default function ChatComposer({
   quickReplyItems,
   isQuickRepliesLoading,
   quickRepliesError,
+  onRefreshQuickReplies,
   onCreateQuickReply,
   onUpdateQuickReply,
   onRemoveQuickReply,
@@ -211,9 +213,12 @@ export default function ChatComposer({
     const next = !isQuickRepliesOpen;
     if (next) {
       onCloseCommandMenu();
+      // 打开时重拉：另一台设备建的条目不会自己出现，点开就该看到最新的。
+      // 失败只落到 hook 的 error 上，不打断打开动作。
+      void onRefreshQuickReplies().catch(() => undefined);
     }
     setIsQuickRepliesOpen(next);
-  }, [isQuickRepliesOpen, onCloseCommandMenu]);
+  }, [isQuickRepliesOpen, onCloseCommandMenu, onRefreshQuickReplies]);
 
   useEffect(() => {
     if (isCommandMenuOpen) {

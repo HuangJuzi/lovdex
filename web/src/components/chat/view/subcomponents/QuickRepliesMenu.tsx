@@ -84,16 +84,20 @@ function QuickRepliesMenu({
         onClose();
       }
     };
+    // 每次渲染都重建监听，才能读到最新的 `draft`；React 18 的 effect 是同步 flush 的，
+    // 同一帧内的事件不会漏。守卫写成 ref 无关的形式（闭包变量即最新值）。
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
       if (event.key !== 'Escape') return;
+      // 抢在 ChatInterface 的全局 Escape（会中断会话）之前，并 preventDefault 让它跳过。
       event.preventDefault();
       event.stopPropagation();
       if (draft) {
+        // 编辑态：只退出编辑，浮层留着。
         setDraft(null);
         setActionError(null);
-        return;
+      } else {
+        onClose();
       }
-      onClose();
     };
 
     document.addEventListener('pointerdown', handlePointerDown);
@@ -104,8 +108,13 @@ function QuickRepliesMenu({
     };
   }, [anchorRef, draft, onClose]);
 
+  const createDisabled = draft !== null && draft.content.trim() === '';
+  const updateDisabled = draft !== null
+    && !!draft.id
+    && draft.content.trim() === items.find((it) => it.quick_reply_id === draft.id)?.content;
+
   const handleSave = useCallback(async () => {
-    if (!draft) return;
+    if (!draft || busy) return;
     const content = draft.content.trim();
     if (!content) {
       setActionError('常用语内容不能为空');
@@ -125,10 +134,12 @@ function QuickRepliesMenu({
     } finally {
       setBusy(false);
     }
-  }, [draft, onCreate, onUpdate]);
+  }, [draft, busy, onCreate, onUpdate]);
 
   const handleDelete = useCallback(
+    // 编辑态里回车应该走保存，而不是把当前正在编辑的那条删掉。
     async (quickReplyId: string) => {
+      if (busy) return;
       setActionError(null);
       try {
         await onRemove(quickReplyId);
@@ -138,7 +149,7 @@ function QuickRepliesMenu({
         setActionError(err instanceof Error ? err.message : '删除失败');
       }
     },
-    [onRemove],
+    [onRemove, busy],
   );
 
   const startEditing = useCallback((item: QuickReply) => {
@@ -161,6 +172,7 @@ function QuickRepliesMenu({
       key={`editor-${draftId ?? 'new'}`}
       initialContent={draft?.content ?? ''}
       busy={busy}
+      empty={draftId === null ? createDisabled : updateDisabled}
       onChange={(content) => setDraft({ id: draftId, content })}
       onSave={() => void handleSave()}
       onCancel={() => setDraft(null)}
@@ -257,12 +269,15 @@ function QuickRepliesMenu({
 function EditorRow({
   initialContent,
   busy,
+  empty,
   onChange,
   onSave,
   onCancel,
 }: {
   initialContent: string;
   busy: boolean;
+  /** 内容为空（或与原文相同）→ 保存无意义，置灰。 */
+  empty: boolean;
   onChange: (content: string) => void;
   onSave: () => void;
   onCancel: () => void;
@@ -288,7 +303,7 @@ function EditorRow({
         onKeyDown={(event) => {
           if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
             event.preventDefault();
-            onSave();
+            if (!empty) onSave();
           }
         }}
         className="w-full resize-none rounded border border-border bg-muted/40 p-2 text-xs text-foreground outline-none focus:border-primary"
@@ -305,7 +320,7 @@ function EditorRow({
         <button
           type="button"
           onClick={onSave}
-          disabled={busy}
+          disabled={busy || empty}
           className="flex items-center gap-1 rounded bg-primary px-2 py-1 text-2xs font-medium text-primary-foreground disabled:opacity-50"
         >
           <Check className="h-3 w-3" />

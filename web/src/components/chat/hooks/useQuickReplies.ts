@@ -15,6 +15,12 @@ export type UseQuickRepliesResult = {
   items: QuickReply[];
   isLoading: boolean;
   error: string | null;
+  /**
+   * 重拉列表。打开浮层时调用，以及页面从后台回到前台时调用——
+   * 列表只在挂载时拉一次的话，另一台设备（或另一个标签页）建的条目永远看不到。
+   * 失败时把错误写进 `error` 并抛出，调用方自行决定是否吞掉。
+   */
+  refresh: () => Promise<void>;
   create: (content: string) => Promise<void>;
   update: (quickReplyId: string, content: string) => Promise<void>;
   remove: (quickReplyId: string) => Promise<void>;
@@ -30,6 +36,18 @@ async function readErrorMessage(response: Response): Promise<string> {
   } catch {
     return `请求失败（${response.status}）`;
   }
+}
+
+/**
+ * 把底层错误换成可展示的 Error。
+ * fetch 在断网或请求被中断时抛 TypeError，message 是英文的 "Failed to fetch"，
+ * 直接透给用户没意义；后端业务错误（我们自己抛的 Error）则原样保留文案。
+ */
+function toDisplayError(err: unknown, fallback: string): Error {
+  if (err instanceof Error && err.name !== 'TypeError') {
+    return err;
+  }
+  return new Error(fallback);
 }
 
 export function useQuickReplies(): UseQuickRepliesResult {
@@ -63,8 +81,9 @@ export function useQuickReplies(): UseQuickRepliesResult {
       if (generation !== refreshGenerationRef.current) {
         return;
       }
-      setError(err instanceof Error ? err.message : '无法加载常用语');
-      throw err;
+      const displayError = toDisplayError(err, '无法加载常用语');
+      setError(displayError.message);
+      throw displayError;
     } finally {
       if (generation === refreshGenerationRef.current) {
         setIsLoading(false);
@@ -77,11 +96,34 @@ export function useQuickReplies(): UseQuickRepliesResult {
     void refresh().catch(() => undefined);
   }, [refresh]);
 
+  // 页面从后台回到前台时重拉。手机浏览器的后台标签页会被冻结，冻结期间另一台设备
+  // 建的条目不会自己出现；用户切回来时补一次。
+  useEffect(() => {
+    if (typeof document === 'undefined') {
+      return;
+    }
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        void refresh().catch(() => undefined);
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [refresh]);
+
   // 写操作后重拉列表，不做乐观更新：服务端要按 last_used_at 重排，
   // 本地先插入/移动会让列表抖动。
   const mutate = useCallback(
     async (request: () => Promise<Response>) => {
-      const response = await request();
+      let response: Response;
+      try {
+        response = await request();
+      } catch (err) {
+        // 请求根本没发出去（断网、被中断）：换成中文文案再抛。
+        throw toDisplayError(err, '网络异常，请稍后重试');
+      }
       if (!response.ok) {
         throw new Error(await readErrorMessage(response));
       }
@@ -119,5 +161,5 @@ export function useQuickReplies(): UseQuickRepliesResult {
     [refresh],
   );
 
-  return { items, isLoading, error, create, update, remove, markUsed };
+  return { items, isLoading, error, refresh, create, update, remove, markUsed };
 }

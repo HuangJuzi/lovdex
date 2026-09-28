@@ -540,6 +540,7 @@ function ChatInterface({
           quickReplyItems={quickReplies.items}
           isQuickRepliesLoading={quickReplies.isLoading}
           quickRepliesError={quickReplies.error}
+          onRefreshQuickReplies={quickReplies.refresh}
           onCreateQuickReply={quickReplies.create}
           onUpdateQuickReply={quickReplies.update}
           onRemoveQuickReply={quickReplies.remove}
