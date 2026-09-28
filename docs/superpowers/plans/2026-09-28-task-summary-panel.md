@@ -2249,11 +2249,15 @@ git commit -m "feat(tasks): render a single pending approval as a dispatchable c
 > 决定逻辑随之全部移进 `pendingPromptQueue.ts`（纯函数），因为 web 测试无 DOM、无法驱动重渲染，
 > 留在组件里就测不到 —— 与 Task 4 把点击语义移进 `pendingPromptAnswers.ts` 同一条纪律。
 >
-> **证据：** 初稿的测试 5 与初稿实现一起跑是 **fail 1 / pass 4**。它的断言
-> `cmdIndex < html.indexOf('还有 2 件事等你') || cmdIndex < questionIndex` 用了**恒真**的
-> 后半段（`echo b1` 只可能是卡片里那条 `Bash` 命令、题面只在队列行），与「当前项排第一」
-> 毫无关系；而前半段在同一渲染里为 false。也就是说：那条断言即使把排序整个删掉也照样过，
-> 只有它自己那份实现能让它挂。见下方 Step 1 里重写的断言。
+> **证据：** 初稿的测试 5 与初稿实现一起跑是 **fail 1 / pass 4**（已复现）。它的断言
+> `cmdIndex < html.indexOf('还有 2 件事等你') || cmdIndex < questionIndex` 在初稿那份渲染里
+> **两个子句都是 false**：`echo b1` 在 1627，队列条在 243，题面在 850。所以它是**因为错误的
+> 理由挂掉**的，而不是「后半段恒真、所以空转」。反过来说，把排序整个删掉会让它**通过** ——
+> 那时 `echo b1` 根本不进 DOM，`indexOf` 返回 -1，`-1 < 243` 为真。可见这条断言跟踪的是
+> 「命令原文在不在」，而不是「会超时的那条排第一」。
+> 同一批里**真正恒真**的是测试 4（`assert.match(html, /问题 a1/)`）：题面在队列行里也出现，
+> 无论谁当当前项它都过。
+> 见下方 Step 1 里重写的断言。
 
 - [ ] **Step 1: 写失败的测试**
 
