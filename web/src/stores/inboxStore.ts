@@ -9,9 +9,11 @@ import { api } from '../utils/api';
 import {
   inboxReducer,
   countUnread,
+  selectUnreadTone,
   selectUnannouncedImportant,
   type InboxState,
   type InboxNotification,
+  type InboxSeverity,
 } from './inboxStore.pure';
 
 type Listener = () => void;
@@ -37,6 +39,11 @@ export function getInboxSnapshot(): InboxState {
 
 export function getUnreadCount(): number {
   return countUnread(state.items);
+}
+
+/** 角标色调：未读里的最高严重度；无未读时 null。与 getUnreadCount 同源同快照。 */
+export function getUnreadTone(): InboxSeverity | null {
+  return selectUnreadTone(state.items);
 }
 
 export function subscribeInbox(listener: Listener): () => void {

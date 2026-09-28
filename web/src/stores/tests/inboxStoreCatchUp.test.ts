@@ -7,6 +7,7 @@ import {
   claimUnannouncedImportant,
   refreshInbox,
   getInboxSnapshot,
+  getUnreadTone,
 } from '../inboxStore.js';
 import type { InboxNotification } from '../inboxStore.pure.js';
 
@@ -62,4 +63,9 @@ test('refetch 后 store 快照同步（角标与列表拿到的是同一份数�
   stubList([n({ notification_id: 'snap-1' })]);
   await refreshInbox();
   assert.equal(getInboxSnapshot().items[0].notification_id, 'snap-1');
+});
+
+test('getUnreadTone 跟随 store 快照：有未读 info 即返回 info', () => {
+  applyInboxEvent({ kind: 'notification_created', payload: n({ notification_id: 'tone-1', severity: 'info' }) });
+  assert.equal(getUnreadTone(), 'info');
 });
