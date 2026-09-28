@@ -340,6 +340,24 @@ export function TaskBoardPage() {
   const [replyValue, setReplyValue] = useState('');
   const [panelResult, setPanelResult] = useState('');
 
+  /**
+   * 倒计时的节拍**不能**用上面那个 `now` —— 它是每分钟刷一次的，那是给「今天 /
+   * 本周」这类日期区间边界用的。而倒计时是**秒**级语义（`formatCountdown` 的
+   * 红线是 25 秒），拿分钟级的值去算，真实后果是：显示「60 秒后自动拒绝」之后
+   * 数字**冻结 60 秒**，然后直接跳到 0 —— 中间所有值、包括那圈红色的紧迫态，
+   * 永远不会出现。而后端超时同样默认 60000ms，两者同量级，所以这条路径必然踩中。
+   *
+   * 只在真有待办在等的时候才起这个 1 秒定时器：没有待办时它是纯浪费，
+   * 而待办存在的时段本来就是短的。
+   */
+  const [countdownNow, setCountdownNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (pendingRequests.length === 0) return;
+    setCountdownNow(Date.now());
+    const id = setInterval(() => setCountdownNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [pendingRequests.length]);
+
   // 切任务时清空草稿：上一句写给 A 的话不该出现在 B 的输入框里。
   useEffect(() => {
     setReplyValue('');
@@ -619,7 +637,7 @@ export function TaskBoardPage() {
                 task={panelTask}
                 isProcessing={isProcessing}
                 pendingRequests={pendingRequests}
-                nowMs={now.getTime()}
+                nowMs={countdownNow}
                 timeoutMs={TOOL_APPROVAL_TIMEOUT_MS}
                 resultText={panelResult}
                 replyValue={replyValue}
@@ -648,7 +666,7 @@ export function TaskBoardPage() {
               task={panelTask}
               isProcessing={isProcessing}
               pendingRequests={pendingRequests}
-              nowMs={now.getTime()}
+              nowMs={countdownNow}
               timeoutMs={TOOL_APPROVAL_TIMEOUT_MS}
               resultText={panelResult}
               replyValue={replyValue}
