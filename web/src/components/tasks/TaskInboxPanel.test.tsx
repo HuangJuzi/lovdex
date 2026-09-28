@@ -269,3 +269,85 @@ test('手动建的条目不渲染「⏰ 定时」标记', () => {
   assert.match(html, /手动建的任务/);
   assert.doesNotMatch(html, /⏰ 定时/);
 });
+
+// —— 行末显示产生时间，不再显示 task_id ——
+// now 用带 Z 的 ISO 串构造、updated_at/attention_since 也带 Z：相对时间差与运行
+// 机器的时区无关（文件顶部的 NOW 是裸串，JS 按本地时间解析，跨时区会漂）。
+const NOW_Z = new Date('2026-09-16T12:00:00.000Z');
+
+test('renders the moment an item appeared instead of its task id', () => {
+  const html = renderToStaticMarkup(
+    React.createElement(TaskInboxPanel, {
+      tasks: [
+        mkTask({
+          // 36 字符的 id 而不是 'f1'：断言「界面上找不到它」时要保证这个子串
+          // 不会顺带出现在别处（如 className / 时间文案）。
+          task_id: 'f1000000-aaaa-4bbb-8ccc-dddddddddddd',
+          title: '失败的任务',
+          status: 'in_progress',
+          sub_status: 'failed',
+          updated_at: '2026-09-16T11:48:00.000Z',
+          attention_since: '2026-09-16T11:48:00.000Z',
+        }),
+      ],
+      now: NOW_Z,
+      onRetry: () => {},
+    }),
+  );
+  assert.match(html, /12 分钟前/);
+  assert.doesNotMatch(html, /f1000000-aaaa-4bbb-8ccc-dddddddddddd/, 'task_id 不再上屏');
+});
+
+test('hovers the exact time on the relative one', () => {
+  const html = renderToStaticMarkup(
+    React.createElement(TaskInboxPanel, {
+      tasks: [
+        mkTask({
+          task_id: 'f2',
+          status: 'in_progress',
+          sub_status: 'failed',
+          updated_at: '2026-09-16T11:48:00.000Z',
+          attention_since: '2026-09-16T11:48:00.000Z',
+        }),
+      ],
+      now: NOW_Z,
+      onRetry: () => {},
+    }),
+  );
+  assert.match(html, /title="[^"]*\d{4}-\d{2}-\d{2} \d{2}:\d{2}"/);
+});
+
+test('omits the time when the moment is unknown', () => {
+  // 审批行取不到等待起点 → since 为 null → 不渲染时间，也不退回 task_id。
+  const html = renderToStaticMarkup(
+    React.createElement(TaskInboxPanel, {
+      tasks: [
+        mkTask({
+          task_id: 'w1000000-aaaa-4bbb-8ccc-dddddddddddd',
+          title: '等待批准的任务',
+          status: 'in_progress',
+          sub_status: 'waiting_approval',
+          session_id: 's1',
+          attention_since: null,
+        }),
+      ],
+      now: NOW_Z,
+      onOpenSession: () => {},
+    }),
+  );
+  assert.match(html, /等待批准的任务/);
+  assert.doesNotMatch(html, /w1000000-aaaa-4bbb-8ccc-dddddddddddd/);
+  assert.doesNotMatch(html, /分钟前|刚刚|\d{4}-\d{2}-\d{2}/, '时刻不可知时不显示任何时间');
+});
+
+test('overdue items keep their 已逾期 label and render no time', () => {
+  const html = renderToStaticMarkup(
+    React.createElement(TaskInboxPanel, {
+      tasks: [mkTask({ task_id: 'o1', status: 'todo', deadline: '2026-09-15' })],
+      now: NOW_Z,
+      onStart: () => {},
+    }),
+  );
+  assert.match(html, /已逾期 1 天/);
+  assert.doesNotMatch(html, /分钟前|小时前/);
+});

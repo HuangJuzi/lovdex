@@ -5,6 +5,7 @@ import type { Task } from '../../types/app';
 import type { TaskProjectOption } from './TaskCard';
 import { hasOpenableSession } from './taskActions';
 import { attentionItems, type AttentionAction, type AttentionTone } from './taskInbox';
+import { formatAbsoluteTime, formatRelativeTime } from './taskTimestamp';
 
 type TaskInboxPanelProps = {
   tasks: Task[];
@@ -100,9 +101,19 @@ export function TaskInboxPanel({
                   )}
                 </span>
               </span>
-              <span className="hidden shrink-0 text-2xs text-muted-foreground sm:inline">
-                {item.task.task_id}
-              </span>
+              {/* 这条提醒「什么时候产生的」。`since` 为 null 表示时刻不可知
+                  （例如审批请求早于后端进程启动）——此时整颗元素不渲染，
+                  不退回 task_id、也不编一个时间。窄屏同样显示：手机上
+                  「不知道什么时候产生」一样成立，且时间文案比 36 字符的
+                  UUID 短得多。相对时间由父级 TaskBoard 每分钟重算（now prop）。 */}
+              {item.since && (
+                <span
+                  className="shrink-0 text-2xs text-muted-foreground"
+                  title={formatAbsoluteTime(item.since)}
+                >
+                  {formatRelativeTime(item.since, now)}
+                </span>
+              )}
               {/* 主操作 + 「忽略/打开会话」并列：只要有会话就能点进会话页看现场（失败任务
                   因此同时出现「重试」和「打开会话」）。主操作本身就是「打开会话」时
                   不再重复渲染第二个。失败条目的「忽略」是次级动作——即便调用方没传
