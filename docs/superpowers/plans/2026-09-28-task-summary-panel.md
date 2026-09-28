@@ -528,26 +528,637 @@ git commit -m "feat(tasks): derive the summary panel reply state from session an
 ## Task 3: 会话作用域的待办订阅钩子
 
 **Files:**
-- Create: `web/src/components/tasks/useSessionPendingRequests.ts`
-- Test: 无（React hook，本仓库无 jsdom 无法测；其全部判断逻辑已在 Task 1 抽成纯函数并覆盖）
+- Create: `web/src/components/tasks/useSessionPendingRequests.ts`（钩子，薄壳）
+- Create: `web/src/components/tasks/pendingRequestEvents.ts`（纯 reducer，全部判断逻辑）
+- Test: `web/src/components/tasks/pendingRequestEvents.test.ts`
+- Test: 无（钩子本体；React hook，本仓库无 jsdom 无法测 —— 见下面「为什么拆成两半」）
 
 **背景（本计划最关键的一步）：** 任务页**不能**用 `PermissionContext` —— 它的唯一 Provider 在 `web/src/components/chat/view/ChatInterface.tsx:452`，而 `/tasks` 是独立路由，树上没有它，`usePermission()` 只会返回 `null`。
 
 任务页有 `WebSocketProvider`（挂在 `App.tsx:126`，所有路由之上）。所以钩子自己走订阅：
 
 1. 挂载 / `sessionId` 变化时发 `chat.subscribe`（`sessions: [{ sessionId, lastSeq: 0 }]`）。
-2. 后端 `handleChatSubscribe`（`backend/server/modules/websocket/services/chat-websocket.service.ts:347`）回 `chat_subscribed`，带 `pendingPermissions`；运行中时还会 `attachConnection`，后续 `permission_request` / `permission_cancelled` 实时到达。
+2. 后端 `handleChatSubscribe`（`backend/server/modules/websocket/services/chat-websocket.service.ts:347`）回 `chat_subscribed`，带 `pendingPermissions` 与 `lastSeq`；运行中时还会 `attachConnection`，后续 `permission_request` / `permission_cancelled` 实时到达。
 3. 答复发 `chat.permission-response`，帧格式与 `handlePermissionDecision`（`web/src/components/chat/hooks/useChatComposerState.ts:1329`）完全一致。
 
-- [ ] **Step 1: 写实现**
+**为什么拆成两半（对原计划的偏离，已由控制方要求）：** 原计划写「无测试，React hook 测不到」。钩子确实测不到，但判断逻辑可以 —— 抽成纯函数后就能在 `node:test`（无 jsdom）下测。仓库里已有同款分工（见 `docs/superpowers/plans/2026-08-05-workflow-adaptation.md`：「把聚合逻辑抽成纯函数 `applyWorkflowEvent(state, event) → state`，便于在 `node:test`(无 jsdom)下测」），`panelPermission.ts` / `panelReply.ts` 也是这么分的。
+
+**两个必须知道的后端事实（都已在代码里核实）：**
+
+1. **`lastSeq: 0` 拦不住重放。** `handleChatSubscribe` 在运行中时先 `attachConnection` 再 `replayEvents`，起点由 `readReplayStart` 算：`Math.max(clientLastSeq, priorSeq)`，而 `priorSeq` 在**该 socket 首次订阅这个 run** 时是 `-1` —— 于是 `startSeq = max(0, -1) = 0`，**整段缓冲区都会被重放**，客户端发什么 `lastSeq` 都一样。
+   为什么这是 bug 而不只是浪费：答复一条审批**不会**发 `permission_cancelled`（`claude-sdk.js` 的 resolve 路径只 `pendingToolApprovals.delete(requestId)`；`permission_cancelled` 只走 timeout/abort 的 `onCancel`），所以已答的 `permission_request` 仍在缓冲区里，重放会把它当新待办加回来 —— 还带着新打的 `receivedAt`，连倒计时都是全新的。点它毫无反应（`resolveToolApproval` 对未知 requestId 静默忽略）。
+   对策：**ack 的 `lastSeq` 是快照的权威水线**。`chat_subscribed.pendingPermissions` 覆盖了 `<= lastSeq` 的一切，所以此后任何 `seq <= lastSeq` 的增量帧必然是重放，丢弃。落在 `snapshotSeq` 字段上。
+2. **空闲时订阅、之后才起跑的 run，本 socket 收不到审批帧。** `attachConnection` 只在 `handleChatSubscribe` 里调用（那时还没 run），`startRun` 只把发起方那条连接放进 writer 的 socket 集合。对策：监听广播的 `session_status` 帧（`broadcastSessionStatus` → `connectedClients.forEach`，所有已连客户端都收得到），在它**迁移进 `running`** 时补发一次 `chat.subscribe` —— 此刻订阅会命中 `isProcessing: true` 从而 attach。必须只在状态**变化**时补，否则与补订阅引发的 ack 互相触发。
+
+- [ ] **Step 1: 先写纯函数的失败测试，再写 reducer**
+
+创建 `web/src/components/tasks/pendingRequestEvents.test.ts`（测试先跑成 `ERR_MODULE_NOT_FOUND`，再写实现）：
+
+```ts
+import test from 'node:test';
+import assert from 'node:assert/strict';
+
+import type { PendingPermissionRequest } from '../chat/types/types';
+
+import {
+  EMPTY_PENDING_STATE,
+  applyPendingEvent,
+  type PendingRequestsEvent,
+  type PendingRequestsState,
+} from './pendingRequestEvents';
+
+const SID = 'sess-1';
+const NOW = new Date('2026-01-02T03:04:05.000Z');
+const opts = { now: NOW };
+
+const req = (requestId: string, toolName = 'Bash'): PendingPermissionRequest => ({
+  requestId,
+  toolName,
+  receivedAt: NOW,
+});
+
+const stateWith = (
+  pendingRequests: PendingPermissionRequest[],
+  isProcessing = true,
+  snapshotSeq = -1,
+): PendingRequestsState => ({ pendingRequests, isProcessing, snapshotSeq });
+
+const ack = (lastSeq: number, pendingPermissions: unknown = []): PendingRequestsEvent => ({
+  kind: 'chat_subscribed',
+  sessionId: SID,
+  isProcessing: true,
+  lastSeq,
+  pendingPermissions,
+});
+
+test('未选中会话（sessionId 为 null）时任何帧都原样返回', () => {
+  const events: PendingRequestsEvent[] = [
+    { kind: 'chat_subscribed', sessionId: SID, isProcessing: true, pendingPermissions: [req('a')] },
+    { kind: 'permission_request', sessionId: SID, requestId: 'a', toolName: 'Bash' },
+    { kind: 'permission_cancelled', sessionId: SID, requestId: 'a' },
+    { kind: 'complete', sessionId: SID },
+    { kind: 'other' },
+  ];
+
+  for (const event of events) {
+    assert.equal(applyPendingEvent(EMPTY_PENDING_STATE, event, null, opts), EMPTY_PENDING_STATE, event.kind);
+  }
+});
+
+test('sessionId 为空串同样不跟踪', () => {
+  const event: PendingRequestsEvent = { kind: 'complete', sessionId: '' };
+  assert.equal(applyPendingEvent(stateWith([req('a')]), event, '', opts).pendingRequests.length, 1);
+});
+
+test('chat_subscribed：别的会话的 ack 不改变状态', () => {
+  const state = stateWith([req('a')]);
+  const event: PendingRequestsEvent = {
+    kind: 'chat_subscribed',
+    sessionId: 'other',
+    isProcessing: false,
+    pendingPermissions: [],
+  };
+
+  assert.equal(applyPendingEvent(state, event, SID, opts), state);
+});
+
+test('chat_subscribed：本会话的 ack 整体替换待办并带上 isProcessing', () => {
+  const state = stateWith([req('stale')], false);
+  const event: PendingRequestsEvent = {
+    kind: 'chat_subscribed',
+    sessionId: SID,
+    isProcessing: true,
+    pendingPermissions: [req('a'), req('b')],
+  };
+
+  const next = applyPendingEvent(state, event, SID, opts);
+  assert.deepEqual(next.pendingRequests.map((r) => r.requestId), ['a', 'b']);
+  assert.equal(next.isProcessing, true);
+});
+
+test('chat_subscribed：pendingPermissions 不是数组时清空（不残留上个会话的条目）', () => {
+  const state = stateWith([req('stale')]);
+
+  for (const bogus of [undefined, null, 'nope', { 0: req('x') }]) {
+    const next = applyPendingEvent(
+      state,
+      { kind: 'chat_subscribed', sessionId: SID, isProcessing: true, pendingPermissions: bogus },
+      SID,
+      opts,
+    );
+    assert.deepEqual(next.pendingRequests, [], String(bogus));
+  }
+});
+
+test('chat_subscribed：ISO 字符串的 receivedAt 转成 Date —— 丢了它倒计时就静默失效', () => {
+  const iso = '2025-12-31T23:59:00.000Z';
+  const event: PendingRequestsEvent = {
+    kind: 'chat_subscribed',
+    sessionId: SID,
+    isProcessing: true,
+    pendingPermissions: [{ requestId: 'a', toolName: 'Bash', receivedAt: iso }],
+  };
+
+  const [entry] = applyPendingEvent(EMPTY_PENDING_STATE, event, SID, opts).pendingRequests;
+  assert.ok(entry.receivedAt instanceof Date, 'receivedAt 必须是 Date，不能是线上传来的字符串');
+  assert.equal(entry.receivedAt?.getTime(), new Date(iso).getTime());
+});
+
+test('chat_subscribed：缺 receivedAt 的条目用注入的 now 打点', () => {
+  const event: PendingRequestsEvent = {
+    kind: 'chat_subscribed',
+    sessionId: SID,
+    isProcessing: true,
+    pendingPermissions: [{ requestId: 'a', toolName: 'Bash' }],
+  };
+
+  const [entry] = applyPendingEvent(EMPTY_PENDING_STATE, event, SID, opts).pendingRequests;
+  assert.equal(entry.receivedAt?.getTime(), NOW.getTime());
+});
+
+test('chat_subscribed：snapshot 条目原样带出（input/context/sessionId 都是喂给面板的）', () => {
+  // 后端构造快照时已经把 sessionId 重映射成应用会话 id（registry 的出站覆写 +
+  // handleChatSubscribe 的 .map），所以这里的 sessionId 是**穿过**来的，不是本
+  // 函数补的 —— 本函数只补 receivedAt。
+  const event: PendingRequestsEvent = {
+    kind: 'chat_subscribed',
+    sessionId: SID,
+    isProcessing: true,
+    pendingPermissions: [
+      { requestId: 'a', toolName: 'Bash', sessionId: SID, input: { cmd: 'ls' }, context: { cwd: '/tmp' } },
+    ],
+  };
+
+  const [entry] = applyPendingEvent(EMPTY_PENDING_STATE, event, SID, opts).pendingRequests;
+  assert.equal(entry.sessionId, SID);
+  assert.deepEqual(entry.input, { cmd: 'ls' });
+  assert.deepEqual(entry.context, { cwd: '/tmp' });
+});
+
+test('permission_request：别的会话的请求不进来', () => {
+  const state = stateWith([], true);
+  const event: PendingRequestsEvent = {
+    kind: 'permission_request',
+    sessionId: 'other',
+    requestId: 'a',
+    toolName: 'Bash',
+  };
+
+  assert.equal(applyPendingEvent(state, event, SID, opts), state);
+});
+
+test('permission_request：本会话的请求追加到队尾并置 isProcessing', () => {
+  const state = stateWith([req('a')], false);
+  const event: PendingRequestsEvent = {
+    kind: 'permission_request',
+    sessionId: SID,
+    requestId: 'b',
+    toolName: 'Write',
+    input: { file_path: '/tmp/x' },
+    context: { cwd: '/tmp' },
+  };
+
+  const next = applyPendingEvent(state, event, SID, opts);
+  assert.deepEqual(next.pendingRequests.map((r) => r.requestId), ['a', 'b']);
+  assert.equal(next.isProcessing, true);
+
+  const added = next.pendingRequests[1];
+  assert.equal(added.toolName, 'Write');
+  assert.equal(added.sessionId, SID);
+  assert.equal(added.receivedAt?.getTime(), NOW.getTime());
+  assert.deepEqual(added.input, { file_path: '/tmp/x' });
+});
+
+test('permission_request：toolName 缺失时落到 UnknownTool', () => {
+  const event: PendingRequestsEvent = { kind: 'permission_request', sessionId: SID, requestId: 'a' };
+
+  const [entry] = applyPendingEvent(EMPTY_PENDING_STATE, event, SID, opts).pendingRequests;
+  assert.equal(entry.toolName, 'UnknownTool');
+});
+
+test('permission_request：没有 requestId 的直接丢弃（答不了）', () => {
+  const state = stateWith([req('a')]);
+  for (const requestId of [undefined, '']) {
+    const event: PendingRequestsEvent = { kind: 'permission_request', sessionId: SID, requestId, toolName: 'Bash' };
+    assert.equal(applyPendingEvent(state, event, SID, opts), state, String(requestId));
+  }
+});
+
+test('permission_request：已在队列里的 requestId 不重复追加', () => {
+  const state = stateWith([req('a')]);
+  const event: PendingRequestsEvent = { kind: 'permission_request', sessionId: SID, requestId: 'a', toolName: 'Bash' };
+
+  const next = applyPendingEvent(state, event, SID, opts);
+  assert.equal(next.pendingRequests.length, 1);
+  assert.equal(next.pendingRequests.filter((r) => r.requestId === 'a').length, 1);
+});
+
+test('permission_cancelled：按 requestId 过滤掉，其余保持顺序', () => {
+  const state = stateWith([req('a'), req('b'), req('c')]);
+  const event: PendingRequestsEvent = { kind: 'permission_cancelled', sessionId: SID, requestId: 'b' };
+
+  const next = applyPendingEvent(state, event, SID, opts);
+  assert.deepEqual(next.pendingRequests.map((r) => r.requestId), ['a', 'c']);
+});
+
+test('permission_cancelled：没有这个 id 时返回同一个引用（不白造新数组）', () => {
+  const state = stateWith([req('a')]);
+  const event: PendingRequestsEvent = { kind: 'permission_cancelled', sessionId: SID, requestId: 'nope' };
+
+  assert.equal(applyPendingEvent(state, event, SID, opts), state);
+});
+
+test('permission_cancelled：别的会话的取消不影响本会话', () => {
+  const state = stateWith([req('a')]);
+  const event: PendingRequestsEvent = { kind: 'permission_cancelled', sessionId: 'other', requestId: 'a' };
+
+  assert.equal(applyPendingEvent(state, event, SID, opts), state);
+});
+
+test('complete：本会话结束时清空待办并落下 isProcessing（丢帧时的兜底）', () => {
+  const state = stateWith([req('a'), req('b')], true);
+  const event: PendingRequestsEvent = { kind: 'complete', sessionId: SID };
+
+  const next = applyPendingEvent(state, event, SID, opts);
+  assert.deepEqual(next.pendingRequests, []);
+  assert.equal(next.isProcessing, false);
+});
+
+test('complete：水线一起归零 —— 下一轮 run 的 seq 从 1 重数，旧水线会静默吞掉它的实时帧', () => {
+  const finished = applyPendingEvent(
+    applyPendingEvent(EMPTY_PENDING_STATE, ack(9), SID, opts),
+    { kind: 'complete', sessionId: SID },
+    SID,
+    opts,
+  );
+  assert.equal(finished.snapshotSeq, -1);
+
+  // 下一轮的第一个审批帧 seq=1。若水线还停在 9，这一帧会被当成重放丢掉。
+  const nextRunFrame: PendingRequestsEvent = {
+    kind: 'permission_request',
+    sessionId: SID,
+    requestId: 'round-2',
+    toolName: 'Bash',
+    seq: 1,
+  };
+  assert.deepEqual(
+    applyPendingEvent(finished, nextRunFrame, SID, opts).pendingRequests.map((r) => r.requestId),
+    ['round-2'],
+  );
+});
+
+test('complete：别的会话结束不改变本会话状态', () => {
+  const state = stateWith([req('a')], true);
+  const event: PendingRequestsEvent = { kind: 'complete', sessionId: 'other' };
+
+  assert.equal(applyPendingEvent(state, event, SID, opts), state);
+});
+
+test('other：不认识的帧原样返回同一个引用', () => {
+  const state = stateWith([req('a')]);
+  assert.equal(applyPendingEvent(state, { kind: 'other' }, SID, opts), state);
+});
+
+/*
+ * 重放水线：`chat.subscribe` 的 ack 之后，后端还会把 run 缓冲区里的整段事件重放
+ * 给这个 socket（`readReplayStart` 对**首次**订阅返回 0，与客户端发的 lastSeq 无关）。
+ * 答复一条审批**不会**发 `permission_cancelled`，所以已经答过的 `permission_request`
+ * 仍躺在缓冲区里，重放会把它当成一条新待办加回来 —— 而且带着新打的 receivedAt，
+ * 连倒计时都是全新的。点它毫无反应（后端对未知 requestId 静默忽略）。
+ */
+
+test('chat_subscribed：ack 把 lastSeq 记成快照水线', () => {
+  const next = applyPendingEvent(EMPTY_PENDING_STATE, ack(7), SID, opts);
+  assert.equal(next.snapshotSeq, 7);
+});
+
+test('chat_subscribed：lastSeq 不是数字时水线落到 -1（宁可不拦，也不要误拦实时帧）', () => {
+  for (const bogus of [undefined, null, '7', Number.NaN]) {
+    const event = { kind: 'chat_subscribed', sessionId: SID, isProcessing: true, lastSeq: bogus } as PendingRequestsEvent;
+    assert.equal(applyPendingEvent(EMPTY_PENDING_STATE, event, SID, opts).snapshotSeq, -1, String(bogus));
+  }
+});
+
+test('permission_request：seq 落在快照水线以内的（重放）丢弃，不复活已答的待办', () => {
+  const state = applyPendingEvent(EMPTY_PENDING_STATE, ack(5), SID, opts);
+  const replayed: PendingRequestsEvent = {
+    kind: 'permission_request',
+    sessionId: SID,
+    requestId: 'answered',
+    toolName: 'Bash',
+    seq: 5,
+  };
+
+  assert.equal(applyPendingEvent(state, replayed, SID, opts), state);
+  assert.equal(
+    applyPendingEvent(state, { ...replayed, seq: 2 }, SID, opts),
+    state,
+    '水线以下的更早帧同样丢弃',
+  );
+});
+
+test('permission_request：seq 高于快照水线的（真·实时帧）正常追加', () => {
+  const state = applyPendingEvent(EMPTY_PENDING_STATE, ack(5), SID, opts);
+  const live: PendingRequestsEvent = {
+    kind: 'permission_request',
+    sessionId: SID,
+    requestId: 'live',
+    toolName: 'Bash',
+    seq: 6,
+  };
+
+  const next = applyPendingEvent(state, live, SID, opts);
+  assert.deepEqual(next.pendingRequests.map((r) => r.requestId), ['live']);
+  assert.equal(next.isProcessing, true);
+  assert.equal(next.snapshotSeq, 5, '水线不因增量帧前进');
+});
+
+test('permission_request：没有 seq 的帧照常处理（别把不盖 seq 的 provider 静默吞掉）', () => {
+  const state = applyPendingEvent(EMPTY_PENDING_STATE, ack(5), SID, opts);
+  const event: PendingRequestsEvent = {
+    kind: 'permission_request',
+    sessionId: SID,
+    requestId: 'no-seq',
+    toolName: 'Bash',
+  };
+
+  assert.deepEqual(
+    applyPendingEvent(state, event, SID, opts).pendingRequests.map((r) => r.requestId),
+    ['no-seq'],
+  );
+});
+
+test('permission_cancelled：seq 落在快照水线以内的（重放）丢弃', () => {
+  const state = applyPendingEvent(EMPTY_PENDING_STATE, ack(5), SID, opts);
+  const withPending = { ...state, pendingRequests: [req('a')] };
+  const replayed: PendingRequestsEvent = {
+    kind: 'permission_cancelled',
+    sessionId: SID,
+    requestId: 'a',
+    seq: 5,
+  };
+
+  assert.equal(applyPendingEvent(withPending, replayed, SID, opts), withPending);
+  assert.deepEqual(
+    applyPendingEvent(withPending, { ...replayed, seq: 6 }, SID, opts).pendingRequests.map((r) => r.requestId),
+    [],
+  );
+});
+
+test('水线是会话级的：没收到 ack 之前（-1）不拦任何帧', () => {
+  const event: PendingRequestsEvent = {
+    kind: 'permission_request',
+    sessionId: SID,
+    requestId: 'a',
+    toolName: 'Bash',
+    seq: 1,
+  };
+
+  assert.deepEqual(
+    applyPendingEvent(EMPTY_PENDING_STATE, event, SID, opts).pendingRequests.map((r) => r.requestId),
+    ['a'],
+  );
+});
+
+test('纯函数：任何一条分支都不改动入参的 state 与其中的数组/对象', () => {
+  const list = [req('a'), req('b')];
+  const state = stateWith(list, true, 3);
+  const snapshot = JSON.stringify(list.map((r) => ({ id: r.requestId, at: r.receivedAt?.toISOString() })));
+
+  applyPendingEvent(state, { kind: 'permission_cancelled', sessionId: SID, requestId: 'a' }, SID, opts);
+  applyPendingEvent(state, { kind: 'permission_request', sessionId: SID, requestId: 'c' }, SID, opts);
+  applyPendingEvent(state, { kind: 'permission_request', sessionId: SID, requestId: 'd', seq: 1 }, SID, opts);
+  applyPendingEvent(state, { kind: 'complete', sessionId: SID }, SID, opts);
+  applyPendingEvent(state, ack(9, [req('z')]), SID, opts);
+
+  assert.deepEqual(state.pendingRequests.map((r) => r.requestId), ['a', 'b']);
+  assert.equal(state.isProcessing, true);
+  assert.equal(state.snapshotSeq, 3);
+  assert.equal(
+    JSON.stringify(list.map((r) => ({ id: r.requestId, at: r.receivedAt?.toISOString() }))),
+    snapshot,
+  );
+});
+```
+
+创建 `web/src/components/tasks/pendingRequestEvents.ts`：
+
+```ts
+/**
+ * 把一个 socket 帧折算进「本会话待办审批」状态的**纯函数**。
+ *
+ * 为什么独立成文件：这个仓库的前端测试是 `node:test` **无 jsdom**，钩子本体
+ * 测不到。把折叠逻辑挤出来，语义（去重、跨会话过滤、重放水线、丢帧兜底）才
+ * 测得到 —— 与 `panelPermission.ts` / `panelReply.ts` 同一分工。
+ *
+ * 线上契约（都在后端，别凭记忆改）：
+ *  - 每个出站帧的 `sessionId` 都是**应用会话 id**：registry 构造出站事件时统一
+ *    覆写 `sessionId: run.appSessionId`（`chat-run-registry.service.ts` 的
+ *    `decorateAndRecordEvent`，经 `ChatSessionWriter` 发出），所以直接用任务/
+ *    会话的 `session_id` 比就是对的。
+ *  - `chat_subscribed`（`handleChatSubscribe`）带 `isProcessing`、`lastSeq` 与
+ *    `pendingPermissions` 全量快照；`permission_request` / `permission_cancelled`
+ *    是运行中的增量帧。
+ *  - **ack 之后还会跟着整段重放，`lastSeq: 0` 拦不住它**：`handleChatSubscribe`
+ *    在运行中时先 `attachConnection` 再 `replayEvents`，起点由 `readReplayStart`
+ *    算，对**首次**订阅返回 `Math.max(clientLastSeq, -1)` —— 客户端发什么
+ *    `lastSeq` 都没用。这是 `snapshotSeq` 水线存在的唯一理由。
+ */
+
+import type { PendingPermissionRequest } from '../chat/types/types';
+
+export interface PendingRequestsState {
+  pendingRequests: PendingPermissionRequest[];
+  isProcessing: boolean;
+  /**
+   * 最近一次 `chat_subscribed` 的 `lastSeq`，即快照的**权威水线**：
+   * `seq <= snapshotSeq` 的增量帧必然来自 ack 之后的重放，不是新状态。
+   */
+  snapshotSeq: number;
+}
+
+export type PendingRequestsEvent =
+  | { kind: 'chat_subscribed'; sessionId?: string; isProcessing?: boolean; lastSeq?: number; pendingPermissions?: unknown }
+  | { kind: 'permission_request'; sessionId?: string; requestId?: string; toolName?: string; input?: unknown; context?: unknown; seq?: number }
+  | { kind: 'permission_cancelled'; sessionId?: string; requestId?: string; seq?: number }
+  | { kind: 'complete'; sessionId?: string }
+  | { kind: 'other' };
+
+export const EMPTY_PENDING_STATE: PendingRequestsState = {
+  pendingRequests: [],
+  isProcessing: false,
+  // 不是 0：`run.lastSeq` 从 0 起递增，**实时**帧的 seq 从 1 开始，用 0 会把
+  // 首订阅（还没拿到 ack）之后的头几帧真事件当成重放丢掉。水线只该拦已知范围，
+  // 未知时宁可不拦。
+  snapshotSeq: -1,
+};
+
+export interface ApplyPendingEventOptions {
+  /** 可注入的「现在」，缺省取真实时间；测试用它钉住打的点。 */
+  now?: Date;
+}
+
+/**
+ * 这一帧是不是 ack 之前就已经发生过、被 `replayEvents` 重放回来的旧事件？
+ *
+ * 不拦的后果不是「多显示一条」那么轻：答复一条审批**不会**发
+ * `permission_cancelled`（`claude-sdk.js` 的 resolve 路径只
+ * `pendingToolApprovals.delete(requestId)`，`permission_cancelled` 只走
+ * timeout/abort 的 `onCancel`），所以已答的 `permission_request` 仍躺在 run
+ * 的事件缓冲区里，重放会把它当成一条新待办加回来 —— 还带着新打的 `receivedAt`，
+ * 于是倒计时也是全新的。点它则毫无反应：`resolveToolApproval` 对未知 requestId
+ * 静默忽略。
+ *
+ * 这道判断看着像可以「简化」掉的冗余检查，别删：没有它，面板在每次刷新/重订阅后
+ * 都会长出一条点了没反应的幽灵待办。
+ *
+ * 没有 `seq` 的帧一律放行：不是所有 provider 都盖 seq，把「没盖」当成「旧」会
+ * 静默吞掉实时帧 —— 那是比幽灵按钮更糟的故障。
+ */
+function isReplayed(event: { seq?: number }, state: PendingRequestsState): boolean {
+  return typeof event.seq === 'number' && event.seq <= state.snapshotSeq;
+}
+
+/**
+ * `chat_subscribed` 快照里的条目已经带了 `receivedAt`，但它**不是 Date**：
+ * 帧经由 `JSON.stringify` 出去，Date 会序列化成 ISO 字符串。不在这里转回来，
+ * 倒计时（`panelPermission.timeoutAt` 只认 `instanceof Date`）会静默失效 ——
+ * 刷新页面后所有待办都变成「永不超时」。
+ *
+ * 缺时间戳时才打 `now`：调用方注入的时钟优先，否则每次刷新都会把快照里已有
+ * 的真实等待时长冲掉，倒计时从头开始。
+ */
+function stampReceivedAt(item: PendingPermissionRequest, now: Date): PendingPermissionRequest {
+  if (item.receivedAt === undefined || item.receivedAt === null) {
+    return { ...item, receivedAt: now };
+  }
+  return { ...item, receivedAt: new Date(item.receivedAt as unknown as string | number | Date) };
+}
+
+/** `lastSeq` 只有是有限数时才可信；缺失/脏值一律当 -1（= 不拦）。 */
+function readSnapshotSeq(lastSeq: unknown): number {
+  return typeof lastSeq === 'number' && Number.isFinite(lastSeq) ? lastSeq : -1;
+}
+
+export function applyPendingEvent(
+  state: PendingRequestsState,
+  event: PendingRequestsEvent,
+  sessionId: string | null,
+  options: ApplyPendingEventOptions = {},
+): PendingRequestsState {
+  // 没选中会话就没什么可跟踪的 —— 所有帧一律原样返回同一引用。
+  if (!sessionId) {
+    return state;
+  }
+
+  const now = options.now ?? new Date();
+
+  switch (event.kind) {
+    case 'chat_subscribed': {
+      if (event.sessionId !== sessionId) {
+        return state;
+      }
+      // 快照是权威的：整体替换，且非数组时归零 —— 留着上个会话的条目会让面板
+      // 显示一个答不了的按钮。
+      const items = Array.isArray(event.pendingPermissions)
+        ? (event.pendingPermissions as PendingPermissionRequest[]).map((item) => stampReceivedAt(item, now))
+        : [];
+      return {
+        pendingRequests: items,
+        isProcessing: Boolean(event.isProcessing),
+        snapshotSeq: readSnapshotSeq(event.lastSeq),
+      };
+    }
+
+    case 'permission_request': {
+      if (event.sessionId !== sessionId) {
+        return state;
+      }
+      if (isReplayed(event, state)) {
+        return state;
+      }
+      // 没有 requestId 就答不了，收下只会变成一个永远无法回应的按钮。
+      if (!event.requestId) {
+        return state;
+      }
+      // 同一 requestId 重复到达（重放或重订阅）不追加第二条。
+      if (state.pendingRequests.some((request) => request.requestId === event.requestId)) {
+        return state;
+      }
+      const request: PendingPermissionRequest = {
+        requestId: event.requestId,
+        toolName: event.toolName || 'UnknownTool',
+        input: event.input,
+        context: event.context,
+        sessionId,
+        receivedAt: now,
+      };
+      return {
+        pendingRequests: [...state.pendingRequests, request],
+        isProcessing: true,
+        snapshotSeq: state.snapshotSeq,
+      };
+    }
+
+    case 'permission_cancelled': {
+      if (event.sessionId !== sessionId) {
+        return state;
+      }
+      if (isReplayed(event, state)) {
+        return state;
+      }
+      if (!state.pendingRequests.some((request) => request.requestId === event.requestId)) {
+        return state;
+      }
+      return {
+        pendingRequests: state.pendingRequests.filter((request) => request.requestId !== event.requestId),
+        isProcessing: state.isProcessing,
+        snapshotSeq: state.snapshotSeq,
+      };
+    }
+
+    case 'complete': {
+      if (event.sessionId !== sessionId) {
+        return state;
+      }
+      // 本轮结束了，等待也就结束了。后端在正常路径上还会发 `permission_cancelled`，
+      // 这里是丢帧时的兜底：否则面板会永远挂着一个答不了的回执按钮。
+      //
+      // 水线同时归零：run 结束意味着下一轮的 seq 从 1 重新数（`readReplayStart`
+      // 也只在同一个 run 内比较）。不清掉的话，若下一轮开始时漏掉了重新订阅
+      // （重连抖动、transition 判定失效），新 run 的实时帧会全部落在旧水线以下被
+      // 静默丢掉 —— 那是「任务在等审批，面板却什么都不显示」。水线宁可失效放行，
+      // 也不要误杀；何况此时待办本就被清空，没有可复活的幽灵。
+      return {
+        pendingRequests: [],
+        isProcessing: false,
+        snapshotSeq: -1,
+      };
+    }
+
+    case 'other':
+    default:
+      return state;
+  }
+}
+```
+
+- [ ] **Step 2: 再写钩子（薄壳：只做帧映射、订阅、乐观移除）**
 
 创建 `web/src/components/tasks/useSessionPendingRequests.ts`：
 
 ```ts
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { useWebSocket } from '../../contexts/WebSocketContext';
+import { useWebSocket, type ServerEvent } from '../../contexts/WebSocketContext';
 import type { PendingPermissionRequest } from '../chat/types/types';
+
+import {
+  EMPTY_PENDING_STATE,
+  applyPendingEvent,
+  type PendingRequestsEvent,
+  type PendingRequestsState,
+} from './pendingRequestEvents';
 
 export interface PendingDecision {
   allow?: boolean;
@@ -558,144 +1169,157 @@ export interface PendingDecision {
 
 export interface UseSessionPendingRequestsResult {
   pendingRequests: PendingPermissionRequest[];
-  /** 该会话当前是否在跑。来自 `chat_subscribed` 的 ack 与 `complete` 事件。 */
   isProcessing: boolean;
   respond: (requestId: string, decision: PendingDecision) => void;
 }
 
 /**
- * 按会话收取待办（工具审批）请求。
+ * 把一帧 `ServerEvent` 折成 reducer 认识的 `PendingRequestsEvent`。
  *
- * 为什么不复用 `PermissionContext`：它的唯一 Provider 在 ChatInterface 内部，
- * 而任务页是独立路由，拿不到 —— `usePermission()` 在树上返回 null。
- * 这里改用同一套 socket 协议自己订阅：`chat.subscribe` 的 ack 带回
- * `pendingPermissions`（覆盖「打开页面时已经有待办」），运行中的会话还会被
- * `attachConnection`，于是 `permission_request` / `permission_cancelled` 实时到达。
+ * 不认识的 kind 一律落到 `'other'` —— reducer 会原样返回同一引用，不触发渲染。
+ * 这正是「网关将来加帧类型时，本钩子不会瞎认」的边界。
+ */
+function toPendingEvent(event: ServerEvent): PendingRequestsEvent {
+  switch (event.kind) {
+    case 'chat_subscribed':
+      return {
+        kind: 'chat_subscribed',
+        sessionId: event.sessionId,
+        isProcessing: event.isProcessing as boolean | undefined,
+        lastSeq: event.lastSeq as number | undefined,
+        pendingPermissions: event.pendingPermissions,
+      };
+    case 'permission_request':
+      return {
+        kind: 'permission_request',
+        sessionId: event.sessionId,
+        requestId: event.requestId as string | undefined,
+        toolName: event.toolName as string | undefined,
+        input: event.input,
+        context: event.context,
+        seq: event.seq,
+      };
+    case 'permission_cancelled':
+      return {
+        kind: 'permission_cancelled',
+        sessionId: event.sessionId,
+        requestId: event.requestId as string | undefined,
+        seq: event.seq,
+      };
+    case 'complete':
+      return { kind: 'complete', sessionId: event.sessionId };
+    default:
+      return { kind: 'other' };
+  }
+}
+
+/**
+ * 订阅**一个会话**的待办工具审批。
  *
- * 答复帧格式与聊天页的 `handlePermissionDecision` 逐字段一致，
- * 后端 `handlePermissionResponse` 是同一个 handler，所以两处答复完全等价。
+ * 与聊天页的区别：那边是自己发起对话、只关心正被查看的会话；这里是一块
+ * 「任务详情」面板，挂在后台运行的任务会话上。两者用同一个共享 socket，
+ * 各自 `chat.subscribe`，所以可以并存。
+ *
+ * `lastSeq: 0` 不是「不回放」的开关 —— 后端对首次订阅照样把整个 run 缓冲区
+ * 重放回来（`readReplayStart` 返回 `Math.max(clientLastSeq, -1)`）。真正挡住
+ * 重放里那些已答待办的是 `snapshotSeq` 水线，见 `pendingRequestEvents.ts`。
+ * 这里给 0 只是声明「我不要历史」；反正本面板一个字的历史都不渲染。
  */
 export function useSessionPendingRequests(
   sessionId: string | null | undefined,
 ): UseSessionPendingRequestsResult {
   const { sendMessage, subscribe, isConnected } = useWebSocket();
-  const [pendingRequests, setPendingRequests] = useState<PendingPermissionRequest[]>([]);
-  const [isProcessing, setIsProcessing] = useState(false);
-  /** 当前订阅的会话 id。socket 回调是异步的，不能读闭包里的 sessionId。 */
+  const [state, setState] = useState<PendingRequestsState>(EMPTY_PENDING_STATE);
+
+  /**
+   * socket 回调是异步的，闭包里的 `sessionId` 会过期 —— 切了会话之后旧的监听器
+   * 还会拿老 id 去比。ref 每次渲染都重指，监听器读 ref 拿到的永远是最新的那个。
+   */
   const sessionIdRef = useRef<string | null>(sessionId ?? null);
   sessionIdRef.current = sessionId ?? null;
 
-  // 换会话时清空：上一个会话的待办不能显示在新会话的面板上。
+  /**
+   * 「上次为哪个会话的哪次 run 补过订阅」。见 `session_status` 分支的注释：
+   * 只在**状态发生变化**时补订阅，否则会和补订阅引发的 `chat_subscribed` 互相
+   * 触发成死循环。
+   */
+  const lastStatusRef = useRef<{ sessionId: string; state: string } | null>(null);
+
+  // 切会话立刻抹掉上一个会话的待办：否则新面板会挂着一个属于别人的按钮。
   useEffect(() => {
-    setPendingRequests([]);
-    setIsProcessing(false);
+    setState(EMPTY_PENDING_STATE);
+    lastStatusRef.current = null;
   }, [sessionId]);
 
-  // 订阅。依赖 isConnected 是为了在断线重连后重新订阅 —— 这条任务页没有
-  // 聊天页那套 lastSeq 续传，重订阅拿全量 pendingPermissions 就够了。
+  useEffect(() => {
+    return subscribe((event: ServerEvent) => {
+      // 会话在**空闲时**被订阅、之后才起跑：`attachConnection` 只发生在
+      // `handleChatSubscribe` 里（那时还没 run），而 `startRun` 只把发起方那条
+      // 连接放进 writer 的 socket 集合。于是本 socket 收不到任何
+      // `permission_request`，面板永远是空的，直到下次重连。
+      //
+      // `session_status` 是广播给**所有**已连接客户端的（registry 的
+      // `broadcastSessionStatus` → `connectedClients.forEach`），所以拿它当
+      // 「该重新订阅了」的可靠信号：此刻再订阅一次就会命中 `isProcessing: true`
+      // → `attachConnection`，从而接上这一轮的实时帧。
+      //
+      // 看着像多余的「我们不是已经订阅过了吗」—— 不知道 attach 只在订阅时发生
+      // 的人一定会想删掉它。别删：删了就是后台任务的审批弹不出来。
+      if (event.kind === 'session_status') {
+        const statusSessionId = event.sessionId;
+        if (!statusSessionId || statusSessionId !== sessionIdRef.current) {
+          return;
+        }
+        const status = String(event.state ?? '');
+        const previous = lastStatusRef.current;
+        // 只在**迁移进** running 的那一帧补订阅：同一轮里重复到达的 running 帧
+        // （或 StrictMode 下的重复派发）会白白多订阅一次，而每次订阅都会换来一段
+        // 重放。状态没变就跳过。
+        const alreadyRunning =
+          previous !== null && previous.sessionId === statusSessionId && previous.state === status;
+        lastStatusRef.current = { sessionId: statusSessionId, state: status };
+        if (status !== 'running' || alreadyRunning || !isConnected) {
+          return;
+        }
+        sendMessage({
+          type: 'chat.subscribe',
+          sessions: [{ sessionId: statusSessionId, lastSeq: 0 }],
+        });
+        return;
+      }
+
+      const pendingEvent = toPendingEvent(event);
+      if (pendingEvent.kind === 'other') {
+        // 快路径：绝大多数帧与本面板无关，连 setState 都不进。
+        return;
+      }
+      setState((previous) => {
+        const next = applyPendingEvent(previous, pendingEvent, sessionIdRef.current);
+        // reducer 用「同一引用」表示无变化，这里把它变成 React 的 bail-out。
+        return next === previous ? previous : next;
+      });
+    });
+  }, [subscribe, sendMessage, isConnected]);
+
+  // 选中会话且 socket 已连上才订阅。依赖 isConnected 是刻意的：每次重连都要
+  // 重新订阅一遍（旧连接的订阅随连接一起没了），否则断线重连后待办永远不刷新。
   useEffect(() => {
     if (!sessionId || !isConnected) {
       return;
     }
-
     sendMessage({
       type: 'chat.subscribe',
       sessions: [{ sessionId, lastSeq: 0 }],
     });
   }, [sessionId, isConnected, sendMessage]);
 
-  useEffect(() => {
-    const unsubscribe = subscribe((message) => {
-      const msg = message as {
-        kind?: string;
-        sessionId?: string;
-        requestId?: string;
-        toolName?: string;
-        input?: unknown;
-        context?: unknown;
-        pendingPermissions?: PendingPermissionRequest[];
-        isProcessing?: boolean;
-      };
-
-      const currentSessionId = sessionIdRef.current;
-      if (!currentSessionId) {
-        return;
-      }
-
-      switch (msg.kind) {
-        case 'chat_subscribed': {
-          if (msg.sessionId !== currentSessionId) {
-            return;
-          }
-          setIsProcessing(Boolean(msg.isProcessing));
-          setPendingRequests(
-            Array.isArray(msg.pendingPermissions)
-              ? msg.pendingPermissions.map((request) => ({
-                  ...request,
-                  // ack 里的 receivedAt 是可选字段，补一个本地时刻，
-                  // 否则倒计时算不出来（Task 1 会把缺失时间戳当作永不超时）。
-                  receivedAt: request.receivedAt ? new Date(request.receivedAt) : new Date(),
-                }))
-              : [],
-          );
-          return;
-        }
-
-        case 'permission_request': {
-          if (!msg.requestId || msg.sessionId !== currentSessionId) {
-            return;
-          }
-          setPendingRequests((previous) => {
-            if (previous.some((request) => request.requestId === msg.requestId)) {
-              return previous;
-            }
-            return [...previous, {
-              requestId: msg.requestId as string,
-              toolName: msg.toolName || 'UnknownTool',
-              input: msg.input,
-              context: msg.context,
-              sessionId: currentSessionId,
-              receivedAt: new Date(),
-            }];
-          });
-          setIsProcessing(true);
-          return;
-        }
-
-        case 'permission_cancelled': {
-          if (!msg.requestId) {
-            return;
-          }
-          setPendingRequests((previous) =>
-            previous.filter((request) => request.requestId !== msg.requestId),
-          );
-          return;
-        }
-
-        case 'complete': {
-          // run 结束：待办随之失效（后端也会发 permission_cancelled，
-          // 这里兜底，防止那一帧丢了导致按钮永久挂着）。
-          if (msg.sessionId !== currentSessionId) {
-            return;
-          }
-          setIsProcessing(false);
-          setPendingRequests([]);
-          return;
-        }
-
-        default:
-          return;
-      }
-    });
-
-    return unsubscribe;
-  }, [subscribe]);
-
   const respond = useCallback(
     (requestId: string, decision: PendingDecision) => {
       if (!requestId) {
         return;
       }
+      // 字段名与聊天页 `handlePermissionDecision` 逐字一致 —— 后端
+      // `handlePermissionResponse` 认的就是这几个名字。
       sendMessage({
         type: 'chat.permission-response',
         requestId,
@@ -704,30 +1328,39 @@ export function useSessionPendingRequests(
         message: decision.message,
         rememberEntry: decision.rememberEntry,
       });
-      // 乐观移除：与聊天页一致（useChatComposerState.ts 的 handlePermissionDecision）。
-      setPendingRequests((previous) =>
-        previous.filter((request) => request.requestId !== requestId),
-      );
+      // 乐观移除：决定已发出，按钮不该再等一个来回才消失。后端若判失败会经
+      // `permission_cancelled` / 重订阅的 ack 纠正回来。
+      setState((previous) => {
+        const next = previous.pendingRequests.filter((request) => request.requestId !== requestId);
+        // 没移掉任何东西就别造新对象：setState 拿到同一引用时 React 直接跳过
+        // 这次渲染（与 reducer 的引用纪律一致）。
+        return next.length === previous.pendingRequests.length ? previous : { ...previous, pendingRequests: next };
+      });
     },
     [sendMessage],
   );
 
-  return { pendingRequests, isProcessing, respond };
+  return {
+    pendingRequests: state.pendingRequests,
+    isProcessing: state.isProcessing,
+    respond,
+  };
 }
 ```
 
-- [ ] **Step 2: typecheck**
+- [ ] **Step 3: typecheck**
 
 Run: `cd /mnt/b/workdir/github/lovdex/web && npx tsc --noEmit -p tsconfig.json 2>&1 | tail -5`
 Expected: 零新增
 
 若报 `subscribe` 不在 `WebSocketContextType` 上，读 `web/src/contexts/WebSocketContext.tsx:32` 确认签名是 `(listener: ServerEventListener) => () => void`，并按实际类型调整。
 
-- [ ] **Step 3: 提交**
+- [ ] **Step 4: 提交**
 
 ```bash
 cd /mnt/b/workdir/github/lovdex
-git add web/src/components/tasks/useSessionPendingRequests.ts
+git add web/src/components/tasks/pendingRequestEvents.ts web/src/components/tasks/pendingRequestEvents.test.ts \
+        web/src/components/tasks/useSessionPendingRequests.ts
 git commit -m "feat(tasks): subscribe the task panel to a session's pending approvals"
 ```
 
