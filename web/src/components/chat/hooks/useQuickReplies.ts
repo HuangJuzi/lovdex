@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { api } from '../../../utils/api';
-
 
 /** 后端线上形状：quick_replies 行原样透出（snake_case），与其他业务表 API 一致。 */
 export type QuickReply = {
@@ -38,25 +37,44 @@ export function useQuickReplies(): UseQuickRepliesResult {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // 刷新代际。markUsed 的旁路刷新与用户紧接着的写操作刷新会并发，两个 GET 乱序
+  // 返回时后到的旧响应会把刚建的条目短暂冲掉；只认最新一次请求的结果。
+  const refreshGenerationRef = useRef(0);
+
+  /**
+   * 重拉列表。失败时抛错，让写操作的调用方能感知「写成功但列表没跟上」，
+   * 而不是误以为整件事都成了、把编辑框关掉。
+   */
   const refresh = useCallback(async () => {
+    const generation = ++refreshGenerationRef.current;
     try {
-      const response = (await api.quickReplies.list()) as Response;
+      const response = await api.quickReplies.list();
       if (!response.ok) {
-        setError(await readErrorMessage(response));
-        return;
+        throw new Error(await readErrorMessage(response));
       }
       const payload = (await response.json()) as { items?: QuickReply[] };
+      if (generation !== refreshGenerationRef.current) {
+        return;
+      }
       setItems(Array.isArray(payload?.items) ? payload.items : []);
       setError(null);
-    } catch {
-      setError('无法加载常用语');
+    } catch (err) {
+      // 过期的那次请求失败不该覆盖新一代的展示状态。
+      if (generation !== refreshGenerationRef.current) {
+        return;
+      }
+      setError(err instanceof Error ? err.message : '无法加载常用语');
+      throw err;
     } finally {
-      setIsLoading(false);
+      if (generation === refreshGenerationRef.current) {
+        setIsLoading(false);
+      }
     }
   }, []);
 
+  // 首次挂载的失败只展示在 error 上，不往外抛——没有调用方在等这个 Promise。
   useEffect(() => {
-    void refresh();
+    void refresh().catch(() => undefined);
   }, [refresh]);
 
   // 写操作后重拉列表，不做乐观更新：服务端要按 last_used_at 重排，
@@ -93,7 +111,8 @@ export function useQuickReplies(): UseQuickRepliesResult {
       void api.quickReplies
         .use(quickReplyId)
         .then((response: Response) => {
-          if (response.ok) void refresh();
+          // 打点是旁路的：刷新失败也不该冒泡成未处理的 rejection。
+          if (response.ok) void refresh().catch(() => undefined);
         })
         .catch(() => undefined);
     },
