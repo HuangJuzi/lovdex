@@ -1366,13 +1366,26 @@ git commit -m "feat(tasks): subscribe the task panel to a session's pending appr
 
 ---
 
+
 ## Task 4: 单条待办卡片（含倒计时）
 
 **Files:**
 - Create: `web/src/components/tasks/PendingPromptCard.tsx`
+- Create: `web/src/components/tasks/pendingPromptAnswers.ts`
 - Test: `web/src/components/tasks/PendingPromptCard.test.tsx`
+- Test: `web/src/components/tasks/pendingPromptAnswers.test.ts`
 
-**背景：** 按 `toolName` 分派：`AskUserQuestion` 渲染选项、`ExitPlanMode` 渲染计划、其余渲染通用授权。倒计时复用 Task 1 的纯函数。本任务的测试是**静态渲染断言**（`renderToStaticMarkup`），只验证「渲染出了哪些文案」，不能验证点击——交互留给浏览器手测（Task 13）。
+**背景：** 按 `toolName` 分派：`AskUserQuestion` 渲染选项、`ExitPlanMode` 渲染计划、其余渲染通用授权。倒计时复用 Task 1 的纯函数。
+
+**实施中发现的三处对原计划的修正**（评审已确认）：
+
+1. **「总是允许」的 `rememberEntry` 用 `chat/utils/chatPermissions.ts` 的 `buildClaudeToolPermissionEntry`，不要照抄本计划原先草拟的 `Bash(${command})`。** 那个草稿写的是「整条命令」作规则，而聊天页实际生成的是**前缀式**规则（`git commit -m "fix(csv)"` → `Bash(git commit:*)`）。两处若各拼各的，同一句「总是允许」会往 `allowedTools` 里写两条不同的规则，用户此后在聊天页与任务面板看到的行为就不一致。该函数无 DOM 依赖、可直接 import（已实测）。它只对 `Bash` 产出具体规则，其余工具返回裸工具名，故仅当返回值非空时启用按钮。
+2. **多选（`multiSelect: true`）必须单独处理。** 原计划只做了单选式的一击即发。多选题目的语义就是「可以选好几个」，一击即发会让模型拿到一个偏窄的答案，而界面上没有任何东西提示他本可以多选 —— 这不是精简，是把同一个功能渲染错。现在：多选点一下是切换（再点取消），必须按「提交选择」才发出；答案串按聊天页的 `join(', ')` 拼接（顺序 = 点击顺序，聊天页是 `Set` 插入序，不许排序）。
+3. **点击语义必须搬进纯函数文件（`pendingPromptAnswers.ts`）才测得到。** 本仓库的 web 测试是 `node:test` + `renderToStaticMarkup`（无 DOM、不能模拟点击）。逻辑留在组件的 `onClick` 闭包里时，「单选误写成切换」「多选误写成一击即发」「答满全部题目才提交」这三类错误在静态标记上完全看不出来（按钮与文案都还在），却会改变发给模型的答案。搬出后这三条都有测试钉着（见 Step 1 的第二个测试文件与 Step 3 的变异核对）。
+
+**不做的部分**（刻意）：聊天页的键盘层（1-9 选号、0 = Other、Enter、Esc）与 Back/Next 分步器不移植 —— 任务面板是鼠标优先、且还没有焦点模型；「Other」自由输入也不做，它需要一个受控 input 与焦点管理。
+
+**测试边界：** `PendingPromptCard.test.tsx` 是**静态渲染断言**，只验证「渲染出了哪些文案/标记」，不能验证点击。点击语义由 `pendingPromptAnswers.test.ts` 以纯函数形式覆盖（这是唯一能在本仓库测到它们的方式）。浏览器手测留给 Task 13。
 
 - [ ] **Step 1: 写失败的测试**
 
@@ -1381,10 +1394,12 @@ git commit -m "feat(tasks): subscribe the task panel to a session's pending appr
 ```tsx
 import test from 'node:test';
 import assert from 'node:assert/strict';
+
 import { renderToStaticMarkup } from 'react-dom/server';
 
-import { PendingPromptCard } from './PendingPromptCard';
 import type { PendingPermissionRequest } from '../chat/types/types';
+
+import { PendingPromptCard } from './PendingPromptCard';
 
 const NOW = 1_700_000_000_000;
 const TIMEOUT = 60_000;
@@ -1486,6 +1501,79 @@ test('未知工具名不崩，退化为通用授权卡', () => {
   assert.ok(html.length > 0);
   assert.match(html, /UnknownTool/);
 });
+
+// 多选与单选的判据都是**静态**标记，不靠点击：多选每题有一个显式「提交选择」
+// 确认按钮与方框选择符，单选没有（它点一下就走）。点了之后发出去的确是
+// 「, 」连接的串 —— 那部分在 pendingPromptAnswers.test.ts 里测，因为
+// 这里没有 DOM 可以模拟点击。
+test('multiSelect: true 渲染方框选择符与「提交选择」确认按钮', () => {
+  const html = render({
+    requestId: 'r8',
+    toolName: 'AskUserQuestion',
+    receivedAt: new Date(NOW),
+    input: {
+      questions: [{
+        question: '哪些地方要一起改？',
+        header: '范围',
+        multiSelect: true,
+        options: [
+          { label: '弹窗', description: 'AppContent' },
+          { label: '工具栏', description: '加一个开关' },
+        ],
+      }],
+    },
+  });
+
+  assert.match(html, /哪些地方要一起改/);
+  assert.match(html, /可多选/);
+  assert.match(html, /提交选择/);
+  // 方框（未选中态）而不是单选的实心点：用户得能一眼看出这里可以选好几个。
+  assert.match(html, /☐/);
+  assert.doesNotMatch(html, /●/);
+  // 确认按钮在，且因为一项都没选而禁用 —— 选中态才解锁。
+  assert.match(html, /disabled=""/);
+  // 「可多选」与计数里的「点一下取消」都重复出现，所以计数断言放共存用例里做。
+});
+
+test('单选问题不渲染确认按钮（保持一击即发）', () => {
+  const html = render({
+    requestId: 'r9',
+    toolName: 'AskUserQuestion',
+    receivedAt: new Date(NOW),
+    input: {
+      questions: [{
+        question: '哪个方案？',
+        options: [{ label: '甲' }, { label: '乙' }],
+      }],
+    },
+  });
+
+  assert.match(html, /哪个方案/);
+  assert.doesNotMatch(html, /提交选择/);
+  assert.doesNotMatch(html, /☐/);
+});
+
+test('同一张卡里单选与多选共存：只有多选那题带确认按钮，且只出现一次', () => {
+  const html = render({
+    requestId: 'r10',
+    toolName: 'AskUserQuestion',
+    receivedAt: new Date(NOW),
+    input: {
+      questions: [
+        { question: '第一题（单选）', options: [{ label: '甲' }] },
+        { question: '第二题（多选）', multiSelect: true, options: [{ label: '乙' }] },
+      ],
+    },
+  });
+
+  assert.match(html, /第一题（单选）/);
+  assert.match(html, /第二题（多选）/);
+  // 确认按钮与「可多选」提示都只属于多选那一题；单选那题仍是实心点。
+  assert.equal(html.match(/提交选择/g)?.length, 1);
+  assert.equal(html.match(/可多选/g)?.length, 1);
+  assert.match(html, /●/);
+  assert.match(html, /☐/);
+});
 ```
 
 - [ ] **Step 2: 跑测试确认失败**
@@ -1495,14 +1583,122 @@ Expected: FAIL —— `Cannot find module './PendingPromptCard'`
 
 - [ ] **Step 3: 写最小实现**
 
-创建 `web/src/components/tasks/PendingPromptCard.tsx`：
+先写 `web/src/components/tasks/pendingPromptAnswers.ts`（点击语义的纯函数，见上「修正 3」）。下面是它的**最终**内容，与仓库里的文件逐字节一致：
+
+```ts
+import type { Question } from '../chat/types/types';
+
+/**
+ * 提问卡片的「点一下之后」全部语义。纯函数，无 React 依赖。
+ *
+ * 为什么要搬出组件：本仓库的 web 测试是 `node:test` + `renderToStaticMarkup`
+ * （无 DOM、不能模拟点击）。点击语义若留在组件的 `onClick` 闭包里，**任何**
+ * 改法都测不到 —— 包括把「单选替换」误写成「切换」、把「多选等确认」误写成
+ * 「一击即发」、把「答满全部题目才提交」整个删掉。这三种错法在静态标记上都
+ * 看不出来（按钮还在、文案还在），但它们会改变**发给模型的答案**。所以这里
+ * 把「点一下会发生什么」整体收进可测的纯函数，组件只剩接线。
+ *
+ * 形状对齐聊天页 `AskUserQuestionPanel`：那边每问题一个 `Set<string>`，单选
+ * `clear()` 后 `add()`，多选 `has ? delete : add`；迭代序即插入序；提交时
+ * `Array.from(set).join(', ')` 塞进 `answers[question]`。这里的函数就是那条
+ * 链路的等价物。
+ */
+
+/** 选择状态：题目原文 → 已选 label（保点击顺序）。 */
+export type PickedState = Record<string, string[]>;
+
+function pickLabels(question: Question, picked: PickedState): string[] {
+  return picked[question.question] ?? [];
+}
+
+/**
+ * 点一个选项后的新选择集，返回新数组。
+ *
+ * 多选 → 切换（已在里面就移除，否则追加）。
+ * 单选 → **替换**成只含这一个。这是这张卡片的语义核心：单选点第二下是
+ * 「改主意」，多选点第二下是「加一个」。单选若误走切换，界面照样高亮，
+ * 但发出去的答案会多出一项 —— 模型拿到用户并没想要的组合。
+ *
+ * 模式判据是严格 `=== true`：模型传下来的 input 不受本仓库类型约束，
+ * 一个真值（`1`、`'true'`）不该把单选的答案形状带偏。
+ *
+ * **不排序**：聊天页的 `Set` 按插入序迭代，先点「工具栏」再点「弹窗」，
+ * 发出去的就必须是「工具栏, 弹窗」。排序看着整齐，但那是替用户重排他的
+ * 选择 —— 多选问答里顺序本身可能带倾向性（先选的往往是首选）。
+ */
+export function applyPick(picks: readonly string[], label: string, question: Question): string[] {
+  if (question.multiSelect !== true) {
+    return [label];
+  }
+  return picks.includes(label) ? picks.filter((pick) => pick !== label) : [...picks, label];
+}
+
+/**
+ * 点某一题的某个选项的**完整结果**：新状态，以及「现在该不该提交」。
+ *
+ * `submit` 的判据有两条，缺一不可：
+ *  - 这一题是单选 —— 单选用聊天页的手感「最后一题选完即发」；多选必须等用户
+ *    按确认按钮，否则多选就退化成单选的一击即发（用户本可以再点几个）。
+ *  - 全部题目都已有选择 —— 提前提交会让后端拿到一份缺项的答案，模型的提问
+ *    就等于被吞了。
+ */
+export function nextSelection(
+  picked: PickedState,
+  questions: readonly Question[],
+  questionIndex: number,
+  label: string,
+): { picked: PickedState; submit: boolean } {
+  const question = questions[questionIndex];
+  if (!question) {
+    return { picked, submit: false };
+  }
+
+  const next: PickedState = {
+    ...picked,
+    [question.question]: applyPick(pickLabels(question, picked), label, question),
+  };
+
+  const allAnswered = questions.every((item) => (next[item.question] ?? []).length > 0);
+  return { picked: next, submit: allAnswered && question.multiSelect !== true };
+}
+
+/**
+ * 状态 → 提交给后端的 `answers`：题目原文 → 答案串。
+ *
+ * 连接符必须是 `', '`，与聊天页的 `join(', ')` 逐字一致 —— 模型读的是这个串。
+ * 单选是它的退化情形（单元素数组），两条路共用同一个形状，避免单选/多选发出
+ * 去的答案在结构上分叉。
+ *
+ * **没有作答的题目不写进结果**：`answers` 里缺一个 key 与被写进空串不是一回事。
+ * 混合卡（A 单选未答 + B 多选）里 B 的「提交选择」是静态可点的，如果这里把 A
+ * 写成 `''`，「答满全部题目才提交」那条原则就只守住了单选的路 —— 先答多选、
+ * 后答单选时仍会发出一份缺项的答案。
+ */
+export function formatAnswers(picked: PickedState, questions: readonly Question[]): Record<string, string> {
+  const answers: Record<string, string> = {};
+  for (const question of questions) {
+    const labels = pickLabels(question, picked);
+    if (labels.length > 0) {
+      answers[question.question] = labels.join(', ');
+    }
+  }
+  return answers;
+}
+```
+
+再写 `web/src/components/tasks/PendingPromptCard.tsx`（只负责接线）：
 
 ```tsx
-import { useMemo, useState } from 'react';
+import { useState, type ReactNode } from 'react';
 
-import type { PendingPermissionRequest } from '../chat/types/types';
-import type { Question } from '../chat/types/types';
-import { formatCountdown, isInteractiveTool, remainingSeconds } from './panelPermission';
+import type { PendingPermissionRequest, Question } from '../chat/types/types';
+import {
+  buildClaudeToolPermissionEntry,
+  formatToolInputForDisplay,
+} from '../chat/utils/chatPermissions';
+
+import { formatCountdown, remainingSeconds } from './panelPermission';
+import { formatAnswers, nextSelection, type PickedState } from './pendingPromptAnswers';
 import type { PendingDecision } from './useSessionPendingRequests';
 
 export interface PendingPromptCardProps {
@@ -1513,20 +1709,26 @@ export interface PendingPromptCardProps {
   onRespond: (requestId: string, decision: PendingDecision) => void;
 }
 
+/** 交互类工具在 claude 通道下没有超时 —— 判据在 panelPermission，别在此另判。 */
+const PLAN_TOOL_NAMES = new Set(['ExitPlanMode', 'exit_plan_mode']);
+
 const cardShell = 'flex flex-col gap-2.5 rounded-lg border border-info/40 bg-info/5 p-3';
 
-function Badge({ tone, children }: { tone: 'question' | 'plan' | 'approval'; children: React.ReactNode }) {
-  const cls = tone === 'question'
-    ? 'bg-warning text-warning-foreground'
-    : tone === 'plan'
+function Badge({ tone, children }: { tone: 'question' | 'plan' | 'approval'; children: ReactNode }) {
+  const cls =
+    tone === 'plan'
       ? 'bg-info text-info-foreground'
       : 'bg-warning text-warning-foreground';
-  return (
-    <span className={`rounded-full px-2 py-0.5 text-3xs font-semibold ${cls}`}>{children}</span>
-  );
+  return <span className={`rounded-full px-2 py-0.5 text-3xs font-semibold ${cls}`}>{children}</span>;
 }
 
-/** 超时提示：会超时的显示倒计时（临近时转红），不会超时的显示「不会超时」。 */
+/**
+ * 超时提示。
+ *
+ * 只在这里出现「自动拒绝」四个字：交互类工具（AskUserQuestion / ExitPlanMode）
+ * 与缺 `receivedAt` 的请求都拿不到剩余秒数，此时说一句「不会超时」比编一个
+ * 倒计时诚实 —— 倒计时是「再不管就要失败」的告警，报错了比不报更坏。
+ */
 function TimeoutHint({ request, nowMs, timeoutMs }: { request: PendingPermissionRequest; nowMs: number; timeoutMs: number }) {
   const seconds = remainingSeconds(request, nowMs, timeoutMs);
 
@@ -1548,6 +1750,30 @@ function TimeoutHint({ request, nowMs, timeoutMs }: { request: PendingPermission
   );
 }
 
+/**
+ * AskUserQuestion：逐题列选项。
+ *
+ * 答案形状 `Record<questionText, answer>` 与聊天页的 `AskUserQuestionPanel` 一致：
+ * 多选把 label 用 `', '` 拼成一串，单选就是 label 本身（`formatAnswers`）。
+ * 两种模式都**答满全部题目才提交** —— 提前提交会让后端拿到一份缺项的答案，模型
+ * 的提问就等于被吞了。
+ *
+ * 交互差异照着聊天页抄：单选点一下即选中并提交（若其余题目也已答完）；多选点一下
+ * 是**切换**（再点取消），必须按「提交选择」才发出去。会给模型一个多选问题时，用户
+ * 的意图就是「可以选好几个」—— 单选式的一击即发会让模型拿到一个偏窄的答案，
+ * 而界面上没有任何东西提示他本可以多选。所以这里不复用单选的路径。
+ *
+ * 这些点击语义**全部**在 `pendingPromptAnswers.ts` 里（有 node:test 覆盖）——
+ * 本文件只负责接线：本仓库的 web 测试没有 DOM、不能模拟点击，逻辑留在这个
+ * `onClick` 闭包里就等于没有任何测试碰得到它。
+ *
+ * 刻意**不**移植聊天页的键盘层（1-9 选号、0 = Other、Enter = 前进/提交、
+ * Esc = 跳过）与 Back/Next 分步器：任务面板是鼠标优先、且还没有焦点模型，
+ * 抄一套半吊子的键盘处理只会制造「有的键有效有的键没效」的错觉。
+ *
+ * 「Other」自由输入也不做：它需要一个受控 input + 焦点管理，超出本卡片的
+ * 范围；聊天页那边仍然由 AskUserQuestionPanel 提供。
+ */
 function AskUserQuestionBody({
   request,
   onRespond,
@@ -1557,64 +1783,101 @@ function AskUserQuestionBody({
 }) {
   const input = request.input as { questions?: Question[] } | undefined;
   const questions = Array.isArray(input?.questions) ? input.questions : [];
-  const [picked, setPicked] = useState<Record<string, string>>({});
+  /** 选择状态。题型差异与「该不该提交」的判断全在 pendingPromptAnswers（有测试）。 */
+  const [picked, setPicked] = useState<PickedState>({});
 
   if (questions.length === 0) {
-    return null;
+    return (
+      <p className="text-2xs text-muted-foreground">
+        这条提问没有可选项，可以直接在下方输入回复。
+      </p>
+    );
   }
 
-  const answer = (questionText: string, label: string) => {
-    const next = { ...picked, [questionText]: label };
-    setPicked(next);
+  const respondWith = (state: PickedState) => {
+    onRespond(request.requestId, {
+      allow: true,
+      updatedInput: { ...(input ?? {}), answers: formatAnswers(state, questions) },
+    });
+  };
 
-    // 单问题直接提交；多问题要全部答完才提交（与聊天页 AskUserQuestionPanel 的
-    // 「最后一次选择即发送」语义对齐，这里简化为顺序作答）。
-    if (Object.keys(next).length >= questions.length) {
-      const answers: Record<string, string> = {};
-      for (const question of questions) {
-        const value = next[question.question];
-        if (value) {
-          answers[question.question] = value;
-        }
-      }
-      onRespond(request.requestId, { allow: true, updatedInput: { ...(input ?? {}), answers } });
+  const pick = (questionIndex: number, label: string) => {
+    const result = nextSelection(picked, questions, questionIndex, label);
+    setPicked(result.picked);
+    if (!result.submit) {
+      return;
     }
+    respondWith(result.picked);
   };
 
   return (
     <>
-      {questions.map((question) => (
-        <div key={question.question}>
-          <div className="text-xs font-semibold text-foreground">{question.question}</div>
-          <div className="mt-1.5 flex flex-col gap-1">
-            {question.options.map((option) => {
-              const selected = picked[question.question] === option.label;
-              return (
+      {questions.map((question, questionIndex) => {
+        const current = picked[question.question] ?? [];
+        const multi = question.multiSelect === true;
+        const ready = current.length > 0;
+        return (
+          <div key={question.question}>
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-xs font-semibold text-foreground">{question.question}</span>
+              {multi ? <span className="text-3xs text-muted-foreground">可多选</span> : null}
+            </div>
+            <div
+              className="mt-1.5 flex flex-col gap-1"
+              role={multi ? 'group' : 'radiogroup'}
+              aria-label={question.question}
+            >
+              {question.options.map((option) => {
+                const selected = current.includes(option.label);
+                return (
+                  <button
+                    key={option.label}
+                    type="button"
+                    aria-pressed={selected}
+                    onClick={() => pick(questionIndex, option.label)}
+                    className={`flex items-start gap-2 rounded-md border px-2.5 py-1.5 text-left transition-colors ${
+                      selected ? 'border-primary bg-primary/10' : 'border-border bg-card hover:border-primary'
+                    }`}
+                  >
+                    <span
+                      className={`mt-0.5 text-3xs ${selected ? 'text-primary' : 'text-muted-foreground'}`}
+                      aria-hidden="true"
+                    >
+                      {multi ? (selected ? '☑' : '☐') : '●'}
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block text-xs font-medium text-foreground">{option.label}</span>
+                      {option.description ? (
+                        <span className="mt-0.5 block text-2xs text-muted-foreground">{option.description}</span>
+                      ) : null}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            {multi ? (
+              <div className="mt-1.5 flex items-center gap-2">
                 <button
-                  key={option.label}
                   type="button"
-                  onClick={() => answer(question.question, option.label)}
-                  className={`flex items-start gap-2 rounded-md border px-2.5 py-1.5 text-left ${
-                    selected ? 'border-primary bg-primary/10' : 'border-border bg-card hover:border-primary'
-                  }`}
+                  disabled={!ready}
+                  onClick={() => respondWith(picked)}
+                  className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  <span className="text-2xs font-semibold text-muted-foreground">●</span>
-                  <span>
-                    <span className="block text-xs font-medium text-foreground">{option.label}</span>
-                    {option.description ? (
-                      <span className="mt-0.5 block text-2xs text-muted-foreground">{option.description}</span>
-                    ) : null}
-                  </span>
+                  提交选择
                 </button>
-              );
-            })}
+                <span className="text-3xs text-muted-foreground">
+                  已选 {current.length} 项 · 再点一下取消
+                </span>
+              </div>
+            ) : null}
           </div>
-        </div>
-      ))}
+        );
+      })}
     </>
   );
 }
 
+/** ExitPlanMode：计划原文 + 两个动作。文案与聊天页 `PlanDisplay` 逐字一致。 */
 function PlanBody({
   request,
   onRespond,
@@ -1627,21 +1890,23 @@ function PlanBody({
 
   return (
     <>
-      <div className="max-h-40 overflow-hidden rounded-md border border-border bg-card p-2.5 text-2xs leading-relaxed text-card-foreground whitespace-pre-wrap">
+      <div className="max-h-40 overflow-hidden whitespace-pre-wrap rounded-md border border-border bg-card p-2.5 text-2xs leading-relaxed text-card-foreground">
         {plan}
       </div>
       <div className="flex items-center gap-2">
         <button
           type="button"
-          onClick={() => onRespond(request.requestId, { allow: false, message: 'User asked to revise the plan' })}
-          className="rounded-md border border-border bg-card px-3 py-1 text-xs font-medium text-foreground"
+          onClick={() =>
+            onRespond(request.requestId, { allow: false, message: 'User asked to revise the plan' })
+          }
+          className="rounded-md border border-border bg-card px-3 py-1 text-xs font-medium text-foreground transition-colors hover:bg-muted"
         >
           ↺ 让它改
         </button>
         <button
           type="button"
           onClick={() => onRespond(request.requestId, { allow: true })}
-          className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground"
+          className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground transition-opacity hover:opacity-90"
         >
           ✓ 开始执行
         </button>
@@ -1650,6 +1915,15 @@ function PlanBody({
   );
 }
 
+/**
+ * 通用工具授权。
+ *
+ * `rememberEntry` 不自己拼格式：用聊天页同一个
+ * `buildClaudeToolPermissionEntry`，否则「总是允许」写进 `allowedTools` 的规则
+ * 与聊天页写的不是同一条，用户的许可会在两处表现不一致。它只对 `Bash` 产出具
+ * 体规则（`Bash(git commit:*)`），别的工具返回裸工具名（配合发送侧现有的
+ * 行为一致），因此这里仅当它返回非空时启用按钮。
+ */
 function ToolApprovalBody({
   request,
   onRespond,
@@ -1658,43 +1932,56 @@ function ToolApprovalBody({
   onRespond: PendingPromptCardProps['onRespond'];
 }) {
   const input = request.input as { command?: string } | undefined;
-  const command = typeof input?.command === 'string' ? input.command : JSON.stringify(request.input ?? {}, null, 2);
-  const rememberEntry = request.toolName === 'Bash' ? `Bash(${command})` : null;
+  // command 是字符串就显示原文；否则回退到 JSON —— formatToolInputForDisplay 内
+  // 部已 try/catch，循环引用不会让渲染炸掉。
+  const commandText =
+    typeof input?.command === 'string' ? input.command : formatToolInputForDisplay(request.input);
+  const rememberEntry = buildClaudeToolPermissionEntry(
+    request.toolName,
+    formatToolInputForDisplay(request.input),
+  );
 
   return (
     <>
       <div className="rounded-md border border-border bg-card p-2.5">
         <div className="text-xs font-semibold text-foreground">{request.toolName}</div>
         <pre className="mt-1.5 overflow-x-auto rounded bg-muted px-2 py-1.5 font-mono text-2xs text-card-foreground">
-          {command}
+          {commandText}
         </pre>
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <button
           type="button"
-          onClick={() => onRespond(request.requestId, { allow: false, message: 'User denied tool use' })}
-          className="rounded-md border border-border bg-card px-3 py-1 text-xs font-medium text-destructive"
+          onClick={() =>
+            onRespond(request.requestId, { allow: false, message: 'User denied tool use' })
+          }
+          className="rounded-md border border-border bg-card px-3 py-1 text-xs font-medium text-destructive transition-colors hover:bg-muted"
         >
           ✕ 拒绝
         </button>
         <button
           type="button"
           onClick={() => onRespond(request.requestId, { allow: true })}
-          className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground"
+          className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground transition-opacity hover:opacity-90"
         >
           ✓ 允许一次
         </button>
         <button
           type="button"
           disabled={!rememberEntry}
-          onClick={() => rememberEntry && onRespond(request.requestId, { allow: true, rememberEntry })}
-          className="rounded-md bg-secondary px-3 py-1 text-xs font-medium text-secondary-foreground disabled:opacity-40"
+          onClick={() => {
+            if (rememberEntry) {
+              onRespond(request.requestId, { allow: true, rememberEntry });
+            }
+          }}
+          className="rounded-md bg-secondary px-3 py-1 text-xs font-medium text-secondary-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
         >
           ✓ 总是允许
         </button>
       </div>
       <div className="text-3xs text-muted-foreground">
-        「总是允许」把它加进 <code className="rounded bg-muted px-1">allowedTools</code>，<strong className="font-semibold">仅本次会话有效</strong>，后续同类不再问
+        「总是允许」把它加进 <code className="rounded bg-muted px-1">allowedTools</code>，
+        <strong className="font-semibold">仅本次会话有效</strong>，后续同类不再问。
       </div>
     </>
   );
@@ -1703,21 +1990,14 @@ function ToolApprovalBody({
 /**
  * 单条待办。按 toolName 分派到三种形态。
  *
- * 为什么不用聊天页的 `AskUserQuestionPanel` / `PlanDisplay`：
- * 前者可以（props 驱动），后者不行 —— 它从 `PermissionContext` 取待办，
- * 而那个 Provider 只存在于 ChatInterface 内部。为了两条路行为一致、
- * 且让倒计时/队列这些新信息有地方放，这里统一自绘。
+ * 为什么不用聊天页的 `AskUserQuestionPanel` / `PlanDisplay`：前者可以（纯 props
+ * 驱动），后者不行 —— 它从 `PermissionContext` 取待办，而那个 Provider 只存在于
+ * `ChatInterface` 内部，本面板在任务详情里，不在其组件树下。为了让两条路的行为
+ * 一致、且给倒计时这类新信息一个落脚点，这里统一自绘。
  */
 export function PendingPromptCard({ request, nowMs, timeoutMs, onRespond }: PendingPromptCardProps) {
-  const tone = useMemo(() => {
-    if (request.toolName === 'AskUserQuestion') return 'question' as const;
-    if (request.toolName === 'ExitPlanMode' || request.toolName === 'exit_plan_mode') return 'plan' as const;
-    return 'approval' as const;
-  }, [request.toolName]);
-
-  const isPlan = tone === 'plan';
-  const isQuestion = tone === 'question';
-  const interactive = isInteractiveTool(request.toolName);
+  const isQuestion = request.toolName === 'AskUserQuestion';
+  const isPlan = PLAN_TOOL_NAMES.has(request.toolName);
 
   const title = isQuestion
     ? '它在等你回答'
@@ -1728,18 +2008,16 @@ export function PendingPromptCard({ request, nowMs, timeoutMs, onRespond }: Pend
   return (
     <div className={cardShell}>
       <div className="flex flex-wrap items-center gap-2">
-        <Badge tone={tone}>{isQuestion ? '需要选择' : isPlan ? '计划待批准' : '需要授权'}</Badge>
+        <Badge tone={isQuestion ? 'question' : isPlan ? 'plan' : 'approval'}>
+          {isQuestion ? '需要选择' : isPlan ? '计划待批准' : '需要授权'}
+        </Badge>
         <span className="text-xs font-semibold text-foreground">{title}</span>
         <TimeoutHint request={request} nowMs={nowMs} timeoutMs={timeoutMs} />
       </div>
 
       {isQuestion ? <AskUserQuestionBody request={request} onRespond={onRespond} /> : null}
       {isPlan ? <PlanBody request={request} onRespond={onRespond} /> : null}
-      {!isQuestion && !isPlan ? <ToolApprovalBody request={request} onRespond={onRespond} /> : null}
-
-      {interactive ? (
-        <div className="text-3xs text-muted-foreground">点选项即发送 · 也可以直接在下方输入一段回复</div>
-      ) : null}
+      {isQuestion || isPlan ? null : <ToolApprovalBody request={request} onRespond={onRespond} />}
     </div>
   );
 }
@@ -1747,27 +2025,170 @@ export function PendingPromptCard({ request, nowMs, timeoutMs, onRespond }: Pend
 export default PendingPromptCard;
 ```
 
-- [ ] **Step 4: 跑测试确认通过**
+- [ ] **Step 4: 写第二个测试文件**
 
-Run: `cd /mnt/b/workdir/github/lovdex/web && unset TSX_TSCONFIG_PATH && npx tsx --test src/components/tasks/PendingPromptCard.test.tsx`
-Expected: PASS —— `# pass 7`、`# fail 0`
+创建 `web/src/components/tasks/pendingPromptAnswers.test.ts`：
 
-若 `bg-info/5`、`text-3xs`、`bg-warning` 等类名不存在，读 `web/tailwind.config.js` 与 `web/src/index.css` 对齐实际 token；断言只写在文案上，配色改类名不影响测试。
+```ts
+import test from 'node:test';
+import assert from 'node:assert/strict';
 
-- [ ] **Step 5: typecheck**
+import type { Question } from '../chat/types/types';
+
+import { applyPick, formatAnswers, nextSelection } from './pendingPromptAnswers';
+
+/** 只关心模式的题目替身：这些用例测的是模式分派，不是题面文案。 */
+const singleQ = { question: '它', options: [{ label: '甲' }] };
+const singleFalseQ = { question: '它', options: [{ label: '甲' }], multiSelect: false };
+const multiQ = { question: '它', multiSelect: true, options: [{ label: '甲' }, { label: '乙' }] };
+const secondQ = { question: '另一题', options: [{ label: '乙' }] };
+
+test('多选：新 label 追加到末尾，保留点击顺序', () => {
+  let picks: string[] = [];
+  picks = applyPick(picks, '弹窗', multiQ);
+  picks = applyPick(picks, '工具栏', multiQ);
+  assert.deepEqual(picks, ['弹窗', '工具栏']);
+});
+
+test('多选：再点同一个 label 会移除它', () => {
+  assert.deepEqual(applyPick(['弹窗', '工具栏'], '弹窗', multiQ), ['工具栏']);
+});
+
+test('多选：不改动别的 label 的顺序（聊天页是插入序，不是字典序）', () => {
+  assert.deepEqual(applyPick(['b', 'a'], 'c', multiQ), ['b', 'a', 'c']);
+});
+
+test('多选：重复点同一个 label 两次回到起点', () => {
+  assert.deepEqual(applyPick(applyPick([], '甲', multiQ), '甲', multiQ), []);
+});
+
+test('单选：点第二个 label 是替换而不是追加', () => {
+  // 这张卡片最容易写错的一处：单选若误走切换，界面照样高亮，但答案会多一项。
+  assert.deepEqual(applyPick(['甲'], '乙', singleQ), ['乙']);
+  assert.deepEqual(applyPick(['甲'], '乙', singleFalseQ), ['乙']);
+});
+
+test('单选：再点已选中的 label 仍是选中它，不会被取消到一个空集合', () => {
+  // 聊天页单选走 clear+add，点已选项的结果还是「选中它」；切换式实现会变成空。
+  assert.deepEqual(applyPick(['甲', '乙'], '甲', singleQ), ['甲']);
+});
+
+test('multiSelect 缺失或为 false 都走单选 —— 只有严格 true 才是多选', () => {
+  // 后端/模型传下来的 input 不受本仓库类型约束，`1`、`'true'` 都可能出现
+  // （下面两个 cast 就是故意的：它们在类型上不合法，在运行时却到得了这里）。
+  const malformed = [{ multiSelect: 1 }, { multiSelect: 'true' }] as unknown as Question[];
+  for (const question of [singleQ, singleFalseQ, ...malformed]) {
+    assert.deepEqual(
+      applyPick(['甲'], '乙', question as Question),
+      ['乙'],
+      JSON.stringify(question),
+    );
+  }
+});
+
+test('nextSelection：单选点一下即提交（且全部题目都答完时）', () => {
+  const questions = [singleQ];
+  const result = nextSelection({}, questions, 0, '甲');
+  assert.deepEqual(result.picked, { 它: ['甲'] });
+  assert.equal(result.submit, true);
+});
+
+test('nextSelection：单选点了但别的题还没答，不提交', () => {
+  const questions = [singleQ, { question: '另一题', options: [{ label: '丙' }] }];
+  const result = nextSelection({}, questions, 0, '甲');
+  assert.deepEqual(result.picked, { 它: ['甲'] });
+  assert.equal(result.submit, false);
+});
+
+test('nextSelection：多选点了**不**提交，必须等确认按钮', () => {
+  // 这是多选唯一的意义所在：点一下是「选上」，不是「答完」。
+  const result = nextSelection({}, [multiQ], 0, '甲');
+  assert.deepEqual(result.picked, { 它: ['甲'] });
+  assert.equal(result.submit, false);
+});
+
+test('nextSelection：多选已选中一项，再点取消回到空 —— 也不提交', () => {
+  const first = nextSelection({}, [multiQ], 0, '甲');
+  const second = nextSelection(first.picked, [multiQ], 0, '甲');
+  assert.deepEqual(second.picked, { 它: [] });
+  assert.equal(second.submit, false);
+});
+
+test('nextSelection：越界的题目下标不炸，原样返回且不提交', () => {
+  const result = nextSelection({}, [singleQ], 5, '甲');
+  assert.deepEqual(result.picked, {});
+  assert.equal(result.submit, false);
+});
+
+test('formatAnswers：用「逗号 + 空格」连接，与聊天页 join(", ") 逐字一致', () => {
+  assert.deepEqual(formatAnswers({ 它: ['弹窗', '工具栏'] }, [multiQ]), { 它: '弹窗, 工具栏' });
+  assert.deepEqual(formatAnswers({ 它: ['只有一个'] }, [multiQ]), { 它: '只有一个' });
+  assert.deepEqual(formatAnswers({}, [multiQ]), {});
+});
+
+test('formatAnswers：没作答的题目不写进结果（不是写成空串）', () => {
+  // 混合卡里多选的「提交选择」是静态可点的：此时别的题可能还没作答。若这里
+  // 把未答的题写成 ''，后端会拿到一份看着「答过了」的缺项答案。
+  const questions = [singleQ, secondQ];
+  assert.deepEqual(formatAnswers({ 它: ['甲'] }, questions), { 它: '甲' });
+  const both = { 它: ['甲'], 另一题: ['乙'] };
+  assert.deepEqual(formatAnswers(both, questions), { 它: '甲', 另一题: '乙' });
+});
+
+test('formatAnswers：单选与多选共用同一形状（单选是单元素退化情形）', () => {
+  // 钉住前提：哪天有人把单选特化成别的形状（例如包一层数组字面量），两种模式
+  // 发出去的答案就分叉了，而聊天页与后端只认这一种。
+  assert.deepEqual(formatAnswers({ 它: ['甲'] }, [singleQ]), { 它: '甲' });
+  assert.deepEqual(
+    formatAnswers(nextSelection({}, [singleQ], 0, '甲').picked, [singleQ]),
+    { 它: '甲' },
+  );
+});
+```
+
+- [ ] **Step 5: 跑测试确认通过**
+
+Run: `cd /mnt/b/workdir/github/lovdex/web && unset TSX_TSCONFIG_PATH && npx tsx --test src/components/tasks/PendingPromptCard.test.tsx src/components/tasks/pendingPromptAnswers.test.ts`
+Expected: PASS —— `# pass 24`、`# fail 0`
+
+- [ ] **Step 6: 变异核对（这类断言到底抓得住什么）**
+
+逐条改坏、确认有测试变红，再改回（本仓库没有 mutation runner，手工做）：
+
+| 改法 | 预期变红的用例 |
+| --- | --- |
+| 倒计时改回渲染裸数字（`formatCountdown(seconds)` → `{seconds}`） | 普通工具的两条 |
+| 无超时分支编一个倒计时 | 全部「不会超时」用例 |
+| `multiSelect` 恒为 false（卡片不再渲染确认按钮与方框） | 多选的两条 |
+| 单/多选标记符互换 | 多选那条 + 单选那条 |
+| `applyPick` 去掉 `if (multiSelect !== true)`（单选也走切换） | 单选的三条 |
+| 单选也允许点一下取消（`[label]` → 切换） | 「再点已选中的 label」 |
+| `question.multiSelect !== true` 写成 `!question.multiSelect`（宽松真值） | 「只有严格 true 才是多选」 |
+| `join(', ')` 写成 `join(',')` | 分隔符那条 |
+| `[...picks, label]` 加 `.sort()` | 保序的两条 |
+| `nextSelection` 去掉 `question.multiSelect !== true`（多选也一击即发） | 「多选点了不提交」 |
+| `nextSelection` 去掉 `allAnswered &&`（缺项也提交） | 「其它题还没答，不提交」 |
+| `nextSelection` 去掉越界守卫 | 越界那条（抛错） |
+| `formatAnswers` 把未作答写成 `''` | 「没作答的题目不写进结果」+ 分隔符那条 |
+
+**实测结果**（2026-09-28 手工跑，改坏 → 跑 → 改回 → 逐字节 diff 确认还原）：上表每一行都至少让一条用例变红，没有一行是「改坏了却全绿」。其中前三表面上的「卡片静态标记」格（倒计时 / 无超时 / 多选确认按钮 / 标记符）只证明**渲染**对，点击语义那几格才是真正守住答案形状的东西 —— 所以 `pendingPromptAnswers.ts` 的存在本身是这张表的前提：没有它，表里后八行改坏之后静态断言**全绿**。
+
+**这张表仍然测不到的**（静态渲染 + 纯函数的固有边界，不是遗漏）：`pick()` / `respondWith()` 的接线本身（把 `nextSelection` 的返回值丢掉、把 `questionIndex` 传成常量、按钮 `onClick` 接到空函数）。这三处的错法不改变渲染出的任何标记，也不经过纯函数 —— 只能靠 Task 13 的浏览器手测。评审时若要看这一层，读 `PendingPromptCard.tsx` 的 `pick` / `respondWith` 两个函数体（共约 12 行）比读测试更直接。
+
+`nextSelection` / `applyPick` / `formatAnswers` 这三组语义**没有静态标记**可断言，所以它们的守卫就是上面这张表 —— 六格覆盖（多选/单选 × 提交/不提交 × 缺项 × 越界）。
+
+- [ ] **Step 7: typecheck**
 
 Run: `cd /mnt/b/workdir/github/lovdex/web && npx tsc --noEmit -p tsconfig.json 2>&1 | tail -5`
 Expected: 零新增
 
-- [ ] **Step 6: 提交**
+- [ ] **Step 8: 提交**
 
 ```bash
-cd /mnt/b/workdir/github/lovdex
-git add web/src/components/tasks/PendingPromptCard.tsx web/src/components/tasks/PendingPromptCard.test.tsx
-git commit -m "feat(tasks): render pending approvals inline with their auto-deny countdown"
+git add web/src/components/tasks/PendingPromptCard.tsx web/src/components/tasks/PendingPromptCard.test.tsx \
+        web/src/components/tasks/pendingPromptAnswers.ts web/src/components/tasks/pendingPromptAnswers.test.ts
+git commit -m "feat(tasks): render a single pending approval as a dispatchable card"
 ```
-
----
 
 ## Task 5: 待办区（队列条 + 空态）
 

@@ -7,6 +7,7 @@ import {
 } from '../chat/utils/chatPermissions';
 
 import { formatCountdown, remainingSeconds } from './panelPermission';
+import { formatAnswers, nextSelection, type PickedState } from './pendingPromptAnswers';
 import type { PendingDecision } from './useSessionPendingRequests';
 
 export interface PendingPromptCardProps {
@@ -61,10 +62,26 @@ function TimeoutHint({ request, nowMs, timeoutMs }: { request: PendingPermission
 /**
  * AskUserQuestion：逐题列选项。
  *
- * 答案形状 `Record<questionText, label>` 与聊天页的 `AskUserQuestionPanel` 一致
- * （那边多选会把多个 label 用 `', '` 拼起来，这里只做单选，故直接是 label 本身）。
- * 多问题时按顺序作答，**答满全部题目才提交** —— 提前提交会让后端拿到一份缺项
- * 的答案，模型的提问就等于被吞了。
+ * 答案形状 `Record<questionText, answer>` 与聊天页的 `AskUserQuestionPanel` 一致：
+ * 多选把 label 用 `', '` 拼成一串，单选就是 label 本身（`formatAnswers`）。
+ * 两种模式都**答满全部题目才提交** —— 提前提交会让后端拿到一份缺项的答案，模型
+ * 的提问就等于被吞了。
+ *
+ * 交互差异照着聊天页抄：单选点一下即选中并提交（若其余题目也已答完）；多选点一下
+ * 是**切换**（再点取消），必须按「提交选择」才发出去。会给模型一个多选问题时，用户
+ * 的意图就是「可以选好几个」—— 单选式的一击即发会让模型拿到一个偏窄的答案，
+ * 而界面上没有任何东西提示他本可以多选。所以这里不复用单选的路径。
+ *
+ * 这些点击语义**全部**在 `pendingPromptAnswers.ts` 里（有 node:test 覆盖）——
+ * 本文件只负责接线：本仓库的 web 测试没有 DOM、不能模拟点击，逻辑留在这个
+ * `onClick` 闭包里就等于没有任何测试碰得到它。
+ *
+ * 刻意**不**移植聊天页的键盘层（1-9 选号、0 = Other、Enter = 前进/提交、
+ * Esc = 跳过）与 Back/Next 分步器：任务面板是鼠标优先、且还没有焦点模型，
+ * 抄一套半吊子的键盘处理只会制造「有的键有效有的键没效」的错觉。
+ *
+ * 「Other」自由输入也不做：它需要一个受控 input + 焦点管理，超出本卡片的
+ * 范围；聊天页那边仍然由 AskUserQuestionPanel 提供。
  */
 function AskUserQuestionBody({
   request,
@@ -75,7 +92,8 @@ function AskUserQuestionBody({
 }) {
   const input = request.input as { questions?: Question[] } | undefined;
   const questions = Array.isArray(input?.questions) ? input.questions : [];
-  const [picked, setPicked] = useState<Record<string, string>>({});
+  /** 选择状态。题型差异与「该不该提交」的判断全在 pendingPromptAnswers（有测试）。 */
+  const [picked, setPicked] = useState<PickedState>({});
 
   if (questions.length === 0) {
     return (
@@ -85,57 +103,85 @@ function AskUserQuestionBody({
     );
   }
 
-  const answer = (questionText: string, label: string) => {
-    const next = { ...picked, [questionText]: label };
-    setPicked(next);
+  const respondWith = (state: PickedState) => {
+    onRespond(request.requestId, {
+      allow: true,
+      updatedInput: { ...(input ?? {}), answers: formatAnswers(state, questions) },
+    });
+  };
 
-    if (questions.every((question) => next[question.question])) {
-      const answers: Record<string, string> = {};
-      for (const question of questions) {
-        answers[question.question] = next[question.question];
-      }
-      onRespond(request.requestId, {
-        allow: true,
-        updatedInput: { ...(input ?? {}), answers },
-      });
+  const pick = (questionIndex: number, label: string) => {
+    const result = nextSelection(picked, questions, questionIndex, label);
+    setPicked(result.picked);
+    if (!result.submit) {
+      return;
     }
+    respondWith(result.picked);
   };
 
   return (
     <>
-      {questions.map((question) => (
-        <div key={question.question}>
-          <div className="text-xs font-semibold text-foreground">{question.question}</div>
-          <div className="mt-1.5 flex flex-col gap-1">
-            {question.options.map((option) => {
-              const selected = picked[question.question] === option.label;
-              return (
-                <button
-                  key={option.label}
-                  type="button"
-                  onClick={() => answer(question.question, option.label)}
-                  className={`flex items-start gap-2 rounded-md border px-2.5 py-1.5 text-left transition-colors ${
-                    selected ? 'border-primary bg-primary/10' : 'border-border bg-card hover:border-primary'
-                  }`}
-                >
-                  <span
-                    className={`mt-0.5 text-3xs ${selected ? 'text-primary' : 'text-muted-foreground'}`}
-                    aria-hidden="true"
+      {questions.map((question, questionIndex) => {
+        const current = picked[question.question] ?? [];
+        const multi = question.multiSelect === true;
+        const ready = current.length > 0;
+        return (
+          <div key={question.question}>
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-xs font-semibold text-foreground">{question.question}</span>
+              {multi ? <span className="text-3xs text-muted-foreground">可多选</span> : null}
+            </div>
+            <div
+              className="mt-1.5 flex flex-col gap-1"
+              role={multi ? 'group' : 'radiogroup'}
+              aria-label={question.question}
+            >
+              {question.options.map((option) => {
+                const selected = current.includes(option.label);
+                return (
+                  <button
+                    key={option.label}
+                    type="button"
+                    aria-pressed={selected}
+                    onClick={() => pick(questionIndex, option.label)}
+                    className={`flex items-start gap-2 rounded-md border px-2.5 py-1.5 text-left transition-colors ${
+                      selected ? 'border-primary bg-primary/10' : 'border-border bg-card hover:border-primary'
+                    }`}
                   >
-                    ●
-                  </span>
-                  <span className="min-w-0">
-                    <span className="block text-xs font-medium text-foreground">{option.label}</span>
-                    {option.description ? (
-                      <span className="mt-0.5 block text-2xs text-muted-foreground">{option.description}</span>
-                    ) : null}
-                  </span>
+                    <span
+                      className={`mt-0.5 text-3xs ${selected ? 'text-primary' : 'text-muted-foreground'}`}
+                      aria-hidden="true"
+                    >
+                      {multi ? (selected ? '☑' : '☐') : '●'}
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block text-xs font-medium text-foreground">{option.label}</span>
+                      {option.description ? (
+                        <span className="mt-0.5 block text-2xs text-muted-foreground">{option.description}</span>
+                      ) : null}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            {multi ? (
+              <div className="mt-1.5 flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={!ready}
+                  onClick={() => respondWith(picked)}
+                  className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  提交选择
                 </button>
-              );
-            })}
+                <span className="text-3xs text-muted-foreground">
+                  已选 {current.length} 项 · 再点一下取消
+                </span>
+              </div>
+            ) : null}
           </div>
-        </div>
-      ))}
+        );
+      })}
     </>
   );
 }
