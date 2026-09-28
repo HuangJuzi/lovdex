@@ -227,3 +227,23 @@ export function buildQuickReplyInput(current: string, content: string): string
 - **内联编辑态与「点外部关闭」冲突**：编辑 textarea 时点浮层内其他区域不应关闭浮层。关闭判断限定为「浮层 ref 之外」，编辑态不额外处理（textarea 在浮层内，天然被排除）。
 - **游标操作依赖 DOM**：`setInput` 后移光标需要等 React 提交，用 `requestAnimationFrame` 或 `useEffect` 在 `input` 变化后置位。web 测试无 DOM，这条不做自动测试，靠人工验收。
 - `last_used_at` 的写入是「用即打点」的旁路，若请求失败顺序会短暂不准，下次 GET 纠正。可接受。
+- **同一秒内的 MRU 排序会退化**（2026-09-28 终审实测确认，经用户决定不修、只记录）。`last_used_at` / `created_at` 都是 `CURRENT_TIMESTAMP`（秒精度，全库惯例），并列时排序退化为 `created_at DESC`，再并列则退化为扫描序：
+  - 同一秒内先点 C 再点 A（两次 `touch`）：两行 `last_used_at` 相同，实际顺序是 `C, A, B`，而 MRU 承诺应是 `A, C, B` —— **最后点的不在最前**。
+  - 同一秒内连续 `create` 三条：`created_at` 相同，`list()` 返回插入正序 `A, B, C` —— **最新的排在最后**，与 `created_at DESC` 的意图相反。
+  - 影响：手测清单「刚点过的那条排最前」「连建两条」在同一秒内会看到非预期顺序。不丢数据、不崩，跨秒后自愈。
+  - 将来若要修，两个方向：把两列写入改成 `strftime('%Y-%m-%d %H:%M:%f','now')` 拿毫秒精度（改动集中在仓储层 3 处 SQL）；或在 `ORDER BY` 末尾补 `rowid DESC` 做 tie-break（只能解决「后建/后改的在前」，两次 `touch` 同秒仍分不出先后）。
+
+## 9. 实施记录（2026-09-28）
+
+按 `docs/superpowers/plans/2026-09-28-quick-replies.md` 执行完毕，12 个提交（`010b622`..`e5649be` 区间内的 quick-replies 相关提交）。实施中相对本 spec 的偏离与修正：
+
+1. **接口返回 snake_case，不是本 spec §4 写的 camelCase。** 仓库同类小表 API（`notifications`、`scheduled-tasks`）都是直接透出行，前端 `inboxStore` 消费的就是 `notification_id`；跟惯例走省掉了整层映射。这是 spec 写错了，以实现为准。
+2. **`buildQuickReplyInput` 两端做 `trim()`。** 本 spec §5.5 的正文（「非空则 `current + ' ' + content`」）与 §6 的测试要求（「尾随空格 → 不产生双空格」）自相矛盾，以 §6 为准。
+3. **`update` 目标不存在时优先 404。** 初版实现把「重复内容检查」放在「id 存在性检查」之前，导致用一个已存在的正文去 PUT 一个不存在的 id 会误报 409。已修（`949b519`）。
+4. **编辑器行需要按「正在编辑哪一条」加 key。** 从一个条目的编辑态直接点另一条的「改」，React 会复用同位置的 `EditorRow`，而它的 textarea 值是组件内部 state（只由 `initialContent` 初始化一次），会留住上一条的文本。已修（`92a88a8`）。
+5. **新增态编辑行渲染在列表最前面**（与 §5.3 一致），行尾「改 / 删」按钮补了 `focus:opacity-100`（键盘可达）。已修（`e5649be`）。
+6. **`refresh()` 失败改为抛错，并加刷新代际计数。** 写成功但紧随的列表 GET 失败时，原先会静默关掉编辑框而列表仍是旧数据；同时 `markUsed` 的旁路刷新与写操作的刷新并发时，乱序返回的旧响应会短暂冲掉刚建的条目。已修（`651c2a5`）。
+
+## 10. 尚未验证的部分
+
+**端到端尚未在运行实例上验证。** 截至写下这段时：后端进程启动于实现之前，`curl http://127.0.0.1:3188/api/quick-replies` 返回 **404**（对照 `/api/scheduled-tasks` 的 401），生产库 `~/.lovdex/data/new-auth.db` 里也还没有 `quick_replies` 表。重启后端后应变为 401，并在浏览器过一遍计划 Task 9 的 14 条手工清单——重点：Escape 关浮层**不触发会话中断**、浮层与斜杠菜单互斥、窄屏 ⚡ 按钮可见、同秒排序按上面记录的预期表现。
