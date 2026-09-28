@@ -26,6 +26,8 @@ import { TaskInboxPanel } from './TaskInboxPanel';
 import { CreateTaskDialog } from './CreateTaskDialog';
 import { readCreatedTaskId } from './createdTaskHandoff';
 import { EMPTY_TASK_FILTER, filterTasks, isTaskFilterActive, manualTasksOf, normalizeTaskFilter } from './taskFilter';
+import { DEFAULT_TASK_VIEW_MODE, effectiveTaskViewMode } from './taskViewMode';
+import type { TaskViewMode } from './taskViewMode';
 
 export function TaskBoardPage() {
   const navigate = useNavigate();
@@ -34,7 +36,7 @@ export function TaskBoardPage() {
   const { tasks, loading, loadError, refresh, upsert, remove } = useTasks({}, subscribe);
   const [storedFilter, setFilter] = useLocalStorage<unknown>('taskFilter', EMPTY_TASK_FILTER);
   const filter = useMemo(() => normalizeTaskFilter(storedFilter), [storedFilter]);
-  const [viewMode, setViewMode] = useLocalStorage<'board' | 'table'>('taskViewMode', 'board');
+  const [viewMode, setViewMode] = useLocalStorage<TaskViewMode>('taskViewMode', DEFAULT_TASK_VIEW_MODE);
   // 筛选区折叠：两条筛选行（TaskFilterBar + 表格内的状态 pill 行）常驻时纵向占用过大，
   // 默认收起。由 header 的「筛选」按钮统一控制。
   const [filtersOpen, setFiltersOpen] = useLocalStorage<boolean>('taskFiltersOpen', false);
@@ -45,10 +47,10 @@ export function TaskBoardPage() {
     'taskTableStatusFilter',
     [...STATUS_ORDER],
   );
-  // 移动端强制看板：表格在手机上体验差，且「表格」按钮已隐藏（hidden sm:inline-flex）。
-  // 断点 640 与 Tailwind `sm:` 对齐。
+  // 移动端强制看板：表格在手机上体验差，且「表格」按钮整个不渲染（`hidden sm:flex`）。
+  // 断点 640 与 Tailwind `sm:` 对齐。桌面端则读偏好，默认见 DEFAULT_TASK_VIEW_MODE。
   const { isMobile } = useDeviceSettings({ mobileBreakpoint: 640 });
-  const effectiveView = isMobile ? 'board' : viewMode;
+  const effectiveView = effectiveTaskViewMode({ isMobile, stored: viewMode });
   // 看板视图不消费状态 pill（列固定渲染全部状态），此时一个非全选的状态 pill
   // 并没有筛掉任何东西，不该点亮圆点 —— 传「全部状态」进去把它排除掉。
   const effectiveStatusFilter = effectiveView === 'table' ? statusFilter : [...STATUS_ORDER];
