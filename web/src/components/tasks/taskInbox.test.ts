@@ -87,3 +87,36 @@ test('failed + overdue counts once, preferring the sub_status signal', () => {
   assert.equal(items.length, 1);
   assert.equal(items[0].signal, 'failed');
 });
+
+// —— 条目产生时刻：由后端 decorate 派生，前端只透传（映射规则不在此重复推导） ——
+
+test('carries attention_since through to the attention item', () => {
+  const [item] = attentionItems(
+    [mkTask({ task_id: 'x', status: 'in_progress', sub_status: 'failed', attention_since: '2026-09-16T11:48:00.000Z' })],
+    NOW,
+  );
+  assert.equal(item.since, '2026-09-16T11:48:00.000Z');
+});
+
+test('since is null when the backend could not derive a moment', () => {
+  // 审批行取不到等待起点时后端给 null；前端不得回退到别的字段编时间。
+  const [item] = attentionItems(
+    [mkTask({ task_id: 'x', status: 'in_progress', sub_status: 'waiting_approval', session_id: 's1' })],
+    NOW,
+  );
+  assert.equal(item.since, null);
+  const [older] = attentionItems(
+    [mkTask({ task_id: 'y', status: 'in_progress', sub_status: 'failed' })],
+    NOW,
+  );
+  assert.equal(older.since, null);
+});
+
+test('overdue items carry no since — a deadline date has no moment', () => {
+  const [item] = attentionItems(
+    [mkTask({ task_id: 'o1', status: 'todo', deadline: '2026-09-15', attention_since: '2026-09-16T11:48:00.000Z' })],
+    NOW,
+  );
+  assert.equal(item.signal, 'overdue');
+  assert.equal(item.since, null, '逾期用「已逾期 N 天」表达，不做成时刻');
+});

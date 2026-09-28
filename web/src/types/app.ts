@@ -154,6 +154,15 @@ export interface Task {
    */
   pending_tool?: string | null;
   /**
+   * Realtime-only (server-decorated, never persisted): when the attention
+   * signal on this row started, as a canonical ISO string — the task inbox
+   * renders it as "12 分钟前" with the exact time on hover. Backend-derived
+   * only: an approval wait takes it from the run registry, every other signal
+   * takes `updated_at`. Null means the moment is genuinely unknown — render
+   * nothing, never substitute another field.
+   */
+  attention_since?: string | null;
+  /**
    * Realtime-only (server-decorated, never persisted): true when the task's
    * session_id points at a sessions row that no longer exists (hard-deleted,
    * e.g. by the operator-workspace startup cleanup). The detail page renders a

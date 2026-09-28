@@ -13,6 +13,12 @@ export type AttentionItem = {
   label: string;
   tone: AttentionTone;
   action: AttentionAction;
+  /**
+   * 该条提醒「进入当前状态」的时刻（ISO 串）。后端 decorate 派生的
+   * `attention_since` 直接透传 —— 信号到时间戳的映射只在后端一处，前端不重复
+   * 推导（两处判据迟早漂移）。纯逾期条目恒为 null：deadline 是日期不是时刻。
+   */
+  since: string | null;
 };
 
 /** 需要用户介入的 sub_status → 配色族。动作在 attentionItems 里按会话状态细化。 */
@@ -45,7 +51,7 @@ export function attentionItems(tasks: Task[], now: Date): AttentionItem[] {
     const sub = task.sub_status;
     const tone = sub ? SUB_SIGNAL_TONE[sub] : undefined;
     if (sub && tone) {
-      items.push({ task, signal: sub, label: SUB_STATUS_META[sub].label, tone, action: actionFor(sub, task) });
+      items.push({ task, signal: sub, label: SUB_STATUS_META[sub].label, tone, action: actionFor(sub, task), since: task.attention_since ?? null });
       continue;
     }
     // 纯逾期：无子状态信号，但 deadline 已过且未完成/归档。
@@ -58,6 +64,7 @@ export function attentionItems(tasks: Task[], now: Date): AttentionItem[] {
           label: info.label,
           tone: 'late',
           action: task.status === 'todo' ? 'start' : canOpenSession(task) ? 'openSession' : 'openTask',
+          since: null,
         });
       }
     }
