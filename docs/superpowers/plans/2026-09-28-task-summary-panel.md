@@ -3238,29 +3238,37 @@ git commit -m "feat(tasks): add the summary panel reply box with quick replies"
 ```tsx
 import test from 'node:test';
 import assert from 'node:assert/strict';
+
 import { renderToStaticMarkup } from 'react-dom/server';
 
-import { TaskSummaryPanel } from './TaskSummaryPanel';
 import type { Task } from '../../types/app';
 
-const NOW = 1_700_000_000_000;
+import { TaskSummaryPanel } from './TaskSummaryPanel';
 
-const baseTask = (over: Partial<Task> = {}): Task => ({
-  task_id: 't1',
-  title: '修复导出 CSV 时表头错位',
-  description: '导出大于 1000 行时表头会重复出现',
-  status: 'in_progress',
-  sub_status: 'waiting_answer',
-  priority: 'P1',
-  project_id: 'p1',
-  session_id: 's1',
-  ai_summary: '已定位到 csv-export.ts:88 的分页边界判断，正在补测试。',
-  executor_provider: 'claude',
-  executor_model: 'claude-sonnet-4-6',
-  created_at: '2026-09-28T06:02:00.000Z',
-  updated_at: '2026-09-28T06:20:00.000Z',
-  ...over,
-} as Task);
+/**
+ * 「现在」刻意放在 updated_at 之后（而不是计划稿里的 1_700_000_000_000 ——
+ * 那是 2023 年，比夹具里的时间戳还早，相对时间会一律读成「刚刚」，夹具自相矛盾）。
+ */
+const NOW = Date.parse('2026-09-28T06:25:00.000Z');
+
+const baseTask = (over: Partial<Task> = {}): Task =>
+  ({
+    task_id: 't1',
+    title: '修复导出 CSV 时表头错位',
+    description: '导出大于 1000 行时表头会重复出现',
+    status: 'in_progress',
+    sub_status: 'waiting_answer',
+    priority: 'P1',
+    label: 'bug',
+    project_id: 'p1',
+    session_id: 's1',
+    ai_summary: '已定位到 csv-export.ts:88 的分页边界判断，正在补测试。',
+    executor_provider: 'claude',
+    executor_model: 'claude-sonnet-4-6',
+    created_at: '2026-09-28T06:02:00.000Z',
+    updated_at: '2026-09-28T06:20:00.000Z',
+    ...over,
+  }) as Task;
 
 const render = (over: Partial<Parameters<typeof TaskSummaryPanel>[0]> = {}): string =>
   renderToStaticMarkup(
@@ -3284,54 +3292,144 @@ const render = (over: Partial<Parameters<typeof TaskSummaryPanel>[0]> = {}): str
     />,
   );
 
-test('渲染标题、状态 chip 与完成度', () => {
+/**
+ * 取某个按钮的**开标签原文**。
+ *
+ * 为什么不能直接 `assert.doesNotMatch(html, /disabled/)`：Tailwind 的
+ * `disabled:opacity-40` 在**每次**渲染里都含这个子串，那种断言恒真（Task 6 已踩过）。
+ * 也不能对整段 html 找 `\bdisabled\b` —— 类名里的 `disabled:` 同样命中。
+ * 只有把范围收窄到这一个元素、并认 React 输出的布尔属性原文（`disabled=""`）
+ * 才分得出「禁用」与「没禁用」。
+ */
+function openTagOf(html: string, label: string): string {
+  const end = html.indexOf(`>${label}</button>`);
+  assert.ok(end >= 0, `未找到按钮「${label}」`);
+  return html.slice(html.lastIndexOf('<button', end), end + 1);
+}
+
+test('头部：标题与关闭按钮', () => {
   const html = render();
   assert.match(html, /修复导出 CSV 时表头错位/);
-  assert.match(html, /等待回答/);
-  assert.match(html, /P1/);
-  assert.match(html, /已定位到 csv-export\.ts:88/);
+  assert.match(html, /aria-label="关闭面板"/);
+});
+
+test('状态 chip 用 sub_status 的细标签，不是 status 的粗标签', () => {
+  const html = render();
+  // SUB_STATUS_META.waiting_answer 的 label 是「等你回答」。
+  assert.match(html, /等你回答/);
+  // 粗标签「进行中」（STATUS_META.in_progress）不该出现 —— 细标签可用时它必须让位。
+  assert.doesNotMatch(html, /进行中/);
+});
+
+test('sub_status 为空时回退到 status 的粗标签（todo / done 列的常态）', () => {
+  const html = render({ task: baseTask({ sub_status: null, status: 'todo' }) });
+  assert.match(html, /待办/);
+  // 计划稿的 `sub_status ?? 'running'` 会在这里写出「会话运行中」—— 一条待办任务。
+  assert.doesNotMatch(html, /会话运行中/);
+});
+
+test('优先级与标签 chip 用 META 的中文文案，不是枚举原文', () => {
+  const html = render();
+  assert.match(html, /P1 高/);
+  assert.match(html, /BUG/);
+  // 原始枚举值「bug」不该以独立 chip 形态出现（LABEL_META.bug.label 是「BUG」）。
+  assert.doesNotMatch(html, />bug</);
 });
 
 test('有待办时渲染待办区', () => {
   const html = render({
-    pendingRequests: [{
-      requestId: 'r1',
-      toolName: 'Bash',
-      receivedAt: new Date(NOW),
-      input: { command: 'git commit -m "fix"' },
-    }],
+    pendingRequests: [
+      {
+        requestId: 'r1',
+        toolName: 'Bash',
+        receivedAt: new Date(NOW),
+        input: { command: 'git commit -m "fix"' },
+      },
+    ],
   });
   assert.match(html, /git commit/);
+  assert.match(html, /需要授权/);
 });
 
 test('无待办时不渲染待办区（auto 模式 / 无人值守任务的常态）', () => {
   const html = render({ pendingRequests: [] });
   assert.doesNotMatch(html, /需要授权/);
   assert.doesNotMatch(html, /需要选择/);
-});
-
-test('底部两个动作都在：在会话里处理、任务详情', () => {
-  const html = render();
-  assert.match(html, /在会话里处理/);
-  assert.match(html, /任务详情/);
+  assert.doesNotMatch(html, /不会超时/);
 });
 
 test('无 ai_summary 时不渲染完成度区块', () => {
-  const html = render({ task: baseTask({ ai_summary: null }) });
-  assert.doesNotMatch(html, /完成度/);
+  assert.match(render(), /完成度/);
+  assert.doesNotMatch(render({ task: baseTask({ ai_summary: null }) }), /完成度/);
 });
 
-test('有结果文本时渲染最近结果并可展开', () => {
+test('有结果文本时渲染最近结果，默认折叠（因此显示「展开全部 ↓」）', () => {
   const html = render({ resultText: '修复了分页边界的 off-by-one，单测覆盖 1500 行场景。' });
   assert.match(html, /最近结果/);
   assert.match(html, /off-by-one/);
+  assert.match(html, /展开全部 ↓/);
 });
 
-test('会话被清理的任务：回复区禁用且提示不可回复', () => {
+test('无结果文本时不渲染最近结果', () => {
+  const html = render({ resultText: '' });
+  assert.doesNotMatch(html, /最近结果/);
+  assert.doesNotMatch(html, /展开全部/);
+});
+
+test('属性行：引擎带模型、创建与活动各自成行', () => {
+  const html = render();
+  assert.match(html, /引擎/);
+  assert.match(html, /claude · claude-sonnet-4-6/);
+  assert.match(html, /创建/);
+  assert.match(html, /活动/);
+  // updated_at 距 NOW 恰好 5 分钟 —— 绝对时差，与时区无关。
+  assert.match(html, /5 分钟前/);
+});
+
+test('底部两个动作都在', () => {
+  const html = render();
+  assert.match(html, /在会话里处理 →/);
+  assert.match(html, /任务详情 →/);
+});
+
+test('会话可用时，「在会话里处理」可点，回复区可输入', () => {
+  const html = render();
+  assert.ok(!openTagOf(html, '在会话里处理 →').includes('disabled=""'));
+  assert.match(html, /Enter 发送/);
+});
+
+test('会话被清理的任务：回复区禁用、提示不可回复，底部入口也禁用', () => {
+  // session_id 仍在、但指向被硬删的会话行（后端置 session_deleted）—— 与「没有
+  // session_id」对用户是同一种「会话没了」，两个入口都必须一起关掉。
+  const html = render({ task: baseTask({ session_deleted: true }) });
+  assert.match(html, /这个会话已被清理，无法再回复/);
+  assert.ok(openTagOf(html, '在会话里处理 →').includes('disabled=""'));
+  // 「任务详情 →」是唯一出口，任何情况下都不能被关掉。
+  assert.ok(!openTagOf(html, '任务详情 →').includes('disabled=""'));
+});
+
+test('无 session_id 的任务：回复区禁用，但「任务详情 →」仍可点', () => {
   const html = render({ task: baseTask({ session_id: null }) });
   assert.match(html, /这个会话已被清理，无法再回复/);
+  assert.ok(openTagOf(html, '在会话里处理 →').includes('disabled=""'));
+  assert.ok(!openTagOf(html, '任务详情 →').includes('disabled=""'));
 });
-```
+
+test('执行中：回复区说明消息会排队，但输入框仍可编辑', () => {
+  const html = render({ isProcessing: true });
+  assert.match(html, /排队发送/);
+  // 排队不等于禁止 —— 输入框必须还能敲（它没有 disabled=""）。
+  const areaEnd = html.indexOf('placeholder=');
+  const areaStart = html.lastIndexOf('<textarea', areaEnd);
+  assert.ok(!html.slice(areaStart, areaEnd).includes('disabled=""'));
+});
+
+test('常用语仅在会话可用时给到回复区', () => {
+  const quickReplies = [{ quick_reply_id: 'q1', content: '好的，继续' }];
+  assert.match(render({ quickReplies }), /好的，继续/);
+  // 会话被清理：给一个插不进去的片段比不给更糟，回复区自己会收起这一行。
+  assert.doesNotMatch(render({ quickReplies, task: baseTask({ session_id: null }) }), /好的，继续/);
+});```
 
 - [ ] **Step 2: 跑测试确认失败**
 
@@ -3343,22 +3441,23 @@ Expected: FAIL —— `Cannot find module './TaskSummaryPanel'`
 创建 `web/src/components/tasks/TaskSummaryPanel.tsx`：
 
 ```tsx
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 
 import type { Task } from '../../types/app';
 import type { PendingPermissionRequest } from '../chat/types/types';
-import { PendingPromptList } from './PendingPromptList';
-import { TaskPanelReplyBox } from './TaskPanelReplyBox';
-import type { QuickReplyItem } from './TaskPanelReplyBox';
-import type { PendingDecision } from './useSessionPendingRequests';
+
 import { replyState } from './panelReply';
-import { SUB_STATUS_META } from './taskStatus';
+import { PendingPromptList } from './PendingPromptList';
+import { LABEL_META, PRIORITY_META, STATUS_META, SUB_STATUS_META } from './taskStatus';
+import { TaskPanelReplyBox, type QuickReplyItem } from './TaskPanelReplyBox';
 import { formatAbsoluteTime, formatRelativeTime } from './taskTimestamp';
+import type { PendingDecision } from './useSessionPendingRequests';
 
 export interface TaskSummaryPanelProps {
   task: Task;
   isProcessing: boolean;
   pendingRequests: PendingPermissionRequest[];
+  /** 由父级注入的「现在」，统一面板内所有相对时间与倒计时的节拍，也让测试可钉。 */
   nowMs: number;
   timeoutMs: number;
   resultText: string;
@@ -3373,7 +3472,7 @@ export interface TaskSummaryPanelProps {
   onOpenDetail: () => void;
 }
 
-function Section({ label, children }: { label: string; children: React.ReactNode }) {
+function Section({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div>
       <div className="mb-1 text-4xs uppercase tracking-wider text-muted-foreground">{label}</div>
@@ -3383,14 +3482,39 @@ function Section({ label, children }: { label: string; children: React.ReactNode
 }
 
 /**
+ * chip 行里的一枚小胶囊。`style` 走 META 的配色（`PRIORITY_META.bg` /
+ * `LABEL_META.bg` 是 `hsl(var(--x) / 0.1)` 这种**合法**的 CSS 颜色值）。
+ *
+ * 状态 chip 例外：`SUB_STATUS_META.color` / `STATUS_META.color` 是
+ * `hsl(var(--warning))` —— 它**不能**直接塞进 `backgroundColor`，拼不出合法颜色。
+ * 所以状态 chip 只取 `color` 染字，底色留给 `className`（默认 `bg-muted`，
+ * 与 SubStatusBadge 同款）。
+ */
+function Chip({
+  children,
+  style,
+  className = 'bg-muted',
+}: {
+  children: ReactNode;
+  style?: React.CSSProperties;
+  className?: string;
+}) {
+  return (
+    <span className={`rounded-full px-2 py-0.5 text-2xs font-semibold ${className}`} style={style}>
+      {children}
+    </span>
+  );
+}
+
+/**
  * 任务缩略面板。
  *
- * 面板本身不取数 —— 所有数据由 TaskBoardPage 传入。这样做的原因有两个：
- * 一是可静态渲染测试（本仓库前端无 jsdom，组件测试只能断言 markup），
- * 二是面板要跟随列表的选中行切换，状态天然属于父级。
+ * 面板本身**不取数** —— 所有数据由 TaskBoardPage 传入。两个原因：一是可静态渲染
+ * 测试（本仓库前端无 jsdom，组件测试只能断言 markup）；二是面板要跟随列表的选中
+ * 行切换，「选中哪一条」天然属于父级，面板自己再存一份就会与列表打架。
  *
- * 「任务详情 →」是唯一跳转到全页详情的入口。在此之前，点列表行只会展开
- * 面板 —— 把「看一眼」和「进入」这两件事分开，是这次改造的全部目的。
+ * 「任务详情 →」是唯一跳转到全页详情的入口。在此之前，点列表行只会**展开面板**
+ * —— 把「看一眼」和「进入」这两件事分开，是这次改造的全部目的。
  */
 export function TaskSummaryPanel({
   task,
@@ -3416,16 +3540,33 @@ export function TaskSummaryPanel({
     [task, isProcessing, pendingRequests.length],
   );
 
-  const statusMeta = SUB_STATUS_META[task.sub_status ?? 'running'];
-  const statusLabel = statusMeta?.label ?? task.status;
-  const statusDot = statusMeta?.color ?? 'var(--muted-foreground)';
-  const hasSession = Boolean(task.session_id);
+  /**
+   * 头部状态点 / chip 的取值：细标签（sub_status）优先，没有才退回粗标签（status）。
+   *
+   * 计划稿写的是 `SUB_STATUS_META[task.sub_status ?? 'running']`，那在 `sub_status`
+   * 为 null 时会**凭空**报出「会话运行中」—— 而 null 恰恰是 todo / done 列的常态
+   * （后端只在有实时或持久细标签时才置值），一条待办任务会被显示成正在跑。回退到
+   * `STATUS_META[task.status]` 才是它真正的状态。
+   */
+  const subMeta = task.sub_status ? SUB_STATUS_META[task.sub_status] : undefined;
+  const statusLabel = subMeta?.label ?? STATUS_META[task.status].label;
+  const statusColor = subMeta?.color ?? STATUS_META[task.status].color;
+
+  /**
+   * 会话能不能用由 `panelReply.ts` 的 `hasOpenableSession` 独家判定（同时覆盖
+   * 「没有 session_id」与「session_id 指向被硬删的会话行」两种形态）。这里只把它
+   * 的结果取出来给底部按钮复用，**不另抄一份判据** —— 抄第二份就等于绕过了那唯一
+   * 副本，将来多出一种「会话不可用」的形态时会静默放行。
+   */
+  const hasSession = state.mode !== 'no-session';
 
   return (
     <>
       <div className="flex items-start gap-2 border-b border-border px-3.5 py-2.5">
-        <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full" style={{ background: statusDot }} />
-        <span className="flex-1 text-xs font-semibold leading-snug text-foreground">{task.title}</span>
+        <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full" style={{ background: statusColor }} />
+        <span className="min-w-0 flex-1 break-words text-xs font-semibold leading-snug text-foreground">
+          {task.title}
+        </span>
         <button
           type="button"
           onClick={onClose}
@@ -3436,23 +3577,31 @@ export function TaskSummaryPanel({
         </button>
       </div>
 
-      <div className="flex flex-1 flex-col gap-3 overflow-auto px-3.5 py-3">
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto px-3.5 py-3">
         <div className="flex flex-wrap gap-1.5">
-          <span className="rounded-full border border-warning/30 bg-warning/15 px-2 py-0.5 text-2xs text-warning">
+          <Chip style={{ color: statusColor }}>
             {statusLabel}
-          </span>
+          </Chip>
           {task.priority ? (
-            <span className="rounded-full bg-secondary px-2 py-0.5 text-2xs text-secondary-foreground">
-              {task.priority}
-            </span>
+            <Chip
+              style={{
+                color: PRIORITY_META[task.priority].color,
+                backgroundColor: PRIORITY_META[task.priority].bg,
+              }}
+            >
+              {PRIORITY_META[task.priority].label}
+            </Chip>
           ) : null}
-          {task.label ? (
-            <span className="rounded-full bg-secondary px-2 py-0.5 text-2xs text-secondary-foreground">
-              {task.label}
-            </span>
+          {LABEL_META[task.label] ? (
+            <Chip style={{ color: LABEL_META[task.label].color, backgroundColor: LABEL_META[task.label].bg }}>
+              {LABEL_META[task.label].label}
+            </Chip>
           ) : null}
         </div>
 
+        {/* 待办区是条件渲染的 —— 无待办时它连空壳都不留（PendingPromptList 自己
+            返回 null）。`auto` / `bypassPermissions` 模式与无人值守任务下，SDK 根本
+            不会发 `can_useTool`，这里就是常态。 */}
         <PendingPromptList
           requests={pendingRequests}
           nowMs={nowMs}
@@ -3472,7 +3621,7 @@ export function TaskSummaryPanel({
           <Section label="最近结果">
             <div
               className={`rounded-lg border border-border bg-muted p-2.5 text-xs leading-relaxed text-card-foreground ${
-                resultExpanded ? '' : 'max-h-22 overflow-hidden'
+                resultExpanded ? '' : 'max-h-24 overflow-hidden'
               }`}
             >
               {resultText}
@@ -3480,7 +3629,7 @@ export function TaskSummaryPanel({
             <button
               type="button"
               onClick={() => setResultExpanded((previous) => !previous)}
-              className="mt-1 text-2xs text-primary"
+              className="mt-1 text-2xs font-medium text-primary"
             >
               {resultExpanded ? '收起 ↑' : '展开全部 ↓'}
             </button>
@@ -3490,7 +3639,7 @@ export function TaskSummaryPanel({
         <section className="grid grid-cols-[auto_1fr] gap-x-3.5 gap-y-1.5 text-xs">
           <span className="text-muted-foreground">引擎</span>
           <span className="text-foreground">
-            {task.executor_provider ?? '—'}
+            {task.executor_provider}
             {task.executor_model ? ` · ${task.executor_model}` : ''}
           </span>
           <span className="text-muted-foreground">创建</span>
@@ -3500,11 +3649,16 @@ export function TaskSummaryPanel({
         </section>
       </div>
 
+      {/* 常用语不在这里预筛：`TaskPanelReplyBox` 内部的 `showQuickReplies` 已经
+          用同一个 `canType` 判定过（会话被清理时整行都不画）。在这里再写一遍
+          `hasSession ? … : []` 是同一条件的第二份副本 —— 下层已经是唯一副本了，
+          上层这份不产生任何可见差异（mutation 存活率测试证实），只会诱使后来的
+          人以为「面板筛了一道」，挪走下层的判断时才发现两处都在管。 */}
       <TaskPanelReplyBox
         value={replyValue}
         onChange={onReplyChange}
         onSend={onReplySend}
-        quickReplies={hasSession ? quickReplies : []}
+        quickReplies={quickReplies}
         replyState={state}
         onInsertQuickReply={onInsertQuickReply}
       />
@@ -3514,14 +3668,14 @@ export function TaskSummaryPanel({
           type="button"
           disabled={!hasSession}
           onClick={onOpenSession}
-          className="rounded-md border border-border bg-card px-3 py-1.5 text-2xs text-foreground disabled:opacity-40"
+          className="rounded-md border border-border bg-card px-3 py-1.5 text-2xs text-foreground hover:bg-accent disabled:opacity-40"
         >
           在会话里处理 →
         </button>
         <button
           type="button"
           onClick={onOpenDetail}
-          className="ml-auto rounded-md bg-primary px-3 py-1.5 text-2xs text-primary-foreground"
+          className="ml-auto rounded-md bg-primary px-3 py-1.5 text-2xs text-primary-foreground hover:opacity-90"
         >
           任务详情 →
         </button>
@@ -3530,16 +3684,17 @@ export function TaskSummaryPanel({
   );
 }
 
-export default TaskSummaryPanel;
-```
+export default TaskSummaryPanel;```
 
 - [ ] **Step 4: 跑测试确认通过**
 
 Run: `cd /mnt/b/workdir/github/lovdex/web && unset TSX_TSCONFIG_PATH && npx tsx --test src/components/tasks/TaskSummaryPanel.test.tsx`
-Expected: PASS —— `# pass 7`、`# fail 0`
+Expected: PASS —— `# pass 16`、`# fail 0`
 
-**已核对的真实 API（写实现时按这些来）：**
-- `SUB_STATUS_META`（`web/src/components/tasks/taskStatus.ts:20`）是 `Record<SubStatus, { label: string; color: string }>` —— 字段名就是 `label` / `color`，没有 `dot`。
+**已核对并已落地的真实 API：**
+- `SUB_STATUS_META`（`web/src/components/tasks/taskStatus.ts:20`）是 `Record<SubStatus, { label: string; color: string }>` —— 字段名就是 `label` / `color`，没有 `dot`。**`waiting_answer` 的 label 是「等你回答」，不是「等待回答」**（计划初稿的断言写错了，实测文件已按真值钉住）。
+- **`sub_status` 为 null 时必须退回 `STATUS_META[task.status]`**，不能写 `SUB_STATUS_META[task.sub_status ?? 'running']` —— null 是 todo / done 列的常态，那样会把一条待办任务显示成「会话运行中」。
+- **状态 chip 不能把 `SUB_STATUS_META.color` 塞进 `backgroundColor`**：它是 `hsl(var(--warning))` 这种**裸变量**，拼不出合法颜色（`PRIORITY_META.bg` / `LABEL_META.bg` 才是 `hsl(var(--x) / 0.1)` 的合法值，可以直接当底色）。
 - 时间格式化用的是 `formatAbsoluteTime(iso)` 与 `formatRelativeTime(iso, now)`（`web/src/components/tasks/taskTimestamp.ts:58` 与 `:41`）—— **没有** `formatTaskTimestamp` 这个函数。
 - `useQuickReplies()` 返回的是 `{ items, isLoading, error, refresh, create, update, remove, markUsed }`（`web/src/components/chat/hooks/useQuickReplies.ts:164`）—— 列表字段叫 `items`，不是 `quickReplies`，接入时用解构改名。
 - `QuickReply` 的真实类型在 `web/src/components/chat/hooks/useQuickReplies.ts:6`，本计划里的 `QuickReplyItem` 是它的结构子集（`{ quick_reply_id, content }`），可直接传。
