@@ -244,26 +244,31 @@ export function buildQuickReplyInput(current: string, content: string): string
 5. **新增态编辑行渲染在列表最前面**（与 §5.3 一致），行尾「改 / 删」按钮补了 `focus:opacity-100`（键盘可达）。已修（`e5649be`）。
 6. **`refresh()` 失败改为抛错，并加刷新代际计数。** 写成功但紧随的列表 GET 失败时，原先会静默关掉编辑框而列表仍是旧数据；同时 `markUsed` 的旁路刷新与写操作的刷新并发时，乱序返回的旧响应会短暂冲掉刚建的条目。已修（`651c2a5`）。
 
-## 10. 尚未验证的部分
+## 10. 验收结果
 
-**浏览器交互尚未验证。** 后端重启后已在运行实例上验过接口与建表（见下），但浮层的真实交互（Escape、互斥、窄屏、视觉）还没在浏览器里过一遍。重启后端后 `curl http://127.0.0.1:3188/api/quick-replies` 应从 404 变为 401，并在浏览器过一遍计划 Task 9 的 14 条手工清单——重点：Escape 关浮层**不触发会话中断**、浮层与斜杠菜单互斥、窄屏 ⚡ 按钮可见、同秒排序按上面记录的预期表现。
+### 浏览器清单（计划 Task 9 的 14 条）—— 已用 headless Chromium 自动化跑过
 
-### 已验（重启后实测）
+脚本 `.superpowers/e2e/drive.mjs`（读 DOM / computed style / 几何判定，不看整页截图）。**14 条全部通过**，含：浮层几何（宽 320、向上弹、不出屏、z-index 100）、空态与新建、新建态编辑行在列表最前、空/非空两种插入语义（单空格、光标置尾、不自动发送）、悬停出行尾按钮、行内编辑、重复正文的红色提示与编辑态保留、删除、点外部关闭、Escape 关浮层**且不中断会话**、编辑态 Escape 先退编辑、两浮层双向互斥、刷新后 MRU 排序、390×844 窄屏可见可点且浮层不出屏。
+
+唯一需要说明的是「新建态编辑行在最前」这条：脚本第一版判错了（进入编辑态后 header 的「新建」按钮会隐藏，脚本却拿它的下标当锚点），是**脚本的 bug 不是实现的 bug**；改用编辑行与首个条目行的相对次序后通过，`root.children` 次序与截图均确认编辑行紧跟在 header 之后。
+
+### 接口层（重启后实测）
 
 - 路由已加载：`/api/quick-replies` 返回 401（与 `/api/scheduled-tasks`、`/api/notifications` 一致）。
 - 生产库 `~/.lovdex/data/new-auth.db` 建出了 `quick_replies` 表，列与索引 `idx_quick_replies_last_used` 齐全。
-- 带 JWT 走了一遍完整 CRUD：建（201）、重复内容（409）、空内容（400）、改（200）、打点（200）、删（200）、重复删（404）、列表（`{items:[...]}`，snake_case 字段齐全）。测试数据已清理，库里回到 0 行。
+- 带 JWT 走了一遍完整 CRUD：建（201）、重复内容（409）、空内容（400）、改（200）、打点（200）、删（200）、重复删（404）、列表（`{items:[...]}`，snake_case 字段齐全）。
 
-### 新发现：错误响应的形状是错的，且**不是本功能引入的**
+### 顺带修掉的既有 bug：错误响应形状
 
-实测发现 **所有 `AppError` 的响应体都是 HTML、不是 JSON**：
+初版实测发现 **所有 `AppError` 的响应体都是 HTML、不是 JSON**（状态码正确，但 body 是 express 默认错误页且带服务端堆栈）。根因：`backend/server/index.js` 的全局错误中间件是模块级的（原 2012 行），注册在 `startServer()` 里挂载的所有路由**之前**，Express 按注册顺序匹配，错误中间件永远轮不到。`/api/notifications` 同样受影响。
+
+已修（`af2bc34`）：把中间件移到 `startServer()` 内、所有路由之后、`server.listen` 之前。重启后实测：
 
 ```
-HTTP/1.1 409 Conflict
-Content-Type: text/html; charset=utf-8
-<!DOCTYPE html>...<pre>AppError: 常用语已存在<br> at normalizeContent (...)</pre>
+POST 重复内容 → 409 {"success":false,"error":{"code":"QUICK_REPLY_DUPLICATE","message":"该常用语已存在"}}
+POST 空内容   → 400 {"success":false,"error":{"code":"QUICK_REPLY_EMPTY","message":"常用语内容不能为空"}}
+PUT  不存在   → 404 {"success":false,"error":{"code":"QUICK_REPLY_NOT_FOUND","message":"常用语不存在"}}
+POST /api/notifications/nope/read → 404 {"success":false,"error":{"code":"NOTIFICATION_NOT_FOUND",...}}
 ```
 
-状态码是对的（409/404/400 都正确），但 body 是 express 默认错误页，还带上服务端堆栈。根因是 `backend/server/index.js` 里模块级的全局错误中间件（**2012 行**）在 `startServer()` 里挂的**所有**路由之前注册（`app.use('/api/notifications', ...)` 在 2261、`app.use('/api/quick-replies', ...)` 在 2266）。Express 按注册顺序匹配，请求先命中这些路由，错误中间件永远轮不到。**`/api/notifications` 同样如此**（实测其 404 也是 HTML），所以这是既有的架构顺序问题，不是本功能引入的。
-
-对用户可见的影响：新建重复常用语时是显式成功路径，浮层依赖后端的中文文案「该常用语已存在」提示（`QuickRepliesMenu` 的 `handleSave` catch 后用 `err.message`），而 `readErrorMessage` 解析 HTML 会失败，退化成兜底的「请求失败（409）」。**功能不会坏，但文案提示会退化。** 修法是把错误中间件移到 `startServer()` 之内、所有路由挂载之后（`server.listen` 之前）。这会影响全后端所有路由的错误响应形状，**属于本功能范围之外的改动，完成前需要单独确认**。
+Content-Type 已是 `application/json`，服务端堆栈不再外泄。这同时修好了收件箱等所有既有路由的错误响应形状。
