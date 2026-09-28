@@ -310,6 +310,17 @@ CREATE TABLE IF NOT EXISTS notifications (
 );
 `;
 
+export const QUICK_REPLIES_TABLE_SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS quick_replies (
+  quick_reply_id TEXT PRIMARY KEY,
+  content        TEXT NOT NULL,
+  created_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at     DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  last_used_at   DATETIME
+);
+CREATE INDEX IF NOT EXISTS idx_quick_replies_last_used ON quick_replies(last_used_at);
+`;
+
 export const INIT_SCHEMA_SQL = `
 -- Initialize authentication database
 PRAGMA foreign_keys = ON;
@@ -375,6 +386,8 @@ ${TOKEN_INGEST_CURSOR_TABLE_SCHEMA_SQL}
 ${NOTIFICATIONS_TABLE_SCHEMA_SQL}
 CREATE INDEX IF NOT EXISTS idx_notifications_unread ON notifications(read_at, created_at);
 CREATE INDEX IF NOT EXISTS idx_notifications_dedupe ON notifications(dedupe_key, read_at);
+
+${QUICK_REPLIES_TABLE_SCHEMA_SQL}
 `;
 
 export const SKILL_SYNC_AUDIT_TABLE_SCHEMA_SQL = `

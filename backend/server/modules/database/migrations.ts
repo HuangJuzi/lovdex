@@ -7,6 +7,7 @@ import {
   NOTIFICATIONS_TABLE_SCHEMA_SQL,
   PROJECTS_TABLE_SCHEMA_SQL,
   PUSH_SUBSCRIPTIONS_TABLE_SCHEMA_SQL,
+  QUICK_REPLIES_TABLE_SCHEMA_SQL,
   REMOTE_HOSTS_TABLE_SCHEMA_SQL,
   SESSIONS_TABLE_SCHEMA_SQL,
   SKILL_SYNC_AUDIT_TABLE_SCHEMA_SQL,
@@ -849,6 +850,7 @@ export const runMigrations = (db: Database) => {
     db.exec(NOTIFICATIONS_TABLE_SCHEMA_SQL);
     db.exec('CREATE INDEX IF NOT EXISTS idx_notifications_unread ON notifications(read_at, created_at)');
     db.exec('CREATE INDEX IF NOT EXISTS idx_notifications_dedupe ON notifications(dedupe_key, read_at)');
+    db.exec(QUICK_REPLIES_TABLE_SCHEMA_SQL);
     db.exec(USER_NOTIFICATION_PREFERENCES_TABLE_SCHEMA_SQL);
     db.exec(VAPID_KEYS_TABLE_SCHEMA_SQL);
     db.exec(PUSH_SUBSCRIPTIONS_TABLE_SCHEMA_SQL);
