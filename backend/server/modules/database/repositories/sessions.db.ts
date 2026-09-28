@@ -17,6 +17,25 @@ export type SessionRow = {
   updated_at: string;
 };
 
+/**
+ * Read-only session list filter for the operator `list_sessions` tool.
+ * Every clause is optional; an omitted clause leaves that dimension unfiltered.
+ * `lastActiveBefore/After` are canonical ISO-8601 UTC strings (the service
+ * parses user input; the repo compares via SQLite `datetime()` so mixed stored
+ * formats collapse to one comparable shape).
+ */
+export type SessionsListFilter = {
+  projectPath?: string;
+  /** 0 = non-operator sessions, 1 = operator assistant sessions. */
+  isOperator?: 0 | 1;
+  /** Include archived (soft-deleted) rows. Default false = active only. */
+  includeDeleted?: boolean;
+  lastActiveBefore?: string;
+  lastActiveAfter?: string;
+  /** lastActiveAt sort direction. Default desc (newest first). */
+  orderBy?: 'asc' | 'desc';
+};
+
 const SESSION_ROW_COLUMNS =
   'session_id, provider, provider_session_id, project_path, jsonl_path, custom_name, summary, isArchived, is_operator, is_verdict, created_at, updated_at';
 
@@ -595,6 +614,56 @@ export const sessionsDb = {
       .get(normalizedProjectPath) as { count: number } | undefined;
 
     return Number(row?.count ?? 0);
+  },
+
+  /**
+   * Read-only session enumeration for the operator `list_sessions` tool.
+   *
+   * Dynamic WHERE so each present filter narrows via an existing index
+   * (`idx_sessions_project_path`, `idx_sessions_is_archived`) instead of pulling
+   * the whole table into JS. The `sessions` table is metadata-only (transcripts
+   * live in separate jsonl files), so an unfiltered call still stays cheap.
+   *
+   * `lastActiveBefore/After` compare against `datetime(COALESCE(updated_at,
+   * created_at))` so mixed stored formats ("YYYY-MM-DD HH:MM:SS" from SQLite
+   * CURRENT_TIMESTAMP vs. ISO with "T"/"Z") collapse to one comparable shape.
+   */
+  listSessions(filter: SessionsListFilter = {}): SessionRow[] {
+    const db = getConnection();
+    const clauses: string[] = [];
+    const params: unknown[] = [];
+    if (filter.projectPath) {
+      clauses.push('project_path = ?');
+      params.push(normalizeProjectPath(filter.projectPath));
+    }
+    if (filter.isOperator !== undefined) {
+      clauses.push('is_operator = ?');
+      params.push(filter.isOperator === 1 ? 1 : 0);
+    }
+    if (!filter.includeDeleted) {
+      clauses.push('isArchived = 0');
+    }
+    const lastActive = 'datetime(COALESCE(updated_at, created_at))';
+    if (filter.lastActiveBefore) {
+      clauses.push(`${lastActive} < datetime(?)`);
+      params.push(filter.lastActiveBefore);
+    }
+    if (filter.lastActiveAfter) {
+      clauses.push(`${lastActive} >= datetime(?)`);
+      params.push(filter.lastActiveAfter);
+    }
+    const where = clauses.length > 0 ? `WHERE ${clauses.join(' AND ')}` : '';
+    const direction = filter.orderBy === 'asc' ? 'ASC' : 'DESC';
+    const rows = db
+      .prepare(
+        `SELECT ${SESSION_ROW_COLUMNS}
+         FROM sessions
+         ${where}
+         ORDER BY ${lastActive} ${direction}, session_id DESC`
+      )
+      .all(...params) as SessionRow[];
+
+    return normalizeSessionRows(rows);
   },
 
   deleteSessionsByProjectPath(projectPath: string): void {

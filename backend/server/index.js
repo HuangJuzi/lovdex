@@ -87,6 +87,7 @@ import { getOperatorConfig } from './modules/operators/operator.config.js';
 import { createOperatorExecService } from './modules/operators/operator-exec.service.js';
 import { buildOperatorSkillExecRouter } from './modules/operators/operator-skill-exec.routes.js';
 import { createOperatorDeleteService } from './modules/operators/operator-delete.service.js';
+import { createOperatorListSessionsService } from './modules/operators/operator-list-sessions.service.js';
 import { operatorAuditDb } from './modules/database/repositories/operator-audit.db.js';
 import { createRemoteAgentsRegistry } from './modules/remote-agents/remote-agents.registry.js';
 import { createRemoteAgentWss } from './modules/remote-agents/remote-agent.server.js';
@@ -679,6 +680,16 @@ const operatorDeleteService = createOperatorDeleteService({
     isSessionRunning: (sessionId) => chatRunRegistry.listRunningRuns().some((run) => run.sessionId === sessionId),
 });
 
+// Read-only session enumeration for the operator tool set (list_sessions):
+// forwards the filter to sessionsDb.listSessions and enriches each row with
+// task linkage, project name, running status, and transcript file stats.
+const operatorListSessionsService = createOperatorListSessionsService({
+    sessionsDb,
+    tasksDb,
+    projectsDb,
+    isSessionRunning: (sessionId) => chatRunRegistry.listRunningRuns().some((run) => run.sessionId === sessionId),
+});
+
 // Wire the operator headless run deps: the real tasksService (adapted so the
 // string-typed operator tool inputs are narrowed to TaskStatus at the boundary),
 // projectsDb, sessionsService, and createSession. runOperatorHeadless (in
@@ -710,6 +721,8 @@ initOperatorHeadless({
     moveSessionToProject: sessionTransferService.moveSessionToProject,
     // Session hard-deletion: delete a session row + transcript file.
     deleteSession: operatorDeleteService.deleteSession,
+    // Read-only session enumeration: list_sessions (never mutates).
+    listSessions: operatorListSessionsService.listSessions,
     // In-place execution: allowlisted skills + workspace workbench.
     skillExec: operatorExecService.executeSkill,
     workbench: operatorExecService.workbench,

@@ -587,3 +587,31 @@ test('send_notification schema 要求 severity + title', () => {
   const tools = buildOperatorTools({ tasks: {} as never });
   assert.deepEqual(tools.send_notification.inputSchema.required, ['severity', 'title']);
 });
+
+test('list_sessions handler delegates to the injected list service', async () => {
+  let received: unknown;
+  const tools = buildOperatorTools({
+    tasks: {} as never,
+    listSessions: async (i: unknown) => {
+      received = i;
+      return { total: 0, sessions: [] };
+    },
+  });
+  const out = await tools.list_sessions.handler({ projectPath: '/p', limit: 10 });
+  assert.deepEqual(received, { projectPath: '/p', limit: 10 });
+  assert.deepEqual(out, { total: 0, sessions: [] });
+});
+
+test('list_sessions fails clearly when the list service is not wired', async () => {
+  const tools = buildOperatorTools({ tasks: {} as never });
+  await assert.rejects(() => tools.list_sessions.handler({}), /not wired/);
+});
+
+test('list_sessions input schema declares filter + pagination fields', () => {
+  const tools = buildOperatorTools({ tasks: {} as never });
+  const props = tools.list_sessions.inputSchema.properties as Record<string, { type?: string }>;
+  assert.equal(props.projectPath?.type, 'string');
+  assert.equal(props.limit?.type, 'number');
+  assert.equal(props.offset?.type, 'number');
+  assert.equal(props.includeDeleted?.type, 'boolean');
+});

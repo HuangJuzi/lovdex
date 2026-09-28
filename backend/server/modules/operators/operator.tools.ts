@@ -158,6 +158,24 @@ export type OperatorToolDeps = {
    */
   deleteSession?: (input: { sessionId: string; cascade?: boolean }) => Promise<unknown>;
   /**
+   * Read-only session enumeration (list_sessions). Injected from index.js as
+   * operatorListSessionsService.listSessions. The tool handler only forwards
+   * args — all filter validation, enrichment, status derivation, pagination,
+   * and transcript statting live in operator-list-sessions.service.ts.
+   */
+  listSessions?: (input: {
+    projectPath?: string;
+    status?: string;
+    isOperator?: number;
+    includeDeleted?: boolean;
+    lastActiveBefore?: string | number;
+    lastActiveAfter?: string | number;
+    orderBy?: string;
+    limit?: number;
+    offset?: number;
+  }) => Promise<unknown>;
+
+  /**
    * In-place skill execution (allowlisted user-level skills, e.g.
    * claw-agent-get-send). Injected from index.js as
    * operatorExecService.executeSkill — all allowlist/credential/redaction/
@@ -431,6 +449,45 @@ export function buildOperatorTools(deps: OperatorToolDeps) {
       },
       handler: async (i: { taskId: string }) => deps.tasks.deleteTask(i.taskId),
     },
+    list_sessions: {
+      description:
+        'List sessions READ-ONLY (never deletes/archives/mutates). Filters: projectPath, status (running|in_progress|idle|failed|all — derived from the live run registry + linked task), isOperator (0/1), includeDeleted (default false = active only), lastActiveBefore/lastActiveAfter (ISO 8601 or epoch ms — use lastActiveBefore for "inactive for N days" queries), orderBy (lastActiveAt asc/desc, default desc). Paginate with limit/offset (default limit 50, max 200); returns hasMore. Returns { total, offset, limit, hasMore, sessions:[{ sessionId, projectPath, projectName, taskId, taskTitle, taskStatus, status, isOperator, createdAt, lastActiveAt, messageCount, transcriptPath, transcriptBytes, sessionDeleted }] }. lastActiveAt is the last message/update time (NOT createdAt — use it to judge inactivity). transcriptBytes/messageCount help estimate cleanup value.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          projectPath: { type: 'string', description: 'Filter by project path' },
+          status: {
+            type: 'string',
+            enum: ['running', 'in_progress', 'idle', 'failed', 'all'],
+            description: 'Session liveness filter (default all)',
+          },
+          isOperator: { type: 'number', description: '0 = non-operator sessions only, 1 = operator sessions only' },
+          includeDeleted: { type: 'boolean', description: 'Include archived (soft-deleted) sessions (default false)' },
+          lastActiveBefore: { type: 'string', description: 'Only sessions last active strictly before this ISO 8601 datetime or epoch ms' },
+          lastActiveAfter: { type: 'string', description: 'Only sessions last active at/after this ISO 8601 datetime or epoch ms' },
+          orderBy: { type: 'string', enum: ['asc', 'desc'], description: 'lastActiveAt sort direction (default desc = newest first)' },
+          limit: { type: 'number', description: 'Max rows (default 50, max 200)' },
+          offset: { type: 'number', description: 'Pagination offset (default 0)' },
+        },
+      },
+      handler: async (i: {
+        projectPath?: string;
+        status?: string;
+        isOperator?: number;
+        includeDeleted?: boolean;
+        lastActiveBefore?: string | number;
+        lastActiveAfter?: string | number;
+        orderBy?: string;
+        limit?: number;
+        offset?: number;
+      }) => {
+        if (!deps.listSessions) {
+          throw new Error('list_sessions is not wired (missing listSessions dep)');
+        }
+        return deps.listSessions(i);
+      },
+    },
+
     delete_session: {
       description:
         'Physically delete a session (DB row + transcript file). Irreversible. Refuses to delete operator assistant sessions (is_operator) or running/in_progress sessions. If the session is still linked to a task, this refuses by default — pass cascade=true to delete anyway (the task will then no longer be able to read its transcript).',
