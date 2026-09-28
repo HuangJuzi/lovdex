@@ -2008,30 +2008,6 @@ app.get('/api/projects/:projectId/sessions/:sessionId/token-usage', authenticate
     }
 });
 
-// global error middleware must be last
-app.use((err, req, res, next) => {
-  if (err instanceof AppError) {
-    return res.status(err.statusCode).json({
-      success: false,
-      error: {
-        code: err.code,
-        message: err.message,
-        details: err.details,
-      },
-    });
-  }
-
-  console.error(err);
-
-  return res.status(500).json({
-    success: false,
-    error: {
-      code: 'INTERNAL_ERROR',
-      message: 'Internal server error',
-    },
-  });
-});
-
 // Helper function to convert permissions to rwx format
 function permToRwx(perm) {
     const r = perm & 4 ? 'r' : '-';
@@ -2306,6 +2282,30 @@ async function startServer() {
         } catch (error) {
             console.warn('[WARN] Could not clean operator workspace legacy sessions:', error instanceof Error ? error.message : String(error));
         }
+
+        // global error middleware must be last
+        app.use((err, req, res, next) => {
+            if (err instanceof AppError) {
+                return res.status(err.statusCode).json({
+                    success: false,
+                    error: {
+                        code: err.code,
+                        message: err.message,
+                        details: err.details,
+                    },
+                });
+            }
+
+            console.error(err);
+
+            return res.status(500).json({
+                success: false,
+                error: {
+                    code: 'INTERNAL_ERROR',
+                    message: 'Internal server error',
+                },
+            });
+        });
 
         // Log Claude implementation mode
         console.log(`${c.info('[INFO]')} Using Claude Agents SDK for Claude integration`);
