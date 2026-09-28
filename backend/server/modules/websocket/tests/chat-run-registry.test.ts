@@ -130,3 +130,108 @@ test('completeRun is a no-op once a run already completed', (t) => {
   chatRunRegistry.completeRun('app-2', { exitCode: 0 });
   assert.equal(approvals.at(-1), false);
 });
+
+// ---------------------------------------------------------------------------
+// When a "waiting for your approval" inbox item started. The task inbox shows
+// that moment; persistent signals get it from tasks.updated_at, but the live
+// approval state has no row — so it is remembered in memory here, added and
+// dropped with the request lifecycle.
+// ---------------------------------------------------------------------------
+
+function startApprovalRun(appSessionId: string) {
+  return chatRunRegistry.startRun({
+    appSessionId,
+    provider: 'claude',
+    providerSessionId: null,
+    connection: makeConnection(),
+    userId: null,
+  });
+}
+
+test('records the wait start on the first pending request', (t) => {
+  t.after(() => chatRunRegistry.clearAll());
+  const run = startApprovalRun('app-ap-1');
+  assert.ok(run);
+  assert.equal(chatRunRegistry.getApprovalRequestedAt('app-ap-1'), null, 'no moment before the wait');
+
+  run.writer.send({ kind: 'permission_request', requestId: 'req-a', provider: 'claude', sessionId: 'app-ap-1' });
+  const startedAt = chatRunRegistry.getApprovalRequestedAt('app-ap-1');
+  assert.ok(startedAt, 'the first pending request should record a moment');
+  assert.ok(!Number.isNaN(new Date(startedAt).getTime()), 'the moment should be a parseable time string');
+});
+
+test('a second pending request does not move the wait start', async (t) => {
+  t.after(() => chatRunRegistry.clearAll());
+  const run = startApprovalRun('app-ap-2');
+  assert.ok(run);
+  run.writer.send({ kind: 'permission_request', requestId: 'req-a', provider: 'claude', sessionId: 'app-ap-2' });
+  const startedAt = chatRunRegistry.getApprovalRequestedAt('app-ap-2');
+
+  // Cross a millisecond tick, otherwise an overwrite is invisible in the ISO string.
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  run.writer.send({ kind: 'permission_request', requestId: 'req-b', provider: 'claude', sessionId: 'app-ap-2' });
+
+  assert.equal(
+    chatRunRegistry.getApprovalRequestedAt('app-ap-2'),
+    startedAt,
+    'still waiting, so the wait start must not move',
+  );
+});
+
+test('a new wait segment after the queue empties gets a fresh start', async (t) => {
+  t.after(() => chatRunRegistry.clearAll());
+  const run = startApprovalRun('app-ap-3');
+  assert.ok(run);
+  run.writer.send({ kind: 'permission_request', requestId: 'req-a', provider: 'claude', sessionId: 'app-ap-3' });
+  const firstStart = chatRunRegistry.getApprovalRequestedAt('app-ap-3');
+
+  assert.equal(chatRunRegistry.takeApprovalRequestSession('req-a'), 'app-ap-3');
+  assert.equal(chatRunRegistry.getApprovalRequestedAt('app-ap-3'), null, 'no longer waiting once the only pending request is decided');
+
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  run.writer.send({ kind: 'permission_request', requestId: 'req-b', provider: 'claude', sessionId: 'app-ap-3' });
+  const secondStart = chatRunRegistry.getApprovalRequestedAt('app-ap-3');
+  assert.ok(secondStart);
+  assert.notEqual(secondStart, firstStart, 'the wait ended in between, so this is a new segment');
+});
+
+test('deciding one of several pending requests keeps the wait start', (t) => {
+  t.after(() => chatRunRegistry.clearAll());
+  const run = startApprovalRun('app-ap-4');
+  assert.ok(run);
+  run.writer.send({ kind: 'permission_request', requestId: 'req-a', provider: 'claude', sessionId: 'app-ap-4' });
+  const startedAt = chatRunRegistry.getApprovalRequestedAt('app-ap-4');
+  run.writer.send({ kind: 'permission_request', requestId: 'req-b', provider: 'claude', sessionId: 'app-ap-4' });
+
+  assert.equal(chatRunRegistry.takeApprovalRequestSession('req-a'), 'app-ap-4');
+  assert.equal(
+    chatRunRegistry.getApprovalRequestedAt('app-ap-4'),
+    startedAt,
+    'a second request is still pending, so the wait never ended',
+  );
+});
+
+test('terminal complete drops the wait start', (t) => {
+  t.after(() => chatRunRegistry.clearAll());
+  const run = startApprovalRun('app-ap-5');
+  assert.ok(run);
+  run.writer.send({ kind: 'permission_request', requestId: 'req-a', provider: 'claude', sessionId: 'app-ap-5' });
+  assert.ok(chatRunRegistry.getApprovalRequestedAt('app-ap-5'));
+
+  chatRunRegistry.completeRun('app-ap-5', { exitCode: 0, aborted: true });
+  assert.equal(
+    chatRunRegistry.getApprovalRequestedAt('app-ap-5'),
+    null,
+    'a run that ended can never have its request answered, so the wait state must go',
+  );
+});
+
+test('getApprovalRequestedAt is null for an unknown session and after clearAll', (t) => {
+  t.after(() => chatRunRegistry.clearAll());
+  assert.equal(chatRunRegistry.getApprovalRequestedAt('nobody'), null);
+  const run = startApprovalRun('app-ap-6');
+  assert.ok(run);
+  run.writer.send({ kind: 'permission_request', requestId: 'req-a', provider: 'claude', sessionId: 'app-ap-6' });
+  chatRunRegistry.clearAll();
+  assert.equal(chatRunRegistry.getApprovalRequestedAt('app-ap-6'), null);
+});

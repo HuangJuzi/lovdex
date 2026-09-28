@@ -200,6 +200,38 @@ const approvalRequestToSession = new Map<string, string>();
 const approvalRequestToTool = new Map<string, string>();
 
 /**
+ * When the current wait began: appSessionId → ISO string, written when the
+ * first pending request arrives. The task inbox labels its "waiting for your
+ * approval" item with this moment; the approval state itself is live-only and
+ * never persisted, so memory is the only place that can hold it. The value is
+ * the START of a wait segment, not the latest request's time — requests
+ * appended to an ongoing wait do not move it, and once the queue empties the
+ * entry is dropped so the next wait starts a fresh segment.
+ */
+const approvalRequestedAt = new Map<string, string>();
+
+/**
+ * Whether the session still has a pending request. Deliberately keyed off
+ * `approvalRequestToSession` rather than `approvalRequestedAt.has()`: on
+ * "decide A, then B arrives" the wait never ended, and asking the requestedAt
+ * table would misread B as the start of a new segment (its entry has not been
+ * deleted yet at that instant).
+ */
+function hasPendingApprovalRequest(appSessionId: string): boolean {
+  for (const ownerSessionId of approvalRequestToSession.values()) {
+    if (ownerSessionId === appSessionId) return true;
+  }
+  return false;
+}
+
+/** Forgets the wait start once no pending request is left (the wait is over). */
+function forgetApprovalStartIfIdle(appSessionId: string): void {
+  if (!hasPendingApprovalRequest(appSessionId)) {
+    approvalRequestedAt.delete(appSessionId);
+  }
+}
+
+/**
  * Evicts every pending permission request owned by one app session. Called on
  * the terminal `complete` (including the synthetic one emitted on abort/crash)
  * so a request that can never be resolved does not leave its "等你批准" marker
@@ -212,6 +244,9 @@ function clearApprovalRequestsForSession(appSessionId: string): void {
       approvalRequestToTool.delete(requestId);
     }
   }
+  // The run is over, so no wait exists any more — forget its start too, or a
+  // crash/abort would leave a stale moment behind for the session's next wait.
+  approvalRequestedAt.delete(appSessionId);
 }
 
 function evictRunLater(appSessionId: string): void {
@@ -242,9 +277,16 @@ function decorateAndRecordEvent(run: ChatRun, message: NormalizedMessage): Norma
   // These events never change the task status — the marker is a realtime flag.
   if (message.kind === 'permission_request') {
     if (typeof message.requestId === 'string' && message.requestId) {
+      // Check before writing: this requestId is not in the map yet, so
+      // hasPendingApprovalRequest answers "was anything already pending before
+      // it?" — which is exactly "is this wait just starting?".
+      const isNewWaitSegment = !hasPendingApprovalRequest(run.appSessionId);
       approvalRequestToSession.set(message.requestId, run.appSessionId);
       if (typeof message.toolName === 'string' && message.toolName) {
         approvalRequestToTool.set(message.requestId, message.toolName);
+      }
+      if (isNewWaitSegment) {
+        approvalRequestedAt.set(run.appSessionId, new Date().toISOString());
       }
     }
     taskLinkage?.onSessionApproval(run.appSessionId, true);
@@ -459,6 +501,17 @@ export const chatRunRegistry = {
   },
 
   /**
+   * When "waiting for your approval" started for this session. The tasks
+   * service folds it into a task row's `attention_since`, which the inbox
+   * renders as "12 分钟前". Returns an ISO string, or null when the session is
+   * not currently waiting (or the request predates this process) — callers
+   * render nothing in that case rather than inventing a time.
+   */
+  getApprovalRequestedAt(appSessionId: string): string | null {
+    return approvalRequestedAt.get(appSessionId) ?? null;
+  },
+
+  /**
    * Resolves the app session id that owns a pending permission request and
    * forgets the mapping (the approval is being decided). Returns `null` when
    * the requestId is unknown — e.g. the request predates this server process.
@@ -471,6 +524,9 @@ export const chatRunRegistry = {
     if (appSessionId !== null) {
       approvalRequestToSession.delete(requestId);
       approvalRequestToTool.delete(requestId);
+      // The last pending request was decided → the wait is over; if others are
+      // still pending this keeps the start (same wait segment).
+      forgetApprovalStartIfIdle(appSessionId);
     }
     return appSessionId;
   },
@@ -568,5 +624,6 @@ export const chatRunRegistry = {
     runs.clear();
     approvalRequestToSession.clear();
     approvalRequestToTool.clear();
+    approvalRequestedAt.clear();
   },
 };
