@@ -2245,7 +2245,7 @@ async function startServer() {
         app.use('/api/quick-replies', authenticateToken, buildQuickRepliesRouter(quickRepliesService));
 
         // 启动时比对内置 vs 已安装版本，落后就发一条 info 通知（进收件箱、
-        // 不弹窗不计角标）。失败绝不阻塞启动。
+        // 计角标、不弹窗）。失败绝不阻塞启动。
         try {
             const skillStatus = alertSkillService.getStatus();
             if (skillStatus.installed && skillStatus.hasUpdate) {

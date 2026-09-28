@@ -83,7 +83,9 @@
 |---|---|---|---|---|
 | `critical` | 是 | 是，立即 | 计入 | 计入 |
 | `warning` | 是 | 是 | 计入 | 计入 |
-| `info` | 是（静默区） | 否 | 不计入 | 否 |
+| `info` | 是（静默区） | 否 | 计入（中性灰） | 否 |
+
+**2026-09-28 修正（口径对齐）**：`info` 原本不计入侧边栏角标，但它**只在这一处**被排除 —— 后端 `/api/notifications/unread-count`、`/inbox` 页头角标、收件箱列表的未读红点全都把 info 算作未读，于是出现「侧栏 0、页面里 3 个红点」的自相矛盾。现改为角标统计全部未读，并按未读里的最高严重度着色（critical 红 / warning 琥珀 / info 中性灰）；info 仍然不弹 toast、不进补推汇总弹窗。详见 `docs/superpowers/specs/2026-09-28-inbox-unread-badge-design.md`。
 
 ## 6. 唯一的降噪：同类合并
 

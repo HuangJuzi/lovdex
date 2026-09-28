@@ -59,7 +59,7 @@ const TOOL_APPROVAL_TIMEOUT_MS = appConfig().get().providers.claude.toolApproval
  */
 const OPERATOR_INBOX_PROMPT = [
   '收件箱（通知中心）：任务在最终回复里输出 lovdex-alert 代码块时，后端会在任务结束时扫转录、落库，并在浏览器弹窗 + 侧边栏未读角标 + /inbox 页面展示（同一 code 自动合并计数，不刷屏）。',
-  '当用户要你「通知他」「发消息到收件箱」「发个测试通知」「把结果放到收件箱」时，**直接调用 send_notification 工具**（severity/title/body/code），不要只输出 lovdex-alert 代码块——你是助手，走工具这条路。severity 取 critical/warning/info：critical 和 warning 会弹窗并计未读角标，info 只进收件箱。code 用稳定标识以便同类合并。',
+  '当用户要你「通知他」「发消息到收件箱」「发个测试通知」「把结果放到收件箱」时，**直接调用 send_notification 工具**（severity/title/body/code），不要只输出 lovdex-alert 代码块——你是助手，走工具这条路。severity 取 critical/warning/info：三种 severity 都会进收件箱并计入侧栏未读角标（critical 红、warning 琥珀、info 中性灰）；只有 critical 和 warning 会弹窗，info 不弹。code 用稳定标识以便同类合并。',
   '用 list_notifications 查未读通知，用 mark_notification_read 标记已读（notificationId 指定一条，all=1 全部已读）。',
   '重要：当用户要你建「巡检 / 监控 / 定时检查」类任务、并且希望发现异常时收到通知时，你必须在 create_scheduled_task 的 description 里原样带上下面这段约定，否则任务不会产生任何通知（静默失败）：',
   ALERT_PROMPT_INSTRUCTION,

@@ -770,7 +770,7 @@ export function buildOperatorTools(deps: OperatorToolDeps) {
     },
     send_notification: {
       description:
-        'Send a notification to the user\'s Lovdex 收件箱 (inbox). The user sees it as a browser toast (critical/warning only), a sidebar unread badge, and a row in /inbox. Use this whenever the user asks you to notify them, send something to the inbox, or report an alert. severity: critical|warning|info (info lands in the inbox only — no toast, no badge). code: a stable category id so repeats merge into one row with a ×N counter instead of spamming.',
+        'Send a notification to the user\'s Lovdex 收件箱 (inbox). The user sees it as a browser toast (critical/warning only), a sidebar unread badge, and a row in /inbox. Use this whenever the user asks you to notify them, send something to the inbox, or report an alert. severity: critical|warning|info (all three land in the inbox and count toward the sidebar badge — critical red, warning amber, info neutral grey; only critical/warning toast). code: a stable category id so repeats merge into one row with a ×N counter instead of spamming.',
       inputSchema: {
         type: 'object',
         properties: {
