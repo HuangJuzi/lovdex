@@ -39,14 +39,20 @@ const source = readFileSync(SOURCE, 'utf8');
 const shortLabelTag = openingTagContaining(source, 'modeLabelKeys.shortKey');
 const modelLabelTag = openingTagContaining(source, '{modelLabel}');
 
-// 六种模式的短标签宽度不同（Approve 80px vs Plan 58px），这就是 bug 的全部原因：
-// 模式按钮内容自适应 ⇒「哪一档视口宽度折行」因模式而异。给短标签一个最小宽度，
+// 六种模式的**模式按钮**宽度不同（spec §0 实测：Approve 按钮 80px vs Plan 按钮 58px ——
+// 不是标签宽度，最宽的 Approve 标签自然宽只有 46.094px），这就是 bug 的全部原因：
+// 按钮内容自适应 ⇒「哪一档视口宽度折行」因模式而异。给短标签一个最小宽度，
 // 六个模式的按钮占位就按构造相同，折行结果必然一致 —— 不再靠调宽度碰运气。
 //
-// 钉的是「六者相等」这条不变量，不是「都等于 82px」：min-w 是下限，将来往
-// modesShort 里加更长（例如中文）的标签时按钮仍会变宽，届时这条会红，逼人回来重算。
-// 长度预算那条测试（permissionModeLabels.i18n.test.ts）拦不住这件事 —— 字符数与
-// 像素宽不是一回事，正是本 bug 的成因。
+// 本文件只钉 class **是否存在**，读不到标签文本，更量不到像素，所以它拦不住
+// 「标签变宽把按钮撑开」这件事（实测：把 modesShort.autoApprove 换成更宽的「自动批准」，
+// 本文件 3/3 全绿；换成 4 个汉字同理）。能拦它的只有两条，都不在这个文件里：
+//   1. permissionModeLabels.i18n.test.ts 的 ≤7 字符预算 —— 只拦**字符数**超过 7 的标签
+//      （实测：改成 18 字符的 "Bypass Permissions" 会让它红）；字符数合规但像素更宽
+//      （如 4 个汉字）它同样全绿，像素宽它管不了；
+//   2. spec §3 的浏览器探针 —— 量「六种模式的按钮宽度互差 0px」。它在 /tmp、不入库、
+//      进不了 CI，所以**改短标签后必须手动重跑它**，别指望任何自动化测试。
+// 详见 spec §2.1 与 §3。
 test('the short mode label reserves a fixed minimum width', () => {
   const classes = classNamesOf(shortLabelTag);
   assert.ok(
@@ -56,6 +62,10 @@ test('the short mode label reserves a fixed minimum width', () => {
   assert.ok(
     classes.includes('text-center'),
     `窄标签要在固定宽度里居中，圆点才会与其它模式对齐；实际 class：${classes.join(' ')}`,
+  );
+  assert.ok(
+    classes.includes('sm:hidden'),
+    `min-w-12 必须只作用于手机端：丢了 sm:hidden 它就会泄漏到 ≥sm，桌面六种模式不再内容自适应；实际 class：${classes.join(' ')}`,
   );
 });
 
@@ -71,6 +81,10 @@ test('the model label keeps the narrower mobile cap', () => {
   assert.ok(
     !classes.includes('max-w-24'),
     '手机端上限不能退回 96px（max-w-24）—— 那会把「2 行」的门槛推回 374px',
+  );
+  assert.ok(
+    classes.includes('truncate'),
+    `超长模型名要省略号收尾：丢 truncate 它会在 80px 里折成两行；实际 class：${classes.join(' ')}`,
   );
   assert.ok(
     classes.includes('sm:max-w-32'),
