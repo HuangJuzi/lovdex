@@ -30,13 +30,13 @@
 | 待你验收 `pending_acceptance` | 引擎把任务移到 `in_review` | `updated_at` |
 | 等你回答 / 等你确认计划 | 运行停在 AskUserQuestion / ExitPlanMode 闸门，持久化 `waiting_*` | **等待进行中**：registry 记的提问到达时刻（与「等你批准」同路径，见下）；**运行已结束只剩持久化标签**：`updated_at`（即 `waiting_*` 落库的时刻） |
 | **等你批准 `waiting_approval`** | **纯实时**：会话内存 registry 里有待批 tool，后端无任何时刻记录 | **新增**：registry 记录首个 `permission_request` 到达时刻 |
+| 纯逾期 | deadline（`YYYY-MM-DD`，无时刻） | 不显示（「已逾期 N 天」已表达该信息） |
 
 > 实现口径说明：「等你回答 / 等你确认计划 / 等你批准」三者都是 `approvalPending`，
 > `decorate()` 走的是同一条分支 —— 只要审批标记还在，就取 registry 的等待起点。
 > 上表把前两者写成 `updated_at` 是设计初稿的粗分类；实际实现更准确：提问到达的那一刻
 > 正是提醒产生的时刻，而 `updated_at` 只在运行结束、`waiting_*` 落库时才被写。
 > 运行结束后标记消失、时间自然落回 `updated_at`，两种口径在各自的时间窗内都成立。
-| 纯逾期 | deadline（`YYYY-MM-DD`，无时刻） | 不显示（「已逾期 N 天」已表达该信息） |
 
 ## 后端改动
 
@@ -127,3 +127,48 @@ attention_since = approvalPending ? getApprovalRequestedAt(row.session_id) : row
 2. 审批那条在批准 / 拒绝后条目消失（既有行为），重新触发一次待批则时间重新从「刚刚」起算；
 3. 逾期那条不显示时间，仍是「已逾期 N 天」；
 4. 375px 窄屏下一行不被时间挤坏，动作按钮仍可点。
+
+## 实测记录（2026-09-28，重启后端后）
+
+后端重启于 16:17（kill `tsx server/index.js`，supervisor 拉起新进程）。以下均为 live 环境实测，非单元测试结论。
+
+**1. `attention_since` 出现在 API 响应里（接线未漏）**
+
+`GET /api/tasks` 返回 381 行，**381 行全部带 `attention_since`**。这条针对的正是「注入漏了不报错、任何单测都抓不到」的风险 —— 已排除。
+
+**2. 普通信号取 `updated_at`**
+
+当前 7 条收件箱条目的 `attention_since` 与各自 `updated_at` **逐字节相等**（`pending_acceptance`、`failed` 各若干条）。
+
+**3. 审批路径确实走 registry，而不是退化成 `updated_at`**
+
+实测样本（「调查并修复：清理定时任务后…」）：
+
+| 字段 | 值 |
+|---|---|
+| `attention_since` | `2026-09-28T08:19:20.712Z` |
+| `updated_at` | `2026-09-28T08:17:58.000Z` |
+| `started_at` | `2026-09-28T08:08:58.000Z` |
+
+判据有两重，任一即可定案：
+
+- **值不同**：`since`（16:19:20）晚于 `updated_at`（16:17:58）—— 问题是在运行开始之后才提出的，取 `updated_at` 会早报 1 分 22 秒。
+- **精度签名**：`since` 的毫秒位是 `.712`，而所有 SQLite 时间戳都是整秒（`.000`）。只有 registry 的 `new Date().toISOString()` 能产出毫秒 —— 该值是 registry 路径的原生产物，不是落库字段。
+
+**4. 浏览器渲染（headless Chrome，dev 服务器 :5188）**
+
+| 检查 | 结果 |
+|---|---|
+| 每行末尾是相对时间 | 「1 小时前」「3 分钟前」「刚刚」 |
+| 悬停 `title` 是精确时间 | `2026-09-28 15:04` / `16:17` / `16:19` |
+| 界面上还有 task_id 吗 | **没有了**（逐行 `hasUuid` 全 false） |
+| 动作按钮完好 | 「✓ 标记完成 / 打开会话」「↻ 重试 / 🗄 忽略 / 打开会话」 |
+| 375px 窄屏 | 时间 `display: block`、可见；行 `scrollWidth === clientWidth === 375`，**无横向溢出**；动作按钮仍在 |
+
+唯一一条控制台报错是 `WebSocket error: [object Event]` —— headless 环境下的既有噪声，与本次改动无关。
+
+**5. 重启的连带影响（如实记录）**
+
+`reconcileFailedTasks` 在启动时把 4 条断线任务的 `sub_status` 补成 `failed`，`attention_since` 因而等于 16:17:18（重启发现时刻）—— 与「已知取舍」第 2 条的预期一致，即「这条提醒何时产生」= 重启那一刻。这 4 条现在会出现在收件箱「执行失败」组里，属于预期行为而非回归。
+
+**仍未实测的一项**：审批条目的时间是否随等待时间增长（「刚刚」→「1 分钟前」）。本次实测时该条目出现不足一分钟即无法再观察。判据 3 的两重证据已足以证明取值路径正确，但「相对时间随 `now` 重算」这一环未在浏览器里跨分钟验证过；它依赖的是 `TaskBoard` 既有的 60s 定时器，不是新代码。
