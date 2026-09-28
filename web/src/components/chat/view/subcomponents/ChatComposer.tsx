@@ -17,6 +17,7 @@ import type { QueuedDraft } from '../../hooks/useChatComposerState';
 import type { SessionActivity } from '../../../../hooks/useSessionProtection';
 import type { PendingPermissionRequest, PermissionMode } from '../../types/types';
 import type { ProviderModelOption } from '../../../../types/app';
+import type { QuickReply } from '../../hooks/useQuickReplies';
 import {
   PromptInput,
   PromptInputHeader,
@@ -30,7 +31,6 @@ import {
 
 import CommandMenu from './CommandMenu';
 import QuickRepliesMenu from './QuickRepliesMenu';
-import type { QuickReply } from '../../hooks/useQuickReplies';
 import ActivityIndicator from './ActivityIndicator';
 import ImageAttachment from './ImageAttachment';
 import FileAttachment from './FileAttachment';

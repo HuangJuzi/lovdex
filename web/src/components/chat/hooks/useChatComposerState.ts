@@ -31,6 +31,7 @@ import type {
 } from '../types/types';
 import type { Project, ProjectSession, LLMProvider, ProviderModelsCacheInfo } from '../../../types/app';
 import { escapeRegExp } from '../utils/chatFormatting';
+import { buildQuickReplyInput } from '../utils/quickReplyInsert';
 import {
   MAX_FILE_UPLOAD_COUNT,
   buildAttachmentPrefix,
@@ -40,7 +41,6 @@ import {
 import { useFileMentions } from './useFileMentions';
 import { type SlashCommand, useSlashCommands } from './useSlashCommands';
 import { useQuickReplies, type QuickReply } from './useQuickReplies';
-import { buildQuickReplyInput } from '../utils/quickReplyInsert';
 
 interface UseChatComposerStateArgs {
   selectedProject: Project | null;
