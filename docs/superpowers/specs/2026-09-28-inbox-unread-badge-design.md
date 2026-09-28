@@ -117,7 +117,7 @@ info 的灰底刻意与收件箱列表里 info 的图标色块同款 token（`In
 
 | 位置 | 现状 | 改为 |
 |---|---|---|
-| `backend/server/claude-sdk.js:62` `OPERATOR_INBOX_PROMPT` | 「critical 和 warning 会弹窗并计未读角标，info 只进收件箱」 | 说明 info 也计角标（中性灰），只是不弹窗 |
+| `backend/server/claude-sdk.js:62` `OPERATOR_INBOX_PROMPT` | 「severity 取 critical/warning/info：critical 和 warning 会弹窗并计未读角标，info 只进收件箱」 | 「critical 和 warning 会弹窗；三种 severity 都计未读角标（info 为中性灰），info 不弹窗」 |
 | `backend/server/modules/operators/operator.tools.ts:773` `send_notification` 描述 | `(info lands in the inbox only — no toast, no badge)` | `(info lands in the inbox and counts toward the sidebar badge, but never toasts)` |
 | `backend/server/index.js:2245` 注释 | 「进收件箱、不弹窗不计角标」 | 「进收件箱、计角标、不弹窗」 |
 | `docs/superpowers/specs/2026-09-20-inbox-notification-design.md` §5 表 | info 行「侧边栏角标 = 不计入」 | 「计入（中性灰）」+ 一条 2026-09-28 修订说明指向本文档 |
@@ -137,7 +137,7 @@ info 的灰底刻意与收件箱列表里 info 的图标色块同款 token（`In
   - 注入一条 info 未读 → 渲染出文本 `1`，且角标带 `bg-muted`
   - 注入一条 critical 未读 → 角标带 `bg-destructive`
   - 未读为 0 → 不渲染角标（断言 `99+` 之类的数字不出现）
-  用模块级 store 的 `applyInboxEvent` 喂数据后 `renderToStaticMarkup`。注意该文件的 store 是模块级单例，用例之间需重置（`replaceAll` 空数组）。
+  注入走模块级 store 的 `applyInboxEvent({ kind: 'notification_created', payload: row })`；store 是模块级单例，用例之间用 `stubList([])` + `await refreshInbox()` 清空（同 `inboxStoreCatchUp.test.ts:19-21` 的做法，store 没有可用的公开 reset）。
 - 后端无改动、无新测试：`unreadCount()` 本来就含 info，`notifications.db.test.ts:46`「unreadCount 只数未读」已覆盖。
 - 守卫测试 `web/src/design/tokenGuard.test.ts` 会自动校验新增 class 是否用了非法色值 —— 上述三档全部是语义 token，无需豁免。
 
@@ -153,6 +153,6 @@ info 的灰底刻意与收件箱列表里 info 的图标色块同款 token（`In
 
 ## 已知取舍
 
-1. **info 从此会点亮角标。** 高频巡检产生的 info 会让侧栏长期挂着一个非零灰数字。这是用户明确选择的（「全部未读都计数」），并且与后端 unread-count、/inbox 页头早已一致；若不接受，应改的是全局口径而非只留一处例外。缓解手段是把高频巡检的严重度降为 `info` 之外的语义，或在收件箱里及时「全部已读」。
+1. **info 从此会点亮角标。** 高频巡检产生的 info 会让侧栏长期挂着一个非零灰数字。这是用户明确选择的（「全部未读都计数」），并且与后端 unread-count、/inbox 页头早已一致；若不接受，应改的是全局口径而非只留一处例外。缓解手段是减少高频巡检上报 info 的频次，或在收件箱里及时「全部已读」。
 2. **角标颜色只表达「未读里最严重的那条」。** 3 条 info + 1 条 warning 与 1 条 warning 都显示琥珀 `4` / `1`，颜色相同。这是有意的：角标是「有没有事、多急」的一眼信号，精确构成进 /inbox 看。
 3. **两个 `useSyncExternalStore` 订阅同一 store**，每次状态变更触发两次 listener 通知。`listeners` 是 `Set`，两次是两次独立注册的回调，开销与一个订阅返回对象相比可忽略。
