@@ -246,4 +246,24 @@ export function buildQuickReplyInput(current: string, content: string): string
 
 ## 10. 尚未验证的部分
 
-**端到端尚未在运行实例上验证。** 截至写下这段时：后端进程启动于实现之前，`curl http://127.0.0.1:3188/api/quick-replies` 返回 **404**（对照 `/api/scheduled-tasks` 的 401），生产库 `~/.lovdex/data/new-auth.db` 里也还没有 `quick_replies` 表。重启后端后应变为 401，并在浏览器过一遍计划 Task 9 的 14 条手工清单——重点：Escape 关浮层**不触发会话中断**、浮层与斜杠菜单互斥、窄屏 ⚡ 按钮可见、同秒排序按上面记录的预期表现。
+**浏览器交互尚未验证。** 后端重启后已在运行实例上验过接口与建表（见下），但浮层的真实交互（Escape、互斥、窄屏、视觉）还没在浏览器里过一遍。重启后端后 `curl http://127.0.0.1:3188/api/quick-replies` 应从 404 变为 401，并在浏览器过一遍计划 Task 9 的 14 条手工清单——重点：Escape 关浮层**不触发会话中断**、浮层与斜杠菜单互斥、窄屏 ⚡ 按钮可见、同秒排序按上面记录的预期表现。
+
+### 已验（重启后实测）
+
+- 路由已加载：`/api/quick-replies` 返回 401（与 `/api/scheduled-tasks`、`/api/notifications` 一致）。
+- 生产库 `~/.lovdex/data/new-auth.db` 建出了 `quick_replies` 表，列与索引 `idx_quick_replies_last_used` 齐全。
+- 带 JWT 走了一遍完整 CRUD：建（201）、重复内容（409）、空内容（400）、改（200）、打点（200）、删（200）、重复删（404）、列表（`{items:[...]}`，snake_case 字段齐全）。测试数据已清理，库里回到 0 行。
+
+### 新发现：错误响应的形状是错的，且**不是本功能引入的**
+
+实测发现 **所有 `AppError` 的响应体都是 HTML、不是 JSON**：
+
+```
+HTTP/1.1 409 Conflict
+Content-Type: text/html; charset=utf-8
+<!DOCTYPE html>...<pre>AppError: 常用语已存在<br> at normalizeContent (...)</pre>
+```
+
+状态码是对的（409/404/400 都正确），但 body 是 express 默认错误页，还带上服务端堆栈。根因是 `backend/server/index.js` 里模块级的全局错误中间件（**2012 行**）在 `startServer()` 里挂的**所有**路由之前注册（`app.use('/api/notifications', ...)` 在 2261、`app.use('/api/quick-replies', ...)` 在 2266）。Express 按注册顺序匹配，请求先命中这些路由，错误中间件永远轮不到。**`/api/notifications` 同样如此**（实测其 404 也是 HTML），所以这是既有的架构顺序问题，不是本功能引入的。
+
+对用户可见的影响：新建重复常用语时是显式成功路径，浮层依赖后端的中文文案「该常用语已存在」提示（`QuickRepliesMenu` 的 `handleSave` catch 后用 `err.message`），而 `readErrorMessage` 解析 HTML 会失败，退化成兜底的「请求失败（409）」。**功能不会坏，但文案提示会退化。** 修法是把错误中间件移到 `startServer()` 之内、所有路由挂载之后（`server.listen` 之前）。这会影响全后端所有路由的错误响应形状，**属于本功能范围之外的改动，完成前需要单独确认**。

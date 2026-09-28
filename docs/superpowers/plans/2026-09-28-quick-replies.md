@@ -1708,9 +1708,28 @@ Expected: `401`（路由存在且挂了 `authenticateToken`）。若返回 `404`
 
 ---
 
+## 执行记录（2026-09-28）
+
+计划已执行完毕，12 个提交（`010b622`..`0f37924`）。相对计划的偏离与补修：
+
+| 偏离 | 原因 | 提交 |
+|---|---|---|
+| 接口返回 **snake_case**（计划 Task 4 的测试本来就按这个写的，spec §4 才写的 camelCase） | 跟随 notifications / scheduled-tasks 惯例，省掉整层映射 | — |
+| `update()` 改为**先查存在再校验内容** | 原顺序会把「改一个不存在的 id」误报成 409（计划 Task 3 的代码就有这个 bug，Task 4 的契约测试暴露了） | `949b519` |
+| `EditorRow` 按「正在编辑哪一条」加 `key` | 从一条的编辑态直接点另一条的「改」，React 复用同位置组件，textarea 会留住上一条的文本 | `92a88a8` |
+| 新建态编辑行移到列表**最前面**；行尾「改/删」补 `focus:opacity-100` | 前者是 spec §5.3 的要求（计划漏了），后者是键盘可达性 | `e5649be` |
+| `refresh()` 改为**失败抛错** + 刷新代际计数 | 写成功但列表 GET 失败会静默关掉编辑框；`markUsed` 与写操作的并发刷新会乱序 | `651c2a5` |
+| import 顺序调整 | 接线提交按计划给的字面锚点放 import，触发了 `import-x/order` | `198e931` |
+
+计划 Task 9 的**浏览器手工清单（14 条）仍未执行**。后端重启后已验的部分（路由 401、建表、带 JWT 的完整 CRUD）记录在 spec §10。
+
+实测发现的一个**既有**问题（不是本功能引入）：`backend/server/index.js` 的全局错误中间件（2012 行）是模块级的，注册在 `startServer()` 里挂载的所有路由之前，因此 `AppError` 的响应体是 HTML 而非 JSON（状态码正确）。`/api/notifications` 同样如此。影响的只是错误文案的展示（浮层会退化成「请求失败（409）」）。修法是把中间件移到 `startServer()` 内、所有路由之后——**影响全后端，需单独确认后再动**。
+
+---
+
 ## 完成标准
 
-- 后端三个测试文件全绿（26 个用例），前端 `quickReplyInsert.test.ts` 全绿（5 个用例）。
+- 后端三个测试文件全绿（**27** 个用例：db 10 + service 11 + routes 6），前端 `quickReplyInsert.test.ts` 全绿（5 个用例）。
 - backend / web 的 `typecheck` 与 `lint` 相对基线**零新增**。
 - Task 9 的 14 条手工清单逐条确认通过。
-- 两个 commit（后端、前端各一）落在 main 上；提交信息不含 `Co-Authored-By` 署名。
+- 提交落在 main 上；提交信息不含 `Co-Authored-By` 署名。
