@@ -546,6 +546,9 @@ const tasksService = createTasksService(tasksDb, {
     // Reconstruct the board's "等你批准" overlay on load/reconnect by reading
     // which sessions currently have pending tool approvals from the run registry.
     getPendingApprovalSessions: () => chatRunRegistry.listPendingApprovalSessions(),
+    // 收件箱「等你批准」条目显示的产生时刻：registry 记的等待起点。漏了这行不会
+    // 报错（可选注入），只是审批条目永远不显示时间 —— 验收时必须实测这一条。
+    getApprovalRequestedAt: (sessionId) => chatRunRegistry.getApprovalRequestedAt(sessionId),
     // Auto-verdict trigger (T9): when a non-operator session completes, schedule
     // a headless operator run that judges the transcript and writes a summary +
     // verdict onto the task. The is_operator check is the recursion guard —
