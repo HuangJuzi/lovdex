@@ -8,9 +8,9 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import { QUICK_REPLIES_TABLE_SCHEMA_SQL } from '@/modules/database/schema.js';
 import { AppError } from '@/shared/utils.js';
 
-import { createQuickRepliesDb, type QuickReplyRow } from '../quick-replies.db.js';
-import { createQuickRepliesService } from '../quick-replies.service.js';
-import { buildQuickRepliesRouter } from '../quick-replies.routes.js';
+import { createQuickRepliesDb, type QuickReplyRow } from '@/modules/quick-replies/quick-replies.db.js';
+import { createQuickRepliesService } from '@/modules/quick-replies/quick-replies.service.js';
+import { buildQuickRepliesRouter } from '@/modules/quick-replies/quick-replies.routes.js';
 
 async function startServer() {
   const db = new Database(':memory:');

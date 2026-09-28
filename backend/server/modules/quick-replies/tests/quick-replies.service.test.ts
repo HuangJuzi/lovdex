@@ -65,6 +65,12 @@ test('update 目标不存在抛 404', () => {
   assert.throws(() => svc.update('nope', 'A'), throwsWith('QUICK_REPLY_NOT_FOUND', 404));
 });
 
+test('update 目标不存在时优先 404，即使正文与已有条目重复', () => {
+  const svc = makeService();
+  svc.create('A');
+  assert.throws(() => svc.update('nope', 'A'), throwsWith('QUICK_REPLY_NOT_FOUND', 404));
+});
+
 test('use 刷新 last_used_at，目标不存在抛 404', () => {
   const svc = makeService();
   const row = svc.create('继续');
