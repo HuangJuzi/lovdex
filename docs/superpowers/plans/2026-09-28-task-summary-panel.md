@@ -70,6 +70,12 @@ npx tsc --noEmit -p tsconfig.json # 基线：已知有 pre-existing 错误，只
 
 **背景：** 两类提示的超时行为完全不同 —— `AskUserQuestion` / `ExitPlanMode` 是 `timeoutMs: 0`（永远等，见 `backend/server/claude-sdk.js:152`），其余工具默认 60000ms 后**自动拒绝**（`backend/server/config.ts:47`）。所以「会超时的排前面」，且倒计时只给会超时的。
 
+**两处实现约束（写代码前先看）：**
+
+1. 判据必须复用 `web/src/components/chat/utils/autoApproveDeny.ts` 的 `AUTO_APPROVE_INTERACTION_TOOLS`，**不要在本模块再抄一份工具名字面量**。那份声明自己是全前端唯一副本（「其余前端文件一律从这里 import，不要再写第二份字面量」），并且 `autoApproveDeny.test.ts` 有一条对账测试读后端 `auto-approve-policy.ts` 源码比对两边。第三个副本对那条守卫不可见 —— 后端将来加第三个交互型工具时这里会静默漂开。该文件自身零 import，不会形成循环依赖。
+2. 工具名册里**不要**放 `'exit_plan_mode'`。这个拼写匹配不到任何真实工具（SDK 里叫 `ExitPlanMode`，见 `backend/server/claude-sdk.js:322-324`），后端 `TOOLS_REQUIRING_INTERACTION` 里也没有它，所以 `requiresInteraction` 为假 → `timeoutMs: undefined` → 60 秒后照常自动拒绝。把它当成交互类，等于向用户承诺一个不会发生的无限等待，方向是危险的。
+3. 「永不超时」是 **claude provider** 的说法，不是全后端普遍事实：qoder 没有这条分支，`backend/server/qoder-runner.js:190` 对每一个审批都套 `QODER_APPROVAL_TIMEOUT_MS`。注释里要写清这一点。
+
 - [ ] **Step 1: 写失败的测试**
 
 创建 `web/src/components/tasks/panelPermission.test.ts`：
@@ -77,6 +83,8 @@ npx tsc --noEmit -p tsconfig.json # 基线：已知有 pre-existing 错误，只
 ```ts
 import test from 'node:test';
 import assert from 'node:assert/strict';
+
+import type { PendingPermissionRequest } from '../chat/types/types';
 
 import {
   NEVER_TIMES_OUT,
@@ -86,7 +94,6 @@ import {
   remainingSeconds,
   formatCountdown,
 } from './panelPermission';
-import type { PendingPermissionRequest } from '../chat/types/types';
 
 const req = (
   requestId: string,
@@ -104,7 +111,9 @@ const TIMEOUT = 60_000;
 test('交互类工具永不超时', () => {
   assert.equal(isInteractiveTool('AskUserQuestion'), true);
   assert.equal(isInteractiveTool('ExitPlanMode'), true);
-  assert.equal(isInteractiveTool('exit_plan_mode'), true);
+  // 'exit_plan_mode' 匹配不到任何真实工具（SDK 里叫 ExitPlanMode），后端照样给它
+  // 正常超时 —— 当成交互类会承诺一个不会发生的无限等待。
+  assert.equal(isInteractiveTool('exit_plan_mode'), false);
   assert.equal(isInteractiveTool('Bash'), false);
 });
 
@@ -119,6 +128,15 @@ test('timeoutAt：交互类返回 NEVER_TIMES_OUT，普通工具是 receivedAt +
 test('没有 receivedAt 时视为永不超时（宁可让它排在后面，也不要误报倒计时）', () => {
   const noStamp: PendingPermissionRequest = { requestId: 'c', toolName: 'Bash' };
   assert.equal(timeoutAt(noStamp, TIMEOUT), NEVER_TIMES_OUT);
+});
+
+test('无效日期（Invalid Date）也归为永不超时', () => {
+  const bad: PendingPermissionRequest = {
+    requestId: 'd',
+    toolName: 'Bash',
+    receivedAt: new Date(NaN),
+  };
+  assert.equal(timeoutAt(bad, TIMEOUT), NEVER_TIMES_OUT);
 });
 
 test('排序：会超时的排前面，且按超时时刻升序', () => {
@@ -137,6 +155,11 @@ test('排序是纯函数：不改动入参数组', () => {
   const before = list.map((r) => r.requestId);
   sortPendingRequests(list, TIMEOUT);
   assert.deepEqual(list.map((r) => r.requestId), before);
+});
+
+test('两个永不超时的请求保持输入顺序（Infinity - Infinity 的比较结果按规范视为相等）', () => {
+  const list = [req('first', 'AskUserQuestion', NOW), req('second', 'ExitPlanMode', NOW)];
+  assert.deepEqual(sortPendingRequests(list, TIMEOUT).map((r) => r.requestId), ['first', 'second']);
 });
 
 test('remainingSeconds：向上取整，已过期夹到 0', () => {
@@ -169,25 +192,34 @@ Expected: FAIL —— `Cannot find module './panelPermission'`
 创建 `web/src/components/tasks/panelPermission.ts`：
 
 ```ts
+import { AUTO_APPROVE_INTERACTION_TOOLS } from '../chat/utils/autoApproveDeny';
 import type { PendingPermissionRequest } from '../chat/types/types';
 
 /**
- * 交互类工具的审批没有超时 —— 后端把它们的 `timeoutMs` 设为 0，
- * 语义是「无限等待」（见 backend/server/claude-sdk.js 的
- * ``timeoutMs 0 = wait indefinitely (interactive tools)``）。
- * 其余工具到点会被**自动拒绝**，所以它们才是需要抢时间的那一类。
+ * 交互类工具的审批在 **claude provider** 下没有超时 —— `claude-sdk.js` 给它们的
+ * `timeoutMs` 传 0，语义是「无限等待」（见该文件注释
+ * ``timeoutMs 0 = wait indefinitely (interactive tools)``）。其余工具到点会被
+ * **自动拒绝**，所以它们才是需要抢时间的那一类。
+ *
+ * 「永不超时」是 claude provider 的说法，不是全后端的普遍事实：qoder 没有这条
+ * 分支，`qoder-runner.js` 对**每一个**审批都套 `QODER_APPROVAL_TIMEOUT_MS`，
+ * 交互类工具在那边同样会到点被拒。本模块只驱动 claude 通道的倒计时展示。
  */
-const INTERACTIVE_TOOLS: ReadonlySet<string> = new Set([
-  'AskUserQuestion',
-  'ExitPlanMode',
-  'exit_plan_mode',
-]);
-
 /** 哨兵：用 NaN 会被 Math.max / 比较运算悄悄吞掉，用 Infinity 排序自然沉到最后。 */
 export const NEVER_TIMES_OUT = Number.POSITIVE_INFINITY;
 
+/**
+ * 判据直接复用 `autoApproveDeny.ts` 的 `AUTO_APPROVE_INTERACTION_TOOLS`，
+ * 不在这里另抄一份字面量：那份是全前端唯一副本，且与后端
+ * `TOOLS_REQUIRING_INTERACTION` 之间有一条对账测试钉着。抄第二份就绕过了那条
+ * 守卫 —— 后端将来加第三个交互型工具时，这里会**静默**漂开。
+ *
+ * 注意别凭「名字看着像」往回加 `exit_plan_mode`：那个拼写匹配不到任何真实工具
+ * （SDK 里叫 `ExitPlanMode`，见 `claude-sdk.js` 的相关注释），后端照样给它正常
+ * 超时。把它当成交互类，等于向用户承诺一个根本不会发生的无限等待。
+ */
 export function isInteractiveTool(toolName: string): boolean {
-  return INTERACTIVE_TOOLS.has(toolName);
+  return AUTO_APPROVE_INTERACTION_TOOLS.has(toolName);
 }
 
 /**
@@ -243,7 +275,7 @@ export function formatCountdown(seconds: number): string {
 - [ ] **Step 4: 跑测试确认通过**
 
 Run: `cd /mnt/b/workdir/github/lovdex/web && unset TSX_TSCONFIG_PATH && npx tsx --test src/components/tasks/panelPermission.test.ts`
-Expected: PASS —— `# pass 8`、`# fail 0`
+Expected: PASS —— `# pass 10`、`# fail 0`
 
 - [ ] **Step 5: typecheck**
 
