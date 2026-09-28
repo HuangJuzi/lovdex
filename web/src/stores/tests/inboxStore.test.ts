@@ -85,6 +85,23 @@ test('selectUnreadTone：未读里的最高严重度决定色调', () => {
     ]),
     'critical',
   );
+  // 降序输入：last-wins 的实现会在这里返回 'info'
+  assert.equal(
+    selectUnreadTone([
+      n({ notification_id: 'a', severity: 'critical' }),
+      n({ notification_id: 'b', severity: 'warning' }),
+      n({ notification_id: 'c', severity: 'info' }),
+    ]),
+    'critical',
+  );
+  // 单条 warning 在 info 之前，同样堵 last-wins
+  assert.equal(
+    selectUnreadTone([
+      n({ notification_id: 'd', severity: 'warning' }),
+      n({ notification_id: 'e', severity: 'info' }),
+    ]),
+    'warning',
+  );
 });
 
 test('selectUnreadTone：已读的严重项不抬升色调', () => {
