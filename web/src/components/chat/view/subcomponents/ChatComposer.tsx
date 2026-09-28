@@ -572,7 +572,7 @@ export default function ChatComposer({
                     utilities at equal specificity, so merging them onto a single
                     element would be resolved by CSS source order, not by
                     breakpoint — silently wrong at every width. */}
-                <span className="whitespace-nowrap sm:hidden">{t(modeLabelKeys.shortKey)}</span>
+                <span className="min-w-12 whitespace-nowrap text-center sm:hidden">{t(modeLabelKeys.shortKey)}</span>
                 <span className="hidden whitespace-nowrap sm:inline">{t(modeLabelKeys.fullKey)}</span>
               </div>
             </button>
@@ -586,7 +586,7 @@ export default function ChatComposer({
                 title={t('input.changeModel', { defaultValue: 'Change model' })}
               >
                 <Cpu className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                <span className="max-w-24 truncate sm:max-w-32">{modelLabel}</span>
+                <span className="max-w-20 truncate sm:max-w-32">{modelLabel}</span>
               </button>
             )}
 
