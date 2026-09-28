@@ -48,14 +48,31 @@ test('the operator prompt names no tool that no longer exists', () => {
 });
 
 test('the system prompt actually interpolates the tool list and the cleanup paragraph', () => {
-  // 光有名册数组还不够：拼接漏了的话，名册就是死代码。
+  // 光有名册数组还不够：拼接漏了的话，名册就是死代码，而提示里那段文本会退回
+  // 「（ 等）」这种残缺形态 —— 不报错，但模型看不到任何工具名。
+  //
+  // 文件里有**多个** sdkOptions.systemPrompt 赋值（普通会话走 preset 对象那个），
+  // 所以要遍历全部赋值、找出接线了名册的那一个，不能只看第一个匹配。
+  const assignments = [...CLAUDE_SDK_SOURCE.matchAll(/sdkOptions\.systemPrompt = ([\s\S]*?);\n/g)].map((m) => m[1]);
+  assert.ok(assignments.length > 0, 'claude-sdk.js must assign sdkOptions.systemPrompt');
+
+  const wired = assignments.find((expression) => expression.includes('OPERATOR_TOOL_NAMES'));
   assert.ok(
-    /OPERATOR_TOOL_NAMES/.test(CLAUDE_SDK_SOURCE.replace(/const OPERATOR_TOOL_NAMES = [\s\S]*?\.join\('\/'\);/, '')),
-    'the tool list must be interpolated into a prompt string, not just declared',
+    wired,
+    'some sdkOptions.systemPrompt assignment must interpolate OPERATOR_TOOL_NAMES, otherwise the tool list is dead code',
   );
   assert.ok(
-    CLAUDE_SDK_SOURCE.includes("' + OPERATOR_SESSION_CLEANUP_PROMPT + '"),
-    'the session-cleanup paragraph must be interpolated into the prompt',
+    /['"]\s*\+\s*OPERATOR_SESSION_CLEANUP_PROMPT\s*\+\s*['"]/.test(wired),
+    'the session-cleanup paragraph must be interpolated between prompt segments',
   );
-  assert.ok(CLAUDE_SDK_SOURCE.includes('lastActiveBefore'), 'the cleanup paragraph must teach the inactivity filter');
+  assert.ok(wired.includes('OPERATOR_INBOX_PROMPT'), 'the inbox paragraph must still be appended');
+});
+
+test('the cleanup paragraph teaches the filter that makes inactivity cleanup possible', () => {
+  const paragraph = /const OPERATOR_SESSION_CLEANUP_PROMPT =\s*([\s\S]*?);\n/.exec(CLAUDE_SDK_SOURCE);
+  assert.ok(paragraph, 'claude-sdk.js must declare OPERATOR_SESSION_CLEANUP_PROMPT');
+  const text = paragraph[1];
+  for (const anchor of ['list_sessions', 'lastActiveBefore', 'delete_session', 'delete_task', 'cascade']) {
+    assert.ok(text.includes(anchor), `the cleanup paragraph must mention ${anchor}`);
+  }
 });
