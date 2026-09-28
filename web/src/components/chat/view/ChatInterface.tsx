@@ -235,6 +235,8 @@ function ChatInterface({
     closeCommandModal,
     showCostModal,
     showModelsModal,
+    quickReplies,
+    handleInsertQuickReply,
   } = useChatComposerState({
     selectedProject,
     selectedSession,
@@ -535,6 +537,13 @@ function ChatInterface({
           onShowModelPicker={showModelsModal}
           slashCommandsCount={slashCommandsCount}
           onToggleCommandMenu={handleToggleCommandMenu}
+          quickReplyItems={quickReplies.items}
+          isQuickRepliesLoading={quickReplies.isLoading}
+          quickRepliesError={quickReplies.error}
+          onCreateQuickReply={quickReplies.create}
+          onUpdateQuickReply={quickReplies.update}
+          onRemoveQuickReply={quickReplies.remove}
+          onInsertQuickReply={handleInsertQuickReply}
           hasInput={Boolean(input.trim()) || attachedFiles.length > 0 || attachedImages.length > 0}
           onClearInput={handleClearInput}
           onSubmit={handleSubmit}

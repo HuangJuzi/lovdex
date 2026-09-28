@@ -139,6 +139,7 @@
     "currentMode": "Permission mode: {{mode}}",
     "showAllCommands": "Show all commands",
     "clearInput": "Clear input",
+    "quickReplies": "Quick replies",
     "scrollToBottom": "Scroll to bottom",
     "queue": {
       "sendNext": "Queue next message",

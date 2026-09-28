@@ -39,6 +39,8 @@ import {
 
 import { useFileMentions } from './useFileMentions';
 import { type SlashCommand, useSlashCommands } from './useSlashCommands';
+import { useQuickReplies, type QuickReply } from './useQuickReplies';
+import { buildQuickReplyInput } from '../utils/quickReplyInsert';
 
 interface UseChatComposerStateArgs {
   selectedProject: Project | null;
@@ -239,6 +241,9 @@ export function useChatComposerState({
   const [forkOverlayOpen, setForkOverlayOpen] = useState(false);
   const [rewindOverlayOpen, setRewindOverlayOpen] = useState(false);
   const [commandModalPayload, setCommandModalPayload] = useState<CommandModalPayload | null>(null);
+
+  // 会话级单实例：列表与写操作只在这里持有一份，不是每个按钮一个实例。
+  const quickReplies = useQuickReplies();
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const inputHighlightRef = useRef<HTMLDivElement>(null);
@@ -1272,6 +1277,26 @@ export function useChatComposerState({
     setIsTextareaExpanded(false);
   }, [resetCommandMenuState]);
 
+  /**
+   * 点一条常用语：填进输入框、关浮层、光标移到末尾、顺手打一次点。
+   * 刻意不自动发送——用户可能要改完再 Ctrl+Enter。
+   * setInput 是异步的，inputValueRef 必须同步更新，否则紧接着的 handleSubmit 会读到旧值。
+   */
+  const handleInsertQuickReply = useCallback((item: QuickReply) => {
+    const next = buildQuickReplyInput(inputValueRef.current, item.content);
+    setInput(next);
+    inputValueRef.current = next;
+    resetCommandMenuState();
+    // 打点不 await：点选要零延迟，顺序错了下一次 GET 会纠正。
+    quickReplies.markUsed(item.quick_reply_id);
+    requestAnimationFrame(() => {
+      const textarea = textareaRef.current;
+      if (!textarea) return;
+      textarea.focus();
+      textarea.setSelectionRange(next.length, next.length);
+    });
+  }, [quickReplies, resetCommandMenuState]);
+
   const handleAbortSession = useCallback(() => {
     if (!canAbortSession) {
       return;
@@ -1402,5 +1427,7 @@ export function useChatComposerState({
     closeCommandModal,
     showCostModal,
     showModelsModal,
+    quickReplies,
+    handleInsertQuickReply,
   };
 }

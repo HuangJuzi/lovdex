@@ -11,7 +11,7 @@ import type {
   RefObject,
   TouchEvent,
 } from 'react';
-import { ImageIcon, MessageSquareIcon, XIcon, Loader2, ChevronDown, Check, ArrowUpIcon, Cpu, Paperclip } from 'lucide-react';
+import { ImageIcon, MessageSquareIcon, XIcon, Loader2, ChevronDown, Check, ArrowUpIcon, Cpu, Paperclip, Zap } from 'lucide-react';
 
 import type { QueuedDraft } from '../../hooks/useChatComposerState';
 import type { SessionActivity } from '../../../../hooks/useSessionProtection';
@@ -29,6 +29,8 @@ import {
 } from '../../../../shared/view/ui';
 
 import CommandMenu from './CommandMenu';
+import QuickRepliesMenu from './QuickRepliesMenu';
+import type { QuickReply } from '../../hooks/useQuickReplies';
 import ActivityIndicator from './ActivityIndicator';
 import ImageAttachment from './ImageAttachment';
 import FileAttachment from './FileAttachment';
@@ -75,6 +77,13 @@ interface ChatComposerProps {
   onShowModelPicker?: () => void;
   slashCommandsCount: number;
   onToggleCommandMenu: () => void;
+  quickReplyItems: QuickReply[];
+  isQuickRepliesLoading: boolean;
+  quickRepliesError: string | null;
+  onCreateQuickReply: (content: string) => Promise<void>;
+  onUpdateQuickReply: (quickReplyId: string, content: string) => Promise<void>;
+  onRemoveQuickReply: (quickReplyId: string) => Promise<void>;
+  onInsertQuickReply: (item: QuickReply) => void;
   hasInput: boolean;
   onClearInput: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement> | MouseEvent<HTMLButtonElement> | TouchEvent<HTMLButtonElement>) => void;
@@ -185,8 +194,38 @@ export default function ChatComposer({
   placeholder,
   isTextareaExpanded,
   sendByCtrlEnter,
+  quickReplyItems,
+  isQuickRepliesLoading,
+  quickRepliesError,
+  onCreateQuickReply,
+  onUpdateQuickReply,
+  onRemoveQuickReply,
+  onInsertQuickReply,
 }: ChatComposerProps) {
   const { t } = useTranslation('chat');
+  const quickReplyButtonRef = useRef<HTMLButtonElement>(null);
+  const [isQuickRepliesOpen, setIsQuickRepliesOpen] = useState(false);
+
+  // 两个工具栏浮层互斥：打开一个就关掉另一个，否则会叠在一起。
+  const handleToggleQuickReplies = useCallback(() => {
+    const next = !isQuickRepliesOpen;
+    if (next) {
+      onCloseCommandMenu();
+    }
+    setIsQuickRepliesOpen(next);
+  }, [isQuickRepliesOpen, onCloseCommandMenu]);
+
+  useEffect(() => {
+    if (isCommandMenuOpen) {
+      setIsQuickRepliesOpen(false);
+    }
+  }, [isCommandMenuOpen]);
+
+  const handleSelectQuickReply = useCallback((item: QuickReply) => {
+    onInsertQuickReply(item);
+    setIsQuickRepliesOpen(false);
+  }, [onInsertQuickReply]);
+
   const commandMenuPosition = useMemo(() => {
     if (!isCommandMenuOpen) {
       return { top: 0, left: 16, bottom: 90 };
@@ -369,6 +408,20 @@ export default function ChatComposer({
           isOpen={isCommandMenuOpen}
           frequentCommands={frequentCommands}
         />
+
+        {isQuickRepliesOpen && (
+          <QuickRepliesMenu
+            items={quickReplyItems}
+            isLoading={isQuickRepliesLoading}
+            error={quickRepliesError}
+            anchorRef={quickReplyButtonRef}
+            onClose={() => setIsQuickRepliesOpen(false)}
+            onSelect={handleSelectQuickReply}
+            onCreate={onCreateQuickReply}
+            onUpdate={onUpdateQuickReply}
+            onRemove={onRemoveQuickReply}
+          />
+        )}
 
         <PromptInput
           onSubmit={onSubmit as (event: FormEvent<HTMLFormElement>) => void}
@@ -597,6 +650,16 @@ export default function ChatComposer({
             )}
 
             <TokenUsageSummary usage={tokenBudget} onClick={onShowTokenUsage} />
+
+            <PromptInputButton
+              ref={quickReplyButtonRef}
+              tooltip={{ content: t('input.quickReplies', { defaultValue: 'Quick replies' }) }}
+              onClick={handleToggleQuickReplies}
+              aria-expanded={isQuickRepliesOpen}
+              aria-haspopup="dialog"
+            >
+              <Zap />
+            </PromptInputButton>
 
             <PromptInputButton
               tooltip={{ content: t('input.showAllCommands') }}
