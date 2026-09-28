@@ -295,6 +295,10 @@ function decorateAndRecordEvent(run: ChatRun, message: NormalizedMessage): Norma
     if (typeof message.requestId === 'string' && message.requestId) {
       approvalRequestToSession.delete(message.requestId);
       approvalRequestToTool.delete(message.requestId);
+      // Same rule as takeApprovalRequestSession: a cancelled request is one the
+      // human can no longer decide, so the wait may be over. If another request
+      // is still pending the start is kept (same wait segment).
+      forgetApprovalStartIfIdle(run.appSessionId);
     }
     taskLinkage?.onSessionApproval(run.appSessionId, false);
   }

@@ -235,3 +235,34 @@ test('getApprovalRequestedAt is null for an unknown session and after clearAll',
   chatRunRegistry.clearAll();
   assert.equal(chatRunRegistry.getApprovalRequestedAt('app-ap-6'), null);
 });
+
+test('a cancelled request ends the wait segment', (t) => {
+  t.after(() => chatRunRegistry.clearAll());
+  const run = startApprovalRun('app-ap-7');
+  assert.ok(run);
+  run.writer.send({ kind: 'permission_request', requestId: 'req-a', provider: 'claude', sessionId: 'app-ap-7' });
+  assert.ok(chatRunRegistry.getApprovalRequestedAt('app-ap-7'));
+
+  run.writer.send({ kind: 'permission_cancelled', requestId: 'req-a', provider: 'claude', sessionId: 'app-ap-7' });
+  assert.equal(
+    chatRunRegistry.getApprovalRequestedAt('app-ap-7'),
+    null,
+    'a cancelled request can never be answered, so the wait is over',
+  );
+});
+
+test('cancelling one of two pending requests keeps the wait start', (t) => {
+  t.after(() => chatRunRegistry.clearAll());
+  const run = startApprovalRun('app-ap-8');
+  assert.ok(run);
+  run.writer.send({ kind: 'permission_request', requestId: 'req-a', provider: 'claude', sessionId: 'app-ap-8' });
+  const startedAt = chatRunRegistry.getApprovalRequestedAt('app-ap-8');
+  run.writer.send({ kind: 'permission_request', requestId: 'req-b', provider: 'claude', sessionId: 'app-ap-8' });
+
+  run.writer.send({ kind: 'permission_cancelled', requestId: 'req-a', provider: 'claude', sessionId: 'app-ap-8' });
+  assert.equal(
+    chatRunRegistry.getApprovalRequestedAt('app-ap-8'),
+    startedAt,
+    'req-b is still pending, so the wait never ended',
+  );
+});
