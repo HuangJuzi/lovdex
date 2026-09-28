@@ -2232,32 +2232,153 @@ git commit -m "feat(tasks): render a single pending approval as a dispatchable c
 
 **Files:**
 - Create: `web/src/components/tasks/PendingPromptList.tsx`
+- Create: `web/src/components/tasks/pendingPromptQueue.ts`（纯函数，见下）
 - Test: `web/src/components/tasks/PendingPromptList.test.tsx`
+- Test: `web/src/components/tasks/pendingPromptQueue.test.ts`
 
 **背景：** 队列长度 > 1 才渲染队列条（单条时更干净）；只渲染当前那一条的完整卡片，其余显示为队列步骤。
 
+> **与初稿的偏离（已按实测更正，见本段末尾的证据）：** 初稿把「谁是当前」做成了组件内
+> 的 `useState` 下标 + clamp effect，并在 `handleRespond` 里乐观推进。那台状态机是**死的**：
+> `setIndex` 只在 `handleRespond` 里被调用，而它读的 `previous` 恒为最初那个 0，于是
+> `Math.min(previous, sorted.length - 2)` 在长度 ≥2 时恒等于 0 —— 没有任何东西能推动下标，
+> 「当前」永远是队头。而真正让队列前移的是**父级**：`useSessionPendingRequests.respond`
+> 已把答掉的那条从 `pendingRequests` 里摘掉（乐观移除，`useSessionPendingRequests.ts:183`），
+> 父级重渲染即新的入参，队头自然换人。因此本任务改为**从入参直接派生**：`current = sorted[0]`，
+> 无本地状态。这既与那台下标的**唯一可达行为**等价，又不会在父级改主意（后端纠正）时与真源错位。
+> 决定逻辑随之全部移进 `pendingPromptQueue.ts`（纯函数），因为 web 测试无 DOM、无法驱动重渲染，
+> 留在组件里就测不到 —— 与 Task 4 把点击语义移进 `pendingPromptAnswers.ts` 同一条纪律。
+>
+> **证据：** 初稿的测试 5 与初稿实现一起跑是 **fail 1 / pass 4**。它的断言
+> `cmdIndex < html.indexOf('还有 2 件事等你') || cmdIndex < questionIndex` 用了**恒真**的
+> 后半段（`echo b1` 只可能是卡片里那条 `Bash` 命令、题面只在队列行），与「当前项排第一」
+> 毫无关系；而前半段在同一渲染里为 false。也就是说：那条断言即使把排序整个删掉也照样过，
+> 只有它自己那份实现能让它挂。见下方 Step 1 里重写的断言。
+
 - [ ] **Step 1: 写失败的测试**
+
+创建 `web/src/components/tasks/pendingPromptQueue.test.ts`：
+
+```ts
+import test from 'node:test';
+import assert from 'node:assert/strict';
+
+import type { PendingPermissionRequest } from '../chat/types/types';
+
+import { pendingQueueView, summarizePendingRequest } from './pendingPromptQueue';
+
+const NOW = 1_700_000_000_000;
+const TIMEOUT = 60_000;
+
+const ask = (id: string, question = `问题 ${id}`): PendingPermissionRequest => ({
+  requestId: id,
+  toolName: 'AskUserQuestion',
+  receivedAt: new Date(NOW),
+  input: { questions: [{ question, options: [{ label: '好' }] }] },
+});
+
+/** 已过去 `agoMs` 的普通工具 —— 剩余时间就是 `TIMEOUT - agoMs`。 */
+const bash = (id: string, agoMs: number): PendingPermissionRequest => ({
+  requestId: id,
+  toolName: 'Bash',
+  receivedAt: new Date(NOW - agoMs),
+  input: { command: `echo ${id}` },
+});
+
+const view = (requests: PendingPermissionRequest[]) => pendingQueueView(requests, TIMEOUT);
+
+test('零条待办：current 为 null，且不显示队列条', () => {
+  const result = view([]);
+  assert.equal(result.current, null);
+  assert.equal(result.showQueue, false);
+});
+
+test('单条待办：不显示队列条（队里只有一条不是队）', () => {
+  const result = view([ask('a1')]);
+  assert.equal(result.current?.requestId, 'a1');
+  assert.equal(result.showQueue, false);
+});
+
+test('两条待办：显示队列条', () => {
+  assert.equal(view([ask('a1'), ask('a2')]).showQueue, true);
+});
+
+// 这一条钉的是**当前项的推导方式**：它是排序后的队头，不是入参数组的第一项，
+// 也不是最后一项。曾经的计划稿用「入参下标 + clamp effect」来推当前项，下标
+// 恒为 0（没有任何交互能推动它），那套状态机是死的；队头推导既等价又不需要
+// 任何状态，队列前移也就不用额外代码。
+test('current 是队头（会超时的排最前），不是数组第一项、也不是最后一项', () => {
+  const result = view([ask('a1'), bash('b1', 50_000)]);
+  assert.equal(result.sorted[0].requestId, 'b1');
+  assert.equal(result.sorted[1].requestId, 'a1');
+  assert.equal(result.current?.requestId, 'b1');
+});
+
+// 「答完一条自动前移」不需要任何本地状态：父级是唯一真源，它把答掉的那条从
+// 数组里摘掉之后，队头自然换了人。这里模拟的就是父级摘完之后的入参。
+test('父级摘掉已答的那条后，队头前移；只剩一条时队列条随之消失', () => {
+  const before = view([ask('a1'), bash('b1', 50_000)]);
+  assert.equal(before.current?.requestId, 'b1');
+
+  const after = view([ask('a1')]);
+  assert.equal(after.current?.requestId, 'a1');
+  assert.equal(after.showQueue, false);
+});
+
+test('摘要：AskUserQuestion 用第一道题面', () => {
+  assert.equal(summarizePendingRequest(ask('a1', 'AppContent 的订阅怎么处理？')), '回答「AppContent 的订阅怎么处理？」');
+});
+
+// 输入形状不可信时给一句兜底，别把 undefined / 空串拼进界面。
+test('摘要：AskUserQuestion 的 input 形状不对时兜底，不抛也不拼 undefined', () => {
+  const malformed: PendingPermissionRequest[] = [
+    { ...ask('a1'), input: undefined },
+    { ...ask('a2'), input: {} },
+    { ...ask('a3'), input: { questions: [] } },
+    { ...ask('a4'), input: { questions: [{ options: [] }] } },
+    { ...ask('a5'), input: { questions: 'not-an-array' } },
+    { ...ask('a6'), input: { questions: [{}] } },
+  ];
+  for (const request of malformed) {
+    assert.equal(summarizePendingRequest(request), '回答一个问题');
+  }
+});
+
+test('摘要：计划工具的两个拼写都给同一句话', () => {
+  const plan = { requestId: 'p1', toolName: 'ExitPlanMode', receivedAt: new Date(NOW), input: { plan: '1. 收紧 store 订阅' } };
+  const snake = { ...plan, requestId: 'p2', toolName: 'exit_plan_mode' };
+  assert.equal(summarizePendingRequest(plan), '确认它写的计划');
+  assert.equal(summarizePendingRequest(snake), '确认它写的计划');
+});
+
+test('摘要：普通工具带上工具名', () => {
+  assert.equal(summarizePendingRequest(bash('b1', 0)), '允许 Bash 执行');
+});
+```
 
 创建 `web/src/components/tasks/PendingPromptList.test.tsx`：
 
 ```tsx
 import test from 'node:test';
 import assert from 'node:assert/strict';
+
 import { renderToStaticMarkup } from 'react-dom/server';
 
-import { PendingPromptList } from './PendingPromptList';
 import type { PendingPermissionRequest } from '../chat/types/types';
+
+import { PendingPromptList } from './PendingPromptList';
 
 const NOW = 1_700_000_000_000;
 const TIMEOUT = 60_000;
 
-const ask = (id: string): PendingPermissionRequest => ({
+const ask = (id: string, question = `问题 ${id}`): PendingPermissionRequest => ({
   requestId: id,
   toolName: 'AskUserQuestion',
   receivedAt: new Date(NOW),
-  input: { questions: [{ question: `问题 ${id}`, options: [{ label: '好' }] }] },
+  input: { questions: [{ question, options: [{ label: '好' }] }] },
 });
 
+/** 已过去 `agoMs` 的普通工具 —— 剩余时间就是 `TIMEOUT - agoMs`。 */
 const bash = (id: string, agoMs: number): PendingPermissionRequest => ({
   requestId: id,
   toolName: 'Bash',
@@ -2270,14 +2391,17 @@ const render = (requests: PendingPermissionRequest[]): string =>
     <PendingPromptList requests={requests} nowMs={NOW} timeoutMs={TIMEOUT} onRespond={() => {}} />,
   );
 
-test('零条待办：整个待办区不渲染', () => {
+/** 完整卡片的壳体类名（来自 PendingPromptCard 的 `cardShell`）。 */
+const CARD_SHELL = 'border-info/40';
+
+test('零条待办：整个待办区不渲染（连空壳都不留）', () => {
   assert.equal(render([]), '');
 });
 
-test('单条待办：不渲染队列条（保持面板干净）', () => {
-  const html = render([ask('a')]);
+test('单条待办：渲染卡片，但不渲染队列条（一条的「队」是噪音）', () => {
+  const html = render([ask('a1')]);
   assert.doesNotMatch(html, /还有 \d+ 件事等你/);
-  assert.match(html, /问题 a/);
+  assert.match(html, /问题 a1/);
 });
 
 test('两条待办：渲染队列条并给出总数', () => {
@@ -2285,39 +2409,176 @@ test('两条待办：渲染队列条并给出总数', () => {
   assert.match(html, /还有 2 件事等你/);
 });
 
-test('多条时只完整渲染当前那一条，其余以步骤呈现', () => {
-  const html = render([bash('b1', 50_000), ask('a1')]);
-  // 会超时的那条（b1）排在最前，它才是「当前」。
+// 「只完整渲染当前那一条」的判据必须是**卡片独有的**内容，不能拿队列行也会
+// 打印的题面/命令原文来断言 —— 那些字符串在队列行里也出现，断言恒真。
+// 卡片壳体只该出现一次，非当前项的那张不该存在。
+test('两条待办：只完整渲染当前那一条卡片，其余不在卡片形态里出现', () => {
+  const html = render([ask('a1'), bash('b1', 50_000)]);
+
+  assert.equal(html.split(CARD_SHELL).length - 1, 1);
+
+  // 当前项是 b1（会超时，排最前）—— 卡片里是它的工具授权形态。
+  assert.match(html, /要执行一个写操作/);
   assert.match(html, /echo b1/);
-  assert.match(html, /问题 a1/);
+
+  // a1 只在队列行里以短描述出现，绝不以卡片形态出现。
+  assert.match(html, /回答「问题 a1」/);
+  assert.doesNotMatch(html, /它在等你回答/);
 });
 
-test('队列条里会超时的排在前面', () => {
+test('当前项是会超时的那条，且它的倒计时出现在卡片里', () => {
   const html = render([ask('a1'), bash('b1', 50_000)]);
-  const cmdIndex = html.indexOf('echo b1');
-  const questionIndex = html.indexOf('问题 a1');
-  assert.ok(cmdIndex >= 0 && questionIndex >= 0);
-  // 当前卡片（含命令原文）出现在队列步骤之前。
-  assert.ok(cmdIndex < html.indexOf('还有 2 件事等你') || cmdIndex < questionIndex);
+
+  // 卡片的 TimeoutHint 用 formatCountdown；剩余 10 秒 → 紧迫措辞。
+  assert.match(html, /即将自动拒绝（10 秒）/);
+  // 永不超时的 a1 在队列行里说「不会超时」。
+  assert.match(html, /不会超时/);
+});
+
+test('队列行按超时时刻升序：越快到期排越前', () => {
+  const html = render([ask('a1'), bash('b1', 50_000), bash('b2', 10_000)]);
+
+  // b1 已过 50 秒 → 只剩 10 秒；b2 已过 10 秒 → 还剩 50 秒。
+  // 升序即「b1 在前」：10 秒那行必须早于 50 秒那行。
+  const ten = html.indexOf('即将自动拒绝（10 秒）');
+  const fifty = html.indexOf('50 秒后自动拒绝');
+  assert.ok(ten >= 0 && fifty >= 0);
+  assert.ok(ten < fifty, '越快到期的排在前面');
+});
+
+test('永不超时的请求沉到队底，不会顶掉会超时的当前项', () => {
+  const html = render([ask('a1'), bash('b1', 50_000)]);
+
+  // 当前卡片是 b1，不是 a1。
+  assert.match(html, /echo b1/);
+  assert.equal(html.split(CARD_SHELL).length - 1, 1);
+  assert.doesNotMatch(html, /它在等你回答/);
+});
+
+test('队列行的摘要：普通工具带工具名，交互类工具不等于卡片文案', () => {
+  const html = render([ask('a1'), ask('a2')]);
+
+  // 两条都是 AskUserQuestion、都不超时 —— 队头是入参第一条（稳定排序）。
+  assert.match(html, /回答「问题 a1」/);
+  assert.match(html, /回答「问题 a2」/);
+  // 卡片只画一条。
+  assert.equal(html.split(CARD_SHELL).length - 1, 1);
+});
+
+test('未知工具名不崩，队列行退化为通用摘要', () => {
+  const html = render([
+    bash('b1', 0),
+    { requestId: 'u1', toolName: 'UnknownTool', receivedAt: new Date(NOW), input: {} },
+  ]);
+
+  assert.match(html, /允许 UnknownTool 执行/);
 });
 ```
 
 - [ ] **Step 2: 跑测试确认失败**
 
-Run: `cd /mnt/b/workdir/github/lovdex/web && unset TSX_TSCONFIG_PATH && npx tsx --test src/components/tasks/PendingPromptList.test.tsx`
-Expected: FAIL —— `Cannot find module './PendingPromptList'`
+Run: `cd /mnt/b/workdir/github/lovdex/web && unset TSX_TSCONFIG_PATH && npx tsx --test src/components/tasks/PendingPromptList.test.tsx src/components/tasks/pendingPromptQueue.test.ts`
+Expected: FAIL —— `Cannot find module './PendingPromptList'`（或 `./pendingPromptQueue`）
 
 - [ ] **Step 3: 写最小实现**
+
+创建 `web/src/components/tasks/pendingPromptQueue.ts`：
+
+```ts
+/**
+ * 待办队列的派生：谁是当前那一条、要不要画队列条、每行写什么。
+ *
+ * 纯函数，无 React 依赖 —— 本仓库的 web 测试没有 DOM、不能模拟点击，任何留在
+ * 组件 `onClick` / 组件状态里的决定都测不到。Task 4 的点击语义就是这么被逼进
+ * `pendingPromptAnswers.ts` 的，这里同理。
+ *
+ * **当前项的推导**：队头（排序后的第一项），不引入任何下标状态。
+ * 曾经的计划稿用「入参下标 + clamp effect」：下标从一个从不变化的状态出发，
+ * 只有 `handleRespond` 里那行乐观推进动过它 —— 但乐观推进读的又是同一个
+ * `index`，它恒为 0，所以整台状态机是死的，队头永远是「当前」。而真正让队列
+ * 前移的是**父级**：`useSessionPendingRequests.respond` 已把答掉的那条从
+ * `pendingRequests` 里摘掉（乐观移除），父级重渲染即新的入参，队头自然换人。
+ * 派生队头既是同一个结果，又不必假设「本地状态」与「父级真源」不会打架 ——
+ * 摘除由父级负责时，本地下标还会在父级改主意（比如后端纠正）时错位。
+ */
+
+import type { PendingPermissionRequest } from '../chat/types/types';
+
+import { formatCountdown, remainingSeconds, sortPendingRequests } from './panelPermission';
+
+/**
+ * 计划类工具的**分派**拼写。这与 `PendingPromptCard.tsx` 里的 `PLAN_TOOL_NAMES`
+ * 是同一对：SDK 实际发的是 `ExitPlanMode`，`exit_plan_mode` 是历史/别处的拼写，
+ * 前端一律两种都认（见该卡片、`ToolRenderer.tsx:50`、`PlanDisplay.tsx:43`）。
+ * 它不是「交互型工具」契约 —— 那份名单在 `autoApproveDeny.ts`，与此无关，
+ * 别把两者并成一个。
+ */
+const PLAN_TOOL_NAMES: ReadonlySet<string> = new Set(['ExitPlanMode', 'exit_plan_mode']);
+
+export interface PendingQueueView {
+  /** 排序后的队列：会超时的在前（超时时刻升序），永不超时的沉底。 */
+  sorted: PendingPermissionRequest[];
+  /** 当前要完整渲染的那一条；空队为 null。 */
+  current: PendingPermissionRequest | null;
+  /** 队列条只在**两条及以上**时画：一条的「队」是噪音。 */
+  showQueue: boolean;
+}
+
+/** 把一队待办折成「当前项 + 要不要画队列条」。 */
+export function pendingQueueView(
+  requests: readonly PendingPermissionRequest[],
+  timeoutMs: number,
+): PendingQueueView {
+  const sorted = sortPendingRequests(requests, timeoutMs);
+  return {
+    sorted,
+    current: sorted[0] ?? null,
+    showQueue: sorted.length > 1,
+  };
+}
+
+/**
+ * 队列里一行的短描述（非当前项用）。
+ *
+ * `input` 的形状不可信（它一路从后端帧透传过来），所以每一层都当可能是任意值
+ * 来收：拿不到题面就退化成「回答一个问题」，不把 `undefined` 或空串拼进界面。
+ */
+export function summarizePendingRequest(request: PendingPermissionRequest): string {
+  if (request.toolName === 'AskUserQuestion') {
+    const input = request.input as { questions?: unknown } | undefined;
+    const questions = Array.isArray(input?.questions) ? input.questions : [];
+    const first = (questions[0] as { question?: unknown } | undefined)?.question;
+    return typeof first === 'string' && first ? `回答「${first}」` : '回答一个问题';
+  }
+  if (PLAN_TOOL_NAMES.has(request.toolName)) {
+    return '确认它写的计划';
+  }
+  return `允许 ${request.toolName} 执行`;
+}
+
+/**
+ * 队列一行的剩余时间文案。永不超时的请求与卡片口径一致说「不会超时」——
+ * 这里刻意不复用卡片的 `TimeoutHint`（那是带边框的胶囊，塞进 11px 的行里会撑破），
+ * 但文案复用 `formatCountdown`，免得「自动拒绝」的措辞分头漂开。
+ */
+export function pendingTimeText(
+  request: PendingPermissionRequest,
+  nowMs: number,
+  timeoutMs: number,
+): string {
+  const seconds = remainingSeconds(request, nowMs, timeoutMs);
+  return seconds === null ? '不会超时' : formatCountdown(seconds);
+}
+```
 
 创建 `web/src/components/tasks/PendingPromptList.tsx`：
 
 ```tsx
-import { useEffect, useMemo, useState } from 'react';
-
 import type { PendingPermissionRequest } from '../chat/types/types';
+
 import { PendingPromptCard } from './PendingPromptCard';
+import { pendingQueueView, pendingTimeText, summarizePendingRequest } from './pendingPromptQueue';
 import type { PendingDecision } from './useSessionPendingRequests';
-import { remainingSeconds, sortPendingRequests } from './panelPermission';
 
 export interface PendingPromptListProps {
   requests: PendingPermissionRequest[];
@@ -2326,91 +2587,65 @@ export interface PendingPromptListProps {
   onRespond: (requestId: string, decision: PendingDecision) => void;
 }
 
-/** 队列里一条待办的短描述，用于非当前项。 */
-function summarize(request: PendingPermissionRequest): string {
-  if (request.toolName === 'AskUserQuestion') {
-    const input = request.input as { questions?: Array<{ question?: string }> } | undefined;
-    const first = input?.questions?.[0]?.question;
-    return first ? `回答「${first}」` : '回答一个问题';
-  }
-  if (request.toolName === 'ExitPlanMode' || request.toolName === 'exit_plan_mode') {
-    return '确认它写的计划';
-  }
-  return `允许 ${request.toolName} 执行`;
-}
-
 /**
- * 待办区：串行队列，一次完整显示一条。
+ * 待办区：一个会话的待办队列。
  *
- * 之所以是队列而不是并排的卡片堆：一个任务对应一个会话，而后端的
- * `canUseTool` 本就要等这一条答复完才会走到下一个工具，所以实际几乎
- * 总是只有一条。真出现并发时排成一队逐个答，既不会挤满面板，
- * 也不会漏掉任何一条。
+ * 为什么是队列、一次只完整显示一条：一个任务对应一个会话，而后端的
+ * `canUseTool` 本就要等这一条答复完才会走到下一个工具（见 `panelPermission.ts`
+ * 文件头），所以实际几乎总是只有一条。真出现并发时排成一队逐个答，既不会
+ * 挤满 428px 面板，也不会漏掉任何一条。
  *
- * 排序键是「超时时刻」——会超时的（普通工具，60 秒后自动拒绝）排在
- * 永远等的（AskUserQuestion / ExitPlanMode）前面。
+ * 排序键是「超时时刻」——会超时的（普通工具，60 秒后自动拒绝）排在永远等的
+ * （AskUserQuestion / ExitPlanMode）前面，因为只有前者会自己消失。
+ *
+ * **本组件不含任何决定逻辑**：谁是当前、要不要画队列条、每行写什么，全在
+ * `pendingPromptQueue.ts`（有 node:test 覆盖）。本仓库的 web 测试没有 DOM、
+ * 不能模拟点击也没法驱动重渲染，任何留在组件状态里的「哪条是当前」都测不到。
+ * 组件只负责接线与样式，这也是它能被 `renderToStaticMarkup` 完全钉住的原因。
  */
 export function PendingPromptList({ requests, nowMs, timeoutMs, onRespond }: PendingPromptListProps) {
-  const sorted = useMemo(() => sortPendingRequests(requests, timeoutMs), [requests, timeoutMs]);
+  const { sorted, current, showQueue } = pendingQueueView(requests, timeoutMs);
 
-  // 当前项被答掉后队列会前移；用一个显式下标而不是只看 sorted[0]，
-  // 这样「答完第一条、第二条自动升为当前」不需要额外状态。
-  const [index, setIndex] = useState(0);
-  useEffect(() => {
-    if (index >= sorted.length) {
-      setIndex(0);
-    }
-  }, [sorted.length, index]);
-
-  if (sorted.length === 0) {
+  if (!current) {
     return null;
   }
-
-  const currentIndex = Math.min(index, sorted.length - 1);
-  const current = sorted[currentIndex];
-  const showQueue = sorted.length > 1;
-
-  const handleRespond = (requestId: string, decision: PendingDecision) => {
-    onRespond(requestId, decision);
-    // 乐观前进到下一条。
-    setIndex((previous) => Math.min(previous, Math.max(0, sorted.length - 2)));
-  };
 
   return (
     <div className="flex flex-col gap-2.5">
       {showQueue ? (
         <div className="overflow-hidden rounded-lg border border-warning/40 bg-warning/5">
           <div className="flex flex-wrap items-center gap-2 border-b border-warning/25 px-2.5 py-1.5 text-2xs font-semibold text-warning">
-            <span>还有 {sorted.length} 件事等你</span>
+            <span>{`还有 ${sorted.length} 件事等你`}</span>
             <span className="ml-auto font-normal text-muted-foreground">先处理会超时的</span>
           </div>
-          {sorted.map((request, i) => {
-            const seconds = remainingSeconds(request, nowMs, timeoutMs);
-            return (
-              <div
-                key={request.requestId}
-                className={`flex items-center gap-2 px-2.5 py-1.5 text-2xs ${
-                  i === currentIndex ? 'bg-warning/10 font-medium text-foreground' : 'text-muted-foreground'
-                }`}
-              >
-                <span className="flex h-4 w-4 items-center justify-center rounded-full bg-secondary text-3xs font-semibold">
-                  {i + 1}
-                </span>
-                <span>{summarize(request)}</span>
-                <span className="ml-auto text-3xs text-muted-foreground">
-                  {seconds === null ? '不会超时' : `${seconds} 秒后自动拒绝`}
-                </span>
-              </div>
-            );
-          })}
+          {sorted.map((request, i) => (
+            <div
+              key={request.requestId}
+              className={`flex items-center gap-2 px-2.5 py-1.5 text-2xs ${
+                i === 0 ? 'bg-warning/10 font-medium text-foreground' : 'text-muted-foreground'
+              }`}
+            >
+              <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-secondary text-3xs font-semibold">
+                {i + 1}
+              </span>
+              <span className="min-w-0 truncate">{summarizePendingRequest(request)}</span>
+              <span className="ml-auto shrink-0 text-3xs text-muted-foreground">
+                {pendingTimeText(request, nowMs, timeoutMs)}
+              </span>
+            </div>
+          ))}
         </div>
       ) : null}
 
+      {/* key 认 requestId：两条 AskUserQuestion 前后替补时，卡片位置会复用同一个
+          组件实例，选中态（PendingPromptCard 里的 picked）会从上一题漏到下一题，
+          渲染出一个用户没选过的勾。换 key 强制重挂载即可。 */}
       <PendingPromptCard
+        key={current.requestId}
         request={current}
         nowMs={nowMs}
         timeoutMs={timeoutMs}
-        onRespond={handleRespond}
+        onRespond={onRespond}
       />
     </div>
   );
@@ -2421,22 +2656,27 @@ export default PendingPromptList;
 
 - [ ] **Step 4: 跑测试确认通过**
 
-Run: `cd /mnt/b/workdir/github/lovdex/web && unset TSX_TSCONFIG_PATH && npx tsx --test src/components/tasks/PendingPromptList.test.tsx`
-Expected: PASS —— `# pass 5`、`# fail 0`
+Run: `cd /mnt/b/workdir/github/lovdex/web && unset TSX_TSCONFIG_PATH && npx tsx --test src/components/tasks/PendingPromptList.test.tsx src/components/tasks/pendingPromptQueue.test.ts`
+Expected: PASS —— `# pass 18`、`# fail 0`
 
-- [ ] **Step 5: typecheck**
+- [ ] **Step 5: typecheck / eslint**
 
 Run: `cd /mnt/b/workdir/github/lovdex/web && npx tsc --noEmit -p tsconfig.json 2>&1 | tail -5`
-Expected: 零新增
+Expected: 零新增（实测 0 错误）
+
+Run: `cd /mnt/b/workdir/github/lovdex/web && npx eslint src 2>&1 | tail -3`
+Expected: `0 errors / 227 warnings`（基线不动）
 
 - [ ] **Step 6: 提交**
 
 ```bash
 cd /mnt/b/workdir/github/lovdex
-git add web/src/components/tasks/PendingPromptList.tsx web/src/components/tasks/PendingPromptList.test.tsx
+git add web/src/components/tasks/PendingPromptList.tsx web/src/components/tasks/PendingPromptList.test.tsx \
+        web/src/components/tasks/pendingPromptQueue.ts web/src/components/tasks/pendingPromptQueue.test.ts
 git commit -m "feat(tasks): queue a session's pending approvals, timeout-first"
 ```
 
+---
 ---
 
 ## Task 6: 面板内回复区
