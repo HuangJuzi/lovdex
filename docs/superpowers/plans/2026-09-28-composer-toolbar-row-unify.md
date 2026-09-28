@@ -432,6 +432,156 @@ Task 1–3 钉的是 className，**没有证明折行真的统一了**。这一�
 
 **为什么不注入 `content-visibility: visible`。** `content-visibility: auto` 只影响屏幕外的**消息行**（`.chat-message`）。composer 工具栏在视口内、不受影响，所以本探针不需要它。spec §3 记的那条坑是给「顺带量消息行」的探针用的 —— 别照抄进这个探针：多注入一条全局样式反而可能影响工具栏的合成层，把测量搞出别的噪音。
 
+#### 反向验证脚本（Step 3 用的「前缀版」）
+
+```js
+// /tmp/lovdex-toolbar-rows-prefix.cjs —— 与主探针同一套测量逻辑，
+// 只是多一层 request interception：把 vite 现服的 ChatComposer.tsx 模块里两处
+// class 就地改回改动前的值，用来证明主探针不是恒绿。不写仓库任何文件。
+const puppeteer = require('puppeteer-core');
+
+const CHROME = '/home/zhijuhuang/.cache/puppeteer/chrome/linux-149.0.7827.22/chrome-linux64/chrome';
+const BASE = 'http://127.0.0.1:5188';
+const API = 'http://127.0.0.1:3188';
+
+const PREFIX_REPLACEMENTS = [
+  ['min-w-12 whitespace-nowrap text-center sm:hidden', 'whitespace-nowrap sm:hidden'],
+  ['max-w-20 truncate sm:max-w-32', 'max-w-24 truncate sm:max-w-32'],
+];
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+(async () => {
+  const loginRes = await fetch(`${API}/api/auth/login`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ email: 'zhiju.huang@sophgo.com', code: '888888' }),
+  });
+  const login = await loginRes.json();
+  if (!login.token) { console.error('登录失败'); process.exit(2); }
+
+  const browser = await puppeteer.launch({
+    executablePath: CHROME,
+    headless: 'new',
+    args: ['--no-sandbox', '--disable-dev-shm-usage'],
+  });
+  const page = await browser.newPage();
+
+  let hits = 0;
+  await page.setRequestInterception(true);
+  page.on('request', async (req) => {
+    const url = req.url();
+    if (!url.includes('/src/components/chat/view/subcomponents/ChatComposer.tsx')) {
+      return req.continue();
+    }
+    const body0 = await (await fetch(url)).text();
+    let body = body0;
+    for (const [from, to] of PREFIX_REPLACEMENTS) {
+      if (body.includes(from)) { body = body.split(from).join(to); hits += 1; }
+    }
+    req.respond({ status: 200, contentType: 'application/javascript', body });
+  });
+
+  await page.evaluateOnNewDocument((t) => localStorage.setItem('auth-token', t), login.token);
+  await page.setViewport({ width: 360, height: 900 });
+  await page.goto(`${BASE}/session/a8b0f512-9209-4da7-bf7c-bd03daf200ab`, { waitUntil: 'networkidle2' });
+  await sleep(2500);
+
+  // 自证一：两处替换必须都命中。少一处说明中和没生效，跑出来的绿是假的。
+  if (hits !== PREFIX_REPLACEMENTS.length) {
+    console.error(`中和未生效：命中 ${hits}/${PREFIX_REPLACEMENTS.length} 处。不要相信下面的结果。`);
+    await browser.close();
+    process.exit(4);
+  }
+
+  // 自证二：页面侧读 computed style 再确认一次。
+  // 注意期望值：**改动前**没有 min-w 类，computed 值是 `auto`（不是 `0px`）。
+  const proof = await page.evaluate(() => {
+    const footer = document.querySelector('[data-slot="prompt-input-footer"]');
+    const mb = [...footer.querySelectorAll('button')].find((x) =>
+      (x.getAttribute('title') || '').startsWith('Click to change permission mode'));
+    const label = [...mb.querySelectorAll('span')].filter((s) => getComputedStyle(s).display !== 'none').pop();
+    const model = [...footer.querySelectorAll('button')].find((x) => (x.getAttribute('title') || '') === 'Change model');
+    const modelSpan = model && model.querySelector('span');
+    return {
+      labelMinWidth: label ? getComputedStyle(label).minWidth : null,
+      modelMaxWidth: modelSpan ? getComputedStyle(modelSpan).maxWidth : null,
+    };
+  });
+  console.log('中和自证:', JSON.stringify(proof));
+  if (proof.labelMinWidth !== 'auto' || proof.modelMaxWidth !== '96px') {
+    console.error('中和未生效（computed style 不符）。不要相信下面的结果。');
+    await browser.close();
+    process.exit(4);
+  }
+
+  const modeText = () => {
+    const footer = document.querySelector('[data-slot="prompt-input-footer"]');
+    const b = footer && [...footer.querySelectorAll('button')].find((x) =>
+      (x.getAttribute('title') || '').startsWith('Click to change permission mode'));
+    if (!b) return null;
+    return [...b.querySelectorAll('span')]
+      .filter((s) => getComputedStyle(s).display !== 'none')
+      .map((s) => s.textContent.trim()).filter(Boolean).pop() || null;
+  };
+  const clickMode = () => {
+    const footer = document.querySelector('[data-slot="prompt-input-footer"]');
+    const b = footer && [...footer.querySelectorAll('button')].find((x) =>
+      (x.getAttribute('title') || '').startsWith('Click to change permission mode'));
+    if (b) b.click();
+  };
+  const measure = () => {
+    const tools = document.querySelector('[data-slot="prompt-input-tools"]');
+    const btns = [...tools.querySelectorAll('button')].map((b) => {
+      const r = b.getBoundingClientRect();
+      return { top: r.top, w: r.width };
+    });
+    const rows = [];
+    for (const b of [...btns].sort((a, b) => a.top - b.top)) {
+      const last = rows[rows.length - 1];
+      if (last && Math.abs(b.top - last.top) <= 8) { last.items.push(b); continue; }
+      rows.push({ top: b.top, items: [b] });
+    }
+    const mb = [...tools.querySelectorAll('button')].find((x) =>
+      (x.getAttribute('title') || '').startsWith('Click to change permission mode'));
+    return { rowCount: rows.length, modeW: +mb.getBoundingClientRect().width.toFixed(3) };
+  };
+
+  const MODES = ['Default', 'Auto', 'Approve', 'Accept', 'Bypass', 'Plan'];
+  const ALIASES = {
+    'Default Mode': 'Default', 'Auto Mode': 'Auto', 'Auto Approve': 'Approve',
+    'Accept Edits': 'Accept', 'Bypass Permissions': 'Bypass', 'Plan Mode': 'Plan',
+  };
+  const failures = [];
+  for (const width of [344, 350, 356, 358, 360, 375, 414, 430]) {
+    await page.setViewport({ width, height: 900 });
+    await sleep(320);
+    const perMode = new Map();
+    for (let i = 0; i < 8; i++) {
+      const raw = await page.evaluate(modeText);
+      const mode = ALIASES[raw] || raw;
+      if (mode && !perMode.has(mode)) perMode.set(mode, await page.evaluate(measure));
+      await page.evaluate(clickMode);
+      await sleep(160);
+    }
+    const counts = MODES.map((k) => (perMode.get(k) ? perMode.get(k).rowCount : null));
+    const wset = new Set(MODES.map((k) => (perMode.get(k) ? perMode.get(k).modeW.toFixed(3) : null)).filter(Boolean));
+    const uniform = new Set(counts.filter((c) => c !== null)).size === 1;
+    const uniformW = wset.size === 1;
+    if (!uniform || !uniformW) {
+      failures.push(`${width}px: rows=[${counts.join(',')}] widths=[${[...wset].join(',')}]`);
+    }
+    console.log(`${width}px rows=${counts.join('/')} widths=${[...wset].join(',')} → ${uniform && uniformW ? 'OK' : 'FAIL'}`);
+  }
+  await browser.close();
+  console.log(`\n=== 反向验证判定 ===\n${failures.length ? `FAIL (${failures.length})  ← 期望：中和后探针必须变红` : '⚠️ 全绿 —— 中和没起作用或探针恒绿，必须排查'}`);
+  failures.forEach((f) => console.log('  ' + f));
+  process.exit(failures.length ? 1 : 5);
+})().catch((e) => { console.error(e); process.exit(1); });
+```
+
+期望：`中和自证: {"labelMinWidth":"0px","modelMaxWidth":"96px"}`，然后 8 个手机宽度全部 `FAIL`（`widths` 是改动前那六个不等值），末尾 `FAIL (8)`。**跑出全绿说明中和或探针有问题，必须排查**，不能当成「改动无效」的证据。
+
 - [ ] **Step 1: 写探针**
 
 创建 `/tmp/lovdex-toolbar-rows.cjs`：
@@ -706,14 +856,15 @@ PASS：手机端六种模式行数一致、按钮等宽；375px 及 358px 起恒
 
 **探针自身的健康度指示器**：`Approve每行按钮数` 那列应是 `3/2/3`（344px）或 `4/4`（360px）。若出现 `1/1/1/…`，一律是聚类坏了（`last.top` 落在数组上 → `undefined`，`Math.abs(x - undefined) <= 8` 恒 false ⇒ 每个按钮自成一「行」，实测报出 8 行）—— 修聚类，别去改产品代码。
 
-**想亲眼看它红一次**（确认探针真的在测这个 bug，而不是恒绿）：把改动临时收起来再跑同一命令，跑完恢复。
+**想亲眼看它红一次**（确认探针真的在测这个 bug，而不是恒绿）—— 用 request interception 中和模块，**不碰工作区**：
 
 ```bash
-cd /mnt/b/workdir/github/lovdex
-git stash push -- web/src/components/chat/view/subcomponents/ChatComposer.tsx
-cd /tmp && node /tmp/lovdex-toolbar-rows.cjs 2>&1 | tail -12   # 期望 FAIL (8)
-cd /mnt/b/workdir/github/lovdex && git stash pop
+node /tmp/lovdex-toolbar-rows-prefix.cjs 2>&1 | tail -12   # 期望 FAIL (8)
 ```
+
+这个「前缀版」探针拦截 vite 现服的 `ChatComposer.tsx` 模块，把两处 class 就地改回改动前的值（`min-w-12 … text-center sm:hidden` → 去掉 `min-w-12 text-center`；`max-w-20 truncate` → `max-w-24 truncate`），**不写仓库任何文件**。它自带自证：只在两处都命中时才继续（否则 exit 4），页面侧再读一次 computed style 确认标签 `min-width` 是 `0px`、模型名 `max-width` 是 `96px`。
+
+> **不要用 `git stash push` 做这件事。** 修复在 `00101f2` 已经**提交**了，工作区是干净的，`stash` 会报 `No local changes to save` 然后**什么都不中和** —— 于是探针照旧全绿，你会误判「探针失效」。计划初稿写的就是 `git stash`，那是按「改动尚未提交」写的，已过时。
 
 改动前的失败特征（实测）：
 
