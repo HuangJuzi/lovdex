@@ -395,7 +395,13 @@ cd /mnt/b/workdir/github/lovdex
 grep -rn "not to wrap the composer footer" --include=*.ts --include=*.tsx --include=*.md . | grep -v node_modules
 ```
 
-Expected: 无输出（若有，把引用一并更新）。
+Expected: **只有本计划自身的输出**，形如：
+
+```
+docs/superpowers/plans/2026-09-28-composer-toolbar-row-unify.md:359:test('short labels stay short enough not to wrap the composer footer', () => {
+```
+
+那一行是本 Step 1 的「改前」代码块（计划的留痕），**不要改它**。除此以外不该有别的引用；若出现别的文件（比如 spec 或别的 plan 引用旧测试名），把引用一并更新。
 
 - [ ] **Step 5: 提交**
 
