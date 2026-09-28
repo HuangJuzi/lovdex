@@ -2691,7 +2691,7 @@ git commit -m "feat(tasks): queue a session's pending approvals, timeout-first"
 - Test: `web/src/components/tasks/panelReplyBox.test.ts`
 - Test: `web/src/components/tasks/TaskPanelReplyBox.test.tsx`
 
-**背景：** 常用语**只填入不发送**（与 `handleInsertQuickReply` 一致，`web/src/components/chat/hooks/useChatComposerState.ts:1280`）。数据来自既有的 `useQuickReplies` 钩子与 `api.quickReplies`。
+**背景：** 常用语**只填入不发送**（与 `handleInsertQuickReply` 一致，`web/src/components/chat/hooks/useChatComposerState.ts:1282` 那行注释就是「刻意不自动发送」；函数体在 `:1285`）。数据来自既有的 `useQuickReplies` 钩子与 `api.quickReplies`。
 
 > **实施中发现的两处问题（已按实测更正）**
 >
@@ -2708,10 +2708,18 @@ git commit -m "feat(tasks): queue a session's pending approvals, timeout-first"
 >    这个判断（`useChatComposerState.ts:1228`、`QuickRepliesMenu.tsx:304`），本组件按同一口径补上。
 >    注意 React 里它在 `event.nativeEvent.isComposing`，不在合成事件顶层。
 >
-> **另有一处主动偏离草稿：** 决定逻辑全部抽进 `panelReplyBox.ts` 纯函数。
-> 本仓库 web 测试无 DOM（不能点、不能派发键盘事件），留在 `onClick` / `onKeyDown`
-> 闭包里的判断没有任何测试碰得到 —— 与 Task 4 抽出 `pendingPromptAnswers.ts`、
-> Task 5 抽出 `pendingPromptQueue.ts` 同一条纪律。组件因此只剩接线。
+> **两处主动偏离草稿：**
+>
+> 1. 决定逻辑全部抽进 `panelReplyBox.ts` 纯函数。本仓库 web 测试无 DOM（不能点、不能派发
+>    键盘事件），留在 `onClick` / `onKeyDown` 闭包里的判断没有任何测试碰得到 —— 与 Task 4
+>    抽出 `pendingPromptAnswers.ts`、Task 5 抽出 `pendingPromptQueue.ts` 同一条纪律。
+>    组件因此只剩接线。
+> 2. **placeholder 只描述动作，不复述键位**（草稿是 `'回复这个任务…（Enter 发送）'`）。
+>    键位归 `panelReply.ts` 的 `hint` 独家声明，placeholder 再写一份就是第二份副本：换发送
+>    模型时两处要一起改，还得改一条钉住那个子串的测试 —— 方向是反的。而聊天页的发送键
+>    本身还是**可配置**的（`useUiPreferences` 的 `DEFAULTS.sendByCtrlEnter: true`，在
+>    `useChatComposerState.ts:1235` 消费），面板此刻读不到那个偏好，写死任何一个键位只会更错。
+>    现在 usable 时是 `'回复这个任务…'`，不可用时仍是 `'无法回复'`。
 >
 > 两个待决项（开场提出的）定为：**常用语列表为空时整行不渲染**（空行是噪音，
 > 且会做出「这里能插片段」的虚假承诺）；**发送键在 `willQueue` 时保持可用**
@@ -2953,17 +2961,21 @@ test('hint 逐字取自 replyState，组件不自己派生文案', () => {
   assert.match(html, /哨兵文案-Zz9/);
 });
 
-test('不可用时 placeholder 换成「无法回复」，且不承诺 Enter 发送', () => {
-  const disabledHtml = render({
-    replyState: ready({ mode: 'no-session', canType: false, hint: 'x' }),
-  });
-  let placeholder = disabledHtml.match(/placeholder="([^"]*)"/)?.[1] ?? '';
-  assert.equal(placeholder.includes('无法回复'), true);
-  assert.equal(placeholder.includes('Enter 发送'), false);
+test('placeholder 只说做什么，不复述 hint 里的键位', () => {
+  // 键位由 panelReply.ts 的 hint 独家声明。这里若再写一份（曾经是
+  // 「回复这个任务…（Enter 发送）」），换发送模型时就得两处一起改 —— 还得改这条
+  // 钉住它的测试，而聊天页的发送键本身还是可配置的（sendByCtrlEnter）。所以
+  // placeholder 只描述动作。
+  const disabledPlaceholder =
+    render({ replyState: ready({ mode: 'no-session', canType: false, hint: 'x' }) }).match(
+      /placeholder="([^"]*)"/,
+    )?.[1] ?? '';
+  assert.equal(disabledPlaceholder, '无法回复');
 
-  const readyHtml = render();
-  placeholder = readyHtml.match(/placeholder="([^"]*)"/)?.[1] ?? '';
-  assert.equal(placeholder.includes('Enter 发送'), true);
+  const readyPlaceholder = render().match(/placeholder="([^"]*)"/)?.[1] ?? '';
+  assert.equal(readyPlaceholder, '回复这个任务…');
+  // 回归守卫：谁把键位重新写进 placeholder，这条就红。
+  assert.equal(readyPlaceholder.includes('Enter'), false);
 });
 ```
 
@@ -3136,7 +3148,11 @@ export function TaskPanelReplyBox({
             event.preventDefault();
             onSend();
           }}
-          placeholder={disabled ? '无法回复' : '回复这个任务…（Enter 发送）'}
+          // 只说「做什么」，不写键位：键位由 panelReply.ts 的 hint 独家声明
+          // （ready 态那句「Enter 发送 · Shift+Enter 换行」）。这里再写一遍就是第二份
+          // 副本 —— 聊天页的发送键还是**可配置**的（useUiPreferences 的 sendByCtrlEnter，
+          // 默认 Ctrl+Enter），面板此刻读不到那个偏好，写死某个键位只会更错。
+          placeholder={disabled ? '无法回复' : '回复这个任务…'}
           className="w-full resize-none border-none bg-transparent px-2.5 py-2 text-xs leading-relaxed outline-none disabled:opacity-50"
         />
         <div className="flex items-center gap-1.5 px-2 pb-2">
@@ -3163,7 +3179,7 @@ export default TaskPanelReplyBox;
 Run: `cd /mnt/b/workdir/github/lovdex/web && unset TSX_TSCONFIG_PATH && npx tsx --test src/components/tasks/TaskPanelReplyBox.test.tsx src/components/tasks/panelReplyBox.test.ts`
 Expected: PASS —— `# pass 24`、`# fail 0`（组件 10 + 纯函数 14）
 
-- [ ] **Step 5: 变异核对（确认断言抓得住，实测 12/12 全红）**
+- [ ] **Step 5: 变异核对（确认断言抓得住，实测 13/13 全红）**
 
 逐条改坏、确认有测试变红，再改回（本仓库没有 mutation runner，手工做）：
 
@@ -3180,10 +3196,11 @@ Expected: PASS —— `# pass 24`、`# fail 0`（组件 10 + 纯函数 14）
 | 组件的 `textarea` 恒不禁用 | 红（fail 1） |
 | 组件的发送键 `disabled={!canSend}` 改成 `false` | 红（fail 2） |
 | 组件的 `hint` 硬编码 | 红（fail 3） |
-| 组件的 `placeholder` 忽略禁用态 | 红（fail 1） |
+| 组件 placeholder 忽略禁用态（两个分支同文案） | 红（fail 1） |
+| 组件 placeholder 重新写死键位（`'…（Enter 发送）'`） | 红（fail 1） |
 
 **实测结果**（2026-09-28 手工跑，改坏 → 跑 → 改回 → 逐字节 diff 确认还原）：
-上表 12 行**全部**至少让一条用例变红，**零存活**。
+上表 13 行**全部**至少让一条用例变红，**零存活**。
 
 **接线层：这是一条边界，不是一个缺口。** 上表覆盖不到「`onInsertQuickReply` 是否真的接到
 父级的 `buildQuickReplyInput`」「`onSend` 接到哪里」—— `onInsertQuickReply` / `onSend` 都是
@@ -4003,7 +4020,38 @@ Expected: `web/src/components/chat/` 下**零改动**（本计划刻意不碰 `u
 ```bash
 cd /mnt/b/workdir/github/lovdex/web && unset TSX_TSCONFIG_PATH && npx tsx --test $(find src -name '*.test.ts' -o -name '*.test.tsx' | tr '\n' ' ') 2>&1 | tail -12
 ```
-Expected: 全绿，且新增测试数 = 8 + 6 + 7 + 5 + 5 + 7 + 3 = 41
+Expected: **全绿**（`# fail 0`）。**不要**比对一个写死的总数 —— 每个任务都会新增用例，
+算术总和必然漂。改为看两件事：（a）fail 为 0；（b）下面这几本任务新增的测试文件都在
+输出里，且各自 `# tests` 的行数非空、不与上表差太多：
+
+```bash
+cd /mnt/b/workdir/github/lovdex/web
+for f in panelPermission panelReply pendingRequestEvents pendingPromptAnswers \\
+         PendingPromptCard pendingPromptQueue PendingPromptList panelReplyBox TaskPanelReplyBox; do
+  n=$(unset TSX_TSCONFIG_PATH && npx tsx --test src/components/tasks/$f.test.* 2>/dev/null \\
+      | grep -E '^# tests' | awk '{{print $3}}')
+  echo "$f: $n"
+done
+```
+
+**2026-09-28（Task 6 完成时）实测的形状**，供下一个读者对照：
+
+| 文件 | 用例数 | 任务 |
+| --- | --- | --- |
+| `panelPermission.test.ts` | 10 | Task 1 |
+| `panelReply.test.ts` | 10 | Task 2 |
+| `pendingRequestEvents.test.ts` | 28 | Task 3 |
+| `pendingPromptAnswers.test.ts` | 15 | Task 4 |
+| `PendingPromptCard.test.tsx` | 10 | Task 4 |
+| `pendingPromptQueue.test.ts` | 9 | Task 5 |
+| `PendingPromptList.test.tsx` | 9 | Task 5 |
+| `panelReplyBox.test.ts` | 14 | Task 6 |
+| `TaskPanelReplyBox.test.tsx` | 10 | Task 6 |
+
+（Task 1–5 的草稿各自写的「期望 pass 数」也偏小，实际如上 —— 实现时按「全绿 + 文件都在」
+判，不要按草稿的算术。实测口径：全仓当时 **954 pass / 0 fail**；把 Task 6 的两个测试文件
+排除后再跑是 **930 pass / 0 fail**，即 Task 6 净增 24。**以 `# fail 0` 为准，不要给总数
+配一个会被下一次任务改掉的期望值。**）
 
 - [ ] **Step 3: lint 与 typecheck 零新增**
 
