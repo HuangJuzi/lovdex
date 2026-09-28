@@ -209,6 +209,9 @@ function QuickRepliesMenu({
         <div className="px-3 py-4 text-center text-xs text-muted-foreground">还没有常用语</div>
       )}
 
+      {/* 新增态挂在列表最前面：「新建」按钮在 header，编辑行却在末尾会让视线跳一大截。 */}
+      {draft && draft.id === null && editorRow(null)}
+
       {items.map((item) => (
         draft && draft.id === item.quick_reply_id ? (
           <div key={item.quick_reply_id}>{editorRow(item.quick_reply_id)}</div>
@@ -230,7 +233,7 @@ function QuickRepliesMenu({
               aria-label="编辑常用语"
               title="编辑"
               onClick={() => startEditing(item)}
-              className="rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100"
+              className="rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:text-foreground focus:opacity-100 group-hover:opacity-100"
             >
               <Pencil className="h-3 w-3" />
             </button>
@@ -239,15 +242,13 @@ function QuickRepliesMenu({
               aria-label="删除常用语"
               title="删除"
               onClick={() => void handleDelete(item.quick_reply_id)}
-              className="rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
+              className="rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:text-destructive focus:opacity-100 group-hover:opacity-100"
             >
               <Trash2 className="h-3 w-3" />
             </button>
           </div>
         )
       ))}
-
-      {draft && draft.id === null && editorRow(null)}
     </div>,
     document.body,
   );
