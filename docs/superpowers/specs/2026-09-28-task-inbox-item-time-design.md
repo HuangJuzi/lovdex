@@ -28,8 +28,14 @@
 | 执行失败 `failed` | `updateTaskSubStatus(…, 'failed')` / `writeSummary` | `updated_at`（verdict 路径下与 `verdict_at` 同一条 UPDATE，必然相等） |
 | `blocked` / `needs_review` / `only_plan` | `writeSummary`（verdict 折进 sub_status） | `updated_at` |
 | 待你验收 `pending_acceptance` | 引擎把任务移到 `in_review` | `updated_at` |
-| 等你回答 / 等你确认计划 | 运行停在 AskUserQuestion / ExitPlanMode 闸门，持久化 `waiting_*` | `updated_at` |
+| 等你回答 / 等你确认计划 | 运行停在 AskUserQuestion / ExitPlanMode 闸门，持久化 `waiting_*` | **等待进行中**：registry 记的提问到达时刻（与「等你批准」同路径，见下）；**运行已结束只剩持久化标签**：`updated_at`（即 `waiting_*` 落库的时刻） |
 | **等你批准 `waiting_approval`** | **纯实时**：会话内存 registry 里有待批 tool，后端无任何时刻记录 | **新增**：registry 记录首个 `permission_request` 到达时刻 |
+
+> 实现口径说明：「等你回答 / 等你确认计划 / 等你批准」三者都是 `approvalPending`，
+> `decorate()` 走的是同一条分支 —— 只要审批标记还在，就取 registry 的等待起点。
+> 上表把前两者写成 `updated_at` 是设计初稿的粗分类；实际实现更准确：提问到达的那一刻
+> 正是提醒产生的时刻，而 `updated_at` 只在运行结束、`waiting_*` 落库时才被写。
+> 运行结束后标记消失、时间自然落回 `updated_at`，两种口径在各自的时间窗内都成立。
 | 纯逾期 | deadline（`YYYY-MM-DD`，无时刻） | 不显示（「已逾期 N 天」已表达该信息） |
 
 ## 后端改动
