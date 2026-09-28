@@ -1381,7 +1381,7 @@ git commit -m "feat(tasks): subscribe the task panel to a session's pending appr
 
 1. **「总是允许」的 `rememberEntry` 用 `chat/utils/chatPermissions.ts` 的 `buildClaudeToolPermissionEntry`，不要照抄本计划原先草拟的 `Bash(${command})`。** 那个草稿写的是「整条命令」作规则，而聊天页实际生成的是**前缀式**规则（`git commit -m "fix(csv)"` → `Bash(git commit:*)`）。两处若各拼各的，同一句「总是允许」会往 `allowedTools` 里写两条不同的规则，用户此后在聊天页与任务面板看到的行为就不一致。该函数无 DOM 依赖、可直接 import（已实测）。它只对 `Bash` 产出具体规则，其余工具返回裸工具名，故仅当返回值非空时启用按钮。
 2. **多选（`multiSelect: true`）必须单独处理。** 原计划只做了单选式的一击即发。多选题目的语义就是「可以选好几个」，一击即发会让模型拿到一个偏窄的答案，而界面上没有任何东西提示他本可以多选 —— 这不是精简，是把同一个功能渲染错。现在：多选点一下是切换（再点取消），必须按「提交选择」才发出；答案串按聊天页的 `join(', ')` 拼接（顺序 = 点击顺序，聊天页是 `Set` 插入序，不许排序）。
-3. **点击语义必须搬进纯函数文件（`pendingPromptAnswers.ts`）才测得到。** 本仓库的 web 测试是 `node:test` + `renderToStaticMarkup`（无 DOM、不能模拟点击）。逻辑留在组件的 `onClick` 闭包里时，「单选误写成切换」「多选误写成一击即发」「答满全部题目才提交」这三类错误在静态标记上完全看不出来（按钮与文案都还在），却会改变发给模型的答案。搬出后这三条都有测试钉着（见 Step 1 的第二个测试文件与 Step 3 的变异核对）。
+3. **点击语义必须搬进纯函数文件（`pendingPromptAnswers.ts`）才测得到。** 本仓库的 web 测试是 `node:test` + `renderToStaticMarkup`（无 DOM、不能模拟点击）。逻辑留在组件的 `onClick` 闭包里时，「单选误写成切换」「多选误写成一击即发」「答满全部题目才提交」这三类错误在静态标记上完全看不出来（按钮与文案都还在），却会改变发给模型的答案。搬出后这三条都有测试钉着（见 Step 4 的 `pendingPromptAnswers.test.ts` 与 Step 6 的变异核对表）。
 
 **不做的部分**（刻意）：聊天页的键盘层（1-9 选号、0 = Other、Enter、Esc）与 Back/Next 分步器不移植 —— 任务面板是鼠标优先、且还没有焦点模型；「Other」自由输入也不做，它需要一个受控 input 与焦点管理。
 
