@@ -4238,6 +4238,54 @@ Expected: 空输出
 
 ---
 
+### 实测结果（2026-09-28，分支 `worktree-feat-task-summary-panel`）
+
+- **`web/src/components/chat/` 与 `backend/` 零改动** ✓ —— Task 3 改走独立订阅，
+  没有去动聊天页的 pending 作用域，这一步专门守着它。
+- 全量前端测试 **973 pass / 0 fail**（基线 839；新增文件合计 134 条：
+  panelPermission 10、panelReply 10、pendingRequestEvents 28、pendingPromptAnswers 15、
+  PendingPromptCard 10、pendingPromptQueue 9、PendingPromptList 9、panelReplyBox 14、
+  TaskPanelReplyBox 10、taskViewMode 3、TaskSummaryPanel 16）。
+- `tsc --noEmit` **0 errors**（基线 0）；`eslint src/` **227 problems / 0 errors**（与基线逐项相同）。
+- `vite build` 成功。
+
+**未自动化、留给 Task 13 的**：全部 `onClick` 接线（本仓库无 jsdom，静态标记与纯函数
+都到不了那一层）。Task 4/5/6 各自把决定逻辑搬进纯函数，正是为了让这个缝尽可能窄；
+剩下的是「按钮接的是不是那个决定」，只能在浏览器里点。
+
+
+### 实测记录（2026-09-28，无头 Chromium 驱动 `/tasks`）
+
+在被改分支上另起一个 dev server（**5288**，不动 main 那份 5188），连真实后端 3188，
+用固定凭据登录后逐项点过。结果：
+
+| # | 检查 | 结果 |
+|---|---|---|
+| 1 | 电脑端默认表格、无看板列 | ✓ |
+| 2 | 点行 → 右栏展开且宽 428px | ✓ |
+| 3 | 列表让位（表格 1566 → 1206） | ✓ |
+| 4 | 点另一行 → 内容替换 | ✓ |
+| 5 | 选中行恒为 1 | ✓ |
+| 6 | ✕ 关闭 → 右栏不占位、表格回到 1566 | ✓ |
+| 7 | 收起态点行 → 自动重新展开 | ✓ |
+| 8 | 点常用语 chip → 文本进输入框（不自动发送） | ✓ |
+| 9 | 面板内状态 chip / 待办或执行中提示 / 回复区 / 底部两动作 | ✓ |
+| 10 | 手机端 390px → 无表格、看板 161 张卡片 | ✓ |
+| 11 | 手机端点卡片 → 底部 sheet 打开且含同一份面板 | ✓ |
+| 12 | 控制台无 JS 错误 | ✓ |
+
+**没能覆盖的（如实记录）**：
+
+- **真机上的审批交互**：当前库里没有 `waiting_answer` / `waiting_plan` / 普通工具授权
+  在等的任务，所以「点选项 → 待办淡出 → 队列前移」「倒计时真的在走」这几条只靠
+  Task 4/5 的纯函数测试与 `docs/preview/tasks-final.html` 里那 35 项断言保证，
+  没有在真实数据上再走一遍。
+- **`session_status` 重订正**（订阅后才启动的 run）：需要一个「面板已开、任务随后开始跑」
+  的时序，本次没构造出来。
+- **「会话被清理」的任务**：当前列表里没有这种行，跳过。
+
+---
+
 ## Task 13: 浏览器端验证
 
 **Files:**
