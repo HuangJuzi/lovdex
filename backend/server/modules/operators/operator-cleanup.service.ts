@@ -32,9 +32,10 @@ export async function cleanOperatorWorkspaceLegacySessions(): Promise<OperatorCl
 
   for (const session of orphaned) {
     try {
-      // 仍被任务引用的会话删除后，任务侧 get_session_transcript 会 404（任务行
-      // 的 session_id 变成悬空外键）。2026-08-18 曾因此误删 23 个含 in_review
-      // 任务的会话。按需求仍然删除，但必须先打出醒目提醒，便于事后追溯。
+      // 仍被任务引用的会话删除后，deleteOrArchiveSessionById 会在同一事务里把
+      // 任务的 session_id 置 NULL —— 任务行保留但不再悬空（2026-08-18 曾因只删
+      // 会话、留悬空 task.session_id 而误伤 23 个含 in_review 任务的会话）。这里
+      // 仍对非 in_progress 的关联任务打出醒目提醒，便于事后追溯。
       const linkedTask = tasksDb.getTaskBySessionId(session.session_id);
       if (linkedTask) {
         if (linkedTask.status === 'in_progress') {

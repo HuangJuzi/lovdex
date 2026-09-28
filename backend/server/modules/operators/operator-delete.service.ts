@@ -15,8 +15,9 @@ import { AppError } from '@/shared/utils.js';
  * - Running / in_progress sessions are rejected: removing a transcript a live
  *   agent is still appending to would corrupt history.
  * - A session still linked to a task is rejected unless the caller passes an
- *   explicit `cascade` confirmation — the task's session_id then becomes a
- *   dangling foreign key and its get_session_transcript reads 404.
+ *   explicit `cascade` confirmation. `deleteSessionHard` then clears the
+ *   task's `session_id` in the same transaction as the session-row delete, so
+ *   the task row survives but no longer points at a missing session.
  */
 
 /** Minimal session-row shape the delete service reads. */
@@ -99,7 +100,7 @@ export function createOperatorDeleteService(deps: OperatorDeleteDeps) {
 
     if (linkedTask && !input.cascade) {
       throw new AppError(
-        `session ${input.sessionId} is still linked to task ${linkedTask.task_id} (${linkedTask.title}) — pass cascade=true to delete anyway; the task will then no longer be able to read its transcript`,
+        `session ${input.sessionId} is still linked to task ${linkedTask.task_id} (${linkedTask.title}) — pass cascade=true to delete anyway; the task's session link will then be cleared`,
         { code: 'SESSION_LINKED_TO_TASK', statusCode: 409 },
       );
     }

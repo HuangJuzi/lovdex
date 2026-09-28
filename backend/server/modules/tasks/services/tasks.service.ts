@@ -428,6 +428,16 @@ export function createTasksService(
    * running / in_progress is rejected — the caller must stop/settle the run
    * first (the transcript a live agent is still writing must not be removed).
    *
+   * **Deletion order is a hard invariant: the task row goes FIRST, the session
+   * second.** If the session hard-delete fails (transcript unlink error, disk
+   * hiccup), the worst outcome is an *orphan session* — a session row whose task
+   * is gone, still renderable in the sidebar and reclaimable by a later cleanup.
+   * The reverse order used to leave the reported corruption: a task row whose
+   * session was already gone, so「跳转会话」lands on nothing and no follow-up
+   * cleanup can ever see it. Because the task row is already deleted here, a
+   * non-NOT_FOUND session-delete error is logged rather than rethrown — rethrowing
+   * would report a 500 for a delete that has in fact already succeeded.
+   *
    * Returns the deletion outcome (with the cascade-deleted sessionId, if any),
    * or null when the task does not exist (caller maps null → 404). A linked
    * session row that is already gone is tolerated (dangling session_id).
@@ -442,6 +452,10 @@ export function createTasksService(
         { code: 'SESSION_RUNNING', statusCode: 409 },
       );
     }
+    // Delete the task row before touching its session. From here on a failure
+    // can only leave an orphan session, never a task pointing at a deleted
+    // session.
+    resolveDb.deleteTask(taskId);
     if (sessionId) {
       console.warn('[tasks] WARNING: deleting a task and hard-deleting its linked session', {
         taskId,
@@ -452,12 +466,20 @@ export function createTasksService(
       try {
         await deleteSessionHard(sessionId);
       } catch (err) {
-        // A session row that is already gone shouldn't block the task delete —
-        // the outcome (no dangling session) is the same.
-        if ((err as AppError)?.code !== 'SESSION_NOT_FOUND') throw err;
+        // The task row is already gone, so the invariant holds regardless of
+        // whether the session delete completed: an already-missing session is
+        // the expected no-op, and any other failure leaves a reclaimable orphan
+        // session rather than a dangling task reference. Log it so the orphan
+        // session stays traceable, but don't fail the (completed) delete.
+        if ((err as AppError)?.code !== 'SESSION_NOT_FOUND') {
+          console.error('[tasks] linked session hard-delete failed after task delete', {
+            taskId,
+            sessionId,
+            error: err instanceof Error ? err.message : err,
+          });
+        }
       }
     }
-    resolveDb.deleteTask(taskId);
     emit({ kind: 'task_deleted', taskId, actor: 'user' });
     return { taskId, deletedSessionId: sessionId };
   }

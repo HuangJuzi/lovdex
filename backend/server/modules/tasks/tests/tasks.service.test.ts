@@ -293,6 +293,24 @@ test('deleteTask still rejects a failed in_progress task whose session is stream
   assert.ok(db.getTask('t1'), 'task must survive a rejected delete');
 });
 
+test('deleteTask removes the task row even when the linked-session hard delete throws', async () => {
+  // 顺序不变量：任务行必须先于会话删除。会话硬删失败只能留下「孤儿会话」（仍可打开、
+  // 无害），绝不能留下「任务在、会话空」的悬空引用 —— 那正是用户报告的孤儿形态。
+  const { db } = makeDbStub();
+  db.linkSession('t1', 's1');
+  const svc = createTasksService(db, {
+    broadcast: () => {},
+    deps: {
+      deleteSessionHard: async () => {
+        throw new Error('simulated transcript unlink failure');
+      },
+    },
+  });
+  const result = await svc.deleteTask('t1');
+  assert.deepEqual(result, { taskId: 't1', deletedSessionId: 's1' });
+  assert.equal(db.getTask('t1'), null, 'task row must not outlive a failed session hard-delete');
+});
+
 test('deleteTasks deletes each id and broadcasts task_deleted per id', () => {
   const events: unknown[] = [];
   const { db } = makeDbStub();

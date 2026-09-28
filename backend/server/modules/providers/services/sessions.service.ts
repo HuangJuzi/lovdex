@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 
-import { projectsDb, sessionsDb, tasksDb } from '@/modules/database/index.js';
+import { getConnection, projectsDb, sessionsDb, tasksDb } from '@/modules/database/index.js';
 import type { SessionRow } from '@/modules/database/repositories/sessions.db.js';
 import { chatRunRegistry } from '@/modules/websocket/index.js';
 import { providerRegistry } from '@/modules/providers/provider.registry.js';
@@ -321,7 +321,10 @@ export const sessionsService = {
     }
 
     // 硬删一个仍被任务引用的会话会让任务侧读历史直接 404（session_id 变成
-    // 悬空外键）。仍然删除，但打出醒目提醒，便于事后追溯任务记录为何读不到。
+    // 悬空外键）。与其只提醒、让 task.session_id 悬空成「任务在、会话空」的孤儿，
+    // 这里把「删会话行 + 把引用它的任务 session_id 置 NULL」放进同一个事务：
+    // 任一失败整体回滚，绝不留半删状态。解链后的任务仍在看板/运行记录里可见，
+    // 只是不再渲染「打开会话」（hasOpenableSession 靠 session_deleted 判断）。
     const linkedTask = tasksDb.getTaskBySessionId(sessionId);
     if (linkedTask) {
       console.warn(
@@ -335,13 +338,13 @@ export const sessionsService = {
       );
     }
 
-    const deleted = sessionsDb.deleteSessionById(sessionId);
-    if (!deleted) {
-      throw new AppError(`Session "${sessionId}" was not found.`, {
-        code: 'SESSION_NOT_FOUND',
-        statusCode: 404,
-      });
-    }
+    const db = getConnection();
+    db.transaction(() => {
+      sessionsDb.deleteSessionById(sessionId);
+      if (linkedTask) {
+        tasksDb.linkSession(linkedTask.task_id, null);
+      }
+    })();
 
     return {
       sessionId,
