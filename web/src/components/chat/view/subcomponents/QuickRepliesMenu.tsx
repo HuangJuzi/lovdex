@@ -153,8 +153,12 @@ function QuickRepliesMenu({
 
   const message = actionError || error;
 
+  // key 与「正在编辑的是哪一条」绑定：从「编辑 A」直接点「编辑 B」时，React 会复用
+  // 同位置的 EditorRow，而它的 textarea 值是组件内部 state（只由 initialContent 初始化
+  // 一次），不加 key 会留住 A 的文本。这条是计划代码漏掉的，实现时补上。
   const editorRow = (draftId: string | null) => (
     <EditorRow
+      key={`editor-${draftId ?? 'new'}`}
       initialContent={draft?.content ?? ''}
       busy={busy}
       onChange={(content) => setDraft({ id: draftId, content })}
