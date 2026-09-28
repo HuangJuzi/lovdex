@@ -92,6 +92,7 @@ attention_since = approvalPending ? getApprovalRequestedAt(row.session_id) : row
 2. **后端重启补标的 failed**：`reconcileFailedTasks`（`:955-970`）只写 `sub_status` 不写独立时刻，`since` = 重启发现时刻而非真实失败时刻。语义上「这条提醒何时产生」正是重启那一刻，接受。
 3. **`waiting_approval` 跨后端重启会丢**：时刻存在内存，重启后该条退化为不显示时间。这是既有限制（审批标记本身就是实时态），本设计不扩大也不缩小它。
 4. **task_id 不再上屏**：需要 id 的场景（排查 / 对日志）本就该进详情页；界面不再为它留位置。
+5. **时钟回拨 / 跨机部署下相对时间可能失真**：等待起点由后端 `new Date().toISOString()` 生成，前端 `formatRelativeTime` 拿浏览器时钟相减。两者同一台机器时无此问题；若前端跑在另一台时钟偏慢的机器上，会出现「刚刚」被压成负差（既有实现已把负值归到「刚刚」）或显示的时间比真实偏短。与 `verdict_at` 等既有时间字段同一性质，本次不额外处理。
 
 ## 测试计划
 
