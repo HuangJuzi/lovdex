@@ -23,9 +23,9 @@ export type InboxAction =
   | { type: 'markReadLocal'; id: string }
   | { type: 'markAllReadLocal' };
 
+/** 未读总数 —— 与后端 unread-count、/inbox 页头、列表红点同一口径（含 info）。 */
 export function countUnread(items: readonly InboxNotification[]): number {
-  // info 不计入角标（spec §5）：只有 warning/critical 才是"要你看一眼"的。
-  return items.filter((it) => !it.read_at && it.severity !== 'info').length;
+  return items.filter((it) => !it.read_at).length;
 }
 
 /**
@@ -71,4 +71,19 @@ export function inboxReducer(state: InboxState, action: InboxAction): InboxState
     default:
       return state;
   }
+}
+
+/**
+ * 未读里的最高严重度，决定侧栏角标配色；无未读时为 null。
+ * 刻意复用 InboxSeverity 而不是另立别名 —— 一份类型，分级变化时编译期会带上角标。
+ */
+export function selectUnreadTone(items: readonly InboxNotification[]): InboxSeverity | null {
+  let tone: InboxSeverity | null = null;
+  for (const it of items) {
+    if (it.read_at) continue;
+    if (it.severity === 'critical') return 'critical';
+    if (it.severity === 'warning') tone = 'warning';
+    else if (tone === null) tone = 'info';
+  }
+  return tone;
 }

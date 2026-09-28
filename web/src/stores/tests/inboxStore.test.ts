@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { inboxReducer, countUnread, selectUnannouncedImportant, type InboxState, type InboxNotification } from '../inboxStore.pure.js';
+import { inboxReducer, countUnread, selectUnreadTone, selectUnannouncedImportant, type InboxState, type InboxNotification } from '../inboxStore.pure.js';
 
 const n = (over: Partial<InboxNotification> = {}): InboxNotification => ({
   notification_id: 'n1', severity: 'warning', title: 'A', read_at: null,
@@ -13,9 +13,9 @@ test('countUnread 只数 read_at 为空的', () => {
   assert.equal(countUnread(rows), 1);
 });
 
-test('countUnread 排除 info（spec §5）', () => {
+test('countUnread 计入 info（2026-09-28 口径对齐，与后端 unread-count 一致）', () => {
   const rows = [n({ notification_id: 'a', severity: 'info' }), n({ notification_id: 'b', severity: 'warning' })];
-  assert.equal(countUnread(rows), 1);
+  assert.equal(countUnread(rows), 2);
 });
 
 test('created：新条插到最前', () => {
@@ -64,4 +64,33 @@ test('selectUnannouncedImportant：全空/全已读时返回空', () => {
   assert.deepEqual(selectUnannouncedImportant([], new Set()), []);
   const read = [n({ notification_id: 'a', read_at: 'now' })];
   assert.deepEqual(selectUnannouncedImportant(read, new Set()), []);
+});
+
+test('selectUnreadTone：无未读时返回 null', () => {
+  assert.equal(selectUnreadTone([]), null);
+  assert.equal(selectUnreadTone([n({ read_at: 'now' })]), null);
+});
+
+test('selectUnreadTone：未读里的最高严重度决定色调', () => {
+  assert.equal(selectUnreadTone([n({ severity: 'info' })]), 'info');
+  assert.equal(
+    selectUnreadTone([n({ notification_id: 'a', severity: 'info' }), n({ notification_id: 'b', severity: 'warning' })]),
+    'warning',
+  );
+  assert.equal(
+    selectUnreadTone([
+      n({ notification_id: 'a', severity: 'info' }),
+      n({ notification_id: 'b', severity: 'warning' }),
+      n({ notification_id: 'c', severity: 'critical' }),
+    ]),
+    'critical',
+  );
+});
+
+test('selectUnreadTone：已读的严重项不抬升色调', () => {
+  const rows = [
+    n({ notification_id: 'a', severity: 'info' }),
+    n({ notification_id: 'b', severity: 'critical', read_at: 'now' }),
+  ];
+  assert.equal(selectUnreadTone(rows), 'info');
 });
