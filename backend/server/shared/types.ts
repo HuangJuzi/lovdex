@@ -1005,6 +1005,17 @@ export type TaskRow = {
    */
   pending_tool?: string | null;
   /**
+   * Realtime-only (never persisted): when the attention signal on this row
+   * started, as a canonical ISO string — what the task inbox renders as
+   * "12 分钟前". An approval wait takes it from the chat run registry (the
+   * moment the first pending request arrived); every other signal takes
+   * `updated_at`, which each state transition writes in the same UPDATE the
+   * tag change rides on. Null when the moment is genuinely unknown (a pending
+   * approval whose request predates this process) — consumers must render
+   * nothing rather than invent a time.
+   */
+  attention_since?: string | null;
+  /**
    * Realtime-only (never persisted): true when the task still references a
    * session_id whose sessions row no longer exists (e.g. hard-deleted by the
    * operator-workspace startup cleanup). The detail page renders "会话被清理"

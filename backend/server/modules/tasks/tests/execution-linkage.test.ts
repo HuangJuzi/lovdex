@@ -240,6 +240,56 @@ test('approval_pending defaults to false when no pending-sessions source is wire
 });
 
 // ---------------------------------------------------------------------------
+// The inbox shows when a reminder appeared: decorate() derives attention_since.
+// An approval wait is live-only, so it takes the registry's wait start; every
+// other signal takes updated_at — each state transition writes it in the same
+// UPDATE the tag change rides on, so it already is the moment the state began.
+// ---------------------------------------------------------------------------
+
+test('attention_since uses the registry wait start while an approval is pending', () => {
+  const rows = [makeRow({ task_id: 't1', status: 'in_progress', session_id: 's1' })];
+  const svc = createTasksService(makeDb(rows), {
+    broadcast: () => {},
+    getPendingApprovalSessions: () => new Map([['s1', 'Bash']]),
+    getApprovalRequestedAt: (sessionId) => (sessionId === 's1' ? '2026-02-02T03:04:05.000Z' : null),
+  });
+  assert.equal(svc.getTask('t1')?.attention_since, '2026-02-02T03:04:05.000Z');
+});
+
+test('attention_since falls back to updated_at for non-approval signals', () => {
+  const rows = [
+    makeRow({ task_id: 't1', status: 'in_progress', sub_status: 'failed', updated_at: '2026-03-03T03:03:03.000Z' }),
+  ];
+  const svc = createTasksService(makeDb(rows), {
+    broadcast: () => {},
+    getPendingApprovalSessions: () => new Map(),
+    getApprovalRequestedAt: () => null,
+  });
+  const list = svc.listTasks();
+  assert.equal(list[0].attention_since, '2026-03-03T03:03:03.000Z');
+});
+
+test('attention_since is null when the approval start is unknown, not a fabricated time', () => {
+  const rows = [makeRow({ task_id: 't1', status: 'in_progress', session_id: 's1' })];
+  const svc = createTasksService(makeDb(rows), {
+    broadcast: () => {},
+    getPendingApprovalSessions: () => new Map([['s1', 'AskUserQuestion']]),
+    // The registry has no record — e.g. the request predates this process.
+    getApprovalRequestedAt: () => null,
+  });
+  assert.equal(svc.getTask('t1')?.attention_since, null);
+});
+
+test('attention_since is null when the approval start source is not wired at all', () => {
+  const rows = [makeRow({ task_id: 't1', status: 'in_progress', session_id: 's1' })];
+  const svc = createTasksService(makeDb(rows), {
+    broadcast: () => {},
+    getPendingApprovalSessions: () => new Map([['s1', 'Bash']]),
+  });
+  assert.equal(svc.getTask('t1')?.attention_since, null);
+});
+
+// ---------------------------------------------------------------------------
 // Verdict trigger must align with task lifecycle: a run that ends while the
 // session is paused on an interactive tool (AskUserQuestion / ExitPlanMode) is
 // a PAUSE waiting for a human decision, not a completion. Moving the task to

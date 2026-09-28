@@ -190,6 +190,13 @@ export function createTasksService(
      */
     getPendingApprovalSessions?: () => Map<string, string>;
     /**
+     * 「等你批准」这条提醒从什么时候开始等（ISO 串）。由 chat run registry 提供，
+     * 用来给审批等待态的任务行派生 `attention_since`。返回 null 表示该会话不在
+     * 等待中、或时刻不可知（例如请求早于本进程启动）——此时不显示时间。
+     * 与 getPendingApprovalSessions 一样可选，缺省不接线时审批行不带时刻。
+     */
+    getApprovalRequestedAt?: (sessionId: string) => string | null;
+    /**
      * Fired after a linked session transitions to `completed` (after the
      * in_progress → in_review move). The auto-verdict trigger (T9) hooks here
      * to schedule a headless operator run that judges the session and writes a
@@ -226,6 +233,7 @@ export function createTasksService(
         await sessionsService.deleteOrArchiveSessionById(sessionId, { force: true, deletedFromDisk: true });
       });
   const pendingApprovalSessions = opts.getPendingApprovalSessions ?? (() => new Map<string, string>());
+  const approvalRequestedAt = opts.getApprovalRequestedAt ?? (() => null);
 
   /**
    * 重复提交闸门（仅 dedupIdentical 的调用方走它）。lookup 取的是**当前行**：
@@ -265,6 +273,12 @@ export function createTasksService(
     // Surface that so the detail page can render "会话被清理" instead of a
     // "打开会话" button that would land on a 404.
     const sessionDeleted = Boolean(row.session_id) && !resolveSession(row.session_id as string);
+    // 「这条提醒什么时候产生的」。审批等待是纯实时的（不落库），只有 registry
+    // 记着这段等待的起点；其余信号的 updated_at 就是进入该状态的时刻 —— 每次
+    // 转移（verdict 写入 / in_review / waiting_* 持久化）都与它同一条 UPDATE 写入。
+    const attentionSince = approvalPending && row.session_id
+      ? approvalRequestedAt(row.session_id as string)
+      : row.updated_at;
     let subStatus: SubStatus | null = row.sub_status;
     if (row.status === 'in_progress') {
       if (approvalPending) {
@@ -285,7 +299,14 @@ export function createTasksService(
       // task manually completed while tagged) must not surface on the board.
       subStatus = null;
     }
-    return { ...row, approval_pending: approvalPending, pending_tool: pendingTool, sub_status: subStatus, session_deleted: sessionDeleted };
+    return {
+      ...row,
+      approval_pending: approvalPending,
+      pending_tool: pendingTool,
+      sub_status: subStatus,
+      session_deleted: sessionDeleted,
+      attention_since: attentionSince,
+    };
   }
 
   function emit(event: TaskEventInput): void {
