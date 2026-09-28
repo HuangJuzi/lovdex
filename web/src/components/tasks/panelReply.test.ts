@@ -23,6 +23,35 @@ test('无 session_id：禁用，不能排队也不能发', () => {
   assert.equal(s.willQueue, false);
 });
 
+test('session_id 还在但会话被清理：同样禁用，且文案与无 session_id 一致', () => {
+  // 后端在 session_id 仍指向一条已被硬删的 sessions 行时置 session_deleted
+  // （operator 工作区启动清理会这么做）。只判 !session_id 会放行这种任务，
+  // 用户敲完再发才发现会话没了 —— 正是本模块要避免的那件事。
+  const deleted = replyState({
+    task: task({ session_id: 's1', session_deleted: true }),
+    isProcessing: false,
+    hasPendingPrompt: false,
+  });
+  const absent = replyState({ task: task({ session_id: null }), isProcessing: false, hasPendingPrompt: false });
+
+  assert.equal(deleted.mode, 'no-session');
+  assert.equal(deleted.canType, false);
+  assert.equal(deleted.willQueue, false);
+  // 从用户视角两者都是「会话没了」，读到的说明不该有差别。
+  assert.equal(deleted.hint, absent.hint);
+});
+
+test('会话被清理即使显示为运行中也不放行（先判会话，再判运行）', () => {
+  const s = replyState({
+    task: task({ session_id: 's1', session_deleted: true }),
+    isProcessing: true,
+    hasPendingPrompt: false,
+  });
+  assert.equal(s.mode, 'no-session');
+  assert.equal(s.canType, false);
+  assert.equal(s.willQueue, false);
+});
+
 test('会话正在跑：可输入，但发送会排队', () => {
   const s = replyState({ task: task({}), isProcessing: true, hasPendingPrompt: false });
   assert.equal(s.mode, 'queued');
