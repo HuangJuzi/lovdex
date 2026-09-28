@@ -2686,126 +2686,368 @@ git commit -m "feat(tasks): queue a session's pending approvals, timeout-first"
 ## Task 6: 面板内回复区
 
 **Files:**
+- Create: `web/src/components/tasks/panelReplyBox.ts`
 - Create: `web/src/components/tasks/TaskPanelReplyBox.tsx`
+- Test: `web/src/components/tasks/panelReplyBox.test.ts`
 - Test: `web/src/components/tasks/TaskPanelReplyBox.test.tsx`
 
-**背景：** 常用语**只填入不发送**（与 `handleInsertQuickReply` 一致，`web/src/components/chat/hooks/useChatComposerState.ts:1285`）。数据来自既有的 `useQuickReplies` 钩子与 `api.quickReplies`。
+**背景：** 常用语**只填入不发送**（与 `handleInsertQuickReply` 一致，`web/src/components/chat/hooks/useChatComposerState.ts:1280`）。数据来自既有的 `useQuickReplies` 钩子与 `api.quickReplies`。
 
-- [ ] **Step 1: 写失败的测试**
+> **实施中发现的两处问题（已按实测更正）**
+>
+> 1. **计划草稿的断言 `assert.doesNotMatch(html, /disabled/)` 是坏的 —— 它在草稿自己的实现上就失败。**
+>    Tailwind 的 `disabled:opacity-45` / `disabled:opacity-50` 类名里含 "disabled" 子串，
+>    于是「有没有 disabled」永远为真。实测：草稿的 5 条测试对着草稿实现跑是 **pass 3 / fail 2**
+>    （第 2 条与第 5 条挂在 `doesNotMatch` 上）。反过来说，若有人把 `assert.match(html, /disabled/)`
+>    当成「发送键被禁用了」的证据，它同样恒真 —— 一条**两头都恒真**的断言。
+>    现在改为把范围收到目标元素的开标签上，判定 `disabled=""` 这个**属性**：
+>    `isDisabled(textareaTag(html))` / `isDisabled(sendButtonTag(html))`。
+> 2. **Enter 发送缺了输入法组合态守卫。** 草稿只判 `key === 'Enter' && !shiftKey`。
+>    本仓库是中文优先：输入法里 Enter 是「确认候选词」，少了 `isComposing` 判断，
+>    敲「nihao」按 Enter 选词会把半成品候选串当消息发出去。既有两处发送入口都做了
+>    这个判断（`useChatComposerState.ts:1228`、`QuickRepliesMenu.tsx:304`），本组件按同一口径补上。
+>    注意 React 里它在 `event.nativeEvent.isComposing`，不在合成事件顶层。
+>
+> **另有一处主动偏离草稿：** 决定逻辑全部抽进 `panelReplyBox.ts` 纯函数。
+> 本仓库 web 测试无 DOM（不能点、不能派发键盘事件），留在 `onClick` / `onKeyDown`
+> 闭包里的判断没有任何测试碰得到 —— 与 Task 4 抽出 `pendingPromptAnswers.ts`、
+> Task 5 抽出 `pendingPromptQueue.ts` 同一条纪律。组件因此只剩接线。
+>
+> 两个待决项（开场提出的）定为：**常用语列表为空时整行不渲染**（空行是噪音，
+> 且会做出「这里能插片段」的虚假承诺）；**发送键在 `willQueue` 时保持可用**
+> （发送只是排队不是禁止，`panelReply.ts` 的 `willQueue` 是提示而非闸门 ——
+> 加一道闸门会让执行中的任务永远回不了话）。
+
+- [ ] **Step 1: 写失败的测试（纯函数 + 组件）**
+
+创建 `web/src/components/tasks/panelReplyBox.test.ts`：
+
+```ts
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+import type { ReplyState } from './panelReply';
+import { canSendReply, isSendKey, shouldSendOnEnter, showQuickReplies } from './panelReplyBox';
+
+/** 只关心「能不能敲/能不能发」的替身；文案由 panelReply 拥有，这里不测。 */
+const ready: ReplyState = { mode: 'ready', canType: true, willQueue: false, hint: 'hint' };
+const queued: ReplyState = { mode: 'queued', canType: true, willQueue: true, hint: 'hint' };
+const noSession: ReplyState = { mode: 'no-session', canType: false, willQueue: false, hint: 'hint' };
+
+/** 一个「普通键盘按下」：非组合态、无 Shift。 */
+const key = (over: Partial<{ key: string; shiftKey: boolean; isComposing: boolean }> = {}) => ({
+  key: 'Enter',
+  shiftKey: false,
+  isComposing: false,
+  ...over,
+});
+
+test('canSendReply：可输入且去掉首尾空白后非空才为真', () => {
+  assert.equal(canSendReply(ready, '好的'), true);
+  assert.equal(canSendReply(ready, '  好的  '), true);
+  assert.equal(canSendReply(ready, ''), false);
+});
+
+test('canSendReply：纯空白不算内容（只有空格 / 换行 / 制表符都不发）', () => {
+  // 少了 trim 的话这些都会变成「可发」——用户按 Enter 发出一串空白给模型。
+  for (const blank of [' ', '   ', '\n', '\n\n', '\t', ' \n\t ']) {
+    assert.equal(canSendReply(ready, blank), false, JSON.stringify(blank));
+  }
+});
+
+test('canSendReply：不可输入的会话一律不能发，哪怕框里有内容', () => {
+  // 会话被清理后 value 可能还留着上一轮的草稿：只判 value 会放行一次注定失败的发送。
+  assert.equal(canSendReply(noSession, '好的'), false);
+});
+
+test('canSendReply：排队态仍可发 —— 发送只是排队，不是被禁止', () => {
+  // willQueue 是**提示**不是闸门：后端没有服务端队列，前端替它排队。
+  // 若有人把 `&& !willQueue` 加进来，执行中的任务就再也回不了话。
+  assert.equal(canSendReply(queued, '好的'), true);
+});
+
+test('shouldSendOnEnter：Enter 且非 Shift、非组合态、有内容 —— 发送', () => {
+  assert.equal(shouldSendOnEnter(ready, '好的', key()), true);
+});
+
+test('shouldSendOnEnter：Shift+Enter 是换行，不发送', () => {
+  assert.equal(shouldSendOnEnter(ready, '好的', key({ shiftKey: true })), false);
+});
+
+test('shouldSendOnEnter：输入法组合中的 Enter 是选字，不发送', () => {
+  // 中文输入法里 Enter 用来确认拼音候选词。少了这个判断，用户敲「nihao」按 Enter
+  // 选词就会把半成品的候选串当成消息发出去 —— 这是本仓库（中文优先）的必守项，
+  // 两处既有发送入口（useChatComposerState / QuickRepliesMenu）都做了同样的判断。
+  assert.equal(shouldSendOnEnter(ready, '好的', key({ isComposing: true })), false);
+});
+
+test('shouldSendOnEnter：内容为空或纯空白时 Enter 不发', () => {
+  assert.equal(shouldSendOnEnter(ready, '', key()), false);
+  assert.equal(shouldSendOnEnter(ready, '   ', key()), false);
+});
+
+test('shouldSendOnEnter：别的键不发送', () => {
+  assert.equal(shouldSendOnEnter(ready, '好的', key({ key: 'a' })), false);
+  assert.equal(shouldSendOnEnter(ready, '好的', key({ key: 'Escape' })), false);
+});
+
+test('shouldSendOnEnter：队列中（willQueue）照常发送', () => {
+  assert.equal(shouldSendOnEnter(queued, '好的', key()), true);
+});
+
+test('isSendKey：只看键与修饰键，与内容无关（内容闸门是 canSendReply 的事）', () => {
+  // 这个判据决定要不要 preventDefault —— 组合态里绝不能 preventDefault，
+  // 否则会干扰输入法选字。所以「有内容」不参与这里。
+  assert.equal(isSendKey(key()), true);
+  assert.equal(isSendKey(key({ shiftKey: true })), false);
+  assert.equal(isSendKey(key({ isComposing: true })), false);
+  assert.equal(isSendKey(key({ key: 'a' })), false);
+});
+
+test('showQuickReplies：可用且有条目才显示', () => {
+  assert.equal(showQuickReplies(ready, 2), true);
+});
+
+test('showQuickReplies：列表为空时整行不渲染（空行是噪音，不承诺可插入）', () => {
+  assert.equal(showQuickReplies(ready, 0), false);
+});
+
+test('showQuickReplies：会话不可用时连常用语也不给 —— 给一个插不进去的片段比不给更糟', () => {
+  assert.equal(showQuickReplies(noSession, 3), false);
+});
+```
 
 创建 `web/src/components/tasks/TaskPanelReplyBox.test.tsx`：
 
 ```tsx
-import test from 'node:test';
 import assert from 'node:assert/strict';
+import test from 'node:test';
+
 import { renderToStaticMarkup } from 'react-dom/server';
 
+import type { ReplyState } from './panelReply';
 import { TaskPanelReplyBox } from './TaskPanelReplyBox';
 
-test('会话被清理：输入框禁用，提示不可回复，且不显示常用语', () => {
-  const html = renderToStaticMarkup(
-    <TaskPanelReplyBox
-      value=""
-      onChange={() => {}}
-      onSend={() => {}}
-      quickReplies={[{ quick_reply_id: 'q1', content: '继续' }]}
-      replyState={{
-        mode: 'no-session',
-        canType: false,
-        willQueue: false,
-        hint: '这个会话已被清理，无法再回复',
-      }}
-      onInsertQuickReply={() => {}}
-    />,
-  );
-
-  assert.match(html, /这个会话已被清理，无法再回复/);
-  assert.match(html, /disabled/);
-  assert.doesNotMatch(html, /继续/);
+const ready = (over: Partial<ReplyState> = {}): ReplyState => ({
+  mode: 'ready',
+  canType: true,
+  willQueue: false,
+  hint: 'Enter 发送 · Shift+Enter 换行',
+  ...over,
 });
 
-test('执行中：提示会排队，但输入框仍可编辑', () => {
-  const html = renderToStaticMarkup(
+const render = (
+  props: Partial<Parameters<typeof TaskPanelReplyBox>[0]> = {},
+): string =>
+  renderToStaticMarkup(
     <TaskPanelReplyBox
       value=""
       onChange={() => {}}
       onSend={() => {}}
       quickReplies={[]}
-      replyState={{
-        mode: 'queued',
-        canType: true,
-        willQueue: true,
-        hint: '执行中 · 消息将排队发送，等这一轮结束',
-      }}
+      replyState={ready()}
       onInsertQuickReply={() => {}}
+      {...props}
     />,
   );
 
-  assert.match(html, /执行中 · 消息将排队发送/);
-  assert.doesNotMatch(html, /disabled/);
+/**
+ * 取某个具体元素的开标签。
+ *
+ * **不要**对整页用 `assert.match(html, /disabled/)`：本组件里 Tailwind 的
+ * `disabled:opacity-45` / `disabled:opacity-50` 类名里就含 "disabled" 这个子串，
+ * 于是「有没有 disabled」永远为真，断言恒过。必须把范围收到目标元素上。
+ * 同一文件里可能有多个 `<button>`，所以发送键的匹配要带上它的文案。
+ */
+const tagOf = (html: string, pattern: RegExp): string => {
+  const match = html.match(pattern);
+  assert.ok(match, `没找到匹配 ${pattern} 的元素`);
+  return match[0];
+};
+
+const textareaTag = (html: string): string => tagOf(html, /<textarea[^>]*>/);
+const sendButtonTag = (html: string): string => tagOf(html, /<button[^>]*>发送<\/button>/);
+
+const isDisabled = (tag: string): boolean => tag.includes('disabled=""');
+
+test('会话被清理：输入框与发送键都禁用，提示不可回复，且常用语整行不出现', () => {
+  const html = render({
+    value: '上一轮留下的草稿',
+    quickReplies: [{ quick_reply_id: 'q1', content: '继续' }],
+    replyState: ready({
+      mode: 'no-session',
+      canType: false,
+      willQueue: false,
+      hint: '这个会话已被清理，无法再回复',
+    }),
+  });
+
+  assert.match(html, /这个会话已被清理，无法再回复/);
+  assert.equal(isDisabled(textareaTag(html)), true, '输入框应禁用');
+  // 框里虽有内容，会话没了也一样发不出去 —— 只判 value 的实现会在这里放行。
+  assert.equal(isDisabled(sendButtonTag(html)), true, '发送键应禁用');
+  // 插不进去的片段比不给更糟：整行（连带「点一下填入」提示）都不该出现。
+  assert.doesNotMatch(html, /继续/);
+  assert.doesNotMatch(html, /点一下填入/);
 });
 
-test('常用语渲染为可点的 chip，并声明「点一下填入」', () => {
-  const html = renderToStaticMarkup(
-    <TaskPanelReplyBox
-      value=""
-      onChange={() => {}}
-      onSend={() => {}}
-      quickReplies={[
-        { quick_reply_id: 'q1', content: '继续' },
-        { quick_reply_id: 'q2', content: '先停下' },
-      ]}
-      replyState={{ mode: 'ready', canType: true, willQueue: false, hint: 'Enter 发送' }}
-      onInsertQuickReply={() => {}}
-    />,
-  );
+test('执行中：输入框仍可编辑（排队不是禁止），提示来自 replyState', () => {
+  const html = render({
+    replyState: ready({
+      mode: 'queued',
+      willQueue: true,
+      hint: '执行中 · 消息将排队发送，等这一轮结束',
+    }),
+  });
+
+  assert.match(html, /执行中 · 消息将排队发送，等这一轮结束/);
+  assert.equal(isDisabled(textareaTag(html)), false, '排队态输入框必须可编辑');
+});
+
+test('执行中：有内容时发送键可用 —— 排队态不是发送闸门', () => {
+  const html = render({
+    value: '好的',
+    replyState: ready({ mode: 'queued', willQueue: true, hint: 'x' }),
+  });
+
+  assert.equal(isDisabled(sendButtonTag(html)), false, '排队态有内容应当能发');
+});
+
+test('常用语渲染为可点的 chip，并声明「点一下填入，不会直接发送」', () => {
+  const html = render({
+    quickReplies: [
+      { quick_reply_id: 'q1', content: '继续' },
+      { quick_reply_id: 'q2', content: '先停下' },
+    ],
+  });
 
   assert.match(html, /继续/);
   assert.match(html, /先停下/);
-  assert.match(html, /点一下填入/);
+  assert.match(html, /点一下填入，不会直接发送/);
 });
 
-test('内容为空时发送按钮禁用', () => {
-  const html = renderToStaticMarkup(
-    <TaskPanelReplyBox
-      value=""
-      onChange={() => {}}
-      onSend={() => {}}
-      quickReplies={[]}
-      replyState={{ mode: 'ready', canType: true, willQueue: false, hint: 'Enter 发送' }}
-      onInsertQuickReply={() => {}}
-    />,
-  );
-  assert.match(html, /disabled/);
+test('常用语列表为空：不渲染 chip 容器，也不出现「点一下填入」', () => {
+  const html = render({ quickReplies: [] });
+
+  assert.doesNotMatch(html, /点一下填入/);
 });
 
-test('有内容时发送按钮可用', () => {
-  const html = renderToStaticMarkup(
-    <TaskPanelReplyBox
-      value="好的"
-      onChange={() => {}}
-      onSend={() => {}}
-      quickReplies={[]}
-      replyState={{ mode: 'ready', canType: true, willQueue: false, hint: 'Enter 发送' }}
-      onInsertQuickReply={() => {}}
-    />,
-  );
-  // 发送按钮不应该带 disabled
-  assert.doesNotMatch(html, /disabled/);
+test('header 恒有「↩ 快速回复」，与是否可用无关', () => {
+  assert.match(render(), /↩ 快速回复/);
+  assert.match(render({ replyState: ready({ mode: 'no-session', canType: false, hint: 'x' }) }), /↩ 快速回复/);
+});
+
+test('发送键：内容为纯空白时禁用（trim 后为空不该发空白）', () => {
+  assert.equal(isDisabled(sendButtonTag(render({ value: '   ' }))), true);
+  assert.equal(isDisabled(sendButtonTag(render({ value: '\n' }))), true);
+});
+
+test('发送键：有内容时可用', () => {
+  assert.equal(isDisabled(sendButtonTag(render({ value: '好的' }))), false);
+});
+
+test('hint 逐字取自 replyState，组件不自己派生文案', () => {
+  // 用一句别处不存在的文案：若组件把 hint 硬编码或重新推导，这里必挂。
+  const html = render({ replyState: ready({ hint: '哨兵文案-Zz9' }) });
+
+  assert.match(html, /哨兵文案-Zz9/);
+});
+
+test('不可用时 placeholder 换成「无法回复」，且不承诺 Enter 发送', () => {
+  const disabledHtml = render({
+    replyState: ready({ mode: 'no-session', canType: false, hint: 'x' }),
+  });
+  let placeholder = disabledHtml.match(/placeholder="([^"]*)"/)?.[1] ?? '';
+  assert.equal(placeholder.includes('无法回复'), true);
+  assert.equal(placeholder.includes('Enter 发送'), false);
+
+  const readyHtml = render();
+  placeholder = readyHtml.match(/placeholder="([^"]*)"/)?.[1] ?? '';
+  assert.equal(placeholder.includes('Enter 发送'), true);
 });
 ```
 
 - [ ] **Step 2: 跑测试确认失败**
 
-Run: `cd /mnt/b/workdir/github/lovdex/web && unset TSX_TSCONFIG_PATH && npx tsx --test src/components/tasks/TaskPanelReplyBox.test.tsx`
-Expected: FAIL —— `Cannot find module './TaskPanelReplyBox'`
+Run: `cd /mnt/b/workdir/github/lovdex/web && unset TSX_TSCONFIG_PATH && npx tsx --test src/components/tasks/TaskPanelReplyBox.test.tsx src/components/tasks/panelReplyBox.test.ts`
+Expected: FAIL —— `Cannot find module './TaskPanelReplyBox'` / `'./panelReplyBox'`
 
 - [ ] **Step 3: 写最小实现**
+
+创建 `web/src/components/tasks/panelReplyBox.ts`：
+
+```ts
+/**
+ * 回复区里「什么情况下能发、Enter 该不该发、常用语给不给看」的判据。
+ *
+ * 纯函数，无 React 依赖。搬出组件的理由是 Task 4/5 已经踩过的那一条：本仓库的
+ * web 测试是 `node:test` + `renderToStaticMarkup`（无 DOM、不能模拟点击、不能
+ * 派发键盘事件）。逻辑若留在组件的 `onClick` / `onKeyDown` 闭包里，**任何**改法
+ * 都测不到 —— 包括「没内容也能发」「Shift+Enter 也发」「输入法选字时把半成品发
+ * 出去」「会话被清理了还给常用语」。这些在静态标记上完全看不出来。搬出后组件
+ * 只剩接线，判据才有 node:test 钉着。
+ */
+
+import type { ReplyState } from './panelReply';
+
+/** 发送键的事件形状（取 React 合成事件里我们真正用到的那几个字段）。 */
+export interface SendKeyEvent {
+  key: string;
+  shiftKey: boolean;
+  /** 输入法组合态。中文优先的仓库里这一条是必守项，见 shouldSendOnEnter。 */
+  isComposing: boolean;
+}
+
+/**
+ * 现在能不能发。`value.trim()` 非空是核心：只判 `value.length > 0` 会让一串
+ * 空格 / 换行也算「有内容」，用户按 Enter 就把空白发给模型了。
+ *
+ * 刻意**不**看 `willQueue`：排队不是禁止。会话在跑时后端以 `RUN_IN_PROGRESS`
+ * 拒 `chat.send`、服务端没有队列，前端替它排队（见 `panelReply.ts` 文件头），
+ * 所以「发送」在排队态下必须照常可用 —— 加个 `&& !willQueue` 就等于执行中的
+ * 任务永远回不了话。
+ */
+export function canSendReply(replyState: ReplyState, value: string): boolean {
+  return replyState.canType && value.trim().length > 0;
+}
+
+/**
+ * 这一下按键**是不是**「要发送」的键（Enter、非 Shift、非组合态）。
+ *
+ * 与内容无关是刻意的：它的用途是决定要不要 `preventDefault`。组合态里**绝不能**
+ * preventDefault，否则会打断输入法选字 —— 所以「有内容」这层闸门留给
+ * `canSendReply`，这里只认键本身。
+ *
+ * 两个修饰键判据都对齐聊天页：`Shift+Enter` 换行（两处既有入口的文案与行为），
+ * `isComposing` 时 Enter 是「确认候选词」而不是「发送」—— 少了它，中文输入法下
+ * 敲「nihao」按 Enter 选词会把半成品候选串当成消息发出去。聊天页的两处发送入口
+ * （`useChatComposerState` 与 `QuickRepliesMenu`）都做了同样的判断。
+ */
+export function isSendKey(event: SendKeyEvent): boolean {
+  return event.key === 'Enter' && !event.shiftKey && !event.isComposing;
+}
+
+/** 这一下按键应不应该真的把内容发出去：先是发送键，再是内容非空。 */
+export function shouldSendOnEnter(replyState: ReplyState, value: string, event: SendKeyEvent): boolean {
+  return isSendKey(event) && canSendReply(replyState, value);
+}
+
+/**
+ * 常用语那一行给不给看。两个条件缺一不可：
+ *  - 会话可用（`canType`）—— 给一个插不进去的片段，比什么都不给更糟；
+ *  - 列表非空 —— 渲染一行空的 chip 容器是纯噪音（同一理由也用在 header 的
+ *    「点一下填入」提示上）。
+ */
+export function showQuickReplies(replyState: ReplyState, count: number): boolean {
+  return replyState.canType && count > 0;
+}
+```
 
 创建 `web/src/components/tasks/TaskPanelReplyBox.tsx`：
 
 ```tsx
 import type { ReplyState } from './panelReply';
+import { canSendReply, shouldSendOnEnter, showQuickReplies } from './panelReplyBox';
 
 export interface QuickReplyItem {
   quick_reply_id: string;
@@ -2820,8 +3062,8 @@ export interface TaskPanelReplyBoxProps {
   replyState: ReplyState;
   /**
    * 点常用语：**只填入、不发送**。与聊天页的 `handleInsertQuickReply` 同一语义
-   * （见 web/src/components/chat/hooks/useChatComposerState.ts，那里有明确注释
-   * 说明「刻意不自动发送」）—— 片段是起点不是终稿，直接发出去等于替你按了回车。
+   * （`web/src/components/chat/hooks/useChatComposerState.ts`，那里的注释写着
+   * 「刻意不自动发送」）—— 片段是起点不是终稿，直接发出去等于替你按了回车。
    */
   onInsertQuickReply: (item: QuickReplyItem) => void;
 }
@@ -2831,6 +3073,11 @@ export interface TaskPanelReplyBoxProps {
  *
  * 发送走的仍然是 `chat.send`（复用 `buildTaskChatSend`），与任务页「开始执行 /
  * 重试」同一条通道，所以这里没有新的协议概念 —— 只是把入口从会话页搬到了面板里。
+ *
+ * 本组件**不含**任何判断逻辑：「能不能发」「Enter 该不该发」「常用语给不给看」
+ * 全在 `panelReplyBox.ts`（有 node:test 覆盖），文案由 `panelReply.ts` 的
+ * `replyState` 拥有，这里只负责接线与样式。本仓库的 web 测试无 DOM（不能点、
+ * 不能按键），留在 `onClick` / `onKeyDown` 闭包里的判断等于没有任何测试碰得到。
  */
 export function TaskPanelReplyBox({
   value,
@@ -2841,18 +3088,19 @@ export function TaskPanelReplyBox({
   onInsertQuickReply,
 }: TaskPanelReplyBoxProps) {
   const disabled = !replyState.canType;
-  const canSend = replyState.canType && value.trim().length > 0;
+  const canSend = canSendReply(replyState, value);
+  const chipsVisible = showQuickReplies(replyState, quickReplies.length);
 
   return (
     <div className="border-t border-border px-3.5 pb-3 pt-2.5">
       <div className="mb-1.5 flex items-center gap-1.5 text-2xs text-muted-foreground">
         <span>↩ 快速回复</span>
-        {quickReplies.length > 0 && replyState.canType ? (
+        {chipsVisible ? (
           <span className="ml-auto text-3xs">点一下填入，不会直接发送</span>
         ) : null}
       </div>
 
-      {quickReplies.length > 0 && replyState.canType ? (
+      {chipsVisible ? (
         <div className="mb-2 flex flex-wrap gap-1.5">
           {quickReplies.map((item) => (
             <button
@@ -2874,12 +3122,19 @@ export function TaskPanelReplyBox({
           disabled={disabled}
           onChange={(event) => onChange(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key === 'Enter' && !event.shiftKey) {
-              event.preventDefault();
-              if (canSend) {
-                onSend();
-              }
+            // Enter 发送、Shift+Enter 换行；输入法组合态里的 Enter 是选字，
+            // 既不发也不能 preventDefault（会打断输入法），判据见 shouldSendOnEnter。
+            // `isComposing` 在 React 合成事件的 `nativeEvent` 上，不在顶层 —— 与
+            // 聊天页两处发送入口（useChatComposerState / QuickRepliesMenu）一致。
+            if (!shouldSendOnEnter(replyState, value, {
+              key: event.key,
+              shiftKey: event.shiftKey,
+              isComposing: event.nativeEvent.isComposing,
+            })) {
+              return;
             }
+            event.preventDefault();
+            onSend();
           }}
           placeholder={disabled ? '无法回复' : '回复这个任务…（Enter 发送）'}
           className="w-full resize-none border-none bg-transparent px-2.5 py-2 text-xs leading-relaxed outline-none disabled:opacity-50"
@@ -2905,19 +3160,47 @@ export default TaskPanelReplyBox;
 
 - [ ] **Step 4: 跑测试确认通过**
 
-Run: `cd /mnt/b/workdir/github/lovdex/web && unset TSX_TSCONFIG_PATH && npx tsx --test src/components/tasks/TaskPanelReplyBox.test.tsx`
-Expected: PASS —— `# pass 5`、`# fail 0`
+Run: `cd /mnt/b/workdir/github/lovdex/web && unset TSX_TSCONFIG_PATH && npx tsx --test src/components/tasks/TaskPanelReplyBox.test.tsx src/components/tasks/panelReplyBox.test.ts`
+Expected: PASS —— `# pass 24`、`# fail 0`（组件 10 + 纯函数 14）
 
-- [ ] **Step 5: typecheck**
+- [ ] **Step 5: 变异核对（确认断言抓得住，实测 12/12 全红）**
+
+逐条改坏、确认有测试变红，再改回（本仓库没有 mutation runner，手工做）：
+
+| 改法 | 结果 |
+| --- | --- |
+| `canSendReply` 丢掉 `canType` | 红（fail 2） |
+| `canSendReply` 去掉 `trim()` | 红（fail 3） |
+| `canSendReply` 加上 `!willQueue`（排队不许发） | 红（fail 3） |
+| `isSendKey` 丢掉 `shiftKey` 判断 | 红（fail 2） |
+| `isSendKey` 丢掉 `isComposing` 判断 | 红（fail 2） |
+| `showQuickReplies` 丢掉 `canType` | 红（fail 2） |
+| `showQuickReplies` 的 `count > 0` 改成 `>= 0` | 红（fail 2） |
+| 组件的 `chipsVisible` 忽略 `canType` | 红（fail 1） |
+| 组件的 `textarea` 恒不禁用 | 红（fail 1） |
+| 组件的发送键 `disabled={!canSend}` 改成 `false` | 红（fail 2） |
+| 组件的 `hint` 硬编码 | 红（fail 3） |
+| 组件的 `placeholder` 忽略禁用态 | 红（fail 1） |
+
+**实测结果**（2026-09-28 手工跑，改坏 → 跑 → 改回 → 逐字节 diff 确认还原）：
+上表 12 行**全部**至少让一条用例变红，**零存活**。
+
+**接线层：这是一条边界，不是一个缺口。** 上表覆盖不到「`onInsertQuickReply` 是否真的接到
+父级的 `buildQuickReplyInput`」「`onSend` 接到哪里」—— `onInsertQuickReply` / `onSend` 都是
+父级（Task 10）注入的回调，本组件只负责在正确时机调用它们。本组件里剩下的接线是
+两个 `onClick` 与一个 `onKeyDown` 分支，逐行可读完。
+
+- [ ] **Step 6: typecheck**
 
 Run: `cd /mnt/b/workdir/github/lovdex/web && npx tsc --noEmit -p tsconfig.json 2>&1 | tail -5`
-Expected: 零新增
+Expected: 零新增（实测 0 错误；eslint 亦为基线 0 errors / 227 warnings）
 
-- [ ] **Step 6: 提交**
+- [ ] **Step 7: 提交**
 
 ```bash
 cd /mnt/b/workdir/github/lovdex
-git add web/src/components/tasks/TaskPanelReplyBox.tsx web/src/components/tasks/TaskPanelReplyBox.test.tsx
+git add web/src/components/tasks/TaskPanelReplyBox.tsx web/src/components/tasks/TaskPanelReplyBox.test.tsx \
+        web/src/components/tasks/panelReplyBox.ts web/src/components/tasks/panelReplyBox.test.ts
 git commit -m "feat(tasks): add the summary panel reply box with quick replies"
 ```
 
