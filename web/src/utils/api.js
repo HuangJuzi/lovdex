@@ -383,6 +383,29 @@ export const api = {
     disable: (scheduleId) => authenticatedFetch(`/api/scheduled-tasks/${encodeURIComponent(scheduleId)}/disable`, { method: 'POST' }),
   },
 
+  // 常用语（快速回复）。列表行按后端原样透出 snake_case，与其他业务表 API 一致。
+  quickReplies: {
+    list: () => authenticatedFetch('/api/quick-replies'),
+    create: (content) => authenticatedFetch('/api/quick-replies', {
+      method: 'POST',
+      body: JSON.stringify({ content }),
+    }),
+    update: (quickReplyId, content) =>
+      authenticatedFetch(`/api/quick-replies/${encodeURIComponent(quickReplyId)}`, {
+        method: 'PUT',
+        body: JSON.stringify({ content }),
+      }),
+    remove: (quickReplyId) =>
+      authenticatedFetch(`/api/quick-replies/${encodeURIComponent(quickReplyId)}`, {
+        method: 'DELETE',
+      }),
+    // 打点：只刷新 last_used_at，不改正文。
+    use: (quickReplyId) =>
+      authenticatedFetch(`/api/quick-replies/${encodeURIComponent(quickReplyId)}/use`, {
+        method: 'POST',
+      }),
+  },
+
   notifications: {
     list: (params = {}) => {
       const qs = new URLSearchParams();
