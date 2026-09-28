@@ -65,7 +65,16 @@ test('refetch 后 store 快照同步（角标与列表拿到的是同一份数�
   assert.equal(getInboxSnapshot().items[0].notification_id, 'snap-1');
 });
 
-test('getUnreadTone 跟随 store 快照：有未读 info 即返回 info', () => {
-  applyInboxEvent({ kind: 'notification_created', payload: n({ notification_id: 'tone-1', severity: 'info' }) });
+test('getUnreadTone 跟随 store 快照：有未读 info 即返回 info', async () => {
+  // 必须自己 stub + refetch 摆好快照：store 是模块级单例，上一个用例留下的
+  // 未读 warning 会让断言拿到 'warning'。本文件其余用例都走这个模式。
+  stubList([n({ notification_id: 'tone-1', severity: 'info' })]);
+  await refreshInbox();
   assert.equal(getUnreadTone(), 'info');
+});
+
+test('getUnreadTone 跟随 store 快照：无未读时回落 null', async () => {
+  stubList([n({ notification_id: 'tone-read', severity: 'critical', read_at: '2026-09-21 00:00:00' })]);
+  await refreshInbox();
+  assert.equal(getUnreadTone(), null);
 });
