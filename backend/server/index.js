@@ -83,6 +83,11 @@ import {
     createSessionAlertScanner,
     createAlertSkillService,
 } from './modules/notifications/index.js';
+import {
+    createQuickRepliesDb,
+    createQuickRepliesService,
+    buildQuickRepliesRouter,
+} from './modules/quick-replies/index.js';
 import { getOperatorConfig } from './modules/operators/operator.config.js';
 import { createOperatorExecService } from './modules/operators/operator-exec.service.js';
 import { buildOperatorSkillExecRouter } from './modules/operators/operator-skill-exec.routes.js';
@@ -2254,6 +2259,11 @@ async function startServer() {
         // 收件箱 skill：状态从磁盘推导，装/卸走 provider skills 层（claude）。
         const alertSkillService = createAlertSkillService();
         app.use('/api/notifications', authenticateToken, buildNotificationsRouter(notificationsService, alertSkillService));
+
+        // 常用语：同样必须等 initializeDatabase() 建完表再实例化，
+        // createQuickRepliesDb 里的 prepare 会校验表存在。
+        const quickRepliesService = createQuickRepliesService(createQuickRepliesDb());
+        app.use('/api/quick-replies', authenticateToken, buildQuickRepliesRouter(quickRepliesService));
 
         // 启动时比对内置 vs 已安装版本，落后就发一条 info 通知（进收件箱、
         // 不弹窗不计角标）。失败绝不阻塞启动。
