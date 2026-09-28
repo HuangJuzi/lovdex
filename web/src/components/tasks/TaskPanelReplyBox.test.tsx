@@ -131,15 +131,19 @@ test('hint 逐字取自 replyState，组件不自己派生文案', () => {
   assert.match(html, /哨兵文案-Zz9/);
 });
 
-test('不可用时 placeholder 换成「无法回复」，且不承诺 Enter 发送', () => {
-  const disabledHtml = render({
-    replyState: ready({ mode: 'no-session', canType: false, hint: 'x' }),
-  });
-  let placeholder = disabledHtml.match(/placeholder="([^"]*)"/)?.[1] ?? '';
-  assert.equal(placeholder.includes('无法回复'), true);
-  assert.equal(placeholder.includes('Enter 发送'), false);
+test('placeholder 只说做什么，不复述 hint 里的键位', () => {
+  // 键位由 panelReply.ts 的 hint 独家声明。这里若再写一份（曾经是
+  // 「回复这个任务…（Enter 发送）」），换发送模型时就得两处一起改 —— 还得改这条
+  // 钉住它的测试，而聊天页的发送键本身还是可配置的（sendByCtrlEnter）。所以
+  // placeholder 只描述动作。
+  const disabledPlaceholder =
+    render({ replyState: ready({ mode: 'no-session', canType: false, hint: 'x' }) }).match(
+      /placeholder="([^"]*)"/,
+    )?.[1] ?? '';
+  assert.equal(disabledPlaceholder, '无法回复');
 
-  const readyHtml = render();
-  placeholder = readyHtml.match(/placeholder="([^"]*)"/)?.[1] ?? '';
-  assert.equal(placeholder.includes('Enter 发送'), true);
+  const readyPlaceholder = render().match(/placeholder="([^"]*)"/)?.[1] ?? '';
+  assert.equal(readyPlaceholder, '回复这个任务…');
+  // 回归守卫：谁把键位重新写进 placeholder，这条就红。
+  assert.equal(readyPlaceholder.includes('Enter'), false);
 });

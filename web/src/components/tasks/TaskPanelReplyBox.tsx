@@ -88,7 +88,11 @@ export function TaskPanelReplyBox({
             event.preventDefault();
             onSend();
           }}
-          placeholder={disabled ? '无法回复' : '回复这个任务…（Enter 发送）'}
+          // 只说「做什么」，不写键位：键位由 panelReply.ts 的 hint 独家声明
+          // （ready 态那句「Enter 发送 · Shift+Enter 换行」）。这里再写一遍就是第二份
+          // 副本 —— 聊天页的发送键还是**可配置**的（useUiPreferences 的 sendByCtrlEnter，
+          // 默认 Ctrl+Enter），面板此刻读不到那个偏好，写死某个键位只会更错。
+          placeholder={disabled ? '无法回复' : '回复这个任务…'}
           className="w-full resize-none border-none bg-transparent px-2.5 py-2 text-xs leading-relaxed outline-none disabled:opacity-50"
         />
         <div className="flex items-center gap-1.5 px-2 pb-2">
