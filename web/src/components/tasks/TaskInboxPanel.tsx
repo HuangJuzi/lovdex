@@ -108,7 +108,7 @@ export function TaskInboxPanel({
                   UUID 短得多。相对时间由父级 TaskBoard 每分钟重算（now prop）。 */}
               {item.since && (
                 <span
-                  className="shrink-0 text-2xs text-muted-foreground"
+                  className="whitespace-nowrap shrink-0 text-2xs text-muted-foreground"
                   title={formatAbsoluteTime(item.since)}
                 >
                   {formatRelativeTime(item.since, now)}
