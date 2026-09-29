@@ -275,6 +275,31 @@ test('手动建的条目不渲染「⏰ 定时」标记', () => {
 // 机器的时区无关（文件顶部的 NOW 是裸串，JS 按本地时间解析，跨时区会漂）。
 const NOW_Z = new Date('2026-09-16T12:00:00.000Z');
 
+test('窄屏两行、sm 起恢复单行：两层容器都带 sm:contents 折叠', () => {
+  // 窄屏第一行是「状态 + 标题」、第二行是「来路 + 时间 + 动作」；sm 起两层容器
+  // 都必须退化成 contents，让内部元素回到原来的单行横向排列（否则桌面端会裂成
+  // 两个 flex 容器、动作按钮被挤到第二行）。
+  const html = renderToStaticMarkup(
+    React.createElement(TaskInboxPanel, {
+      tasks: [mkTask({ task_id: 'f1', title: '失败的任务', status: 'in_progress', sub_status: 'failed' })],
+      now: NOW,
+      onRetry: () => {},
+    }),
+  );
+  assert.equal((html.match(/sm:contents/g) || []).length, 2, '两层容器各有一次 sm:contents');
+});
+
+test('窄屏截断长标题（不再撑破行宽），桌面端保持不截断', () => {
+  const html = renderToStaticMarkup(
+    React.createElement(TaskInboxPanel, {
+      tasks: [mkTask({ task_id: 'f1', title: '失败的任务', status: 'in_progress', sub_status: 'failed' })],
+      now: NOW,
+      onRetry: () => {},
+    }),
+  );
+  assert.match(html, /class="min-w-0 flex-1 truncate text-sm[^"]*">失败的任务/);
+});
+
 test('renders the moment an item appeared instead of its task id', () => {
   const html = renderToStaticMarkup(
     React.createElement(TaskInboxPanel, {
