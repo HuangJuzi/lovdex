@@ -45,12 +45,28 @@ function actionFor(signal: SubStatus, task: Task): AttentionAction {
   }
 }
 
+/**
+ * 定时任务跑出来的任务（`source_schedule_id` 非空）：**已交付**不算要人处理。
+ *
+ * 定时任务跑完的常态就是「评审 + 待你验收」，而它一天跑几十次 —— 每次都推给
+ * 收件箱，人还没看就先被自己的定时任务淹没。结果去「定时 → 运行记录」里翻。
+ * 只有真的「出问题」的信号（失败 / 等人回答 / 等确认计划 / 待决策 / 需协助 /
+ * 待执行计划 / 逾期）才值得打扰人：无人值守的任务静默出故障才是危险的。
+ *
+ * 用「排除已交付」而不是「只允许失败」：将来若给 `SUB_STATUS_META` 加了新的
+ * 需人工介入信号，定时任务默认仍会提醒 —— 漏报比误报危险得多。
+ */
+function isScheduledDelivered(task: Task, signal: SubStatus): boolean {
+  return Boolean(task.source_schedule_id) && signal === 'pending_acceptance';
+}
+
 export function attentionItems(tasks: Task[], now: Date): AttentionItem[] {
   const items: AttentionItem[] = [];
   for (const task of tasks) {
     const sub = task.sub_status;
     const tone = sub ? SUB_SIGNAL_TONE[sub] : undefined;
     if (sub && tone) {
+      if (isScheduledDelivered(task, sub)) continue;
       items.push({ task, signal: sub, label: SUB_STATUS_META[sub].label, tone, action: actionFor(sub, task), since: task.attention_since ?? null });
       continue;
     }

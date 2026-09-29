@@ -88,6 +88,56 @@ test('failed + overdue counts once, preferring the sub_status signal', () => {
   assert.equal(items[0].signal, 'failed');
 });
 
+// —— 定时任务跑出来的条目：只有「出问题」的信号才打扰人 ——
+
+test('定时任务跑完的「待你验收」不进收件箱', () => {
+  // 无人值守的调度每天跑几十次，每次都停在评审列等验收；整条推给收件箱就是
+  // 每半小时一次的噪音。它的结果去「定时 → 运行记录」里翻，不在这里催人。
+  const items = attentionItems(
+    [mkTask({ task_id: 'r1', status: 'in_review', sub_status: 'pending_acceptance', source_schedule_id: 's1' })],
+    NOW,
+  );
+  assert.equal(items.length, 0);
+});
+
+test('定时任务失败仍进收件箱（无人值守出问题最该被提醒）', () => {
+  const items = attentionItems(
+    [mkTask({ task_id: 'r1', status: 'in_progress', sub_status: 'failed', source_schedule_id: 's1' })],
+    NOW,
+  );
+  assert.equal(items.length, 1);
+  assert.equal(items[0].signal, 'failed');
+});
+
+test('定时任务卡在等回答 / 等确认计划 / 需决策 / 需协助 / 待执行计划时仍进收件箱', () => {
+  for (const sub of ['waiting_answer', 'waiting_plan', 'needs_review', 'blocked', 'only_plan'] as const) {
+    const items = attentionItems(
+      [mkTask({ task_id: `r-${sub}`, status: 'in_progress', sub_status: sub, session_id: 's1', source_schedule_id: 's1' })],
+      NOW,
+    );
+    assert.equal(items.length, 1, `${sub} 应进收件箱`);
+    assert.equal(items[0].signal, sub);
+  }
+});
+
+test('定时任务逾期仍进收件箱', () => {
+  const items = attentionItems(
+    [mkTask({ task_id: 'r1', status: 'todo', deadline: '2026-09-15', source_schedule_id: 's1' })],
+    NOW,
+  );
+  assert.equal(items.length, 1);
+  assert.equal(items[0].signal, 'overdue');
+});
+
+test('人工建的「待你验收」照旧进收件箱', () => {
+  const items = attentionItems(
+    [mkTask({ task_id: 'm1', status: 'in_review', sub_status: 'pending_acceptance' })],
+    NOW,
+  );
+  assert.equal(items.length, 1);
+  assert.equal(items[0].action, 'accept');
+});
+
 // —— 条目产生时刻：由后端 decorate 派生，前端只透传（映射规则不在此重复推导） ——
 
 test('carries attention_since through to the attention item', () => {
