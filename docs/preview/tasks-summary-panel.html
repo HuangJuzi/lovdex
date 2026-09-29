@@ -1,0 +1,795 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>任务页预览 · 表格 + 缩略面板（浅色）</title>
+<style>
+  /* 取色自 web/src/index.css 的 :root（Lovdex 默认浅色主题），
+     只把 HSL 三元组换算成 hex 方便单文件预览。 */
+  :root{
+    --background:hsl(220 20% 98%); --foreground:hsl(222 47% 11%);
+    --card:hsl(0 0% 100%);         --card-foreground:hsl(222 47% 11%);
+    --muted:hsl(220 18% 96%);      --muted-foreground:hsl(220 10% 46%);
+    --border:hsl(220 16% 90%);     --input:hsl(220 16% 90%);
+    --primary:hsl(221 83% 53%);    --primary-foreground:hsl(0 0% 100%);
+    --secondary:hsl(220 15% 94%);  --accent:hsl(220 16% 95%);
+    --success:hsl(142 71% 45%);    --warning:hsl(38 92% 50%);
+    --destructive:hsl(0 72% 51%);  --info:hsl(217 91% 60%);
+    --ring:hsl(221 83% 53%);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    background:var(--background);color:var(--foreground);
+    font:13px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    padding:24px 20px 60px;
+  }
+  h1{font-size:17px;font-weight:600;margin-bottom:6px;letter-spacing:-.01em}
+  h2{font-size:14px;font-weight:600;margin:34px 0 4px;display:flex;align-items:center;gap:8px}
+  h2 .tag{font-size:10px;font-weight:500;padding:2px 7px;border-radius:99px;background:var(--secondary);color:var(--muted-foreground);letter-spacing:.04em}
+  p.sub{color:var(--muted-foreground);margin-bottom:14px;max-width:920px}
+  .wrap{max-width:1400px;margin:0 auto}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.92em;background:var(--muted);color:#1d4ed8;padding:1px 4px;border-radius:4px}
+
+  .win{border:1px solid var(--border);border-radius:12px;overflow:hidden;background:var(--card);box-shadow:0 1px 3px rgba(15,23,42,.06),0 8px 24px -12px rgba(15,23,42,.12)}
+  .bar{display:flex;align-items:center;gap:8px;padding:9px 12px;background:var(--muted);border-bottom:1px solid var(--border);font-size:12px}
+  .dot{width:9px;height:9px;border-radius:99px}
+  .bar .ver{color:var(--muted-foreground);margin-left:6px}
+
+  .pagehead{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--border);background:var(--card)}
+  .pagehead .title{font-weight:600}
+  .seg{display:flex;gap:3px;background:var(--muted);border-radius:9px;padding:2px}
+  .seg span{padding:3px 10px;border-radius:7px;color:var(--muted-foreground);font-size:12px;cursor:pointer}
+  .seg span.on{background:var(--card);color:var(--foreground);box-shadow:0 1px 2px rgba(15,23,42,.10);font-weight:500}
+  .btn{padding:4px 10px;border-radius:7px;background:var(--card);color:var(--foreground);cursor:pointer;border:1px solid var(--border);font-size:12px;transition:background .12s}
+  .btn:hover{background:var(--accent)}
+  .btn.primary{background:var(--primary);color:var(--primary-foreground);border-color:transparent}
+  .btn.primary:hover{background:hsl(221 83% 47%)}
+
+  table{width:100%;border-collapse:collapse;font-size:12px}
+  th{text-align:left;color:var(--muted-foreground);font-weight:500;padding:8px 10px;border-bottom:1px solid var(--border);white-space:nowrap;background:var(--muted)}
+  td{padding:9px 10px;border-bottom:1px solid var(--border);vertical-align:top}
+  tr.row{cursor:pointer;transition:background .10s}
+  tr.row:hover{background:var(--muted)}
+  tr.row.sel{background:hsl(221 83% 53% / .055)}
+  tr.row.sel td:first-child{box-shadow:inset 3px 0 0 var(--primary)}
+  .st{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+  .st i{width:7px;height:7px;border-radius:99px;flex:none}
+  .pill{display:inline-block;padding:1px 7px;border-radius:99px;background:var(--secondary);color:#475569;font-size:11px}
+  .pill.p1{background:hsl(38 92% 50% / .14);color:#b45309}
+  .cell-title{color:var(--foreground);font-weight:500}
+  .cell-sub{color:var(--muted-foreground);font-size:11px;margin-top:2px;max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .mono{font-family:ui-monospace,Menlo,monospace;color:var(--muted-foreground);font-size:11px}
+
+  .split{display:flex;min-height:340px}
+  .split > .left{flex:1;min-width:0}
+  .split > .right{width:420px;flex:none;border-left:1px solid var(--border);background:var(--card);display:flex;flex-direction:column}
+  @media (max-width:900px){ .split > .right{display:none} }
+
+  .ph{padding:11px 14px;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;gap:8px}
+  .ph .t{font-weight:600;font-size:13px;flex:1;line-height:1.35}
+  .ph .x{color:var(--muted-foreground);cursor:pointer;padding:0 4px;border-radius:5px;font-size:14px;line-height:1.3}
+  .ph .x:hover{background:var(--muted);color:var(--foreground)}
+  .pb{padding:13px 14px;display:flex;flex-direction:column;gap:13px;overflow:auto;flex:1}
+  .lab{color:var(--muted-foreground);font-size:10px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:5px}
+  .chips{display:flex;gap:6px;flex-wrap:wrap}
+  .chip{padding:2px 8px;border-radius:99px;background:var(--secondary);color:#475569;font-size:11px}
+  .chip.amber{background:hsl(38 92% 50% / .14);color:#b45309;border:1px solid hsl(38 92% 50% / .3)}
+  .chip.blue{background:hsl(221 83% 53% / .10);color:#1d4ed8;border:1px solid hsl(221 83% 53% / .25)}
+  .box{border:1px solid var(--border);border-radius:8px;background:var(--muted);padding:9px;color:#334155;line-height:1.5}
+  .clamp{max-height:88px;overflow:hidden;position:relative}
+  .clamp::after{content:"";position:absolute;inset:auto 0 0 0;height:26px;background:linear-gradient(transparent,var(--muted))}
+  .more{color:var(--primary);font-size:11px;margin-top:6px;cursor:pointer;display:inline-block}
+  .kv{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;color:var(--foreground);font-size:12px}
+  .kv .k{color:var(--muted-foreground)}
+  .pf{padding:12px 14px;border-top:1px solid var(--border);display:flex;gap:8px;background:var(--card)}
+  .pf .b{flex:1;text-align:center;padding:7px;border-radius:7px;background:var(--card);border:1px solid var(--border);color:var(--foreground);cursor:pointer;font-size:12px;transition:background .12s}
+  .pf .b:hover{background:var(--accent)}
+  .pf .b.go{background:var(--primary);color:var(--primary-foreground);border-color:transparent}
+  .pf .b.go:hover{background:hsl(221 83% 47%)}
+  .empty{display:flex;align-items:center;justify-content:center;flex:1;color:var(--muted-foreground);font-size:12px;text-align:center;padding:24px;line-height:1.7}
+
+  /* ---- 回复区（新增）---- */
+  .reply{border-top:1px solid var(--border);background:var(--card);padding:10px 14px 12px}
+  .reply .rlab{display:flex;align-items:center;gap:6px;color:var(--muted-foreground);font-size:11px;margin-bottom:7px}
+  .qr{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+  .qr .q{padding:3px 9px;border-radius:99px;border:1px dashed hsl(221 83% 53% / .45);background:hsl(221 83% 53% / .06);color:#1d4ed8;font-size:11px;cursor:pointer;transition:background .12s}
+  .qr .q:hover{background:hsl(221 83% 53% / .13)}
+  .qr .q.manage{border-style:solid;border-color:var(--border);background:transparent;color:var(--muted-foreground)}
+  .qr .q.manage:hover{background:var(--muted)}
+  .replybox{border:1px solid var(--border);border-radius:9px;background:var(--card);transition:box-shadow .12s,border-color .12s}
+  .replybox:focus-within{border-color:var(--ring);box-shadow:0 0 0 3px hsl(221 83% 53% / .12)}
+  .replybox textarea{width:100%;border:none;outline:none;resize:none;background:transparent;color:var(--foreground);font:inherit;font-size:12.5px;padding:9px 10px 4px;line-height:1.5}
+  .replybox .row{display:flex;align-items:center;gap:6px;padding:0 8px 8px}
+  .replybox .row .hint{color:var(--muted-foreground);font-size:10.5px;margin-right:auto}
+  .replybox .send{padding:4px 13px;border-radius:7px;background:var(--primary);color:var(--primary-foreground);font-size:12px;cursor:pointer;border:none}
+  .replybox .send:hover{background:hsl(221 83% 47%)}
+  .blocked{display:flex;align-items:center;gap:7px;color:#b45309;background:hsl(38 92% 50% / .10);border:1px solid hsl(38 92% 50% / .3);border-radius:8px;padding:8px 10px;font-size:11.5px}
+
+  /* ---- 看板 ---- */
+  .board{display:flex;gap:9px;padding:11px;overflow:auto}
+  .col{width:168px;flex:none;display:flex;flex-direction:column;gap:7px}
+  .colhead{display:flex;justify-content:space-between;color:var(--muted-foreground);font-size:11px;padding:0 2px}
+  .kcard{border:1px solid var(--border);border-radius:8px;background:var(--card);padding:8px;cursor:pointer;transition:box-shadow .12s,border-color .12s}
+  .kcard:hover{border-color:hsl(220 16% 82%)}
+  .kcard.sel{border-color:var(--primary);box-shadow:0 0 0 2px hsl(221 83% 53% / .16)}
+  .kcard .ct{color:var(--foreground);font-weight:500;display:flex;gap:6px;align-items:flex-start}
+  .kcard .cd{color:var(--muted-foreground);font-size:11px;margin-top:4px;line-height:1.4}
+  .kcard .cr{display:flex;gap:4px;margin-top:7px;flex-wrap:wrap}
+
+  /* ---- 手机 ---- */
+  .phones{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start}
+  .phone{width:330px;border:9px solid #e2e8f0;border-radius:30px;background:var(--background);overflow:hidden;box-shadow:0 12px 32px -12px rgba(15,23,42,.25)}
+  .mobbody{display:flex;flex-direction:column}
+  .grab{width:34px;height:4px;border-radius:99px;background:hsl(220 16% 85%);margin:8px auto 4px}
+  .sheetbox{background:var(--card);border-top-left-radius:16px;border-top-right-radius:16px;border-top:1px solid var(--border);display:flex;flex-direction:column}
+
+  /* ---- 弹窗 / 选择 / 授权 ---- */
+  .sectionlabel{font-size:12px;font-weight:600;color:var(--muted-foreground);margin-bottom:7px;letter-spacing:.02em}
+  .prompt{border:1px solid hsl(221 83% 53% / .35);border-radius:10px;background:hsl(221 83% 53% / .035);padding:11px;display:flex;flex-direction:column;gap:10px}
+  .prompthead{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+  .badge-q{font-size:10px;font-weight:600;padding:2px 8px;border-radius:99px;background:var(--warning);color:#fff}
+  .badge-p{font-size:10px;font-weight:600;padding:2px 8px;border-radius:99px;background:var(--info);color:#fff}
+  .badge-w{font-size:10px;font-weight:600;padding:2px 8px;border-radius:99px;background:hsl(38 92% 50%);color:#fff}
+  .prompthead .ptitle{font-size:12px;font-weight:600;color:var(--foreground)}
+  .prompthead .ptime{font-size:10.5px;color:var(--muted-foreground);margin-left:auto}
+  .qtext{font-size:12.5px;font-weight:600;color:var(--foreground);margin-bottom:3px}
+  .qdesc{font-size:11px;color:var(--muted-foreground);line-height:1.45;margin-bottom:8px}
+  .opts{display:flex;flex-direction:column;gap:5px}
+  .opt{display:flex;gap:9px;align-items:flex-start;padding:8px 9px;border:1px solid var(--border);border-radius:8px;background:var(--card);cursor:pointer;transition:border-color .12s,background .12s}
+  .opt:hover{border-color:var(--primary);background:hsl(221 83% 53% / .05)}
+  .opt .num{flex:none;width:17px;height:17px;border-radius:5px;background:var(--secondary);color:var(--muted-foreground);font-size:10.5px;display:flex;align-items:center;justify-content:center;font-weight:600;margin-top:1px}
+  .opt .olabel{font-size:12px;color:var(--foreground);font-weight:500;line-height:1.35}
+  .opt .odesc{font-size:10.5px;color:var(--muted-foreground);line-height:1.4;margin-top:2px}
+  .opt.other .num{background:transparent;border:1px dashed var(--border)}
+  .opt.picked{border-color:var(--primary);background:hsl(221 83% 53% / .09)}
+  .planbox{border:1px solid var(--border);border-radius:8px;background:var(--card);padding:9px}
+  .planmd{font-size:11px;color:#334155;line-height:1.6;max-height:104px;overflow:hidden}
+  .planmd b{color:var(--foreground);font-size:11.5px}
+  .promptfoot{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+  .promptfoot.opts-row{gap:6px}
+  .fb{font-size:11.5px;padding:5px 11px;border-radius:7px;cursor:pointer;border:1px solid transparent;font-weight:500}
+  .fb.revise{background:var(--card);border-color:var(--border);color:var(--foreground)}
+  .fb.revise:hover{background:var(--accent)}
+  .fb.build{background:var(--primary);color:var(--primary-foreground)}
+  .fb.build:hover{background:hsl(221 83% 47%)}
+  .fb.deny{background:var(--card);border-color:var(--border);color:#b91c1c}
+  .fb.deny:hover{background:hsl(0 72% 51% / .07)}
+  .fb.allow{background:var(--primary);color:var(--primary-foreground)}
+  .fb.allow:hover{background:hsl(221 83% 47%)}
+  .fb.remember{background:var(--secondary);color:#475569}
+  .fb.remember:hover{background:var(--muted)}
+  .toolbox{border:1px solid var(--border);border-radius:8px;background:var(--card);padding:9px}
+  .toolname{font-size:11.5px;margin-bottom:5px}
+  .toolcmd{font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:#334155;background:var(--muted);border-radius:6px;padding:7px 8px;white-space:pre-wrap;word-break:break-all;line-height:1.5}
+  .notes{display:grid;grid-template-columns:repeat(auto-fit,minmax(285px,1fr));gap:12px;margin-top:14px}
+  .note{border:1px solid var(--border);border-radius:10px;background:var(--card);padding:12px 14px}
+  .note h4{font-size:12px;margin-bottom:6px;color:var(--foreground)}
+  .note ul{margin-left:15px;color:var(--muted-foreground);font-size:12px}
+  .note li{margin:3px 0}
+  .note.yes h4{color:#15803d}
+  .note.q h4{color:#b45309}
+  .note.no h4{color:#b91c1c}
+  .hint{color:var(--muted-foreground);font-size:11px;margin-top:8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>任务页改造预览 · 浅色</h1>
+  <p class="sub">点表格行就地展开右侧缩略面板；面板里可以直接用「常用语」快速回复，不必跳到会话页。要看全貌再点「任务详情 →」。</p>
+
+  <!-- ============ DESKTOP ============ -->
+  <h2>电脑端 <span class="tag">默认表格 · 看板可关</span></h2>
+  <p class="sub">表格是默认视图。点行 → 右侧 420px 面板就地展开；同一行再点收起，点另一行直接换内容，不用关面板。</p>
+
+  <div class="win">
+    <div class="bar"><span class="dot" style="background:#ef4444"></span><span class="dot" style="background:#f59e0b"></span><span class="dot" style="background:#22c55e"></span><span class="ver">/tasks</span></div>
+
+    <div class="pagehead">
+      <span style="color:var(--muted-foreground)">⌂</span>
+      <span class="title">任务面板</span>
+      <span class="seg"><span class="on">表格</span><span>看板</span></span>
+      <span style="color:var(--muted-foreground);font-size:12px;margin-left:4px">筛选</span>
+      <span style="margin-left:auto"></span>
+      <span class="btn primary">＋ 新建任务</span>
+    </div>
+
+    <div class="split">
+      <div class="left" style="overflow:auto;max-height:446px">
+        <table>
+          <thead>
+            <tr>
+              <th style="width:36px"><input type="checkbox"></th>
+              <th>标题</th><th>项目</th><th>状态</th><th>优先级</th><th>截止</th><th>最近活动</th><th style="text-align:right">操作</th>
+            </tr>
+          </thead>
+          <tbody id="tbody">
+            <tr class="row sel" data-k="csv">
+              <td onclick="event.stopPropagation()"><input type="checkbox"></td>
+              <td>
+                <div class="cell-title">修复导出 CSV 时表头错位</div>
+                <div class="cell-sub">导出大于 1000 行时表头会重复出现，疑似分页边界判断有误</div>
+              </td>
+              <td><span class="pill">lovdex-web</span></td>
+              <td><span class="st"><i style="background:var(--warning)"></i>进行中</span></td>
+              <td><span class="pill p1">P1</span></td>
+              <td class="mono">今天 18:00</td>
+              <td class="mono">3 分钟前</td>
+              <td style="text-align:right;white-space:nowrap"><span class="btn" onclick="event.stopPropagation()">打开会话</span></td>
+            </tr>
+            <tr class="row" data-k="waiting">
+              <td onclick="event.stopPropagation()"><input type="checkbox"></td>
+              <td>
+                <div class="cell-title">重构 Lovdex 收件箱 store</div>
+                <div class="cell-sub">store 里三处订阅重复，弹窗内容不刷新</div>
+              </td>
+              <td><span class="pill">lovdex</span></td>
+              <td><span class="st"><i style="background:var(--warning)"></i>等待回答</span></td>
+              <td><span class="pill">P2</span></td>
+              <td class="mono">—</td>
+              <td class="mono">21 分钟前</td>
+              <td style="text-align:right"><span class="btn" onclick="event.stopPropagation()">去回复</span></td>
+            </tr>
+            <tr class="row" data-k="badge">
+              <td onclick="event.stopPropagation()"><input type="checkbox"></td>
+              <td>
+                <div class="cell-title">给侧栏加任务角标</div>
+                <div class="cell-sub">未读角标要跟着收件箱走，等级取最高未读</div>
+              </td>
+              <td><span class="pill">lovdex-web</span></td>
+              <td><span class="st"><i style="background:hsl(220 10% 46%)"></i>待办</span></td>
+              <td><span class="pill">P2</span></td>
+              <td class="mono">明天</td>
+              <td class="mono">1 小时前</td>
+              <td style="text-align:right"><span class="btn" onclick="event.stopPropagation()">开始执行</span></td>
+            </tr>
+            <tr class="row" data-k="time">
+              <td onclick="event.stopPropagation()"><input type="checkbox"></td>
+              <td>
+                <div class="cell-title">收件箱时间戳口径统一</div>
+                <div class="cell-sub">后端裸 UTC，前端要统一走 parseBackendTimestamp</div>
+              </td>
+              <td><span class="pill">lovdex</span></td>
+              <td><span class="st"><i style="background:var(--success)"></i>已完成</span></td>
+              <td><span class="pill">P3</span></td>
+              <td class="mono">—</td>
+              <td class="mono">昨天 19:40</td>
+              <td style="text-align:right"><span class="btn" onclick="event.stopPropagation()">打开会话</span></td>
+            </tr>
+            <tr class="row" data-k="orphan">
+              <td onclick="event.stopPropagation()"><input type="checkbox"></td>
+              <td>
+                <div class="cell-title">清掉 118 条孤儿任务</div>
+                <div class="cell-sub">deleteTask 顺序错误导致「任务在会话空」</div>
+              </td>
+              <td><span class="pill">lovdex</span></td>
+              <td><span class="st"><i style="background:var(--destructive)"></i>失败</span></td>
+              <td><span class="pill p1">P1</span></td>
+              <td class="mono" style="color:#b91c1c">已逾期</td>
+              <td class="mono">2 天前</td>
+              <td style="text-align:right"><span class="btn" onclick="event.stopPropagation()">重试</span></td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="hint" style="padding:10px 12px">↑ 点任意一行，右侧就地展开缩略面板 + 回复区</div>
+      </div>
+
+      <div class="right" id="panel"></div>
+    </div>
+  </div>
+
+  <div class="notes">
+    <div class="note yes">
+      <h4>✓ 快速回复怎么工作</h4>
+      <ul>
+        <li>点「常用语」chip = <b>填入输入框</b>，不是直接发 —— 和会话页现有行为一致，你可以改完再发</li>
+        <li>输入框回车发送，走 <code>chat.send</code>，任务页可以直接回复，不用跳会话</li>
+        <li>回复完 sub_status 自动回落，面板就地刷新</li>
+      </ul>
+    </div>
+    <div class="note q">
+      <h4>? 需要你定的点</h4>
+      <ul>
+        <li>「常用语」要不要管全局列表（增删改）？还是只读复用会话页那一份？</li>
+        <li>回复区是常驻，还是只在该任务「等待回答/审批」时才出现？</li>
+        <li>要不要一并显示该会话最近几条对话（滚动小窗）？</li>
+      </ul>
+    </div>
+    <div class="note no">
+      <h4>⚠ 两个真实限制</h4>
+      <ul>
+        <li>会话正在跑时后端会拒 <code>RUN_IN_PROGRESS</code>（无队列），此时输入框要置灰并说明原因</li>
+        <li>会话被清理（无 session_id）时不能回复，只能重开</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- ============ MOBILE ============ -->
+  <h2>手机端 <span class="tag">看板 · 回复走底部 sheet</span></h2>
+  <p class="sub">手机上不给表格（横向撑不开），保持看板卡片；点卡片 → 底部 sheet，里面同样带快速回复。</p>
+
+  <div class="phones">
+    <div class="phone">
+      <div style="padding:9px 11px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:7px;background:var(--card)">
+        <span style="font-size:12px;font-weight:600">任务面板</span>
+        <span class="seg" style="font-size:11px"><span class="on">看板</span></span>
+        <span style="margin-left:auto;font-size:12px;color:var(--muted-foreground)">筛选</span>
+      </div>
+      <div class="board" style="max-height:470px;flex-direction:column">
+        <div class="colhead"><span>● 进行中 · 2</span></div>
+        <div class="kcard sel">
+          <div class="ct"><i style="width:7px;height:7px;border-radius:99px;background:var(--warning);flex:none;margin-top:5px"></i><span>修复导出 CSV 时表头错位</span></div>
+          <div class="cd">导出大于 1000 行时表头会重复出现…</div>
+          <div class="cr"><span class="pill p1">P1</span><span class="pill">claude-sonnet-4-6</span></div>
+        </div>
+        <div class="kcard">
+          <div class="ct"><i style="width:7px;height:7px;border-radius:99px;background:var(--warning);flex:none;margin-top:5px"></i><span>重构 Lovdex 收件箱 store</span></div>
+          <div class="cd">store 里三处订阅重复…</div>
+        </div>
+        <div class="colhead" style="margin-top:6px"><span>● 待办 · 1</span></div>
+        <div class="kcard">
+          <div class="ct"><i style="width:7px;height:7px;border-radius:99px;background:hsl(220 10% 46%);flex:none;margin-top:5px"></i><span>给侧栏加任务角标</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="phone">
+      <div style="position:relative;height:470px;overflow:hidden;background:var(--background)">
+        <div class="mobbody" style="opacity:.4">
+          <div style="padding:9px 11px;border-bottom:1px solid var(--border);display:flex;align-items:center;background:var(--card)">
+            <span style="font-size:12px;font-weight:600">任务面板</span>
+          </div>
+          <div class="board" style="flex-direction:column">
+            <div class="kcard"><div class="ct"><span>重构 Lovdex 收件箱 store</span></div></div>
+            <div class="kcard"><div class="ct"><span>给侧栏加任务角标</span></div></div>
+          </div>
+        </div>
+        <div style="position:absolute;inset:0;background:rgba(15,23,42,.28)"></div>
+        <div style="position:absolute;left:0;right:0;bottom:0" class="sheetbox">
+          <div class="grab"></div>
+          <div class="ph" style="padding-top:4px">
+            <i style="width:8px;height:8px;border-radius:99px;background:var(--warning);flex:none;margin-top:6px"></i>
+            <span class="t">修复导出 CSV 时表头错位</span>
+            <span class="x">✕</span>
+          </div>
+          <div class="pb" style="max-height:210px">
+            <div class="chips"><span class="chip amber">进行中</span><span class="chip">P1</span><span class="chip">bug</span><span class="chip">lovdex-web</span></div>
+            <div>
+              <div class="lab">最近结果</div>
+              <div class="box clamp">修复了分页边界的 off-by-one，单测 cover 到 1500 行场景。剩余：需要确认表头在空数据集下的行为…</div>
+              <span class="more">展开全部 ↓</span>
+            </div>
+          </div>
+          <div class="reply">
+            <div class="rlab"><span>↩ 快速回复</span><span style="margin-left:auto;font-size:10px">常用语可增删改</span></div>
+            <div class="qr">
+              <span class="q">继续</span>
+              <span class="q">按你说的做</span>
+              <span class="q">先别动，等我确认</span>
+            </div>
+            <div class="replybox">
+              <textarea rows="2" placeholder="回复这个任务…（Enter 发送）"></textarea>
+              <div class="row"><span class="hint">Enter 发送 · Shift+Enter 换行</span><span class="send">发送</span></div>
+            </div>
+          </div>
+          <div class="pf" style="border-top:1px solid var(--border)">
+            <span class="b">打开会话</span>
+            <span class="b go">任务详情 →</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h2>等待回答时 <span class="tag">回复区变主操作</span></h2>
+  <p class="sub">任务卡在 <code>waiting_answer</code> / <code>waiting_approval</code> 时，面板顶部出现待办提示条，回复区上移并高亮 —— 这正是现在唯一逼你跳会话的场景。</p>
+
+  <div class="win" style="max-width:420px;margin-left:auto;margin-right:auto">
+    <div class="ph">
+      <i style="width:8px;height:8px;border-radius:99px;background:var(--warning);flex:none;margin-top:6px"></i>
+      <span class="t">重构 Lovdex 收件箱 store</span>
+      <span class="x">✕</span>
+    </div>
+    <div class="pb" id="waitingBody"></div>
+    <div class="reply">
+      <div class="rlab"><span>↩ 快速回复</span></div>
+      <div class="qr">
+        <span class="q">好的，继续</span>
+        <span class="q">换个方案</span>
+        <span class="q">先只改订阅那部分</span>
+        <span class="q manage">＋ 管理常用语</span>
+      </div>
+      <div class="replybox" style="border-color:var(--ring);box-shadow:0 0 0 3px hsl(221 83% 53% / .12)">
+        <textarea rows="3" placeholder="它在等你回答：AppContent 的订阅是收敛进 store，还是保留在组件里？">好的，继续</textarea>
+        <div class="row"><span class="hint">Enter 发送 · Shift+Enter 换行</span><span class="send">发送</span></div>
+      </div>
+    </div>
+    <div class="pf">
+      <span class="b">打开会话</span>
+      <span class="b go">任务详情 →</span>
+    </div>
+  </div>
+
+  <h2>会话正在跑时 <span class="tag">明确置灰</span></h2>
+  <p class="sub">后端拒绝在跑时再发（<code>RUN_IN_PROGRESS</code>，无队列），所以这里直接说明，而不是让你发了才发现失败。</p>
+
+  <div class="win" style="max-width:420px;margin-left:auto;margin-right:auto">
+    <div class="ph">
+      <i style="width:8px;height:8px;border-radius:99px;background:var(--info);flex:none;margin-top:6px"></i>
+      <span class="t">修复导出 CSV 时表头错位</span>
+      <span class="x">✕</span>
+    </div>
+    <div class="pb" style="gap:10px">
+      <div class="chips"><span class="chip blue">执行中</span><span class="chip">P1</span></div>
+      <div class="blocked">⏳ 任务正在执行，回复要等这一轮结束。可以「打开会话」看实时输出。</div>
+      <div class="qr">
+        <span class="q" style="opacity:.45;cursor:not-allowed">继续</span>
+        <span class="q" style="opacity:.45;cursor:not-allowed">按你说的做</span>
+      </div>
+      <div class="replybox" style="opacity:.55">
+        <textarea rows="2" placeholder="任务执行中，暂时不能回复…" disabled></textarea>
+        <div class="row"><span class="hint">会话空闲后自动可用</span><span class="send" style="opacity:.5">发送</span></div>
+      </div>
+    </div>
+    <div class="pf">
+      <span class="b">打开会话</span>
+      <span class="b go">任务详情 →</span>
+    </div>
+  </div>
+
+<h2>弹窗 / 需要选择时 <span class="tag">就地答，不跳会话</span></h2>
+  <p class="sub">这些提示的选项和全文都随 <code>requestId</code> 一起发到前端（<code>permission_request</code> 帧带 <code>toolName</code> + <code>input</code>），答回去走 <code>chat.permission-response</code>。所以面板可以原地渲染同一批组件，点一下即可，不必进会话页。</p>
+
+  <div class="phones" style="gap:20px">
+
+    <!-- A: AskUserQuestion -->
+    <div style="width:400px;flex:none">
+      <div class="sectionlabel">① 需要选择 · AskUserQuestion</div>
+      <div class="win">
+        <div class="ph">
+          <i style="width:8px;height:8px;border-radius:99px;background:var(--warning);flex:none;margin-top:6px"></i>
+          <span class="t">重构 Lovdex 收件箱 store</span>
+          <span class="x">✕</span>
+        </div>
+        <div class="pb">
+          <div class="chips"><span class="chip amber">等待回答</span><span class="chip">P2</span><span class="chip">lovdex</span></div>
+
+          <div class="prompt">
+            <div class="prompthead">
+              <span class="badge-q">需要选择</span>
+              <span class="ptitle">它在等你回答</span>
+              <span class="ptime">等了 4 分钟</span>
+            </div>
+
+            <div class="qblock">
+              <div class="qtext">AppContent 的订阅怎么处理？</div>
+              <div class="qdesc">三处重复订阅收敛的方式，影响后续断线重连的补弹逻辑</div>
+              <div class="opts">
+                <div class="opt" onclick="pickOpt(this)">
+                  <span class="num">1</span>
+                  <div>
+                    <div class="olabel">全部收敛进 store（推荐）</div>
+                    <div class="odesc">AppContent 只读 store，订阅集中一处；补弹逻辑也能统一</div>
+                  </div>
+                </div>
+                <div class="opt" onclick="pickOpt(this)">
+                  <span class="num">2</span>
+                  <div>
+                    <div class="olabel">只收敛弹窗那条</div>
+                    <div class="odesc">改动最小，但 AppContent 仍留一处订阅</div>
+                  </div>
+                </div>
+                <div class="opt" onclick="pickOpt(this)">
+                  <span class="num">3</span>
+                  <div>
+                    <div class="olabel">先不动，等我确认</div>
+                    <div class="odesc">它会停下来等你的进一步说明</div>
+                  </div>
+                </div>
+                <div class="opt other" onclick="pickOpt(this)">
+                  <span class="num">⌨</span>
+                  <div><div class="olabel">其他…</div><div class="odesc">自己写一段回复</div></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="promptfoot">
+              <span class="hint">点选项即发送 · 键盘 1–9 可选 · Esc 跳过</span>
+            </div>
+          </div>
+
+          <div class="kv">
+            <span class="k">引擎</span><span>claude · claude-opus-4-8</span>
+          </div>
+        </div>
+        <div class="pf">
+          <span class="b">打开会话</span>
+          <span class="b go">任务详情 →</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- B: ExitPlanMode -->
+    <div style="width:400px;flex:none">
+      <div class="sectionlabel">② 需要确认计划 · ExitPlanMode</div>
+      <div class="win">
+        <div class="ph">
+          <i style="width:8px;height:8px;border-radius:99px;background:var(--info);flex:none;margin-top:6px"></i>
+          <span class="t">给侧栏加任务角标</span>
+          <span class="x">✕</span>
+        </div>
+        <div class="pb">
+          <div class="chips"><span class="chip blue">等待确认计划</span><span class="chip">P2</span><span class="chip">lovdex-web</span></div>
+
+          <div class="prompt">
+            <div class="prompthead">
+              <span class="badge-p">计划待批准</span>
+              <span class="ptitle">它写好计划了，等你点头</span>
+            </div>
+            <div class="planbox">
+              <div class="planmd">
+                <b>1. 收紧 store 订阅</b><br>
+                把 AppContent 的三处订阅并进 <code>inboxStore</code>，只保留一个 <code>subscribe()</code>。<br>
+                <b>2. 角标等级派生</b><br>
+                新增 <code>highestUnreadSeverity()</code>，从 items 里取最高未读等级。<br>
+                <b>3. 侧栏接入</b><br>
+                <code>SidebarInboxEntry</code> 读等级映射颜色，沿用现有 badge 样式。<br>
+                <b>4. 测试</b><br>
+                补 store 单测 6 例 + 组件渲染 2 例。
+              </div>
+              <span class="more">展开完整计划 ↓</span>
+            </div>
+            <div class="promptfoot opts-row">
+              <span class="fb revise" onclick="pickOpt(this)">↺ 让它改</span>
+              <span class="fb build" onclick="pickOpt(this)">✓ 开始执行</span>
+              <span class="hint" style="margin-left:auto">Esc 可先不管</span>
+            </div>
+          </div>
+
+          <div class="kv">
+            <span class="k">引擎</span><span>claude · claude-sonnet-4-6</span>
+          </div>
+        </div>
+        <div class="pf">
+          <span class="b">打开会话</span>
+          <span class="b go">任务详情 →</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- C: generic tool permission -->
+    <div style="width:400px;flex:none">
+      <div class="sectionlabel">③ 普通工具授权 · 通用确认卡</div>
+      <div class="win">
+        <div class="ph">
+          <i style="width:8px;height:8px;border-radius:99px;background:var(--warning);flex:none;margin-top:6px"></i>
+          <span class="t">修复导出 CSV 时表头错位</span>
+          <span class="x">✕</span>
+        </div>
+        <div class="pb">
+          <div class="chips"><span class="chip amber">等待授权</span><span class="chip">P1</span><span class="chip">bug</span></div>
+
+          <div class="prompt">
+            <div class="prompthead">
+              <span class="badge-w">需要授权</span>
+              <span class="ptitle">要执行一个写操作</span>
+              <span class="ptime">60 秒后自动拒绝</span>
+            </div>
+            <div class="toolbox">
+              <div class="toolname"><b>Bash</b></div>
+              <pre class="toolcmd">git commit -m "fix(csv): stop repeating the header past 1000 rows"</pre>
+            </div>
+            <div class="promptfoot opts-row">
+              <span class="fb deny" onclick="pickOpt(this)">✕ 拒绝</span>
+              <span class="fb allow" onclick="pickOpt(this)">✓ 允许一次</span>
+              <span class="fb remember" onclick="pickOpt(this)">✓ 总是允许</span>
+            </div>
+            <div class="hint" style="margin-top:8px">「总是允许」会把这条加进 <code>allowedTools</code>，后续同类不再问</div>
+          </div>
+        </div>
+        <div class="pf">
+          <span class="b">打开会话</span>
+          <span class="b go">任务详情 →</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="notes">
+    <div class="note yes">
+      <h4>✓ 为什么能就地答</h4>
+      <ul>
+        <li><code>permission_request</code> 帧本身就带 <code>requestId</code> + <code>toolName</code> + 完整 <code>input</code>（选项文案、计划全文、命令内容），不依赖会话 transcript</li>
+        <li>答复帧 <code>chat.permission-response</code> 只需 <code>{ requestId, allow, updatedInput }</code> —— 面板和会话页发的是同一个帧</li>
+        <li>组件可整体复用：<code>AskUserQuestionPanel</code> / <code>PlanDisplay</code> 底部按钮 / <code>Confirmation</code>，只是换个挂载点</li>
+      </ul>
+    </div>
+    <div class="note q">
+      <h4>? 要请你在方案里定的</h4>
+      <ul>
+        <li><b>唯一要改的地方</b>：现在前端只在「当前打开的会话」收 pending 请求（<code>sid === activeViewSessionId</code>）。面板要按任务维度收，得放开这个作用域</li>
+        <li>同时来多个待办时：面板里堆叠显示（前端本来就是数组），还是只显示最新一个？</li>
+        <li>要不要保留「去处理 →」作为兜底入口（比如面板没渲染出来时）？</li>
+      </ul>
+    </div>
+    <div class="note no">
+      <h4>⚠ 几个真实的坑</h4>
+      <ul>
+        <li>AskUserQuestion / ExitPlanMode <b>永不超时</b>（<code>timeoutMs: 0</code>，<code>claude-sdk.js:152</code>），会一直等；普通工具 60 秒后自动拒绝（<code>toolApprovalTimeoutMs</code>）—— 面板必须把倒计时显示出来，否则你回来发现被自动拒了</li>
+        <li><code>auto</code> / <code>bypassPermissions</code> 模式下 SDK 直接跳过 <code>canUseTool</code>，这些提示根本不出现（<code>claude-sdk.js:860</code>）</li>
+        <li>无人值守任务按策略直接拒掉交互工具，不会产生提示（<code>auto-approve-policy.ts:252</code>）</li>
+      </ul>
+    </div>
+  </div>
+
+  <p class="hint" style="margin-top:24px">预览文件：<code>docs/preview/tasks-summary-panel.html</code>　—　本地双击打开即可，零依赖</p>
+
+</div>
+
+<script>
+  const DATA = {
+    csv: {
+      dot:'var(--warning)', title:'修复导出 CSV 时表头错位',
+      chips:[['进行中','amber'],['P1',''],['bug',''],['lovdex-web','']],
+      progress:'已定位到 <code>csv-export.ts:88</code> 的分页边界判断，正在补测试。',
+      result:'修复了分页边界的 off-by-one，单测 cover 到 1500 行场景。剩余：需要确认表头在空数据集下的行为，以及导出时区字段的格式。',
+      engine:'claude · claude-sonnet-4-6', created:'今天 14:02', active:'3 分钟前',
+      qr:['继续','按你说的做','先别动，等我确认'], placeholder:'回复这个任务…（Enter 发送）', blocked:null
+    },
+    waiting: {
+      dot:'var(--warning)', title:'重构 Lovdex 收件箱 store',
+      chips:[['等待回答','amber'],['P2',''],['refactor',''],['lovdex','']],
+      banner:'它在等你回答：AppContent 的订阅是收敛进 store，还是保留在组件里？',
+      progress:'store 里三处订阅重复，AppContent 未订阅导致弹窗内容不刷新，正在收敛成单一订阅。',
+      result:'已把 AppContent 的订阅收敛进 store，弹窗内容能刷新了。待办：断线重连后的补弹逻辑还没覆盖。',
+      engine:'claude · claude-opus-4-8', created:'今天 09:15', active:'21 分钟前',
+      qr:['好的，继续','换个方案','先只改订阅那部分'], placeholder:'回复它的问题…', blocked:null, focus:true
+    },
+    badge: {
+      dot:'hsl(220 10% 46%)', title:'给侧栏加任务角标',
+      chips:[['待办',''],['P2',''],['feature',''],['lovdex-web','']],
+      progress:'未读角标要跟着收件箱走，颜色取最高未读等级。',
+      result:'—（尚未开始执行）',
+      engine:'claude · claude-sonnet-4-6', created:'今天 11:30', active:'1 小时前',
+      qr:['开始吧','先出个方案再动手'], placeholder:'给这个任务留一句话…（开始执行前）', blocked:null
+    },
+    time: {
+      dot:'var(--success)', title:'收件箱时间戳口径统一',
+      chips:[['已完成',''],['P3',''],['bug',''],['lovdex','']],
+      progress:'后端裸 UTC，前端要统一走 parseBackendTimestamp，避免差 8 小时。',
+      result:'全部解析点已切到 parseBackendTimestamp，补了 6 个单测。收件箱条目时间显示正常。',
+      engine:'claude · claude-sonnet-4-6', created:'昨天 16:20', active:'昨天 19:40',
+      qr:['再补个边界测试','可以收尾了'], placeholder:'已完成，回复将重新唤醒这个会话…', blocked:null
+    },
+    orphan: {
+      dot:'var(--destructive)', title:'清掉 118 条孤儿任务',
+      chips:[['失败','amber'],['P1',''],['bug',''],['lovdex','']],
+      progress:'deleteTask 先删会话后删任务 + 会话硬删不解链，导致「任务在会话空」的孤儿。',
+      result:'修复顺序并加了事务解链；repair-orphan-tasks.mjs 盘点出 118 条存量孤儿，待人工确认后清理。',
+      engine:'claude · claude-opus-4-8', created:'2 天前', active:'2 天前',
+      qr:['重试','跳过这批，我先手工看'], placeholder:'描述一下要怎么继续…', blocked:null
+    }
+  };
+
+  const panel = document.getElementById('panel');
+  let current = 'csv';
+
+  function chipHtml(c){ return `<span class="chip ${c[1]}">${c[0]}</span>`; }
+
+  function renderEmpty(){
+    panel.innerHTML = `<div class="empty">点左侧任意一行任务<br>在这里就地查看缩略信息并快速回复</div>`;
+  }
+
+  function renderReply(d){
+    const qr = d.qr.map(q => `<span class="q">${q}</span>`).join('')
+      + `<span class="q manage">＋ 管理</span>`;
+    return `
+      <div class="reply">
+        <div class="rlab"><span>↩ 快速回复</span><span style="margin-left:auto;font-size:10px">点击填入，不会直接发送</span></div>
+        <div class="qr">${qr}</div>
+        <div class="replybox"${d.focus ? ' style="border-color:var(--ring);box-shadow:0 0 0 3px hsl(221 83% 53% / .12)"' : ''}>
+          <textarea rows="2" placeholder="${d.placeholder}"></textarea>
+          <div class="row"><span class="hint">Enter 发送 · Shift+Enter 换行</span><span class="send">发送</span></div>
+        </div>
+      </div>`;
+  }
+
+  function render(key){
+    const d = DATA[key];
+    if(!d){ renderEmpty(); return; }
+    panel.innerHTML = `
+      <div class="ph">
+        <i style="width:8px;height:8px;border-radius:99px;background:${d.dot};flex:none;margin-top:6px"></i>
+        <span class="t">${d.title}</span>
+        <span class="x" onclick="closePanel(event)">✕</span>
+      </div>
+      <div class="pb">
+        <div class="chips">${d.chips.map(chipHtml).join('')}</div>
+        ${d.banner ? `<div class="blocked">✋ ${d.banner}</div>` : ''}
+        <div>
+          <div class="lab">完成度</div>
+          <div style="color:#334155;line-height:1.5">${d.progress}</div>
+        </div>
+        <div>
+          <div class="lab">最近结果</div>
+          <div class="box clamp">${d.result}</div>
+          <span class="more">展开全部 ↓</span>
+        </div>
+        <div class="kv">
+          <span class="k">引擎</span><span>${d.engine}</span>
+          <span class="k">创建</span><span>${d.created}</span>
+          <span class="k">活动</span><span>${d.active}</span>
+        </div>
+      </div>
+      ${renderReply(d)}
+      <div class="pf">
+        <span class="b">打开会话</span>
+        <span class="b go">任务详情 →</span>
+      </div>`;
+  }
+
+  function closePanel(e){
+    if(e && e.stopPropagation) e.stopPropagation();
+    current = null;
+    document.querySelectorAll('tr.row').forEach(tr => tr.classList.remove('sel'));
+    renderEmpty();
+  }
+
+  document.querySelectorAll('tr.row').forEach(tr => {
+    tr.addEventListener('click', () => {
+      const k = tr.dataset.k;
+      if(current === k){ closePanel(); return; }
+      current = k;
+      document.querySelectorAll('tr.row').forEach(o => o.classList.remove('sel'));
+      tr.classList.add('sel');
+      render(k);
+    });
+  });
+
+  // 常用语 chip：点一下填入输入框（不复现真正发送），跟会话页行为对齐
+  document.addEventListener('click', (e) => {
+    const q = e.target.closest('.qr .q');
+    if(!q || q.classList.contains('manage')) return;
+    const box = q.closest('.reply')?.querySelector('textarea');
+    if(box){ box.value = q.textContent.trim(); box.focus(); }
+  });
+
+  // 回车发送：预览里只清空输入框，标注行为
+  document.addEventListener('keydown', (e) => {
+    if(e.target.tagName === 'TEXTAREA' && e.key === 'Enter' && !e.shiftKey){
+      e.preventDefault();
+      const box = e.target;
+      if(box.value.trim()){ box.value = ''; box.placeholder = '已发送（预览不真的调用接口）'; }
+    }
+  });
+
+  document.getElementById('waitingBody').innerHTML = `
+    <div class="chips">${DATA.waiting.chips.map(chipHtml).join('')}</div>
+    <div class="blocked">✋ ${DATA.waiting.banner}</div>
+    <div>
+      <div class="lab">完成度</div>
+      <div style="color:#334155;line-height:1.5">${DATA.waiting.progress}</div>
+    </div>
+    <div class="kv">
+      <span class="k">引擎</span><span>${DATA.waiting.engine}</span>
+      <span class="k">活动</span><span>${DATA.waiting.active}</span>
+    </div>`;
+
+  // 选项 / 授权按钮：预览里只做选中反馈，不真的发帧
+  document.addEventListener('click', (e) => {
+    const o = e.target.closest('.opt, .fb');
+    if(!o) return;
+    const wrap = o.closest('.prompt');
+    o.style.outline = '2px solid hsl(221 83% 53% / .45)';
+    o.style.outlineOffset = '1px';
+    if(wrap) wrap.querySelectorAll('.opt, .fb').forEach(x => { if(x !== o){ x.style.outline=''; x.style.outlineOffset=''; } });
+    const hint = wrap?.querySelector('.hint');
+    if(hint) hint.textContent = '已选择（预览演示，不真的发送）';
+  });
+
+  render('csv');
+</script>
+</body>
+</html>

@@ -1,0 +1,827 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>任务页改造 · 最终预览</title>
+<style>
+  :root{
+    --background:hsl(220 20% 98%); --foreground:hsl(222 47% 11%);
+    --card:hsl(0 0% 100%); --muted:hsl(220 18% 96%); --muted-foreground:hsl(220 10% 46%);
+    --border:hsl(220 16% 90%); --primary:hsl(221 83% 53%); --primary-foreground:hsl(0 0% 100%);
+    --secondary:hsl(220 15% 94%); --accent:hsl(220 16% 95%);
+    --success:hsl(142 71% 45%); --warning:hsl(38 92% 50%); --destructive:hsl(0 72% 51%); --info:hsl(217 91% 60%);
+    --ring:hsl(221 83% 53%);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--background);color:var(--foreground);
+    font:13px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    padding:26px 20px 80px;overflow-x:hidden}
+  .wrap{max-width:1440px;margin:0 auto}
+  code{font-family:ui-monospace,Menlo,monospace;font-size:.92em;background:var(--muted);color:#1d4ed8;padding:1px 4px;border-radius:4px}
+  .hint{color:var(--muted-foreground);font-size:11px}
+
+  /* ---------- top bar ---------- */
+  .top{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:14px}
+  h1{font-size:18px;font-weight:600;letter-spacing:-.01em}
+  .top p{color:var(--muted-foreground);margin-top:3px;max-width:760px}
+  .switch{display:flex;gap:4px;background:var(--muted);border:1px solid var(--border);border-radius:11px;padding:3px}
+  .switch button{border:none;background:transparent;color:var(--muted-foreground);font:inherit;font-size:12px;padding:5px 13px;border-radius:8px;cursor:pointer;font-weight:500}
+  .switch button.on{background:var(--card);color:var(--foreground);box-shadow:0 1px 2px rgba(15,23,42,.10)}
+  .nav{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px}
+  .nav a{font-size:11.5px;text-decoration:none;color:var(--muted-foreground);border:1px solid var(--border);background:var(--card);padding:4px 10px;border-radius:99px}
+  .nav a:hover{color:var(--foreground);border-color:hsl(220 16% 82%)}
+
+  /* ---------- app frame ---------- */
+  .app{border:1px solid var(--border);border-radius:13px;overflow:hidden;background:var(--card);
+    box-shadow:0 1px 3px rgba(15,23,42,.06),0 14px 40px -18px rgba(15,23,42,.18)}
+  .chrome{display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--muted);border-bottom:1px solid var(--border);font-size:11.5px;color:var(--muted-foreground)}
+  .chrome i{width:9px;height:9px;border-radius:99px;display:inline-block}
+  .head{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--border)}
+  .head .title{font-weight:600}
+  .seg{display:flex;gap:3px;background:var(--muted);border-radius:9px;padding:2px}
+  .seg button{border:none;background:transparent;font:inherit;font-size:12px;padding:3px 11px;border-radius:7px;color:var(--muted-foreground);cursor:pointer}
+  .seg button.on{background:var(--card);color:var(--foreground);box-shadow:0 1px 2px rgba(15,23,42,.10);font-weight:500}
+  .btn{padding:4px 10px;border-radius:7px;background:var(--card);color:var(--foreground);cursor:pointer;border:1px solid var(--border);font-size:12px}
+  .btn:hover{background:var(--accent)}
+  .btn.primary{background:var(--primary);color:var(--primary-foreground);border-color:transparent}
+
+  /* ---------- table ---------- */
+  .split{display:flex;min-height:420px}
+  .split .left{flex:1;min-width:0;overflow:auto;max-height:560px}
+  .split .right{width:428px;flex:none;border-left:1px solid var(--border);display:flex;flex-direction:column;transition:width .18s ease}
+  /* 关掉面板 → 右栏整个收起，任务列表回到全宽 */
+  .split.closed .right{display:none}
+  .split.closed .left{max-height:640px}
+  table.t{width:100%;border-collapse:collapse;font-size:12px}
+  table.t th{text-align:left;color:var(--muted-foreground);font-weight:500;padding:8px 10px;border-bottom:1px solid var(--border);white-space:nowrap;background:var(--muted);position:sticky;top:0;z-index:1}
+  table.t td{padding:9px 10px;border-bottom:1px solid var(--border);vertical-align:top}
+  table.t tr.r{cursor:pointer;transition:background .1s}
+  table.t tr.r:hover{background:var(--muted)}
+  table.t tr.r.sel{background:hsl(221 83% 53% / .055)}
+  table.t tr.r.sel td:first-child{box-shadow:inset 3px 0 0 var(--primary)}
+  .st{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+  .st i{width:7px;height:7px;border-radius:99px;flex:none}
+  .pill{display:inline-block;padding:1px 7px;border-radius:99px;background:var(--secondary);color:#475569;font-size:11px}
+  .pill.p1{background:hsl(38 92% 50% / .14);color:#b45309}
+  .t-title{font-weight:500}
+  .t-sub{color:var(--muted-foreground);font-size:11px;margin-top:2px;max-width:330px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .mono{font-family:ui-monospace,Menlo,monospace;color:var(--muted-foreground);font-size:11px}
+
+  /* ---------- panel ---------- */
+  .ph{padding:11px 14px;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;gap:8px}
+  .ph .t{font-weight:600;font-size:13px;flex:1;line-height:1.35}
+  .ph .x{color:var(--muted-foreground);cursor:pointer;padding:0 4px;border-radius:5px;font-size:14px}
+  .ph .x:hover{background:var(--muted);color:var(--foreground)}
+  .pb{padding:13px 14px;display:flex;flex-direction:column;gap:12px;overflow:auto;flex:1}
+  .lab{color:var(--muted-foreground);font-size:10px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:5px}
+  .chips{display:flex;gap:6px;flex-wrap:wrap}
+  .chip{padding:2px 8px;border-radius:99px;background:var(--secondary);color:#475569;font-size:11px}
+  .chip.amber{background:hsl(38 92% 50% / .14);color:#b45309;border:1px solid hsl(38 92% 50% / .3)}
+  .chip.blue{background:hsl(221 83% 53% / .10);color:#1d4ed8;border:1px solid hsl(221 83% 53% / .25)}
+  .chip.green{background:hsl(142 71% 45% / .12);color:#15803d;border:1px solid hsl(142 71% 45% / .3)}
+  .chip.red{background:hsl(0 72% 51% / .09);color:#b91c1c;border:1px solid hsl(0 72% 51% / .25)}
+  .box{border:1px solid var(--border);border-radius:8px;background:var(--muted);padding:9px;color:#334155;line-height:1.5;font-size:12px}
+  .clamp{max-height:86px;overflow:hidden;position:relative}
+  .clamp::after{content:"";position:absolute;inset:auto 0 0 0;height:26px;background:linear-gradient(transparent,var(--muted))}
+  .more{color:var(--primary);font-size:11px;margin-top:5px;cursor:pointer;display:inline-block}
+  .kv{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;font-size:12px}
+  .kv .k{color:var(--muted-foreground)}
+  .pf{padding:11px 14px;border-top:1px solid var(--border);display:flex;gap:8px}
+  .pf .b{flex:1;text-align:center;padding:7px;border-radius:7px;background:var(--card);border:1px solid var(--border);cursor:pointer;font-size:12px}
+  .pf .b:hover{background:var(--accent)}
+  .pf .b.go{background:var(--primary);color:var(--primary-foreground);border-color:transparent}
+  .pf .b.link{flex:none;border:none;background:transparent;color:var(--muted-foreground);font-size:11px;padding:7px 6px}
+  .pf .b.link:hover{color:var(--primary);background:transparent;text-decoration:underline}
+  .empty{display:flex;align-items:center;justify-content:center;flex:1;color:var(--muted-foreground);font-size:12px;text-align:center;padding:26px;line-height:1.8}
+
+  /* ---------- 待办 ---------- */
+  .queue{border:1px solid hsl(38 92% 50% / .4);border-radius:10px;background:hsl(38 92% 50% / .05);overflow:hidden}
+  .qhead{display:flex;align-items:center;gap:7px;padding:7px 10px;border-bottom:1px solid hsl(38 92% 50% / .25);flex-wrap:wrap;font-size:11px;font-weight:600;color:#b45309}
+  .qhead .of{font-size:10.5px;color:var(--muted-foreground);margin-left:auto;font-weight:400}
+  .step{display:flex;gap:8px;align-items:center;padding:6px 10px;font-size:11.5px;color:var(--muted-foreground);cursor:pointer}
+  .step .n{width:15px;height:15px;border-radius:99px;background:var(--secondary);font-size:9.5px;display:flex;align-items:center;justify-content:center;font-weight:600;flex:none}
+  .step.done .n{background:hsl(142 71% 45% / .18);color:#15803d}
+  .step.cur{color:var(--foreground);font-weight:500;background:hsl(38 92% 50% / .06)}
+  .step.cur .n{background:var(--warning);color:#fff}
+  .step.pend{opacity:.6}
+  .step .meta{margin-left:auto;font-size:10px;color:var(--muted-foreground);white-space:nowrap}
+
+  .prompt{border:1px solid hsl(221 83% 53% / .35);border-radius:10px;background:hsl(221 83% 53% / .035);padding:11px;display:flex;flex-direction:column;gap:9px}
+  .prompthead{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+  .bq{font-size:10px;font-weight:600;padding:2px 8px;border-radius:99px;background:var(--warning);color:#fff}
+  .bp{font-size:10px;font-weight:600;padding:2px 8px;border-radius:99px;background:var(--info);color:#fff}
+  .bw{font-size:10px;font-weight:600;padding:2px 8px;border-radius:99px;background:hsl(38 92% 50%);color:#fff}
+  .prompthead .pt{font-size:12px;font-weight:600}
+  .never{margin-left:auto;font-size:10.5px;color:var(--muted-foreground)}
+  .countdown{margin-left:auto;font-size:10.5px;font-weight:600;color:#b91c1c;background:hsl(0 72% 51% / .09);border:1px solid hsl(0 72% 51% / .25);border-radius:99px;padding:2px 8px}
+  .countdown.urgent{background:hsl(0 72% 51% / .16);animation:pulse 1.1s infinite}
+  @keyframes pulse{50%{opacity:.6}}
+  .qt{font-size:12.5px;font-weight:600;margin-bottom:3px}
+  .qd{font-size:11px;color:var(--muted-foreground);line-height:1.45;margin-bottom:8px}
+  .opts{display:flex;flex-direction:column;gap:5px}
+  .opt{display:flex;gap:9px;align-items:flex-start;padding:8px 9px;border:1px solid var(--border);border-radius:8px;background:var(--card);cursor:pointer;transition:border-color .12s,background .12s}
+  .opt:hover{border-color:var(--primary);background:hsl(221 83% 53% / .05)}
+  .opt.picked{border-color:var(--primary);background:hsl(221 83% 53% / .1)}
+  .opt .n{flex:none;width:17px;height:17px;border-radius:5px;background:var(--secondary);color:var(--muted-foreground);font-size:10.5px;display:flex;align-items:center;justify-content:center;font-weight:600;margin-top:1px}
+  .opt .ol{font-size:12px;font-weight:500;line-height:1.35}
+  .opt .od{font-size:10.5px;color:var(--muted-foreground);line-height:1.4;margin-top:2px}
+  .fb{font-size:11.5px;padding:5px 11px;border-radius:7px;cursor:pointer;border:1px solid transparent;font-weight:500}
+  .fb.deny{background:var(--card);border-color:var(--border);color:#b91c1c}
+  .fb.deny:hover{background:hsl(0 72% 51% / .06)}
+  .fb.allow{background:var(--primary);color:var(--primary-foreground)}
+  .fb.remember{background:var(--secondary);color:#475569}
+  .fb.remember:hover{background:var(--muted)}
+  .fb.revise{background:var(--card);border-color:var(--border)}
+  .fb.build{background:var(--primary);color:var(--primary-foreground)}
+  .row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  .toolbox{border:1px solid var(--border);border-radius:8px;background:var(--card);padding:9px}
+  .toolname{font-size:11.5px;margin-bottom:5px}
+  .toolcmd{font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:#334155;background:var(--muted);border-radius:6px;padding:7px 8px;white-space:pre-wrap;word-break:break-all;line-height:1.5}
+  .planbox{border:1px solid var(--border);border-radius:8px;background:var(--card);padding:9px}
+  .planmd{font-size:11px;color:#334155;line-height:1.6;max-height:112px;overflow:hidden}
+  .planmd b{color:var(--foreground);font-size:11.5px}
+  .auto{display:flex;gap:8px;align-items:flex-start;border:1px solid hsl(0 72% 51% / .3);background:hsl(0 72% 51% / .05);border-radius:9px;padding:9px 10px;font-size:11.5px;color:#7f1d1d;line-height:1.45}
+  .strike{text-decoration:line-through;opacity:.7}
+
+  /* ---------- 回复 ---------- */
+  .reply{border-top:1px solid var(--border);padding:10px 14px 12px}
+  .rlab{display:flex;align-items:center;gap:6px;color:var(--muted-foreground);font-size:11px;margin-bottom:7px}
+  .qr{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+  .qr .q{padding:3px 9px;border-radius:99px;border:1px dashed hsl(221 83% 53% / .45);background:hsl(221 83% 53% / .06);color:#1d4ed8;font-size:11px;cursor:pointer;transition:background .12s}
+  .qr .q:hover{background:hsl(221 83% 53% / .13)}
+  .qr .q.manage{border-style:solid;border-color:var(--border);background:transparent;color:var(--muted-foreground)}
+  .qr .q.manage:hover{background:var(--muted)}
+  .replybox{border:1px solid var(--border);border-radius:9px;background:var(--card);transition:border-color .12s,box-shadow .12s}
+  .replybox.hot{border-color:var(--ring);box-shadow:0 0 0 3px hsl(221 83% 53% / .12)}
+  .replybox textarea{width:100%;border:none;outline:none;resize:none;background:transparent;font:inherit;font-size:12.5px;padding:9px 10px 4px;line-height:1.5;color:var(--foreground)}
+  .replybox .rr{display:flex;align-items:center;gap:6px;padding:0 8px 8px}
+  .replybox .rr .hint{margin-right:auto}
+  .send{padding:4px 13px;border-radius:7px;background:var(--primary);color:var(--primary-foreground);font-size:12px;border:none;cursor:pointer}
+  .send:hover{background:hsl(221 83% 47%)}
+  .send.off{opacity:.45;cursor:not-allowed}
+  .blocked{display:flex;gap:8px;align-items:flex-start;color:#b45309;background:hsl(38 92% 50% / .09);border:1px solid hsl(38 92% 50% / .3);border-radius:9px;padding:9px 10px;font-size:11.5px;line-height:1.45}
+
+  /* ---------- toast ---------- */
+  .toast{position:fixed;left:50%;bottom:26px;transform:translate(-50%,20px);background:#0f172a;color:#fff;font-size:12.5px;padding:9px 16px;border-radius:99px;opacity:0;pointer-events:none;transition:opacity .18s,transform .18s;z-index:99;box-shadow:0 8px 26px rgba(15,23,42,.28)}
+  .toast.show{opacity:1;transform:translate(-50%,0)}
+
+  /* ---------- 看板 / 手机 ---------- */
+  .board{display:flex;gap:10px;padding:12px;overflow:auto;align-items:flex-start}
+  .col{width:196px;flex:none;display:flex;flex-direction:column;gap:7px}
+  .colhead{display:flex;justify-content:space-between;color:var(--muted-foreground);font-size:11px;padding:0 2px}
+  .kcard{border:1px solid var(--border);border-radius:9px;background:var(--card);padding:9px;cursor:pointer;transition:border-color .12s,box-shadow .12s}
+  .kcard:hover{border-color:hsl(220 16% 82%)}
+  .kcard.sel{border-color:var(--primary);box-shadow:0 0 0 2px hsl(221 83% 53% / .16)}
+  .kcard .ct{font-weight:500;display:flex;gap:6px;align-items:flex-start}
+  .kcard .cd{color:var(--muted-foreground);font-size:11px;margin-top:4px;line-height:1.4}
+  .kcard .cr{display:flex;gap:4px;margin-top:7px;flex-wrap:wrap}
+  .phones{display:flex;gap:26px;flex-wrap:wrap;align-items:flex-start}
+  .phone{width:334px;flex:none;border:9px solid #e7ebf0;border-radius:32px;background:var(--background);overflow:hidden;
+    box-shadow:0 16px 40px -20px rgba(15,23,42,.3)}
+  .grab{width:34px;height:4px;border-radius:99px;background:hsl(220 16% 85%);margin:8px auto 4px}
+  .sheetbox{background:var(--card);border-top-left-radius:16px;border-top-right-radius:16px;border-top:1px solid var(--border);display:flex;flex-direction:column}
+
+  /* ---------- docs ---------- */
+  section{margin-top:38px;scroll-margin-top:18px}
+  h2{font-size:14px;font-weight:600;margin-bottom:5px;display:flex;align-items:center;gap:8px}
+  h2 .tag{font-size:10px;font-weight:500;padding:2px 7px;border-radius:99px;background:var(--secondary);color:var(--muted-foreground)}
+  section > p.sub{color:var(--muted-foreground);margin-bottom:14px;max-width:940px}
+  table.d{border-collapse:collapse;width:100%;font-size:12px;background:var(--card);border:1px solid var(--border);border-radius:10px;overflow:hidden}
+  table.d th{background:var(--muted);text-align:left;padding:8px 11px;color:var(--muted-foreground);font-weight:500;border-bottom:1px solid var(--border);white-space:nowrap}
+  table.d td{padding:9px 11px;border-bottom:1px solid var(--border);vertical-align:top}
+  table.d tr:last-child td{border-bottom:none}
+  table.d td.k{font-weight:600;white-space:nowrap}
+  table.d td.v{color:#334155;word-break:break-word}
+  .notes{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:12px;margin-top:14px}
+  .note{border:1px solid var(--border);border-radius:10px;background:var(--card);padding:12px 14px}
+  .note h4{font-size:12px;margin-bottom:6px}
+  .note ul{margin-left:15px;color:var(--muted-foreground);font-size:12px}
+  .note li{margin:3px 0}
+  .note.yes h4{color:#15803d} .note.no h4{color:#b91c1c} .note.q h4{color:#b45309}
+  .hide{display:none !important}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="top">
+    <div>
+      <h1>任务页改造 · 最终预览</h1>
+      <p>点表格行就地展开缩略面板；面板里能直接快速回复、直接答弹窗。全程不离开列表，要看全貌再点「任务详情 →」。关掉面板右栏整个收起，列表回到全宽。</p>
+    </div>
+    <div class="switch">
+      <button id="btnDesktop" class="on" onclick="setPlatform('desktop')">电脑端</button>
+      <button id="btnMobile" onclick="setPlatform('mobile')">手机端</button>
+    </div>
+  </div>
+
+  <div class="nav">
+    <a href="#main">主界面</a>
+    <a href="#prompts">内联待办</a>
+    <a href="#states">边界状态</a>
+    <a href="#decisions">决策表</a>
+    <a href="#scope">改动范围</a>
+  </div>
+
+  <!-- ===================== 主界面 ===================== -->
+  <section id="main">
+    <h2>主界面 <span class="tag">点行切换 · 试试点不同任务</span></h2>
+    <p class="sub" id="mainSub"></p>
+
+    <div class="app" id="desktopFrame">
+      <div class="chrome"><i style="background:#ef4444"></i><i style="background:#f59e0b"></i><i style="background:#22c55e"></i><span style="margin-left:6px">/tasks</span></div>
+      <div class="head">
+        <span style="color:var(--muted-foreground)">⌂</span>
+        <span class="title">任务面板</span>
+        <span class="seg">
+          <button class="on" id="segTable" onclick="setView('table')">表格</button>
+          <button id="segBoard" onclick="setView('board')">看板</button>
+        </span>
+        <span class="hint" style="margin-left:4px">筛选</span>
+        <span style="margin-left:auto"></span>
+        <span class="btn" id="panelToggle" onclick="togglePanel()" title="隐藏/显示右侧缩略面板">隐藏面板</span>
+        <span class="btn primary">＋ 新建任务</span>
+      </div>
+      <div class="split">
+        <div class="left" id="leftTable"></div>
+        <div class="left hide" id="leftBoard"></div>
+        <div class="right" id="panel"></div>
+      </div>
+    </div>
+
+    <div id="mobileFrame" class="hide">
+      <div class="phones">
+        <div class="phone">
+          <div style="padding:9px 11px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:7px;background:var(--card)">
+            <span style="font-size:12px;font-weight:600">任务面板</span>
+            <span class="seg" style="font-size:11px"><button class="on">看板</button></span>
+            <span style="margin-left:auto;font-size:12px;color:var(--muted-foreground)">筛选</span>
+          </div>
+          <div class="board" id="phoneBoard" style="flex-direction:column;max-height:470px"></div>
+        </div>
+        <div>
+          <div class="hint" style="margin-bottom:8px">点一张卡片 → 底部 sheet（可上下切换卡片）</div>
+          <div class="phone" style="height:470px;position:relative;overflow:hidden;border-radius:32px">
+            <div id="phoneUnder" style="opacity:.35"></div>
+            <div id="phoneScrim" style="position:absolute;inset:0;background:rgba(15,23,42,.28)"></div>
+            <div id="phoneSheet" style="position:absolute;left:0;right:0;bottom:0" class="sheetbox"></div>
+          </div>
+        </div>
+      </div>
+      <div class="hint" style="margin-top:12px">手机上只给看板（表格横向撑不开）；详情走底部 sheet，同样带快速回复和内联待办。</div>
+    </div>
+  </section>
+
+  <!-- ===================== 内联待办 ===================== -->
+  <section id="prompts">
+    <h2>内联待办 <span class="tag">就地答，不跳会话</span></h2>
+    <p class="sub">三种提示都能在面板里答完。选项文案、计划全文、命令内容都随 <code>requestId</code> 一起推给前端，答复走 <code>chat.permission-response</code>。「不会超时」和「60 秒后自动拒绝」的差别必须显眼 —— 后者会自己失败。</p>
+
+    <div class="phones">
+      <div style="width:428px;flex:none">
+        <div class="hint" style="margin-bottom:7px"><b>需要选择</b> · AskUserQuestion</div>
+        <div class="app" id="demoQuestion"></div>
+      </div>
+      <div style="width:428px;flex:none">
+        <div class="hint" style="margin-bottom:7px"><b>需要确认计划</b> · ExitPlanMode</div>
+        <div class="app" id="demoPlan"></div>
+      </div>
+      <div style="width:428px;flex:none">
+        <div class="hint" style="margin-bottom:7px"><b>普通工具授权</b> · 会超时的那一类</div>
+        <div class="app" id="demoPerm"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== 边界状态 ===================== -->
+  <section id="states">
+    <h2>边界状态 <span class="tag">四个真实会遇到的情形</span></h2>
+    <p class="sub">这些不是异常，是日常：执行中发不出消息、审批超时被自动拒、auto 模式下根本没有待办、会话被清理后只剩重开。</p>
+
+    <div class="phones">
+      <div style="width:428px;flex:none">
+        <div class="hint" style="margin-bottom:7px"><b>① 执行中</b> · 消息进待发队列</div>
+        <div class="app" id="stRunning"></div>
+      </div>
+      <div style="width:428px;flex:none">
+        <div class="hint" style="margin-bottom:7px"><b>② 多个待办</b> · 串行队列，会超时的排前面</div>
+        <div class="app" id="stQueue"></div>
+      </div>
+      <div style="width:428px;flex:none">
+        <div class="hint" style="margin-bottom:7px"><b>③ 已超时自动拒绝</b> · 不静默消失</div>
+        <div class="app" id="stTimeout"></div>
+      </div>
+      <div style="width:428px;flex:none">
+        <div class="hint" style="margin-bottom:7px"><b>④ 无待办 / 会话被清理</b> · 待办区整个不渲染</div>
+        <div class="app" id="stClean"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================== 决策表 ===================== -->
+  <section id="decisions">
+    <h2>决策表 <span class="tag">已定，附理由</span></h2>
+    <table class="d">
+      <tr><th style="width:148px">维度</th><th style="width:230px">决定</th><th>理由 / 约束</th></tr>
+      <tr><td class="k">面板形态</td><td class="v">右侧 428px 停靠栏；窄屏降级为底部 sheet</td><td class="v">与仓库既有 <code>ScheduledTasksPanel</code>（420px 右栏 + sheet）同一套模式。列表只是变窄、不被遮罩，可以连着点下一行换内容。</td></tr>
+      <tr><td class="k">电脑端默认视图</td><td class="v">表格（看板可主动打开）</td><td class="v">看板四列在宽屏上横向拉得过开，一屏能看的任务反而少。看板不删，改为需要时打开并持久化。</td></tr>
+      <tr><td class="k">手机端视图</td><td class="v">看板（不给表格）</td><td class="v">与现状一致 —— 本来就是 <code>isMobile ? 'board' : viewMode</code>，这次只是把桌面默认值翻成 <code>table</code>。</td></tr>
+      <tr><td class="k">关闭面板</td><td class="v">右栏整个收起，列表回到全宽</td><td class="v">✕ 与工具栏「隐藏面板」等效。收起态下点任意一行会自动重新展开 —— 不需要先找开关。<b>「关闭」不等于「取消选中」</b>：重新展开时回到刚才那一条。</td></tr>
+      <tr><td class="k">进入详情</td><td class="v">面板底部「任务详情 →」才跳全页</td><td class="v">把原来的「点卡片 = 跳页」改成「点卡片 = 展开面板」，跳转变成显式动作。</td></tr>
+      <tr><td class="k">快速回复</td><td class="v">点「常用语」= 填入输入框，不自动发送</td><td class="v">与会话页既有行为一致（<code>handleInsertQuickReply</code> 刻意不自动发送），所以是同一份全局常用语，不新造一套。</td></tr>
+      <tr><td class="k">发送通道</td><td class="v">沿用 <code>chat.send</code> / <code>buildTaskChatSend</code></td><td class="v">任务页已经在用这条通道（开始执行 / 重试），无需新接口。</td></tr>
+      <tr><td class="k">多个待办</td><td class="v">串行队列，一次显示一个</td><td class="v">一个任务一个会话；后端 <code>canUseTool</code> 本就 await 完这个才走下一个。数据层仍按数组存，真并发也不丢。</td></tr>
+      <tr><td class="k">排序</td><td class="v">会超时的排前面</td><td class="v">普通工具 60 秒后<b>自动拒绝</b>（会自己死掉，必须先救）；AskUserQuestion / ExitPlanMode 是 <code>timeoutMs: 0</code> 永远等。</td></tr>
+      <tr><td class="k">倒计时</td><td class="v">只在会超时的条目上显示，&lt;15 秒变红脉动</td><td class="v">显示真信息，防静默自动拒；对「永远等」的条目显示倒计时是假紧迫感。</td></tr>
+      <tr><td class="k">答完反馈</td><td class="v">乐观移除 + 自动前进到下一个</td><td class="v">现有实现已是乐观移除。答失败或被 <code>permission_cancelled</code> 时标灰说明原因，不静默消失。</td></tr>
+      <tr><td class="k">兜底入口</td><td class="v">底部小链接「在会话里处理 →」</td><td class="v">从现在的唯一按钮降级。防的是时序、断线重连、客户端版本不一致时你无路可走。</td></tr>
+      <tr><td class="k">「总是允许」</td><td class="v">标注「仅本次会话有效」</td><td class="v">写进的是会话级 <code>sdkOptions.allowedTools</code>（<code>claude-sdk.js:955</code>），不是全局设置 —— 不标容易被误解。</td></tr>
+      <tr><td class="k">无待办时</td><td class="v">待办区条件渲染，整个不出现</td><td class="v"><code>auto</code> / <code>bypassPermissions</code> 下 SDK 跳过 <code>canUseTool</code>；无人值守任务按策略直接拒交互工具。不能假设「一定有东西要答」。</td></tr>
+      <tr><td class="k">消息队列</td><td class="v">执行中的输入进前端待发队列</td><td class="v">后端 <code>RUN_IN_PROGRESS</code> 无服务端队列，排队靠已有的 <code>queuedDraft</code> 机制，不在这次改动范围内重造。</td></tr>
+    </table>
+  </section>
+
+  <!-- ===================== 改动范围 ===================== -->
+  <section id="scope">
+    <h2>改动范围 <span class="tag">只改一处作用域</span></h2>
+    <div class="notes">
+      <div class="note yes">
+        <h4>✓ 复用，不新造</h4>
+        <ul>
+          <li><b>待办组件</b>：<code>AskUserQuestionPanel</code> / <code>PlanDisplay</code> 底部按钮 / <code>Confirmation</code> 直接换挂载点</li>
+          <li><b>协议</b>：<code>permission_request</code> 进、<code>chat.permission-response</code> 出，帧格式不变</li>
+          <li><b>发送</b>：<code>chat.send</code> + <code>buildTaskChatSend</code>，任务页已在用</li>
+          <li><b>常用语</b>：复用全局 <code>quick_replies</code> 与会话页同一份列表</li>
+        </ul>
+      </div>
+      <div class="note q">
+        <h4>◆ 需要改的</h4>
+        <ul>
+          <li><b>pending 请求的接收作用域</b>：现在只在「当前打开的会话」收（<code>sid === activeViewSessionId</code>），要放开到「当前展开的任务」——这是唯一的结构性改动</li>
+          <li><b>桌面默认视图</b>：<code>taskViewMode</code> 默认值 <code>'board'</code> → <code>'table'</code>，并调整视图切换器</li>
+          <li><b>面板容器</b>：新增右栏/sheet 承载，参考 <code>ScheduledTasksPanel</code></li>
+          <li><b>列表点击语义</b>：<code>TaskCard</code> / <code>TaskRow</code> 的 <code>navigate()</code> 改为展开面板</li>
+        </ul>
+      </div>
+      <div class="note no">
+        <h4>⚠ 三个必须写进实现的约束</h4>
+        <ul>
+          <li><b>超时方向搞反就是灾难</b>：超时是<b>自动拒绝</b>，不是自动通过 —— 倒计时必须显眼</li>
+          <li><b>执行中不能发</b>：<code>RUN_IN_PROGRESS</code> 无服务端队列，输入要进待发队列并明示「等这轮结束」</li>
+          <li><b>无 <code>session_id</code> 时</b>：待办区与回复区都不渲染，只留「重新执行」</li>
+        </ul>
+      </div>
+    </div>
+    <p class="hint" style="margin-top:16px">确认后我把以上结论落成 spec 写入 <code>docs/superpowers/specs/</code>，再出实现计划。</p>
+  </section>
+
+  <div class="toast" id="toast"></div>
+</div>
+
+<script>
+/* ============================ 数据 ============================ */
+const TASKS = {
+  csv: {
+    dot:'var(--warning)', title:'修复导出 CSV 时表头错位', project:'lovdex-web', prio:'P1', label:'bug',
+    status:'进行中', sub:'running', due:'今天 18:00', active:'3 分钟前',
+    progress:'已定位到 <code>csv-export.ts:88</code> 的分页边界判断，正在补测试。',
+    result:'修复了分页边界的 off-by-one，单测 cover 到 1500 行场景。剩余：需要确认表头在空数据集下的行为，以及导出时区字段的格式。',
+    engine:'claude · claude-sonnet-4-6', created:'今天 14:02',
+    qr:['先停下','做完顺手更新 changelog'],
+    runHint:'执行中 · 进入待发队列', placeholder:'跑着的时候也能留言，会等这轮结束再发…'
+  },
+  waiting: {
+    dot:'var(--warning)', title:'重构 Lovdex 收件箱 store', project:'lovdex', prio:'P2', label:'refactor',
+    status:'等待回答', sub:'question', due:'—', active:'21 分钟前',
+    progress:'store 里三处订阅重复，AppContent 未订阅导致弹窗内容不刷新，正在收敛成单一订阅。',
+    result:'已把 AppContent 的订阅收敛进 store，弹窗内容能刷新了。待办：断线重连后的补弹逻辑还没覆盖。',
+    engine:'claude · claude-opus-4-8', created:'今天 09:15',
+    qr:['好的，继续','换个方案','先只改订阅那部分'],
+    question:{
+      q:'AppContent 的订阅怎么处理？',
+      d:'三处重复订阅收敛的方式，影响后续断线重连的补弹逻辑',
+      opts:[
+        ['全部收敛进 store（推荐）','AppContent 只读 store，订阅集中一处；补弹逻辑也能统一'],
+        ['只收敛弹窗那条','改动最小，但 AppContent 仍留一处订阅'],
+        ['先不动，等我确认','它会停下来等你的进一步说明']
+      ]
+    },
+    placeholder:'回复它的问题…', hot:true
+  },
+  badge: {
+    dot:'hsl(220 10% 46%)', title:'给侧栏加任务角标', project:'lovdex-web', prio:'P2', label:'feature',
+    status:'待办', sub:'todo', due:'明天', active:'1 小时前',
+    progress:'未读角标要跟着收件箱走，颜色取最高未读等级。',
+    result:'—（尚未开始执行）',
+    engine:'claude · claude-sonnet-4-6', created:'今天 11:30',
+    qr:['开始吧','先出个方案再动手'],
+    placeholder:'给这个任务留一句话…（开始执行前）'
+  },
+  plan: {
+    dot:'var(--info)', title:'给侧栏加任务角标 · 计划已就绪', project:'lovdex-web', prio:'P2', label:'feature',
+    status:'等待确认计划', sub:'plan', due:'明天', active:'6 分钟前',
+    progress:'计划写好了，等你点头。',
+    result:'—（尚未执行）',
+    engine:'claude · claude-sonnet-4-6', created:'今天 11:30',
+    qr:['按这个做','把测试那步拆细'],
+    plan:{
+      md:'<b>1. 收紧 store 订阅</b><br>把 AppContent 的三处订阅并进 <code>inboxStore</code>，只保留一个 <code>subscribe()</code>。<br><b>2. 角标等级派生</b><br>新增 <code>highestUnreadSeverity()</code>，从 items 取最高未读等级。<br><b>3. 侧栏接入</b><br><code>SidebarInboxEntry</code> 读等级映射颜色，沿用现有 badge 样式。<br><b>4. 测试</b><br>补 store 单测 6 例 + 组件渲染 2 例。'
+    },
+    placeholder:'也可以直接说一句让它改…'
+  },
+  time: {
+    dot:'var(--success)', title:'收件箱时间戳口径统一', project:'lovdex', prio:'P3', label:'bug',
+    status:'已完成', sub:'done', due:'—', active:'昨天 19:40',
+    progress:'后端裸 UTC，前端要统一走 parseBackendTimestamp，避免差 8 小时。',
+    result:'全部解析点已切到 parseBackendTimestamp，补了 6 个单测。收件箱条目时间显示正常。',
+    engine:'claude · claude-sonnet-4-6', created:'昨天 16:20',
+    qr:['再补个边界测试','可以收尾了'],
+    placeholder:'已完成，回复将重新唤醒这个会话…'
+  },
+  orphan: {
+    dot:'var(--destructive)', title:'清掉 118 条孤儿任务', project:'lovdex', prio:'P1', label:'bug',
+    status:'失败', sub:'failed', due:'已逾期', dueLate:true, active:'2 天前',
+    progress:'deleteTask 先删会话后删任务 + 会话硬删不解链，导致「任务在会话空」的孤儿。',
+    result:'修复顺序并加了事务解链；repair-orphan-tasks.mjs 盘点出 118 条存量孤儿，待人工确认后清理。',
+    engine:'claude · claude-opus-4-8', created:'2 天前',
+    qr:['重试','跳过这批，我先手工看'],
+    placeholder:'描述一下要怎么继续…'
+  },
+  cleaned: {
+    dot:'hsl(220 10% 46%)', title:'归档旧版本迁移脚本', project:'lovdex', prio:'P3', label:'chore',
+    status:'已归档', sub:'archived', due:'—', active:'1 周前', noSession:true,
+    progress:'会话已被清理，无法再回复。',
+    result:'迁移脚本已归档，相关会话按清理策略回收。',
+    engine:'claude · claude-haiku-4-5', created:'1 周前',
+    qr:[], placeholder:null
+  }
+};
+const ORDER = ['csv','waiting','badge','plan','time','orphan','cleaned'];
+let current = 'csv';
+
+/* ============================ 工具 ============================ */
+const $ = (id) => document.getElementById(id);
+function toast(msg){ const t=$('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove('show'),1900); }
+function chipHtml([label, tone]){ return `<span class="chip ${tone||''}">${label}</span>`; }
+function hex(d){ if(!d) return ''; return `
+  <div class="ph">
+    <i style="width:8px;height:8px;border-radius:99px;background:${d.dot};flex:none;margin-top:6px"></i>
+    <span class="t">${d.title}</span>
+    <span class="x" onclick="closePanel(event)">✕</span>
+  </div>`; }
+function foot(d){
+  const back = d.noSession
+    ? `<span class="b" onclick="toast('会话已被清理，无法打开')">打开会话</span>`
+    : `<span class="b" onclick="toast('预览：会跳到 /session/:id')">打开会话</span>`;
+  return `<div class="pf">
+    <span class="b link" onclick="toast('预览：会跳到 /session/:id 就地处理')">在会话里处理 →</span>
+    <span class="b go" onclick="toast('预览：会跳到 /task/:id')">任务详情 →</span>
+  </div>`; }
+
+/* ============================ 面板渲染 ============================ */
+function renderPanel(key){
+  const d = TASKS[key];
+  if(!d){ $('panel').innerHTML = `<div class="empty">点左侧任意一行任务<br>在这里看缩略信息并快速回复</div>`; return; }
+
+  const chips = `<div class="chips">
+    ${chipHtml([d.status, d.sub==='question'||d.sub==='plan'?'amber':d.sub==='done'?'green':d.sub==='failed'?'red':d.sub==='running'?'blue':''])}
+    ${chipHtml([d.prio, d.prio==='P1'?'amber':''])}
+    ${chipHtml([d.label])}${chipHtml([d.project])}
+  </div>`;
+
+  let prompt = '';
+  if(d.question){
+    prompt = `
+    <div class="prompt">
+      <div class="prompthead"><span class="bq">需要选择</span><span class="pt">它在等你回答</span><span class="never">不会超时 · 等着你</span></div>
+      <div>
+        <div class="qt">${d.question.q}</div>
+        <div class="qd">${d.question.d}</div>
+        <div class="opts">
+          ${d.question.opts.map(([l,de],i)=>`<div class="opt" data-opt="ask" data-i="${i}" onclick="pickOpt(this,'回答已发送：${l.replace(/"/g,'')}')">
+            <span class="n">${i+1}</span><div><div class="ol">${l}</div><div class="od">${de}</div></div></div>`).join('')}
+        </div>
+      </div>
+      <div class="row"><span class="hint">点选项即发送 · 键盘 1–${d.question.opts.length} · Esc 先不管</span></div>
+    </div>`;
+  }
+  if(d.plan){
+    prompt = `
+    <div class="prompt">
+      <div class="prompthead"><span class="bp">计划待批准</span><span class="pt">它写好计划了，等你点头</span><span class="never">不会超时 · 等着你</span></div>
+      <div class="planbox">
+        <div class="planmd">${d.plan.md}</div>
+        <span class="more" onclick="toast('预览：展开完整计划')">展开完整计划 ↓</span>
+      </div>
+      <div class="row">
+        <span class="fb revise" onclick="pickOpt(this,'已让它按你的意思修改计划')">↺ 让它改</span>
+        <span class="fb build" onclick="pickOpt(this,'计划已批准，开始执行')">✓ 开始执行</span>
+        <span class="hint">Esc 可先不管</span>
+      </div>
+    </div>`;
+  }
+  if(d.sub==='running'){ /* 见下：执行中另有 blocked 提示 */ }
+
+  const blocked = d.sub==='running' ? `
+    <div class="blocked"><span>⏳</span><div>任务正在执行，回复要等这一轮结束才发得出去（会排进待发队列）。可以「打开会话」看实时输出。</div></div>` : '';
+
+  const replyBlocked = d.sub==='running';
+
+  const pf = foot(d);
+
+  // 待办区优先，其次完成度与结果
+  let body = '';
+  if(d.sub==='running'){
+    body = `${prompt}${blocked}`;
+  } else if(prompt){
+    body = `${prompt}`;
+  } else {
+    body = '';
+  }
+  const detail = `
+    <div class="lab">完成度</div>
+    <div class="box">${d.progress}</div>
+    ${d.noSession ? '' : `<div><div class="lab" style="margin-top:12px">最近结果</div><div class="box clamp">${d.result}</div><span class="more" onclick="toast('预览：展开完整结果')">展开全部 ↓</span></div>`}
+    <div class="kv" style="margin-top:12px"><span class="k">引擎</span><span>${d.engine}</span><span class="k">创建</span><span>${d.created}</span><span class="k">活动</span><span>${d.active}</span></div>`;
+
+  let reply = '';
+  if(d.noSession){
+    reply = `<div class="reply"><div class="rlab"><span>↩ 快速回复</span></div>
+      <div class="blocked"><span>⊘</span><div>这个会话已被清理，无法再回复。要重新开始请点上面的「任务详情 →」。</div></div></div>`;
+  } else if(replyBlocked){
+    reply = `<div class="reply"><div class="rlab"><span>↩ 快速回复</span></div>
+      <div class="qr">${d.qr.map(q=>`<span class="q" onclick="fillReply(this)">${q}</span>`).join('')}</div>
+      <div class="replybox"><textarea rows="2" placeholder="${d.placeholder}" onfocus="this.placeholder='会排进待发队列，等这轮结束自动发送…'"></textarea>
+        <div class="rr"><span class="hint">${d.runHint}</span><span class="send" onclick="sendReply(this)">发送</span></div></div></div>`;
+  } else {
+    reply = `<div class="reply">
+      <div class="rlab"><span>↩ 快速回复</span><span style="margin-left:auto;font-size:10px">点一下填入，不会直接发送</span></div>
+      <div class="qr">${d.qr.map(q=>`<span class="q" onclick="fillReply(this)">${q}</span>`).join('')}<span class="q manage" onclick="toast('预览：打开常用语管理')">＋ 管理</span></div>
+      <div class="replybox${d.hot?' hot':''}"><textarea rows="2" placeholder="${d.placeholder}"></textarea>
+        <div class="rr"><span class="hint">Enter 发送 · Shift+Enter 换行</span><span class="send" onclick="sendReply(this)">发送</span></div></div></div>`;
+  }
+
+  $('panel').innerHTML = `${hex(d)}<div class="pb">${chips}${body}${detail}</div>${reply}${pf}`;
+}
+
+function pickOpt(el, msg){
+  const wrap = el.closest('.pb') || el.closest('.app') || document;
+  wrap.querySelectorAll('.opt,.fb').forEach(x=>x.classList.remove('picked'));
+  el.classList.add('picked');
+  toast(msg);
+  // 演示：答完自动前进（这里表现为淡出该待办区）
+  const prompt = el.closest('.prompt');
+  if(prompt){
+    prompt.style.transition='opacity .5s, transform .5s';
+    setTimeout(()=>{ prompt.style.opacity='0'; prompt.style.transform='translateY(-4px)'; }, 260);
+    setTimeout(()=>{ prompt.style.display='none';
+      const q = prompt.parentElement.querySelector('.queue');
+      if(q) q.style.display='none';
+    }, 800);
+  }
+}
+function fillReply(el){
+  const box = el.closest('.reply').querySelector('textarea');
+  box.value = el.textContent.trim(); box.focus(); toast('已填入输入框（未发送）');
+}
+function sendReply(el){
+  const box = el.closest('.replybox').querySelector('textarea');
+  if(!box.value.trim()){ toast('先写点什么，或点上面的常用语'); return; }
+  const v = box.value.trim();
+  box.value=''; box.placeholder='已发送：' + (v.length>24 ? v.slice(0,24)+'…' : v);
+  toast('已通过 chat.send 发出（预览不真的调用）');
+}
+function closePanel(e){ if(e&&e.stopPropagation) e.stopPropagation(); setPanelOpen(false); }
+/* 面板开关：关闭时右栏整体收起（列表回到全宽），再点列表任意一行重新展开。
+   注意「关掉」不等于「取消选中」—— 重新展开时会回到刚才那一条。 */
+function setPanelOpen(open){
+  document.querySelector('.split').classList.toggle('closed', !open);
+  const btn = $('panelToggle');
+  if(btn) btn.textContent = open ? '隐藏面板' : '显示面板';
+  if(!open){
+    document.querySelectorAll('tr.r,.kcard').forEach(x=>x.classList.remove('sel'));
+    $('panel').innerHTML = '';
+  } else {
+    renderPanel(current);
+    document.querySelectorAll(`tr.r[data-k="${current}"], .kcard[data-k="${current}"]`).forEach(x=>x.classList.add('sel'));
+  }
+}
+function togglePanel(){
+  const closed = document.querySelector('.split').classList.contains('closed');
+  setPanelOpen(closed);
+  toast(closed ? '面板已展开（回到刚才的任务）' : '面板已隐藏，列表全宽');
+}
+
+/* ============================ 表格 / 看板 ============================ */
+function dotFor(d){ return d.dot; }
+function renderTable(){
+  $('leftTable').innerHTML = `<table class="t"><thead><tr>
+    <th style="width:34px"><input type="checkbox"></th><th>标题</th><th>项目</th><th>状态</th><th>优先级</th><th>截止</th><th>最近活动</th><th style="text-align:right">操作</th>
+  </tr></thead><tbody>
+  ${ORDER.map(k=>{ const d=TASKS[k]; return `<tr class="r${current===k?' sel':''}" data-k="${k}" onclick="select('${k}')">
+    <td onclick="event.stopPropagation()"><input type="checkbox"></td>
+    <td><div class="t-title">${d.title}</div><div class="t-sub">${d.progress.replace(/<[^>]+>/g,'')}</div></td>
+    <td><span class="pill">${d.project}</span></td>
+    <td><span class="st"><i style="background:${d.dot}"></i>${d.status}</span></td>
+    <td><span class="pill ${d.prio==='P1'?'p1':''}">${d.prio}</span></td>
+    <td class="mono"${d.dueLate?' style="color:#b91c1c"':''}>${d.due}</td>
+    <td class="mono">${d.active}</td>
+    <td style="text-align:right;white-space:nowrap"><span class="btn" onclick="event.stopPropagation();toast('预览：打开会话')">${d.sub==='failed'?'重试':d.sub==='todo'?'开始执行':'打开会话'}</span></td>
+  </tr>`; }).join('')}
+  </tbody></table>
+  <div class="hint" style="padding:10px 12px">↑ 点任意一行，右侧就地展开面板并快速回复</div>`;
+}
+function renderBoard(){
+  const groups = [['进行中',['csv','waiting']],['待办',['badge']],['已完成',['time','cleaned']]];
+  $('leftBoard').innerHTML = `<div class="board">${groups.map(([name,keys])=>`
+    <div class="col">
+      <div class="colhead"><span>● ${name}</span><span>${keys.filter(k=>k!=='cleaned'||true).length}</span></div>
+      ${keys.map(k=>{ const d=TASKS[k]; return `<div class="kcard${current===k?' sel':''}" data-k="${k}">
+        <div class="ct"><i style="width:7px;height:7px;border-radius:99px;background:${d.dot};flex:none;margin-top:5px"></i><span>${d.title}</span></div>
+        <div class="cd">${d.progress.replace(/<[^>]+>/g,'')}</div>
+        <div class="cr"><span class="pill ${d.prio==='P1'?'p1':''}">${d.prio}</span>${d.sub==='running'?`<span class="pill">${d.engine.split('·')[1].trim()}</span>`:''}</div>
+      </div>`; }).join('')}
+    </div>`).join('')}</div>`;
+}
+function renderPhone(){
+  $('phoneBoard').innerHTML = `
+    <div class="colhead"><span>● 进行中 · 2</span></div>
+    ${['csv','waiting'].map(k=>{ const d=TASKS[k]; return `<div class="kcard${current===k?' sel':''}" data-k="${k}">
+      <div class="ct"><i style="width:7px;height:7px;border-radius:99px;background:${d.dot};flex:none;margin-top:5px"></i><span>${d.title}</span></div>
+      <div class="cd">${d.progress.replace(/<[^>]+>/g,'')}</div></div>`; }).join('')}
+    <div class="colhead" style="margin-top:6px"><span>● 待办 · 1</span></div>
+    ${['badge'].map(k=>{ const d=TASKS[k]; return `<div class="kcard${current===k?' sel':''}" data-k="${k}">
+      <div class="ct"><i style="width:7px;height:7px;border-radius:99px;background:${d.dot};flex:none;margin-top:5px"></i><span>${d.title}</span></div></div>`; }).join('')}`;
+  renderPhoneSheet();
+}
+
+function renderPhoneSheet(){
+  const others = ['waiting','badge','time'].filter(k=>k!==current).slice(0,2);
+  $('phoneUnder').innerHTML = `<div style="padding:9px 11px;border-bottom:1px solid var(--border);background:var(--card)"><span style="font-size:12px;font-weight:600">任务面板</span></div>
+    <div class="board" style="flex-direction:column">${others.map(k=>`<div class="kcard"><div class="ct"><span>${TASKS[k].title}</span></div></div>`).join('')}</div>`;
+
+  const d = TASKS[current];
+  $('phoneSheet').innerHTML = `<div class="grab"></div>
+    <div class="ph" style="padding-top:4px">
+      <i style="width:8px;height:8px;border-radius:99px;background:${d.dot};flex:none;margin-top:6px"></i>
+      <span class="t">${d.title}</span><span class="x">✕</span>
+    </div>
+    <div class="pb" style="max-height:200px;gap:10px">
+      <div class="chips">${chipHtml([d.status, d.sub==='question'?'amber':''])}${chipHtml([d.prio, d.prio==='P1'?'amber':''])}${chipHtml([d.project])}</div>
+      ${d.question?`<div class="prompt" style="padding:9px"><div class="prompthead"><span class="bq">需要选择</span><span class="never">等着你</span></div>
+        <div class="qt" style="font-size:12px">${d.question.q}</div>
+        <div class="opts">${d.question.opts.slice(0,2).map(([l],i)=>`<div class="opt" onclick="pickOpt(this,'回答已发送')"><span class="n">${i+1}</span><div><div class="ol">${l}</div></div></div>`).join('')}</div></div>`
+      :`<div class="lab">最近结果</div><div class="box clamp">${d.result}</div><span class="more">展开全部 ↓</span>`}
+    </div>
+    <div class="reply">
+      <div class="rlab"><span>↩ 快速回复</span></div>
+      <div class="qr">${d.qr.slice(0,3).map(q=>`<span class="q" onclick="fillReply(this)">${q}</span>`).join('')}</div>
+      <div class="replybox"><textarea rows="2" placeholder="${d.placeholder||'…'}"></textarea>
+        <div class="rr"><span class="hint">Enter 发送</span><span class="send" onclick="sendReply(this)">发送</span></div></div>
+    </div>
+    <div class="pf"><span class="b link">在会话里处理 →</span><span class="b go">任务详情 →</span></div>`;
+}
+
+function syncSeg(){
+  $('segTable').classList.toggle('on', view==='table');
+  $('segBoard').classList.toggle('on', view==='board');
+}
+function select(k){
+  current = k;
+  setPanelOpen(true);   // 面板被隐藏过的话，点任意一行重新展开
+  renderTable(); renderBoard(); renderPanel(k); renderPhone();
+  syncSeg();
+}
+
+/* ============================ 视图切换 ============================ */
+let view = 'table';
+function setView(v){
+  view = v;
+  $('segTable').classList.toggle('on', v==='table');
+  $('segBoard').classList.toggle('on', v==='board');
+  $('leftTable').classList.toggle('hide', v!=='table');
+  $('leftBoard').classList.toggle('hide', v!=='board');
+  toast(v==='table' ? '表格视图（电脑端默认）' : '看板视图（需要在视图里主动打开）');
+}
+let platform = 'desktop';
+function setPlatform(p){
+  platform = p;
+  $('btnDesktop').classList.toggle('on', p==='desktop');
+  $('btnMobile').classList.toggle('on', p==='mobile');
+  $('desktopFrame').classList.toggle('hide', p!=='desktop');
+  $('mobileFrame').classList.toggle('hide', p!=='mobile');
+  $('mainSub').textContent = p==='desktop'
+    ? '电脑端默认表格（看板可主动打开）。点行 → 右侧 428px 面板就地展开；同一行再点收起，点另一行直接换内容，不用关面板。'
+    : '手机端保持看板（不给表格）。点卡片 → 底部 sheet 弹出同一份面板，含快速回复与内联待办。';
+}
+
+/* ============================ 三段演示卡 ============================ */
+function demo(containerId, key, extra){
+  const d = TASKS[key];
+  $(containerId).innerHTML = `${hex(d)}<div class="pb">${extra}</div>
+    <div class="reply"><div class="rlab"><span>↩ 快速回复</span></div>
+      <div class="qr">${d.qr.map(q=>`<span class="q" onclick="fillReply(this)">${q}</span>`).join('')}</div>
+      <div class="replybox"><textarea rows="2" placeholder="${d.placeholder}"></textarea>
+        <div class="rr"><span class="hint">Enter 发送</span><span class="send" onclick="sendReply(this)">发送</span></div></div></div>
+    ${foot(d)}`;
+}
+
+demo('demoQuestion','waiting', `
+  <div class="chips">${chipHtml(['等待回答','amber'])}${chipHtml(['P2'])}${chipHtml(['lovdex'])}</div>
+  <div class="prompt">
+    <div class="prompthead"><span class="bq">需要选择</span><span class="pt">它在等你回答</span><span class="never">不会超时 · 等着你</span></div>
+    <div><div class="qt">${TASKS.waiting.question.q}</div><div class="qd">${TASKS.waiting.question.d}</div>
+      <div class="opts">${TASKS.waiting.question.opts.map(([l,de],i)=>`<div class="opt" onclick="pickOpt(this,'回答已发送：${l.replace(/"/g,'')}')"><span class="n">${i+1}</span><div><div class="ol">${l}</div><div class="od">${de}</div></div></div>`).join('')}
+        <div class="opt" onclick="pickOpt(this,'可以自由输入一段回复')"><span class="n">⌨</span><div><div class="ol">其他…</div><div class="od">自己写一段回复</div></div></div>
+      </div></div>
+    <div class="row"><span class="hint">点选项即发送 · 键盘 1–4 · Esc 先不管</span></div>
+  </div>`);
+
+demo('demoPlan','plan', `
+  <div class="chips">${chipHtml(['等待确认计划','amber'])}${chipHtml(['P2'])}${chipHtml(['lovdex-web'])}</div>
+  <div class="prompt">
+    <div class="prompthead"><span class="bp">计划待批准</span><span class="pt">它写好计划了，等你点头</span><span class="never">不会超时 · 等着你</span></div>
+    <div class="planbox"><div class="planmd">${TASKS.plan.plan.md}</div><span class="more" onclick="toast('预览：展开完整计划')">展开完整计划 ↓</span></div>
+    <div class="row"><span class="fb revise" onclick="pickOpt(this,'已让它按你的意思修改计划')">↺ 让它改</span><span class="fb build" onclick="pickOpt(this,'计划已批准，开始执行')">✓ 开始执行</span><span class="hint">Esc 可先不管</span></div>
+  </div>`);
+
+demo('demoPerm','csv', `
+  <div class="chips">${chipHtml(['等待授权','amber'])}${chipHtml(['P1','amber'])}${chipHtml(['bug'])}</div>
+  <div class="prompt">
+    <div class="prompthead"><span class="bw">需要授权</span><span class="pt">要执行一个写操作</span><span class="countdown" id="cd">60 秒后自动拒绝</span></div>
+    <div class="toolbox"><div class="toolname"><b>Bash</b></div><pre class="toolcmd">git commit -m "fix(csv): stop repeating the header past 1000 rows"</pre></div>
+    <div class="row"><span class="fb deny" onclick="pickOpt(this,'已拒绝这次执行')">✕ 拒绝</span><span class="fb allow" onclick="pickOpt(this,'允许这次执行')">✓ 允许一次</span><span class="fb remember" onclick="pickOpt(this,'已加入 allowedTools')">✓ 总是允许</span></div>
+    <div class="hint">「总是允许」把它加进 <code>allowedTools</code>，<b>仅本次会话有效</b>，后续同类不再问</div>
+  </div>`);
+
+// 倒计时演示
+let cdLeft = 60;
+setInterval(()=>{
+  const el = $('cd'); if(!el) return;
+  cdLeft = cdLeft <= 1 ? 60 : cdLeft - 1;
+  el.textContent = cdLeft + ' 秒后自动拒绝';
+  el.classList.toggle('urgent', cdLeft <= 15);
+}, 1000);
+
+/* ============================ 边界状态卡 ============================ */
+demo('stRunning','csv', `
+  <div class="chips">${chipHtml(['执行中','blue'])}${chipHtml(['P1','amber'])}${chipHtml(['auto 模式'])}</div>
+  <div class="blocked"><span>⏳</span><div>任务正在执行，回复要等这一轮结束才发得出去。后端没有服务端队列，你的消息会先排进待发队列。</div></div>
+  <div class="lab">完成度</div><div class="box">已定位到 <code>csv-export.ts:88</code> 的分页边界判断，正在补测试。</div>`);
+
+$('stQueue').innerHTML = `${hex(TASKS.csv)}
+  <div class="pb">
+    <div class="chips">${chipHtml(['等待授权','amber'])}${chipHtml(['P1','amber'])}${chipHtml(['bug'])}</div>
+    <div class="queue">
+      <div class="qhead"><span>还有 2 件事等你</span><span class="of">先处理会超时的</span></div>
+      <div class="step cur"><span class="n">1</span><span>允许 <b>Bash</b> 执行 git commit</span><span class="meta">42 秒后自动拒绝</span></div>
+      <div class="step pend"><span class="n">2</span><span>回答「表头在空数据集下怎么处理？」</span><span class="meta">不会超时</span></div>
+    </div>
+    <div class="prompt">
+      <div class="prompthead"><span class="bw">需要授权</span><span class="pt">要执行一个写操作</span><span class="countdown urgent">42 秒后自动拒绝</span></div>
+      <div class="toolbox"><div class="toolname"><b>Bash</b></div><pre class="toolcmd">git commit -m "fix(csv): stop repeating the header past 1000 rows"</pre></div>
+      <div class="row"><span class="fb deny" onclick="pickOpt(this,'已拒绝')">✕ 拒绝</span><span class="fb allow" onclick="pickOpt(this,'允许一次')">✓ 允许一次</span><span class="fb remember" onclick="pickOpt(this,'已加入 allowedTools（仅本次会话）')">✓ 总是允许</span></div>
+      <div class="hint">答完这一条，队列自动前进到第 2 条</div>
+    </div>
+  </div>
+  <div class="reply"><div class="replybox" style="opacity:.55"><textarea rows="2" placeholder="有待办时，回复区让位给上面的选择…" disabled></textarea>
+    <div class="rr"><span class="hint">先答完上面的</span><span class="send off">发送</span></div></div></div>
+  ${foot(TASKS.csv)}`;
+
+$('stTimeout').innerHTML = `${hex(TASKS.csv)}
+  <div class="pb">
+    <div class="chips">${chipHtml(['已停止','red'])}${chipHtml(['P1','amber'])}${chipHtml(['bug'])}</div>
+    <div class="auto"><span>⏱</span><div><b>授权请求已超时，被自动拒绝</b>（60 秒未响应）。<br>会话停在 <code>git commit</code> 那一步，没有执行。要放行的话，重新发一句「继续」最省事。</div></div>
+    <div class="lab">超时的那一条</div>
+    <div class="toolbox"><div class="toolname strike"><b>Bash</b> · 已自动拒绝</div><pre class="toolcmd strike">git commit -m "fix(csv): stop repeating the header past 1000 rows"</pre></div>
+  </div>
+  <div class="reply">
+    <div class="qr"><span class="q" onclick="fillReply(this)">继续</span><span class="q" onclick="fillReply(this)">换个别的方法提交</span></div>
+    <div class="replybox hot"><textarea rows="2" placeholder="继续 —— 它会重新尝试刚才那一步"></textarea>
+      <div class="rr"><span class="hint">Enter 发送</span><span class="send" onclick="sendReply(this)">发送</span></div></div>
+  </div>
+  ${foot(TASKS.csv)}`;
+
+$('stClean').innerHTML = `${hex(TASKS.cleaned)}
+  <div class="pb">
+    <div class="chips">${chipHtml(['已归档'])}${chipHtml(['P3'])}${chipHtml(['chore'])}</div>
+    <div class="lab">完成度</div><div class="box">${TASKS.cleaned.progress}</div>
+    <div class="hint">没有待办、没有会话 —— 待办区和回复区都不渲染，只留「任务详情 →」。<br>（<code>auto</code> / <code>bypassPermissions</code> 模式下运行中的任务也是这个样子。）</div>
+  </div>
+  <div class="reply"><div class="rlab"><span>↩ 快速回复</span></div>
+    <div class="blocked"><span>⊘</span><div>这个会话已被清理，无法再回复。要重新开始请点下面的「任务详情 →」。</div></div></div>
+  ${foot(TASKS.cleaned)}`;
+
+/* ============================ 启动 ============================ */
+/* 列表容器在首次渲染前还不存在（脚本在 body 末尾、但元素由 JS 生成），
+   所以委托绑定必须放在 render 之后。 */
+$('leftTable').addEventListener('click', (e)=>{ const tr=e.target.closest('tr.r'); if(tr) select(tr.dataset.k); });
+$('leftBoard').addEventListener('click', (e)=>{ const c=e.target.closest('.kcard'); if(c) select(c.dataset.k); });
+$('phoneBoard').addEventListener('click', (e)=>{ const c=e.target.closest('.kcard'); if(c) select(c.dataset.k); });
+
+setPlatform('desktop');
+renderTable(); renderBoard(); renderPanel(current); renderPhone();
+</script>
+</body>
+</html>

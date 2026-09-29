@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>待办处理逻辑 · 四态 + 串行</title>
+<style>
+  :root{
+    --background:hsl(220 20% 98%); --foreground:hsl(222 47% 11%);
+    --card:hsl(0 0% 100%); --muted:hsl(220 18% 96%); --muted-foreground:hsl(220 10% 46%);
+    --border:hsl(220 16% 90%); --primary:hsl(221 83% 53%); --secondary:hsl(220 15% 94%);
+    --accent:hsl(220 16% 95%);
+    --success:hsl(142 71% 45%); --warning:hsl(38 92% 50%); --destructive:hsl(0 72% 51%); --info:hsl(217 91% 60%);
+    --ring:hsl(221 83% 53%);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--background);color:var(--foreground);
+    font:13px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    padding:24px 20px 70px}
+  .wrap{max-width:1220px;margin:0 auto}
+  h1{font-size:17px;font-weight:600;margin-bottom:6px}
+  h2{font-size:14px;font-weight:600;margin:36px 0 4px;display:flex;align-items:center;gap:8px}
+  h2 .tag{font-size:10px;font-weight:500;padding:2px 7px;border-radius:99px;background:var(--secondary);color:var(--muted-foreground)}
+  p.sub{color:var(--muted-foreground);margin-bottom:14px;max-width:900px}
+  code{font-family:ui-monospace,Menlo,monospace;font-size:.92em;background:var(--muted);color:#1d4ed8;padding:1px 4px;border-radius:4px}
+
+  /* 决策表 */
+  table.d{border-collapse:collapse;width:100%;font-size:12px;background:var(--card);border:1px solid var(--border);border-radius:10px;overflow:hidden}
+  table.d th{background:var(--muted);text-align:left;padding:8px 11px;color:var(--muted-foreground);font-weight:500;border-bottom:1px solid var(--border);white-space:nowrap}
+  table.d td{padding:9px 11px;border-bottom:1px solid var(--border);vertical-align:top}
+  table.d tr:last-child td{border-bottom:none}
+  table.d td.k{font-weight:600;color:var(--foreground);white-space:nowrap}
+  table.d td.v{color:#334155}
+  table.d .why{color:var(--muted-foreground);font-size:11px;display:block;margin-top:2px}
+
+  .win{border:1px solid var(--border);border-radius:12px;overflow:hidden;background:var(--card);box-shadow:0 1px 3px rgba(15,23,42,.06),0 8px 24px -12px rgba(15,23,42,.12);max-width:420px}
+  .ph{padding:11px 14px;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;gap:8px}
+  .ph .t{font-weight:600;font-size:13px;flex:1;line-height:1.35}
+  .ph .x{color:var(--muted-foreground);cursor:pointer;padding:0 4px;border-radius:5px;font-size:14px}
+  .ph .x:hover{background:var(--muted);color:var(--foreground)}
+  .pb{padding:13px 14px;display:flex;flex-direction:column;gap:12px}
+  .chips{display:flex;gap:6px;flex-wrap:wrap}
+  .chip{padding:2px 8px;border-radius:99px;background:var(--secondary);color:#475569;font-size:11px}
+  .chip.amber{background:hsl(38 92% 50% / .14);color:#b45309;border:1px solid hsl(38 92% 50% / .3)}
+  .chip.blue{background:hsl(221 83% 53% / .10);color:#1d4ed8;border:1px solid hsl(221 83% 53% / .25)}
+  .chip.green{background:hsl(142 71% 45% / .12);color:#15803d;border:1px solid hsl(142 71% 45% / .3)}
+  .chip.grey{background:var(--secondary);color:var(--muted-foreground)}
+  .lab{color:var(--muted-foreground);font-size:10px;letter-spacing:.08em;text-transform:uppercase;margin-bottom:5px}
+  .box{border:1px solid var(--border);border-radius:8px;background:var(--muted);padding:9px;color:#334155;line-height:1.5;font-size:12px}
+  .pf{padding:11px 14px;border-top:1px solid var(--border);display:flex;gap:8px;background:var(--card)}
+  .pf .b{flex:1;text-align:center;padding:7px;border-radius:7px;background:var(--card);border:1px solid var(--border);color:var(--foreground);cursor:pointer;font-size:12px}
+  .pf .b:hover{background:var(--accent)}
+  .pf .b.go{background:var(--primary);color:var(--primary-foreground);border-color:transparent}
+
+  /* 待办区（串行队列） */
+  .queue{border:1px solid hsl(38 92% 50% / .4);border-radius:10px;background:hsl(38 92% 50% / .05);overflow:hidden}
+  .qhead{display:flex;align-items:center;gap:7px;padding:8px 11px;border-bottom:1px solid hsl(38 92% 50% / .25);flex-wrap:wrap}
+  .qhead .cnt{font-size:11px;font-weight:600;color:#b45309}
+  .qhead .of{font-size:10.5px;color:var(--muted-foreground);margin-left:auto}
+  .step{display:flex;gap:8px;align-items:center;padding:6px 11px;font-size:11.5px;color:var(--muted-foreground)}
+  .step .n{width:15px;height:15px;border-radius:99px;background:var(--secondary);color:var(--muted-foreground);font-size:9.5px;display:flex;align-items:center;justify-content:center;font-weight:600;flex:none}
+  .step.done .n{background:hsl(142 71% 45% / .18);color:#15803d}
+  .step.cur{color:var(--foreground);font-weight:500;background:hsl(38 92% 50% / .06)}
+  .step.cur .n{background:var(--warning);color:#fff}
+  .step.pend{opacity:.65}
+  .step .meta{margin-left:auto;font-size:10px;color:var(--muted-foreground)}
+
+  .prompt{border:1px solid hsl(221 83% 53% / .35);border-radius:10px;background:hsl(221 83% 53% / .035);padding:11px;display:flex;flex-direction:column;gap:9px}
+  .prompthead{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+  .badgeq{font-size:10px;font-weight:600;padding:2px 8px;border-radius:99px;background:var(--warning);color:#fff}
+  .badgep{font-size:10px;font-weight:600;padding:2px 8px;border-radius:99px;background:var(--info);color:#fff}
+  .badgew{font-size:10px;font-weight:600;padding:2px 8px;border-radius:99px;background:hsl(38 92% 50%);color:#fff}
+  .prompthead .pt{font-size:12px;font-weight:600}
+  .countdown{margin-left:auto;font-size:10.5px;font-weight:600;color:#b91c1c;background:hsl(0 72% 51% / .09);border:1px solid hsl(0 72% 51% / .25);border-radius:99px;padding:2px 8px}
+  .never{margin-left:auto;font-size:10.5px;color:var(--muted-foreground)}
+  .qt{font-size:12.5px;font-weight:600;margin-bottom:3px}
+  .qd{font-size:11px;color:var(--muted-foreground);line-height:1.45;margin-bottom:8px}
+  .opts{display:flex;flex-direction:column;gap:5px}
+  .opt{display:flex;gap:9px;align-items:flex-start;padding:8px 9px;border:1px solid var(--border);border-radius:8px;background:var(--card);cursor:pointer;transition:border-color .12s,background .12s}
+  .opt:hover{border-color:var(--primary);background:hsl(221 83% 53% / .05)}
+  .opt .n{flex:none;width:17px;height:17px;border-radius:5px;background:var(--secondary);color:var(--muted-foreground);font-size:10.5px;display:flex;align-items:center;justify-content:center;font-weight:600;margin-top:1px}
+  .opt .ol{font-size:12px;font-weight:500;line-height:1.35}
+  .opt .od{font-size:10.5px;color:var(--muted-foreground);line-height:1.4;margin-top:2px}
+  .fb{font-size:11.5px;padding:5px 11px;border-radius:7px;cursor:pointer;border:1px solid transparent;font-weight:500}
+  .fb.deny{background:var(--card);border-color:var(--border);color:#b91c1c}
+  .fb.allow{background:var(--primary);color:var(--primary-foreground)}
+  .fb.remember{background:var(--secondary);color:#475569}
+  .fb.revise{background:var(--card);border-color:var(--border)}
+  .fb.build{background:var(--primary);color:var(--primary-foreground)}
+  .row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  .hint{color:var(--muted-foreground);font-size:10.5px}
+  .toolbox{border:1px solid var(--border);border-radius:8px;background:var(--card);padding:9px}
+  .toolname{font-size:11.5px;margin-bottom:5px}
+  .toolcmd{font-family:ui-monospace,Menlo,monospace;font-size:10.5px;color:#334155;background:var(--muted);border-radius:6px;padding:7px 8px;white-space:pre-wrap;word-break:break-all;line-height:1.5}
+  .auto{display:flex;gap:8px;align-items:flex-start;border:1px solid hsl(0 72% 51% / .3);background:hsl(0 72% 51% / .05);border-radius:9px;padding:9px 10px;font-size:11.5px;color:#7f1d1d;line-height:1.45}
+  .strike{text-decoration:line-through;opacity:.7}
+
+  .reply{border-top:1px solid var(--border);padding:10px 14px 12px}
+  .qr{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+  .qr .q{padding:3px 9px;border-radius:99px;border:1px dashed hsl(221 83% 53% / .45);background:hsl(221 83% 53% / .06);color:#1d4ed8;font-size:11px;cursor:pointer}
+  .qr .q:hover{background:hsl(221 83% 53% / .13)}
+  .replybox{border:1px solid var(--border);border-radius:9px;background:var(--card)}
+  .replybox textarea{width:100%;border:none;outline:none;resize:none;background:transparent;font:inherit;font-size:12.5px;padding:9px 10px 4px;line-height:1.5}
+  .replybox .rr{display:flex;align-items:center;gap:6px;padding:0 8px 8px}
+  .send{padding:4px 13px;border-radius:7px;background:var(--primary);color:var(--primary-foreground);font-size:12px;border:none;cursor:pointer}
+  .notes{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:12px;margin-top:14px}
+  .note{border:1px solid var(--border);border-radius:10px;background:var(--card);padding:12px 14px}
+  .note h4{font-size:12px;margin-bottom:6px}
+  .note ul{margin-left:15px;color:var(--muted-foreground);font-size:12px}
+  .note li{margin:3px 0}
+  .note.no h4{color:#b91c1c}
+  .note.yes h4{color:#15803d}
+  .cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(400px,1fr));gap:22px;align-items:start}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>待办处理逻辑 · 定稿方案</h1>
+  <p class="sub">一个任务 = 一个会话 = 一个面板。既然一次只展开一个面板，就不需要「多面板并发」那套复杂设计 —— 每个面板内部是一个<b>串行队列</b>，一次答一个。</p>
+
+  <!-- ===== 决策表 ===== -->
+  <h2>我替你定的六件事 <span class="tag">附理由</span></h2>
+  <table class="d">
+    <tr>
+      <th style="width:150px">问题</th><th style="width:220px">决定</th><th>理由</th>
+    </tr>
+    <tr>
+      <td class="k">同时有多个待办</td>
+      <td class="v">串行队列，一次只显示一个</td>
+      <td class="v">一个 panel 一个会话；后端 <code>canUseTool</code> 本来就是 await 完这个才执行下一个工具，实际极少并发。前端再堆成一列反而占地方。
+        <span class="why">但数据层仍按数组存（后端 Map 无锁），所以真出现并发也不会丢——只是排成队一个个答。</span></td>
+    </tr>
+    <tr>
+      <td class="k">先答哪个</td>
+      <td class="v">会超时的排前面</td>
+      <td class="v">普通工具 60 秒后<b>自动拒绝</b>，AskUserQuestion / ExitPlanMode 是 <code>timeoutMs: 0</code> <b>永远等</b>。会自己死掉的先处理，不会死的可以等着。
+        <span class="why">排序键：<code>超时时刻</code> 升序，无超时的排最后。</span></td>
+    </tr>
+    <tr>
+      <td class="k">倒计时显示</td>
+      <td class="v">只在会超时的上面显示</td>
+      <td class="v">倒计时是真信息、能防你被静默自动拒；「永远等」是假紧迫感，显示它只会让你白紧张。
+        <span class="why">剩余 &lt;15 秒变红加粗，并提示「超时会自动拒绝，可去会话里继续」。</span></td>
+    </tr>
+    <tr>
+      <td class="k">其他模式下没有待办</td>
+      <td class="v">面板正常显示，只是没有待办区</td>
+      <td class="v"><code>auto</code> / <code>bypassPermissions</code> 下 SDK 直接跳过 <code>canUseTool</code>，无人值守任务按策略直接拒交互工具。
+        <span class="why">所以待办区是<b>条件渲染</b>，不是面板的固定区块 —— 没待办时面板回到纯粹的「看任务 + 快速回复」。</span></td>
+    </tr>
+    <tr>
+      <td class="k">兜底入口</td>
+      <td class="v">保留，但降为次要链接</td>
+      <td class="v">面板没渲染出待办（时序、断线重连、客户端版本不一致）时，你仍要有路可走。
+        <span class="why">从现在的<b>唯一按钮</b>「去处理」降级为底部小链接「在会话里处理 →」，不占主视觉。</span></td>
+    </tr>
+    <tr>
+      <td class="k">答完的反馈</td>
+      <td class="v">就地淡出 + 自动切下一个</td>
+      <td class="v">答复帧发出后前端<b>乐观移除</b>（现有实现已经这么干），队列自动前进到下一个。不需要你手动关。
+        <span class="why">若后端回 <code>permission_cancelled</code> 或答失败，把该项标灰并说明原因，不静默消失。</span></td>
+    </tr>
+  </table>
+
+  <!-- ===== 状态卡 ===== -->
+  <h2>四个状态 <span class="tag">实际会长这样</span></h2>
+  <p class="sub">下面四张是面板里待办区的真实形态。① 是常态（只有一个待办，不显示队列）；② 是罕见并发（显示队列 +「2/3」）；③ 是超时自动拒绝后的收尾；④ 是没有待办时的样子。</p>
+
+  <div class="cols">
+
+    <!-- ① 单个待办 -->
+    <div>
+      <div class="hint" style="margin-bottom:7px"><b>① 常态 · 单个待办</b>（不显示队列，最干净）</div>
+      <div class="win">
+        <div class="ph">
+          <i style="width:8px;height:8px;border-radius:99px;background:var(--warning);flex:none;margin-top:6px"></i>
+          <span class="t">重构 Lovdex 收件箱 store</span><span class="x">✕</span>
+        </div>
+        <div class="pb">
+          <div class="chips"><span class="chip amber">等待回答</span><span class="chip">P2</span><span class="chip">lovdex</span></div>
+          <div class="prompt">
+            <div class="prompthead">
+              <span class="badgeq">需要选择</span>
+              <span class="pt">它在等你回答</span>
+              <span class="never">不会超时 · 等着你</span>
+            </div>
+            <div>
+              <div class="qt">AppContent 的订阅怎么处理？</div>
+              <div class="qd">三处重复订阅收敛的方式，影响后续断线重连的补弹逻辑</div>
+              <div class="opts">
+                <div class="opt"><span class="n">1</span><div><div class="ol">全部收敛进 store（推荐）</div><div class="od">AppContent 只读 store，订阅集中一处</div></div></div>
+                <div class="opt"><span class="n">2</span><div><div class="ol">只收敛弹窗那条</div><div class="od">改动最小，但 AppContent 仍留一处订阅</div></div></div>
+                <div class="opt"><span class="n">3</span><div><div class="ol">先不动，等我确认</div><div class="od">它会停下来等你的进一步说明</div></div></div>
+              </div>
+            </div>
+            <div class="row"><span class="hint">点选项即发送 · 键盘 1–3 · Esc 先不管</span></div>
+          </div>
+          <div class="lab">完成度</div>
+          <div class="box">store 里三处订阅重复，正在收敛成单一订阅。</div>
+        </div>
+        <div class="reply">
+          <div class="qr"><span class="q">好的，继续</span><span class="q">换个方案</span></div>
+          <div class="replybox"><textarea rows="2" placeholder="也可以直接说一句话…"></textarea>
+            <div class="rr"><span class="hint" style="margin-right:auto">Enter 发送</span><span class="send">发送</span></div>
+          </div>
+        </div>
+        <div class="pf"><span class="b">在会话里处理 →</span><span class="b go">任务详情 →</span></div>
+      </div>
+    </div>
+
+    <!-- ② 并发队列 -->
+    <div>
+      <div class="hint" style="margin-bottom:7px"><b>② 罕见并发 · 2 个待办</b>（会超时的排前面，所以先答授权）</div>
+      <div class="win">
+        <div class="ph">
+          <i style="width:8px;height:8px;border-radius:99px;background:var(--warning);flex:none;margin-top:6px"></i>
+          <span class="t">修复导出 CSV 时表头错位</span><span class="x">✕</span>
+        </div>
+        <div class="pb">
+          <div class="chips"><span class="chip amber">等待授权</span><span class="chip">P1</span><span class="chip">bug</span></div>
+
+          <div class="queue">
+            <div class="qhead">
+              <span class="cnt">还有 2 件事等你</span>
+              <span class="of">先处理会超时的</span>
+            </div>
+            <div class="step cur"><span class="n">1</span><span>允许 <b>Bash</b> 执行 git commit</span><span class="meta">42 秒后自动拒绝</span></div>
+            <div class="step pend"><span class="n">2</span><span>回答「表头在空数据集下怎么处理？」</span><span class="meta">不会超时</span></div>
+          </div>
+
+          <div class="prompt">
+            <div class="prompthead">
+              <span class="badgew">需要授权</span>
+              <span class="pt">要执行一个写操作</span>
+              <span class="countdown">42 秒后自动拒绝</span>
+            </div>
+            <div class="toolbox">
+              <div class="toolname"><b>Bash</b></div>
+              <pre class="toolcmd">git commit -m "fix(csv): stop repeating the header past 1000 rows"</pre>
+            </div>
+            <div class="row">
+              <span class="fb deny">✕ 拒绝</span>
+              <span class="fb allow">✓ 允许一次</span>
+              <span class="fb remember">✓ 总是允许</span>
+            </div>
+            <div class="hint">「总是允许」把它加进 <code>allowedTools</code>，后续同类不再问</div>
+          </div>
+        </div>
+        <div class="reply">
+          <div class="replybox" style="opacity:.55"><textarea rows="2" placeholder="有待办时，回复区让位给上面的选择…" disabled></textarea>
+            <div class="rr"><span class="hint" style="margin-right:auto">先答完上面的</span><span class="send" style="opacity:.5">发送</span></div>
+          </div>
+        </div>
+        <div class="pf"><span class="b">在会话里处理 →</span><span class="b go">任务详情 →</span></div>
+      </div>
+    </div>
+
+    <!-- ③ 超时收尾 -->
+    <div>
+      <div class="hint" style="margin-bottom:7px"><b>③ 已超时自动拒绝</b>（不静默消失，说明发生了什么 + 给出路）</div>
+      <div class="win">
+        <div class="ph">
+          <i style="width:8px;height:8px;border-radius:99px;background:var(--destructive);flex:none;margin-top:6px"></i>
+          <span class="t">修复导出 CSV 时表头错位</span><span class="x">✕</span>
+        </div>
+        <div class="pb">
+          <div class="chips"><span class="chip grey">已停止</span><span class="chip">P1</span><span class="chip">bug</span></div>
+          <div class="auto">
+            <span>⏱</span>
+            <div>
+              <b>授权请求已超时，被自动拒绝</b>（60 秒未响应）。<br>
+              会话停在 <code>git commit</code> 那一步，没有执行。要放行的话，重新发一句「继续」最省事。
+            </div>
+          </div>
+          <div class="lab">超时的那一条</div>
+          <div class="toolbox">
+            <div class="toolname strike"><b>Bash</b> · 已自动拒绝</div>
+            <pre class="toolcmd strike">git commit -m "fix(csv): stop repeating the header past 1000 rows"</pre>
+          </div>
+        </div>
+        <div class="reply">
+          <div class="qr"><span class="q">继续</span><span class="q">换个别的方法提交</span></div>
+          <div class="replybox"><textarea rows="2" placeholder="继续 —— 它会重新尝试刚才那一步"></textarea>
+            <div class="rr"><span class="hint" style="margin-right:auto">Enter 发送</span><span class="send">发送</span></div>
+          </div>
+        </div>
+        <div class="pf"><span class="b">在会话里处理 →</span><span class="b go">任务详情 →</span></div>
+      </div>
+    </div>
+
+    <!-- ④ 无待办 -->
+    <div>
+      <div class="hint" style="margin-bottom:7px"><b>④ 无待办</b>（auto / bypass 模式，或无人值守任务 —— 待办区整个不渲染）</div>
+      <div class="win">
+        <div class="ph">
+          <i style="width:8px;height:8px;border-radius:99px;background:var(--info);flex:none;margin-top:6px"></i>
+          <span class="t">修复导出 CSV 时表头错位</span><span class="x">✕</span>
+        </div>
+        <div class="pb">
+          <div class="chips"><span class="chip blue">执行中</span><span class="chip">P1</span><span class="chip">auto 模式</span></div>
+          <div class="lab">完成度</div>
+          <div class="box">已定位到 <code>csv-export.ts:88</code> 的分页边界判断，正在补测试。</div>
+          <div class="hint">auto 模式下工具全部自动放行，不会有待办弹出来 —— 这里就是面板的全部内容。</div>
+        </div>
+        <div class="reply">
+          <div class="qr"><span class="q">先停下</span><span class="q">做完顺手更新 changelog</span></div>
+          <div class="replybox"><textarea rows="2" placeholder="跑着的时候也能留言，会等这轮结束再发…"></textarea>
+            <div class="rr"><span class="hint" style="margin-right:auto">执行中 · 进入待发队列</span><span class="send">发送</span></div>
+          </div>
+        </div>
+        <div class="pf"><span class="b">打开会话</span><span class="b go">任务详情 →</span></div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="notes">
+    <div class="note yes">
+      <h4>✓ 为什么这样最省事</h4>
+      <ul>
+        <li><b>不新增数据模型</b>：待办还是后端那套 <code>requestId</code> + <code>input</code>，前端只是换个挂载点渲染同一批组件</li>
+        <li><b>不新增接口</b>：答复沿用 <code>chat.permission-response</code>，发送沿用 <code>chat.send</code></li>
+        <li><b>只改一处作用域</b>：把 pending 请求的接收从「当前打开的会话」放开到「当前展开的任务」</li>
+        <li><b>队列逻辑极薄</b>：排序键一个字段，显示取队首，答完出队 —— 不需要状态机</li>
+      </ul>
+    </div>
+    <div class="note no">
+      <h4>⚠ 三个必须写进实现的约束</h4>
+      <ul>
+        <li><b>超时是自动拒绝</b>，不是自动通过 —— 所以倒计时必须显眼，且只在会超时的条目上</li>
+        <li><b>执行中不能发消息</b>：后端 <code>RUN_IN_PROGRESS</code> 无队列，回复要走前端待发队列等这轮结束（④ 的输入框提示）</li>
+        <li><b>会话被清理</b>（无 <code>session_id</code>）时待办区与回复区都不渲染，只留「重新执行」</li>
+      </ul>
+    </div>
+    <div class="note">
+      <h4>一个我没替你定的</h4>
+      <ul>
+        <li>「总是允许」的 <code>allowedTools</code> 是<b>写进会话级 sdkOptions</b> 的（<code>claude-sdk.js:955</code>），只对这个会话后续有效，不是全局。</li>
+        <li>在面板里点它，和会话页点它是同一个效果。要不要在面板里额外提示「仅本次会话有效」？我倾向要 —— 否则容易被误解成全局设置。</li>
+      </ul>
+    </div>
+  </div>
+
+  <p class="hint" style="margin-top:26px">预览：<code>docs/preview/tasks-pending-logic.html</code>　—　单文件，双击即开</p>
+</div>
+</body>
+</html>
