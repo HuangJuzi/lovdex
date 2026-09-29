@@ -592,14 +592,72 @@ func handleMessages(w http.ResponseWriter, r *http.Request) {
 			log.Printf("[STREAM_END] ok bytes=%d\n", totalBytes)
 		}
 	} else {
-		if _, err := io.Copy(fw, respBody); err != nil {
-			// Headers already committed; aborting the connection is the only option,
-			// which still unblocks the client instead of leaving it hanging.
-			log.Printf("[STREAM_END] error: %v\n", err)
-			return
+		// Non-streaming JSON reply: normalize the inclusive usage semantics the
+		// gateway's translator adopted (same rewrite normalizeUsageEvent applies
+		// to SSE). Streams through a small buffer so a malformed body forwards
+		// verbatim instead of failing the request.
+		if updated, err := normalizeNonStreamUsage(respBody); err == nil && updated != nil {
+			_, _ = io.Copy(fw, updated)
+		} else {
+			if _, err := io.Copy(fw, respBody); err != nil {
+				// Headers already committed; aborting the connection is the only option,
+				// which still unblocks the client instead of leaving it hanging.
+				log.Printf("[STREAM_END] error: %v\n", err)
+				return
+			}
 		}
 		log.Printf("[STREAM_END] ok bytes=non-stream\n")
 	}
+}
+
+// normalizeNonStreamUsage applies normalizeUsageEvent's semantics to a
+// non-streaming Anthropic message JSON. It shares the same conservative marker
+// checks; a reply that is already exclusive (or unparseable) is forwarded
+// verbatim (nil reader, nil error).
+func normalizeNonStreamUsage(r io.Reader) (io.Reader, error) {
+	data, err := io.ReadAll(io.LimitReader(r, 64*1024*1024))
+	if err != nil {
+		return nil, err
+	}
+	var probe map[string]interface{}
+	if json.Unmarshal(data, &probe) != nil {
+		return nil, fmt.Errorf("not a JSON object body")
+	}
+	msg := struct {
+		Usage map[string]interface{} `json:"usage"`
+	}{}
+	if json.Unmarshal(data, &msg) != nil || msg.Usage == nil {
+		return bytes.NewReader(data), nil
+	}
+	wrapper := struct {
+		Usage map[string]interface{} `json:"usage"`
+	}{Usage: msg.Usage}
+	wrapped, err := json.Marshal(&wrapper)
+	if err != nil {
+		return bytes.NewReader(data), nil
+	}
+	// Reuse the SSE rewrite by wrapping the usage object in the event shape
+	// normalizeUsageEvent expects ({usage: ...} toplevel is accepted).
+	out := normalizeUsageEvent(string(wrapped))
+	if out == string(wrapped) {
+		return bytes.NewReader(data), nil
+	}
+	var merged map[string]interface{}
+	if json.Unmarshal([]byte(out), &merged) != nil {
+		return bytes.NewReader(data), nil
+	}
+	usage, ok := merged["usage"].(map[string]interface{})
+	if !ok {
+		return bytes.NewReader(data), nil
+	}
+	// Splice the rewritten usage back into the original envelope: every other
+	// field (content, stop_reason, id, model, billing_usage, ...) stays verbatim
+	// so the reply shape is untouched apart from the accounting fields.
+	probe["usage"] = usage
+	if rebuilt, err := json.Marshal(&probe); err == nil {
+		return bytes.NewReader(rebuilt), nil
+	}
+	return bytes.NewReader(data), nil
 }
 
 // respondUpstreamError writes a 502 derived from an upstream failure in the
@@ -755,6 +813,93 @@ func newResponseRewriter(r io.Reader, lr *leakRewriter) io.Reader {
 	return pr
 }
 
+// freshPrompt turns an inclusive prompt_tokens (cached tokens counted inside it,
+// the OpenAI billing convention the gateway's translator adopted on 2026-09-24)
+// into the fresh prompt the Anthropic contract promises: input_tokens excludes
+// cache reads. A gateway that reports more cached tokens than prompt tokens
+// would otherwise produce a negative input; clamp it to 0. Ported from upstream
+// llm-proxy 6829e74 ("Subtract cached tokens from the streaming path's fresh
+// input"), which fixes the identical double-count on the OpenAI route.
+func freshPrompt(promptTokens, cached int) int {
+	if cached <= 0 {
+		return promptTokens
+	}
+	if cached >= promptTokens {
+		return 0
+	}
+	return promptTokens - cached
+}
+
+// normalizeUsageEvent rewrites the usage object of an SSE event (message_start /
+// message_delta) from the gateway's inclusive semantics — input_tokens counts
+// cached tokens inside it, cache_read_input_tokens mirrors
+// prompt_tokens_details.cached_tokens — into Anthropic's exclusive semantics:
+//
+//	input_tokens = prompt - cached  (fresh only)
+//	cache_read_input_tokens = cached
+//
+// Without this, every cached token is counted twice (once as fresh input, once
+// as a cache read), which reads back as a halved cache hit rate. The rewrite is
+// conservative: it only fires when the usage object carries the gateway
+// translator's marker fields (billing_usage / claude_cache_creation_*), and the
+// numbers actually say inclusive (prompt == input && input >= cached > 0). The
+// legacy exclusive replies (input < cached, seen before 2026-09-24 and still
+// interleaved after) pass through untouched, so a flapping gateway cannot make
+// us subtract twice. Returns the original string when no rewrite is needed.
+// The event is parsed into a full map and re-marshaled as-is: only the usage
+// object's accounting fields change. A narrower unmarshal target (a struct
+// holding just message/usage) silently DROPS every other envelope field —
+// type, delta, stop_reason — leaving a message_delta Claude Code cannot read a
+// stop_reason from. Returns the original string when no rewrite is needed.
+func normalizeUsageEvent(data string) string {
+	var full map[string]interface{}
+	if json.Unmarshal([]byte(data), &full) != nil || full == nil {
+		return data
+	}
+	usage, ok := full["usage"].(map[string]interface{})
+	if !ok {
+		// message_start nests usage under message.usage. Beware the short-if
+		// form: `if msg, ok := ...; ok { usage, ok = ... }` declares a shadowed
+		// ok and never updates the outer one, silently skipping the rewrite.
+		msg, msgOk := full["message"].(map[string]interface{})
+		if msgOk {
+			usage, ok = msg["usage"].(map[string]interface{})
+		}
+	}
+	if !ok || usage == nil {
+		return data
+	}
+	// Gateway translator marker: its replies carry billing_usage and the
+	// claude_cache_creation_* counters. Legacy exclusive replies carry neither.
+	_, hasBilling := usage["billing_usage"]
+	_, hasClaudeCache := usage["claude_cache_creation_5_m_tokens"]
+	if !hasBilling && !hasClaudeCache {
+		return data
+	}
+	inF, okIn := usage["input_tokens"].(float64)
+	crF, okCr := usage["cache_read_input_tokens"].(float64)
+	if !okIn || !okCr {
+		return data
+	}
+	inTok, crTok := int(inF), int(crF)
+	if crTok <= 0 || inTok < crTok {
+		// Nothing cached, or the numbers are already exclusive (input < cached
+		// cannot happen under inclusive semantics). Leave verbatim.
+		return data
+	}
+	usage["input_tokens"] = freshPrompt(inTok, crTok)
+	// The gateway reports no cache-creation breakdown (0) in inclusive mode;
+	// keep the field but make sure it does not double as fresh input.
+	if _, has := usage["cache_creation_input_tokens"]; !has {
+		usage["cache_creation_input_tokens"] = 0
+	}
+	out, err := json.Marshal(&full)
+	if err != nil {
+		return data
+	}
+	return string(out)
+}
+
 // emitEvent writes one normalized SSE event block to pw. It rewrites the JSON payload
 // of `content_block_start` events whose content_block is a thinking block missing a
 // string `thinking` field. The rewritten payload keeps its full envelope (`type`,
@@ -780,6 +925,9 @@ func emitEvent(pw *io.PipeWriter, event, data string, lr *leakRewriter) {
 				}
 			}
 		}
+	}
+	if (event == "message_start" || event == "message_delta") && out != "" {
+		out = normalizeUsageEvent(out)
 	}
 	if lr != nil {
 		lr.process(pw, event, out)
