@@ -22,3 +22,7 @@ supervisor/logs/
 
 # Superpowers brainstorm mockups
 .superpowers/
+
+# Agent session state and git worktrees (the worktree dir is a full repo checkout;
+# committing it as a nested repo would embed a bogus gitlink).
+.claude/

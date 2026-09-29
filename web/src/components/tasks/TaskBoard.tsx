@@ -512,8 +512,14 @@ export function TaskBoardPage() {
       ) : (
         <div className="flex min-h-0 flex-1">
           {/* 关掉面板就是**不渲染**右栏，不是把它藏成 0 宽 —— flex 会把腾出的
-              428px 自动还给列表，不需要另写一个「全宽」状态去同步。 */}
-          <div className="flex min-h-0 flex-1 flex-col">
+              428px 自动还给列表，不需要另写一个「全宽」状态去同步。
+
+              `min-w-0` 是必须的：这一行是 flex **row**，而 row 里的 flex item
+              默认 `min-width: auto`（不肯收缩到内容的最小宽度以下）。看板列是
+              `w-full` + 长标题，其 min-content 宽度远超手机视口，于是这一列会
+              顶着 860px 不肯让步 —— 页面横向被撑爆，右半边看不见。加 `min-w-0`
+              才允许它收缩，内部各层再各自 `overflow-y-auto`。 */}
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
             <TaskFilterBar projectOptions={projectOptions} filter={filter} onChange={setFilter} open={filtersOpen} />
             {filterStillHidesNewTask && hiddenCreated && (
               <div className="flex flex-shrink-0 items-center gap-3 border-b border-border/60 bg-warning/10 px-3 py-2 sm:px-4">
