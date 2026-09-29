@@ -33,6 +33,19 @@ import { useElementWidth } from '../useElementWidth';
 
 const MINUTE_MS = 60_000;
 
+/**
+ * 色带与其边界线（曲线）共用的不透明度。
+ *
+ * 两者必须一致。填充是半透明地叠在底色上的，合成结果不等于色号本身；而描边若
+ * 沿用 SVG 默认的 α=1，合成结果就是色号本身——同一个色号算出两个颜色，曲线看
+ * 起来就成了「另一个东西」，用户会把它读成一条独立的模型 TPM 折线，而不是这块
+ * 色带的边界。让描边与填充取同一个值，两者在同一块底色上合成结果恒等。
+ *
+ * 共用一个常量而不是各写 0.35：将来只改一处就会悄悄退回「两个颜色」，且不会有
+ * 任何测试变红（见 TpmChartCard.test.tsx 的说明）。
+ */
+const AREA_OPACITY = 0.35;
+
 /** YAxis 的固定宽度：算绘图区宽度时要把它从容器宽度里扣掉。 */
 const Y_AXIS_WIDTH = 48;
 
@@ -402,7 +415,9 @@ export function TpmChartCard({
                   stackId="tpm"
                   stroke={colorForModel(key, keys)}
                   fill={colorForModel(key, keys)}
-                  fillOpacity={0.35}
+                  fillOpacity={AREA_OPACITY}
+                  // 与 fillOpacity 同值：描边成了这块色带自己的边界，不再是一个独立对象。
+                  strokeOpacity={AREA_OPACITY}
                   strokeWidth={1.5}
                   isAnimationActive={false}
                 />
