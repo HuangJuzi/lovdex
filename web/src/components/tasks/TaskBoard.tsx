@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { LayoutGrid, Plus, SlidersHorizontal, Table, X } from 'lucide-react';
 
@@ -7,13 +7,15 @@ import { useTasks } from '../../hooks/useTasks';
 import useLocalStorage from '../../hooks/useLocalStorage';
 import { useDeviceSettings } from '../../hooks/useDeviceSettings';
 import { cn } from '../../lib/utils';
-import { Button } from '../../shared/view/ui';
+import { Button, Dialog, DialogContent } from '../../shared/view/ui';
 import type {
   Project,
   Task,
   TaskStatus,
 } from '../../types/app';
 import { api } from '../../utils/api';
+import { useQuickReplies } from '../chat/hooks/useQuickReplies';
+import { buildQuickReplyInput } from '../chat/utils/quickReplyInsert';
 
 import { TaskCard } from './TaskCard';
 import { HomeButton } from './TaskBackNav';
@@ -23,9 +25,19 @@ import { STATUS_META, STATUS_ORDER, groupByStatus } from './taskStatus';
 import { TaskFilterBar } from './TaskFilterBar';
 import { TaskTableView } from './TaskTableView';
 import { TaskInboxPanel } from './TaskInboxPanel';
+import { TaskSummaryPanel } from './TaskSummaryPanel';
+import { useSessionPendingRequests } from './useSessionPendingRequests';
+import { pickLastAssistantText } from './taskResult';
 import { CreateTaskDialog } from './CreateTaskDialog';
 import { readCreatedTaskId } from './createdTaskHandoff';
 import { EMPTY_TASK_FILTER, filterTasks, isTaskFilterActive, manualTasksOf, normalizeTaskFilter } from './taskFilter';
+import { DEFAULT_TASK_VIEW_MODE, effectiveTaskViewMode } from './taskViewMode';
+import type { TaskViewMode } from './taskViewMode';
+
+/** 镜像后端 `providers.claude.toolApprovalTimeoutMs` 的默认值（`config.ts`）。
+ *  它是配置项、可被用户改；真实值要等后端下发才算数，这里只用于倒计时，
+ *  所以宁可显示一个保守的默认值也不去猜。 */
+const TOOL_APPROVAL_TIMEOUT_MS = 60_000;
 
 export function TaskBoardPage() {
   const navigate = useNavigate();
@@ -34,7 +46,11 @@ export function TaskBoardPage() {
   const { tasks, loading, loadError, refresh, upsert, remove } = useTasks({}, subscribe);
   const [storedFilter, setFilter] = useLocalStorage<unknown>('taskFilter', EMPTY_TASK_FILTER);
   const filter = useMemo(() => normalizeTaskFilter(storedFilter), [storedFilter]);
-  const [viewMode, setViewMode] = useLocalStorage<'board' | 'table'>('taskViewMode', 'board');
+  const [viewMode, setViewMode] = useLocalStorage<TaskViewMode>('taskViewMode', DEFAULT_TASK_VIEW_MODE);
+  // 当前展开在右侧面板里的任务 id；null = 面板关闭（右栏整个不占位）。
+  // 与「筛选/视图」无关，纯粹是本页的 UI 状态，所以不进 localStorage —— 刷新后
+  // 回到「没有面板」是合理的默认，保留一个可能已过期的选中反而更意外。
+  const [panelTaskId, setPanelTaskId] = useState<string | null>(null);
   // 筛选区折叠：两条筛选行（TaskFilterBar + 表格内的状态 pill 行）常驻时纵向占用过大，
   // 默认收起。由 header 的「筛选」按钮统一控制。
   const [filtersOpen, setFiltersOpen] = useLocalStorage<boolean>('taskFiltersOpen', false);
@@ -45,10 +61,10 @@ export function TaskBoardPage() {
     'taskTableStatusFilter',
     [...STATUS_ORDER],
   );
-  // 移动端强制看板：表格在手机上体验差，且「表格」按钮已隐藏（hidden sm:inline-flex）。
-  // 断点 640 与 Tailwind `sm:` 对齐。
+  // 移动端强制看板：表格在手机上体验差，且「表格」按钮整个不渲染（`hidden sm:flex`）。
+  // 断点 640 与 Tailwind `sm:` 对齐。桌面端则读偏好，默认见 DEFAULT_TASK_VIEW_MODE。
   const { isMobile } = useDeviceSettings({ mobileBreakpoint: 640 });
-  const effectiveView = isMobile ? 'board' : viewMode;
+  const effectiveView = effectiveTaskViewMode({ isMobile, stored: viewMode });
   // 看板视图不消费状态 pill（列固定渲染全部状态），此时一个非全选的状态 pill
   // 并没有筛掉任何东西，不该点亮圆点 —— 传「全部状态」进去把它排除掉。
   const effectiveStatusFilter = effectiveView === 'table' ? statusFilter : [...STATUS_ORDER];
@@ -70,6 +86,13 @@ export function TaskBoardPage() {
   // 收件箱仍收全量的 filteredTasks：无人值守的任务失败/卡住最需要被提醒，全静默反而危险。
   const boardTasks = useMemo(() => manualTasksOf(filteredTasks), [filteredTasks]);
   const groups = useMemo(() => groupByStatus(boardTasks), [boardTasks]);
+
+  // 面板跟随列表里的**全量** tasks（不是 boardTasks）：定时任务跑出来的行虽然不在
+  // 看板/表格里，但收件箱条也会展开它们，此时若从 boardTasks 里找不到就会瞬间关闭面板。
+  const panelTask = useMemo(
+    () => (panelTaskId ? tasks.find((t) => t.task_id === panelTaskId) ?? null : null),
+    [tasks, panelTaskId],
+  );
 
   // 批量删除选择：跨表格/看板两个视图共享同一份 task_id 集合。
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -307,6 +330,86 @@ export function TaskBoardPage() {
   // 新建任务仍被筛选排除时展示提示条；筛选调到能显示它之后自动消失。
   const filterStillHidesNewTask = hiddenCreated ? isHiddenByFilters(hiddenCreated) : false;
 
+  // ---- 右栏面板的数据接线 ----
+  // 待办走会话级 socket 订阅（任务页取不到 ChatPermissionContext —— 那个 Provider
+  // 只存在于 ChatInterface 子树内），答复帧与聊天页逐字一致。
+  const { pendingRequests, isProcessing, respond } = useSessionPendingRequests(
+    panelTask?.session_id ?? null,
+  );
+  const { items: quickReplies, markUsed } = useQuickReplies();
+  const [replyValue, setReplyValue] = useState('');
+  const [panelResult, setPanelResult] = useState('');
+
+  /**
+   * 倒计时的节拍**不能**用上面那个 `now` —— 它是每分钟刷一次的，那是给「今天 /
+   * 本周」这类日期区间边界用的。而倒计时是**秒**级语义（`formatCountdown` 的
+   * 红线是 25 秒），拿分钟级的值去算，真实后果是：显示「60 秒后自动拒绝」之后
+   * 数字**冻结 60 秒**，然后直接跳到 0 —— 中间所有值、包括那圈红色的紧迫态，
+   * 永远不会出现。而后端超时同样默认 60000ms，两者同量级，所以这条路径必然踩中。
+   *
+   * 只在真有待办在等的时候才起这个 1 秒定时器：没有待办时它是纯浪费，
+   * 而待办存在的时段本来就是短的。
+   */
+  const [countdownNow, setCountdownNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (pendingRequests.length === 0) return;
+    setCountdownNow(Date.now());
+    const id = setInterval(() => setCountdownNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [pendingRequests.length]);
+
+  // 切任务时清空草稿：上一句写给 A 的话不该出现在 B 的输入框里。
+  useEffect(() => {
+    setReplyValue('');
+  }, [panelTaskId]);
+
+  // 最近结果：与 TaskDetail.loadResult 同一份解析（api.unifiedSessionMessages +
+  // pickLastAssistantText），只是这里只取最后一条助手正文给缩略面板看。会话或
+  // 该任务的 updated_at 变化时重取 —— 后者是引擎推进的信号。
+  useEffect(() => {
+    const sessionId = panelTask?.session_id;
+    if (!sessionId) {
+      setPanelResult('');
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.unifiedSessionMessages(sessionId, 'claude', {});
+        if (cancelled || !res.ok) return;
+        const body = (await res.json()) as { data?: { messages?: unknown[] } } | { messages?: unknown[] };
+        const messages = Array.isArray((body as { data?: { messages?: unknown[] } })?.data?.messages)
+          ? (body as { data: { messages: unknown[] } }).data.messages
+          : Array.isArray((body as { messages?: unknown[] }).messages)
+            ? (body as { messages: unknown[] }).messages
+            : [];
+        const text = pickLastAssistantText(messages as { kind: string; role?: string; content?: string }[]);
+        if (!cancelled) setPanelResult(text ?? '');
+      } catch {
+        if (!cancelled) setPanelResult('');
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [panelTask?.session_id, panelTask?.updated_at]);
+
+  const sendPanelReply = useCallback(() => {
+    if (!panelTask?.session_id) return;
+    const content = replyValue.trim();
+    if (!content) return;
+    sendMessage(buildTaskChatSend(panelTask.session_id, panelTask, content));
+    setReplyValue('');
+  }, [panelTask, replyValue, sendMessage]);
+
+  const insertQuickReply = useCallback(
+    (item: { quick_reply_id: string; content: string }) => {
+      setReplyValue((previous) => buildQuickReplyInput(previous, item.content));
+      markUsed(item.quick_reply_id);
+    },
+    [markUsed],
+  );
+
   return (
     <div className="flex h-dvh flex-col bg-background">
       <header className="pwa-header-safe flex flex-shrink-0 items-center gap-2 border-b border-border/60 bg-background px-3 py-1.5 sm:px-4 sm:py-2">
@@ -407,124 +510,180 @@ export function TaskBoardPage() {
           </button>
         </div>
       ) : (
-        <div className="flex min-h-0 flex-1 flex-col">
-          <TaskFilterBar projectOptions={projectOptions} filter={filter} onChange={setFilter} open={filtersOpen} />
-          {filterStillHidesNewTask && hiddenCreated && (
-            <div className="flex flex-shrink-0 items-center gap-3 border-b border-border/60 bg-warning/10 px-3 py-2 sm:px-4">
-              <span className="min-w-0 flex-1 truncate text-sm text-foreground">
-                任务「{hiddenCreated.title}」已创建，但当前筛选未包含它，因此列表中没有显示。
-              </span>
-              <button
-                type="button"
-                onClick={() => {
-                  setFilter(EMPTY_TASK_FILTER);
-                  setStatusFilter([...STATUS_ORDER]);
-                }}
-                className="shrink-0 rounded-lg bg-primary/10 px-2.5 py-1 text-sm font-semibold text-primary hover:bg-primary/20"
-              >
-                清除筛选
-              </button>
-              <button
-                type="button"
-                aria-label="关闭提示"
-                onClick={() => setHiddenCreated(null)}
-                className="shrink-0 text-muted-foreground hover:text-foreground"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-          )}
-          {selected.size > 0 && (
-            <div className="flex flex-shrink-0 items-center gap-3 border-b border-border/60 bg-muted/40 px-3 py-2 sm:px-4">
-              <span className="text-sm font-medium">已选 {selected.size} 项</span>
-              <button
-                type="button"
-                onClick={clearSelection}
-                className="text-sm text-muted-foreground hover:text-foreground"
-              >
-                取消选择
-              </button>
-              <button
-                type="button"
-                disabled={deleting}
-                onClick={() => void deleteSelected()}
-                className="ml-auto rounded-lg bg-destructive/10 px-3 py-1.5 text-sm font-semibold text-destructive hover:bg-destructive/20 disabled:opacity-50"
-              >
-                {deleting ? '删除中…' : '删除'}
-              </button>
-            </div>
-          )}
-          <TaskInboxPanel
-            tasks={filteredTasks}
-            now={now}
-            projectOptions={projectOptions}
-            onRetry={runTask}
-            onStart={runTask}
-            onAccept={(task) => updateStatus(task, 'done')}
-            onIgnore={(task) => updateStatus(task, 'archived')}
-            onOpenSession={(task) => task.session_id && navigate(`/session/${task.session_id}`)}
-            onOpenTask={(task) => navigate(`/task/${task.task_id}`)}
-          />
-          {effectiveView === 'table' ? (
-            <TaskTableView
-              tasks={boardTasks}
-              projectOptions={projectOptions}
-              showArchived={filter.showArchived}
-              statusFilter={statusFilter}
-              onStatusFilterChange={setStatusFilter}
-              showStatusFilter={filtersOpen}
-              onStart={runTask}
-              onStatusChange={(task, status) => updateStatus(task, status)}
-              onOpenSession={(task) => task.session_id && navigate(`/session/${task.session_id}`)}
-              onProjectChange={(task, nextPath) => changeProject(task, nextPath)}
-              onOpenTask={(task) => navigate(`/task/${task.task_id}`)}
-              selected={selected}
-              onToggleSelect={toggleSelect}
-              onToggleSelectAll={toggleSelectAll}
-            />
-          ) : (
-            <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-2 pb-3 sm:flex-row sm:gap-3 sm:overflow-x-auto sm:overflow-y-hidden sm:px-4 sm:pb-4">
-              {renderableStatuses.map((status) => (
-                <div
-                  key={status}
-                  className="flex w-full flex-col rounded-2xl border border-border/70 bg-muted/30 shadow-raised sm:min-w-64 sm:flex-1"
+        <div className="flex min-h-0 flex-1">
+          {/* 关掉面板就是**不渲染**右栏，不是把它藏成 0 宽 —— flex 会把腾出的
+              428px 自动还给列表，不需要另写一个「全宽」状态去同步。 */}
+          <div className="flex min-h-0 flex-1 flex-col">
+            <TaskFilterBar projectOptions={projectOptions} filter={filter} onChange={setFilter} open={filtersOpen} />
+            {filterStillHidesNewTask && hiddenCreated && (
+              <div className="flex flex-shrink-0 items-center gap-3 border-b border-border/60 bg-warning/10 px-3 py-2 sm:px-4">
+                <span className="min-w-0 flex-1 truncate text-sm text-foreground">
+                  任务「{hiddenCreated.title}」已创建，但当前筛选未包含它，因此列表中没有显示。
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFilter(EMPTY_TASK_FILTER);
+                    setStatusFilter([...STATUS_ORDER]);
+                  }}
+                  className="shrink-0 rounded-lg bg-primary/10 px-2.5 py-1 text-sm font-semibold text-primary hover:bg-primary/20"
                 >
-                  <div className="flex items-center gap-2 px-3 py-2.5">
-                    <span
-                      className="h-2 w-2 rounded-full"
-                      style={{ background: STATUS_META[status].color }}
-                    />
-                    <span className="text-sm font-semibold text-foreground">
-                      {STATUS_META[status].label}
-                    </span>
-                    <span className="ml-auto rounded-full border border-border/70 bg-card px-2 py-0.5 text-2xs text-muted-foreground">
-                      {groups[status].length}
-                    </span>
-                  </div>
-                  <div className="flex flex-col gap-2 px-2 pb-2 sm:min-h-0 sm:flex-1 sm:overflow-y-auto">
-                    {groups[status].length === 0 && (
-                      <div className="py-8 text-center text-xs text-muted-foreground">暂无任务</div>
-                    )}
-                    {groups[status].map((task) => (
-                      <TaskCard
-                        key={task.task_id}
-                        task={task}
-                        onStart={() => runTask(task)}
-                        onStatusChange={(s) => updateStatus(task, s)}
-                        onOpenSession={() => task.session_id && navigate(`/session/${task.session_id}`)}
-                        projectOptions={projectOptions}
-                        onProjectChange={(nextPath) => changeProject(task, nextPath)}
-                        selected={selected.has(task.task_id)}
-                        onToggleSelect={toggleSelect}
+                  清除筛选
+                </button>
+                <button
+                  type="button"
+                  aria-label="关闭提示"
+                  onClick={() => setHiddenCreated(null)}
+                  className="shrink-0 text-muted-foreground hover:text-foreground"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            )}
+            {selected.size > 0 && (
+              <div className="flex flex-shrink-0 items-center gap-3 border-b border-border/60 bg-muted/40 px-3 py-2 sm:px-4">
+                <span className="text-sm font-medium">已选 {selected.size} 项</span>
+                <button
+                  type="button"
+                  onClick={clearSelection}
+                  className="text-sm text-muted-foreground hover:text-foreground"
+                >
+                  取消选择
+                </button>
+                <button
+                  type="button"
+                  disabled={deleting}
+                  onClick={() => void deleteSelected()}
+                  className="ml-auto rounded-lg bg-destructive/10 px-3 py-1.5 text-sm font-semibold text-destructive hover:bg-destructive/20 disabled:opacity-50"
+                >
+                  {deleting ? '删除中…' : '删除'}
+                </button>
+              </div>
+            )}
+            <TaskInboxPanel
+              tasks={filteredTasks}
+              now={now}
+              projectOptions={projectOptions}
+              onRetry={runTask}
+              onStart={runTask}
+              onAccept={(task) => updateStatus(task, 'done')}
+              onIgnore={(task) => updateStatus(task, 'archived')}
+              onOpenSession={(task) => task.session_id && navigate(`/session/${task.session_id}`)}
+              onOpenTask={(task) => setPanelTaskId(task.task_id)}
+            />
+            {effectiveView === 'table' ? (
+              <TaskTableView
+                tasks={boardTasks}
+                projectOptions={projectOptions}
+                showArchived={filter.showArchived}
+                statusFilter={statusFilter}
+                onStatusFilterChange={setStatusFilter}
+                showStatusFilter={filtersOpen}
+                onStart={runTask}
+                onStatusChange={(task, status) => updateStatus(task, status)}
+                onOpenSession={(task) => task.session_id && navigate(`/session/${task.session_id}`)}
+                onProjectChange={(task, nextPath) => changeProject(task, nextPath)}
+                onOpenTask={(task) => setPanelTaskId(task.task_id)}
+                selected={selected}
+                onToggleSelect={toggleSelect}
+                onToggleSelectAll={toggleSelectAll}
+              />
+            ) : (
+              <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-2 pb-3 sm:flex-row sm:gap-3 sm:overflow-x-auto sm:overflow-y-hidden sm:px-4 sm:pb-4">
+                {renderableStatuses.map((status) => (
+                  <div
+                    key={status}
+                    className="flex w-full flex-col rounded-2xl border border-border/70 bg-muted/30 shadow-raised sm:min-w-64 sm:flex-1"
+                  >
+                    <div className="flex items-center gap-2 px-3 py-2.5">
+                      <span
+                        className="h-2 w-2 rounded-full"
+                        style={{ background: STATUS_META[status].color }}
                       />
-                    ))}
+                      <span className="text-sm font-semibold text-foreground">
+                        {STATUS_META[status].label}
+                      </span>
+                      <span className="ml-auto rounded-full border border-border/70 bg-card px-2 py-0.5 text-2xs text-muted-foreground">
+                        {groups[status].length}
+                      </span>
+                    </div>
+                    <div className="flex flex-col gap-2 px-2 pb-2 sm:min-h-0 sm:flex-1 sm:overflow-y-auto">
+                      {groups[status].length === 0 && (
+                        <div className="py-8 text-center text-xs text-muted-foreground">暂无任务</div>
+                      )}
+                      {groups[status].map((task) => (
+                        <TaskCard
+                          key={task.task_id}
+                          task={task}
+                          onStart={() => runTask(task)}
+                          onStatusChange={(s) => updateStatus(task, s)}
+                          onOpenSession={() => task.session_id && navigate(`/session/${task.session_id}`)}
+                          projectOptions={projectOptions}
+                          onProjectChange={(nextPath) => changeProject(task, nextPath)}
+                          selected={selected.has(task.task_id)}
+                          onToggleSelect={toggleSelect}
+                          onOpenPanel={(t) => setPanelTaskId(t.task_id)}
+                        />
+                      ))}
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
+            )}
+          </div>
+          {panelTask ? (
+            <div className="hidden w-[428px] shrink-0 flex-col border-l border-border bg-card lg:flex">
+              <TaskSummaryPanel
+                task={panelTask}
+                isProcessing={isProcessing}
+                pendingRequests={pendingRequests}
+                nowMs={countdownNow}
+                timeoutMs={TOOL_APPROVAL_TIMEOUT_MS}
+                resultText={panelResult}
+                replyValue={replyValue}
+                onReplyChange={setReplyValue}
+                onReplySend={sendPanelReply}
+                quickReplies={quickReplies}
+                onInsertQuickReply={insertQuickReply}
+                onRespond={respond}
+                onClose={() => setPanelTaskId(null)}
+                onOpenSession={() => {
+                  if (panelTask.session_id) navigate(`/session/${panelTask.session_id}`);
+                }}
+                onOpenDetail={() => navigate(`/task/${panelTask.task_id}`)}
+              />
             </div>
-          )}
+          ) : null}
         </div>
       )}
+
+      {/* 窄屏（<lg）右栏被 hidden 掉，改走底部 sheet。面板内容与右栏完全同一份
+          —— 不写第二份「手机版」实现，免得两边慢慢长得不一样。 */}
+      {panelTask && isMobile ? (
+        <Dialog open onOpenChange={(open) => { if (!open) setPanelTaskId(null); }}>
+          <DialogContent variant="sheet" className="flex max-h-[85dvh] flex-col p-0">
+            <TaskSummaryPanel
+              task={panelTask}
+              isProcessing={isProcessing}
+              pendingRequests={pendingRequests}
+              nowMs={countdownNow}
+              timeoutMs={TOOL_APPROVAL_TIMEOUT_MS}
+              resultText={panelResult}
+              replyValue={replyValue}
+              onReplyChange={setReplyValue}
+              onReplySend={sendPanelReply}
+              quickReplies={quickReplies}
+              onInsertQuickReply={insertQuickReply}
+              onRespond={respond}
+              onClose={() => setPanelTaskId(null)}
+              onOpenSession={() => {
+                if (panelTask.session_id) navigate(`/session/${panelTask.session_id}`);
+              }}
+              onOpenDetail={() => navigate(`/task/${panelTask.task_id}`)}
+            />
+          </DialogContent>
+        </Dialog>
+      ) : null}
     </div>
   );
 }

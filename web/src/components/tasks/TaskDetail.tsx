@@ -604,10 +604,10 @@ export function TaskDetailPage() {
           let desc = '关联会话有一个待审批的权限请求，需要你处理。';
           if (task.sub_status === 'waiting_answer') {
             label = '等你回答';
-            desc = 'Lovdex助手在等你回答一个问题，去会话里回复它即可继续。';
+            desc = 'Lovdex助手在等你回答一个问题。任务面板里可以直接选，不必跳进会话。';
           } else if (task.sub_status === 'waiting_plan') {
             label = '等你确认计划';
-            desc = 'Lovdex助手已出 plan，等你确认后才会开始执行。';
+            desc = 'Lovdex助手已出 plan，任务面板里可以直接确认后开始执行。';
           }
           return (
             <div className="mt-4 flex flex-col gap-3 rounded-md border border-warning/30 bg-warning/10 p-4 sm:flex-row sm:items-center sm:justify-between">
@@ -620,9 +620,9 @@ export function TaskDetailPage() {
               </div>
               <button
                 className="w-full shrink-0 rounded-md bg-warning/15 px-4 py-2 text-sm font-semibold text-warning transition-colors hover:bg-warning/25 sm:w-auto"
-                onClick={() => navigate(`/session/${task.session_id}`)}
+                onClick={() => navigate('/tasks')}
               >
-                去处理
+                去任务面板处理
               </button>
             </div>
           );

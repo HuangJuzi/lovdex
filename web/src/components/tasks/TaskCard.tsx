@@ -28,6 +28,11 @@ type TaskCardProps = {
   /** 是否被批量删除选择，配合 onToggleSelect 显示复选框。 */
   selected?: boolean;
   onToggleSelect?: (taskId: string) => void;
+  /**
+   * 点卡片。任务页传它来**就地展开右侧面板**；不传时退回旧的跳转行为
+   * （详情页等其它调用点仍按老样子导航）。
+   */
+  onOpenPanel?: (task: Task) => void;
 };
 
 export const TaskCard = memo(function TaskCard({
@@ -39,6 +44,7 @@ export const TaskCard = memo(function TaskCard({
   onProjectChange,
   selected,
   onToggleSelect,
+  onOpenPanel,
 }: TaskCardProps) {
   const navigate = useNavigate();
   const timeLabel = taskTimeLabel(task);
@@ -51,7 +57,13 @@ export const TaskCard = memo(function TaskCard({
   return (
     <div
       className="cursor-pointer rounded-2xl border border-border/70 bg-card p-3 transition-all shadow-[0_3px_0_hsl(var(--foreground)/0.07),0_8px_18px_hsl(var(--foreground)/0.05)] hover:-translate-y-0.5 hover:shadow-[0_5px_0_hsl(var(--foreground)/0.08),0_12px_24px_hsl(var(--foreground)/0.10)]"
-      onClick={() => navigate(`/task/${task.task_id}`)}
+      onClick={() => {
+        if (onOpenPanel) {
+          onOpenPanel(task);
+        } else {
+          navigate(`/task/${task.task_id}`);
+        }
+      }}
     >
       <div className="flex items-start gap-2">
         <span
