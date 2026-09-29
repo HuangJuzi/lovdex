@@ -83,6 +83,68 @@ test('insertEvents 落库，且相同 dedupeKey 重复插入只保留一行', ()
     assert.equal(tokenUsageDb.countEvents(), 1);
   }));
 
+test('insertEvents：占位行先落库时，后到的真实快照必须覆盖它', () =>
+  withIsolatedDatabase(() => {
+    // Claude Code 在请求在途时会先写出全零快照（同 message.id），网关真实用量
+    // 几秒后才到。旧行为 INSERT OR IGNORE 先到先得，占位行永久胜出，把缓存
+    // 重读记成全额新增输入——缓存命中率的口径就是这么被压垮的。
+    const placeholder = makeEvent({
+      inputTokens: 488_814, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0,
+    });
+    assert.equal(tokenUsageDb.insertEvents([placeholder]), 1);
+
+    const real = makeEvent({
+      inputTokens: 445_868, outputTokens: 4_124, cacheReadTokens: 444_800, cacheCreationTokens: 0,
+    });
+    // 覆盖不算新增行
+    assert.equal(tokenUsageDb.insertEvents([real]), 0);
+    assert.equal(tokenUsageDb.countEvents(), 1);
+
+    const row = getConnection()
+      .prepare('SELECT input_tokens, output_tokens, cache_read_tokens FROM token_usage_events WHERE dedupe_key = ?')
+      .get('claude:msg-1') as { input_tokens: number; output_tokens: number; cache_read_tokens: number };
+    assert.equal(row.input_tokens, 445_868);
+    assert.equal(row.output_tokens, 4_124);
+    assert.equal(row.cache_read_tokens, 444_800);
+  }));
+
+test('insertEvents：真实行已落库时，后到的占位行不得把它回退', () =>
+  withIsolatedDatabase(() => {
+    const real = makeEvent({
+      inputTokens: 445_868, outputTokens: 4_124, cacheReadTokens: 444_800, cacheCreationTokens: 0,
+    });
+    tokenUsageDb.insertEvents([real]);
+
+    // 重复扫描时顺序可能颠倒：真实快照先入库，占位行（全零）后到。
+    const placeholder = makeEvent({
+      inputTokens: 488_814, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0,
+    });
+    tokenUsageDb.insertEvents([placeholder]);
+
+    const row = getConnection()
+      .prepare('SELECT input_tokens, output_tokens, cache_read_tokens FROM token_usage_events WHERE dedupe_key = ?')
+      .get('claude:msg-1') as { input_tokens: number; output_tokens: number; cache_read_tokens: number };
+    assert.equal(row.input_tokens, 445_868);
+    assert.equal(row.output_tokens, 4_124);
+    assert.equal(row.cache_read_tokens, 444_800);
+  }));
+
+test('insertEvents：更完整的后续快照仍可补齐（cache_creation 迟到）', () =>
+  withIsolatedDatabase(() => {
+    tokenUsageDb.insertEvents([makeEvent({
+      inputTokens: 5_103, outputTokens: 1, cacheReadTokens: 0, cacheCreationTokens: 0,
+    })]);
+    // 第二帧带来了 cache_creation（首轮冷启动写缓存的真实形状）
+    tokenUsageDb.insertEvents([makeEvent({
+      inputTokens: 5_103, outputTokens: 1, cacheReadTokens: 38_724, cacheCreationTokens: 9_099,
+    })]);
+    const row = getConnection()
+      .prepare('SELECT cache_read_tokens, cache_creation_tokens FROM token_usage_events WHERE dedupe_key = ?')
+      .get('claude:msg-1') as { cache_read_tokens: number; cache_creation_tokens: number };
+    assert.equal(row.cache_read_tokens, 38_724);
+    assert.equal(row.cache_creation_tokens, 9_099);
+  }));
+
 test('cursor 默认全零，setCursor 后可读回', () =>
   withIsolatedDatabase(() => {
     assert.deepEqual(tokenUsageDb.getCursor('claude', '/x.jsonl'), { byteOffset: 0, lastTsMs: 0 });

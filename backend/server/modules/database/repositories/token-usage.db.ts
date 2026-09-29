@@ -61,26 +61,49 @@ function buildFilter(filter: AggregateFilter): { where: string; values: unknown[
 }
 
 export const tokenUsageDb = {
-  /** 批量插入；返回真正新增的行数（`INSERT OR IGNORE` 会跳过重复 dedupeKey）。 */
+  /**
+   * 批量插入；返回真正新增的行数（upsert 覆盖已存在的行不计入）。
+   *
+   * 同一个 `dedupeKey` 可能先以「预写占位行」落库（output/cache_read/cache_creation
+   * 全 0，Claude Code 在请求在途时就会写出这种快照），网关的真实用量行几秒后才到。
+   * `INSERT OR IGNORE` 先到先得会让占位行永久胜出，把缓存重读记成全额新增输入，
+   * 直接压垮缓存命中率的口径。因此这里改成 upsert：仅当新行**更完整**时才覆盖
+   * 四个 token 列——占位 → 真实会覆盖，真实 → 占位（重复扫描时顺序颠倒）不会
+   * 回退，两次都是完整行则幂等。identity 列（source/session/model/ts）不动。
+   */
   insertEvents(events: TokenUsageEvent[]): number {
     if (events.length === 0) {
       return 0;
     }
     const db = getConnection();
+    const existsStmt = db.prepare('SELECT 1 FROM token_usage_events WHERE dedupe_key = ?');
     const stmt = db.prepare(`
-      INSERT OR IGNORE INTO token_usage_events
+      INSERT INTO token_usage_events
         (source, session_id, project_path, model, ts_ms,
          input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens, dedupe_key)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(dedupe_key) DO UPDATE SET
+        input_tokens           = excluded.input_tokens,
+        output_tokens          = excluded.output_tokens,
+        cache_read_tokens      = excluded.cache_read_tokens,
+        cache_creation_tokens  = excluded.cache_creation_tokens
+      WHERE excluded.output_tokens > output_tokens
+         OR excluded.cache_read_tokens > cache_read_tokens
+         OR excluded.cache_creation_tokens > cache_creation_tokens
     `);
     let inserted = 0;
     const runAll = db.transaction((rows: TokenUsageEvent[]) => {
       for (const e of rows) {
-        const info = stmt.run(
+        const existed = existsStmt.get(e.dedupeKey) !== undefined;
+        stmt.run(
           e.source, e.sessionId, e.projectPath, e.model, e.tsMs,
           e.inputTokens, e.outputTokens, e.cacheReadTokens, e.cacheCreationTokens, e.dedupeKey,
         );
-        inserted += info.changes;
+        // upsert 的 changes 对「插入」和「实际更新」都返回 1，区分不了；想只数
+        // 新行就得在写入前查一次存在性。回填进度（eventsIndexed）只数新行。
+        if (!existed) {
+          inserted += 1;
+        }
       }
     });
     runAll(events);
