@@ -120,6 +120,14 @@ type CreateTaskInput = {
   /** 上下文处理方式；缺省时按「有来源→summary，无来源→none」推导。 */
   contextMode?: 'none' | 'summary' | 'raw';
   /**
+   * 派生链：哪个任务通过 create_task 下发了这个子任务（null = 非派生）。
+   */
+  parentTaskId?: string | null;
+  /**
+   * 派生深度：根任务 0，其子任务 1，孙任务 2 …（非派生任务恒 0）。
+   */
+  dispatchDepth?: number;
+  /**
    * 把「同一份创建意图」的重复提交合并成一次落库（判定见 task-create-dedup）。
    * 只有 HTTP 入口（tasks.routes.ts）会传：双击 / 两个标签页 / 客户端重试都属于
    * 同一个用户意图。程序化调用方（调度器、助手工具）不传 —— 它们本来就只该触发
@@ -604,6 +612,8 @@ export function createTasksService(
       contextSourceSessionId,
       contextMode,
       contextStatus: contextMode === 'none' ? null : 'pending',
+      parentTaskId: input.parentTaskId ?? null,
+      dispatchDepth: input.dispatchDepth ?? 0,
     });
     emit({ kind: 'task_upserted', task: row, actor: 'user' });
     // The model missed the blocking window: it is still in flight, so let it

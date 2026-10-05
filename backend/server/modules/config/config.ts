@@ -45,6 +45,20 @@ export const DEFAULT_APP_CONFIG = {
       disableThinkingModels: 'DeepSeek-V4-Flash-0731,DeepSeek-V4-Pro-0813,Kimi-K3,GLM-5.2',
       streamCloseTimeoutMs: 10000,
       toolApprovalTimeoutMs: 60000,
+      // Session-level run guardrails (run-guard.ts). A single unattended
+      // `default`-permission run once burned ~2500 turns / ~4 MB of transcript
+      // before dying on a 402 (balance exhausted); these fuses cap that. 0
+      // disables a fuse. Deep-merge means a deployment can override any one key
+      // without re-specifying the rest. See docs for the rationale on each default.
+      runGuard: {
+        maxTurns: 300,
+        maxDurationMs: 60 * 60 * 1000,
+        maxTotalTokens: 0,
+        maxBudgetUsd: 0,
+        maxRepeatedErrors: 5,
+        // Cheap slot for auto-dispatched sub-tasks with no explicit model.
+        defaultTaskModel: 'haiku',
+      },
     },
     codex: { binPath: 'codex' },
     opencode: { binPath: 'opencode', apiKeys: {} as Record<string, string> },

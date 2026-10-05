@@ -73,6 +73,7 @@ import { validateApiKey, authenticateToken, authenticateWebSocket } from './midd
 import { IS_PLATFORM } from './constants/config.js';
 import { c } from './utils/colors.js';
 import { appConfig as getAppConfig } from './modules/config/config.js';
+import { resolveRunGuardConfig } from './modules/operators/run-guard.js';
 import { buildConfigReadRouter, buildConfigWriteRouter } from './modules/config/config.routes.js';
 import { syncProviderEnv } from './modules/config/env-sync.js';
 import { createSchedulerService, buildSchedulerRouter } from './modules/scheduler/index.js';
@@ -627,14 +628,20 @@ const startTaskRun = (taskId, sessionId) => {
     // CLI parse the whole task prompt as a command and end the run with no
     // output, leaving an empty session.
     if (content.startsWith('/')) content = `执行以下任务：\n${content}`;
+    // A null executor_model fell through to the most-expensive runtime default
+    // in the incident (the sub-tasks ran DeepSeek-V4-Pro-0813 while the sibling
+    // schedules used DeepSeek-Flash). Pin the cheap guard slot unless the task
+    // carries an explicit model.
+    const model = task?.executor_model ?? resolveRunGuardConfig(getAppConfig().get().providers.claude).defaultTaskModel;
     return startHeadlessTaskRun(sessionId, {
         content,
-        model: task?.executor_model ?? null,
+        model,
         // Task-level permission mode, read straight from the DB — both run
         // paths (scheduled tasks and the assistant's start_task_execution)
         // go through here, signature unchanged. Normalization happens in
         // headless-task-run.service.ts.
         permissionMode: task?.permission_mode ?? 'default',
+        dispatchDepth: task?.dispatch_depth ?? 0,
         spawnFns,
     });
 };
@@ -745,6 +752,15 @@ initOperatorHeadless({
     // an explicit projectPath falls back here and lands as an is_operator task.
     contextProjectPath: getOperatorConfig().workspace,
     contextIsOperatorWorkspace: true,
+    // Dispatch lineage: map the assistant's current session back to the task it
+    // is running (if any) so create_task can stamp sub-tasks with
+    // parent_task_id + dispatch_depth and the fan-out cap applies.
+    lineage: (contextSessionId) => {
+        if (!contextSessionId) return null;
+        const row = tasksService.getTaskBySessionId(contextSessionId);
+        if (!row) return null;
+        return { taskId: row.task_id, depth: row.dispatch_depth ?? 0 };
+    },
 });
 
 // Wire the lightweight LLM verdict channel (operator_config.verdict_mode='llm',

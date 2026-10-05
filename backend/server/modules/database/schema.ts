@@ -196,7 +196,9 @@ CREATE TABLE IF NOT EXISTS tasks (
     context_raw       TEXT,
     source_schedule_id TEXT,
     auto_approve      INTEGER DEFAULT 0,
-    permission_mode   TEXT DEFAULT 'default'
+    permission_mode   TEXT DEFAULT 'default',
+    parent_task_id    TEXT,
+    dispatch_depth    INTEGER NOT NULL DEFAULT 0
 );
 `;
 

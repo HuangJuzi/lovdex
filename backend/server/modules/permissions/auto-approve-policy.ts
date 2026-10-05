@@ -340,3 +340,19 @@ export function normalizePermissionMode(mode: unknown): {
   }
   return { permissionMode: 'default', autoApprove: false };
 }
+
+/**
+ * The permission mode a run must use when there is NO human to approve tool
+ * calls. `default`/`acceptEdits`/`plan`/`bypassPermissions` and anything null
+ * or unknown all resolve to `autoApprove` (which the runtimes map to `default`
+ * + the `autoApprove` flag — see `normalizePermissionMode`), because in an
+ * unattended run `default` means "wait for an approval that can never arrive"
+ * — the incident's `Permission request timed out` ×2500 death spiral.
+ *
+ * `bypassPermissions` is NOT preserved: it skips `canUseTool` entirely, which
+ * is where the danger rules run, so it is strictly more dangerous than
+ * auto-approve for an unattended run.
+ */
+export function normalizeUnattendedPermissionMode(mode: unknown): string {
+  return AUTO_APPROVE_MODE;
+}

@@ -2,6 +2,7 @@ import { Cron } from 'croner';
 
 import { isScheduleType } from '@/modules/database/repositories/scheduled-tasks.db.js';
 import { AUTO_APPROVE_MODE, normalizePermissionMode } from '@/modules/permissions/auto-approve-policy.js';
+import { resolveRunGuardConfig } from '@/modules/operators/run-guard.js';
 import { resolveGeneratedTitle } from '@/modules/tasks/services/task-title.js';
 import type { TasksService } from '@/modules/tasks/services/tasks.service.js';
 import { AppError } from '@/shared/utils.js';
@@ -161,12 +162,22 @@ export function createSchedulerService(deps: SchedulerDeps) {
     // The template title is resolved and persisted at save time (task-title), so
     // this normally does not touch the model. A legacy row with a blank title
     // still falls back to createTask's own resolution.
+    // A null executor_model fell through to the most-expensive runtime default
+    // in the incident (the sub-tasks ran the opus tier while sibling schedules
+    // used the cheap Flash slot). Pin the cheap guard slot when the schedule
+    // leaves the model unset. Permission-mode enforcement lives at the headless
+    // launcher (startHeadlessTaskRun), the single choke point every unattended
+    // run passes through — the row is mirrored here untouched.
+    const executorModel =
+      typeof schedule.executor_model === 'string' && schedule.executor_model.trim()
+        ? schedule.executor_model
+        : resolveRunGuardConfig(undefined).defaultTaskModel;
     const task = await deps.tasksService.createTask({
       projectPath,
       title: schedule.title,
       description: schedule.description,
       executorProvider: schedule.executor_provider as TaskEngine,
-      executorModel: schedule.executor_model,
+      executorModel,
       priority: schedule.priority as 'P0' | 'P1' | 'P2' | 'P3',
       label: schedule.label as never,
       isOperator: schedule.is_operator === 1,

@@ -182,7 +182,7 @@ test('normalises the autoApprove permission mode into default + the flag', async
   assert.equal(captured.options?.permissionMode, 'default');
 });
 
-test('a run without a permission mode stays on default with auto-approval off', async () => {
+test('a run without a permission mode is coerced to autoApprove (no approval channel headless)', async () => {
   const captured: { options?: Record<string, unknown> } = {};
   startHeadlessTaskRun(
     'sess-plain',
@@ -194,6 +194,25 @@ test('a run without a permission mode stays on default with auto-approval off', 
     },
   );
   await new Promise((r) => setImmediate(r));
-  assert.equal(captured.options?.autoApprove, false, 'no mode → no auto-approval');
+  // A headless run has no approval channel, so a bare/default mode must be
+  // coerced to autoApprove — not left on 'default', which would wait on an
+  // approval that can never arrive (the incident's timeout loop).
+  assert.equal(captured.options?.autoApprove, true, 'no mode → coerced to auto-approval');
+  assert.equal(captured.options?.permissionMode, 'default');
+});
+
+test('a headless run with an explicit non-autoApprove mode is still coerced to autoApprove', async () => {
+  const captured: { options?: Record<string, unknown> } = {};
+  startHeadlessTaskRun(
+    'sess-default',
+    { content: 'work', permissionMode: 'default', spawnFns: { claude: makeSpawnFn(captured as never) } as never },
+    {
+      getSessionById: () => ({ provider: 'claude', provider_session_id: null, project_path: '/p', is_operator: 0 }),
+      startRun: () => ({ writer: {} }),
+      completeRunIfCurrent: () => {},
+    },
+  );
+  await new Promise((r) => setImmediate(r));
+  assert.equal(captured.options?.autoApprove, true);
   assert.equal(captured.options?.permissionMode, 'default');
 });

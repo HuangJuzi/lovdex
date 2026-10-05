@@ -965,6 +965,10 @@ export type TaskRow = {
   session_id: string | null;
   /** 定时任务来源:关联的 scheduled_tasks.schedule_id(由定时任务创建的任务才有值)。 */
   source_schedule_id: string | null;
+  /** 派生链：哪个任务通过 create_task 下发了这个子任务（null = 非派生）。 */
+  parent_task_id?: string | null;
+  /** 派生深度：根任务 0，其子任务 1，孙任务 2 …（非派生任务恒 0）。 */
+  dispatch_depth?: number;
   /** Lovdex 权限模式（'default' | 'autoApprove' | …），见 auto-approve-policy.ts。 */
   permission_mode: string;
   started_at: string | null;

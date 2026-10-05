@@ -96,6 +96,8 @@ export const tasksDb = {
     contextSourceSessionId?: string | null;
     contextMode?: 'none' | 'summary' | 'raw';
     contextStatus?: 'pending' | 'ready' | 'failed' | null;
+    parentTaskId?: string | null;
+    dispatchDepth?: number;
   }): TaskRow {
     const db = getConnection();
     const taskId = randomUUID();
@@ -105,8 +107,8 @@ export const tasksDb = {
     const startedAtSet = status === 'in_progress' ? 'CURRENT_TIMESTAMP' : 'NULL';
     const completedAtSet = status === 'done' ? 'CURRENT_TIMESTAMP' : 'NULL';
     const row = db.prepare(`
-      INSERT INTO tasks (task_id, project_path, title, description, status, executor_provider, executor_model, position, session_id, started_at, completed_at, priority, deadline, is_operator, label, remark, context_source_session_id, context_mode, context_status, source_schedule_id, permission_mode)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ${startedAtSet}, ${completedAtSet}, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO tasks (task_id, project_path, title, description, status, executor_provider, executor_model, position, session_id, started_at, completed_at, priority, deadline, is_operator, label, remark, context_source_session_id, context_mode, context_status, source_schedule_id, permission_mode, parent_task_id, dispatch_depth)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ${startedAtSet}, ${completedAtSet}, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       RETURNING *
     `).get(
       taskId,
@@ -128,6 +130,8 @@ export const tasksDb = {
       input.contextStatus ?? null,
       input.sourceScheduleId ?? null,
       input.permissionMode ?? 'default',
+      input.parentTaskId ?? null,
+      input.dispatchDepth ?? 0,
     ) as TaskRow;
     return normalizeTaskRow(row);
   },

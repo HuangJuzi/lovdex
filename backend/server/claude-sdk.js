@@ -41,6 +41,13 @@ import { sessionsDb } from './modules/database/index.js';
 import { z } from 'zod';
 import { appConfig } from './modules/config/config.js';
 import { decideAutoApproval, TOOLS_REQUIRING_INTERACTION } from './modules/permissions/auto-approve-policy.js';
+import {
+  checkRunGuard,
+  createRepeatedErrorTracker,
+  describeRunGuardReason,
+  isFatalApiError,
+  resolveRunGuardConfig,
+} from './modules/operators/run-guard.js';
 
 const activeSessions = new Map();
 const pendingToolApprovals = new Map();
@@ -675,10 +682,14 @@ async function loadMcpConfig(cwd) {
  * PreToolUse hook for headless task runs: coerces/denies subagent + workflow
  * tool calls so background fan-out cannot escape the registered project scope.
  * Returns a no-op `{}` for anything the guard does not touch.
+ *
+ * `dispatchDepth` is the current task's position in the dispatch chain (0 =
+ * root), read from the linked task row before the run starts — it feeds the
+ * fan-out depth guard so a task cannot dispatch sub-tasks past the cap.
  */
-function makeTaskRunGuardHook() {
+function makeTaskRunGuardHook(dispatchDepth) {
   return async (input) => {
-    const result = guardTaskRunToolInput(input?.tool_name, input?.tool_input);
+    const result = guardTaskRunToolInput(input?.tool_name, input?.tool_input, { dispatchDepth });
     if (result.decision === 'deny') {
       return {
         hookSpecificOutput: {
@@ -852,7 +863,7 @@ async function queryClaudeSDK(command, options = {}, ws) {
       ...(options.isTaskRun ? {
         PreToolUse: [{
           matcher: '',
-          hooks: [makeTaskRunGuardHook()],
+          hooks: [makeTaskRunGuardHook(options.dispatchDepth ?? 0)],
         }],
       } : {}),
     };
@@ -998,6 +1009,23 @@ async function queryClaudeSDK(command, options = {}, ws) {
       addSession(capturedSessionId, queryInstance, ws);
     }
 
+    // Session-level run guardrails (run-guard.ts). Counters accumulate from the
+    // live stream so a runaway can be killed in-flight — the SDK's own
+    // maxTurns/maxBudgetUsd options would terminate the CLI process but cannot
+    // surface a Lovdex-side reason into the terminal `complete`, which is what
+    // the task's failed sub_status keys off. The incident was a single
+    // `default`-permission session streaming ~2500 messages until a 402.
+    const runGuardConfig = resolveRunGuardConfig(appConfig().get().providers.claude);
+    const counters = {
+      turns: 0,
+      totalTokens: 0,
+      totalCostUsd: 0,
+      startedAtMs: Date.now(),
+    };
+    const repeatedErrors = createRepeatedErrorTracker(runGuardConfig.maxRepeatedErrors);
+    let guardReason = null;
+    let guardDetail = '';
+
     // Process streaming messages
     console.log('Starting async generator loop for session:', capturedSessionId || 'NEW');
     for await (const message of queryInstance) {
@@ -1035,16 +1063,106 @@ async function queryClaudeSDK(command, options = {}, ws) {
         ws.send(msg);
       }
 
+      // ── run-guard accounting (before any fuse check) ────────────────────
+      // An assistant turn's token usage is the authoritative per-turn ledger
+      // (`message.usage` on the assistant message). We prefer it over the
+      // terminal result's totals so a fuse can trip mid-run before the result
+      // arrives; the result is a no-op on counts already reflected here.
+      if (message.type === 'assistant') {
+        counters.turns += 1;
+        const usage = message.message?.usage;
+        if (usage && typeof usage === 'object') {
+          counters.totalTokens +=
+            readNumber(usage.input_tokens ?? usage.inputTokens)
+            + readNumber(usage.output_tokens ?? usage.outputTokens)
+            + readNumber(usage.cache_creation_input_tokens ?? usage.cacheCreationInputTokens)
+            + readNumber(usage.cache_read_input_tokens ?? usage.cacheReadInputTokens);
+        }
+      }
+      // Terminal result: estimated cost + fatal-error detection on the run error.
+      if (message.type === 'result') {
+        counters.totalCostUsd += readNumber(message.total_cost_usd);
+        if (message.is_error) {
+          const errorText = Array.isArray(message.errors)
+            ? message.errors.join('\n')
+            : (typeof message.result === 'string' ? message.result : '');
+          if (isFatalApiError(errorText)) {
+            guardReason = 'fatal_api_error';
+            guardDetail = errorText.slice(0, 200);
+          }
+        }
+      }
+      // Tool results → repeated-error fuse + fatal-error scan. Any successful
+      // tool resets the streak, so only a genuine repeating failure trips it.
+      if (message.type === 'user' && Array.isArray(message.message?.content)) {
+        for (const part of message.message.content) {
+          if (part?.type !== 'tool_result') continue;
+          const resultText = typeof part.content === 'string'
+            ? part.content
+            : (Array.isArray(part.content)
+              ? part.content
+                .map((c) => (c && typeof c === 'object' ? c.text : ''))
+                .filter(Boolean)
+                .join('\n')
+              : '');
+          if (part.is_error && resultText) {
+            if (isFatalApiError(resultText) && !guardReason) {
+              guardReason = 'fatal_api_error';
+              guardDetail = resultText.slice(0, 200);
+            }
+            if (repeatedErrors.record(resultText)) {
+              guardReason = 'repeated_tool_error';
+              guardDetail = resultText.slice(0, 200);
+            }
+          } else {
+            repeatedErrors.reset();
+          }
+        }
+      }
+
+      // Turn / wall-clock / token / cost fuses.
+      if (!guardReason) {
+        const check = checkRunGuard(counters, runGuardConfig, Date.now());
+        if (!check.ok) {
+          guardReason = check.reason;
+          guardDetail = check.detail;
+        }
+      }
+
       // Extract and send token budget updates from assistant/result usage payloads
       const tokenBudgetData = extractTokenBudget(message);
       if (tokenBudgetData) {
         ws.send(createNormalizedMessage({ kind: 'status', text: 'token_budget', tokenBudget: tokenBudgetData, sessionId: capturedSessionId || sessionId || null, provider: 'claude' }));
       }
+
+      if (guardReason) break;
     }
 
-    // Clean up session on completion
+    // Clean up session on completion (guarded or clean).
     if (capturedSessionId) {
       removeSession(capturedSessionId);
+    }
+
+    // A tripped fuse ends the run as a failure: surface the reason as an error
+    // frame + terminal `complete` (exitCode 1) so the task linkage persists
+    // sub_status='failed'. The reason text is the run's last assistant-visible
+    // signal, which is also what the auto-verdict reads.
+    if (guardReason) {
+      const reasonText = describeRunGuardReason(guardReason, guardDetail);
+      console.warn(`[claude-sdk] run guard tripped (${guardReason}) for session ${capturedSessionId || sessionId || null}: ${reasonText}`);
+      // Tear the CLI child down so it stops burning tokens; the terminal
+      // `complete` below is what the task linkage keys off, not this interrupt.
+      abortGuardedClaudeSDKSession(capturedSessionId || sessionId);
+      ws.send(createNormalizedMessage({ kind: 'error', content: reasonText, sessionId: capturedSessionId || sessionId || null, provider: 'claude' }));
+      ws.send(createCompleteMessage({ provider: 'claude', sessionId: capturedSessionId || sessionId || null, exitCode: 1 }));
+      notifyRunFailed({
+        userId: ws?.userId || null,
+        provider: 'claude',
+        sessionId: capturedSessionId || sessionId || null,
+        sessionName: sessionSummary,
+        error: new Error(reasonText),
+      });
+      return;
     }
 
     // Send the terminal completion event — skipped for aborted runs, whose
@@ -1129,6 +1247,32 @@ async function abortClaudeSDKSession(sessionId) {
   } catch (error) {
     console.error(`Error aborting session ${sessionId}:`, error);
     // The run keeps going; let it emit its own terminal complete.
+    abortedSessionIds.delete(sessionId);
+    return false;
+  }
+}
+
+/**
+ * Aborts a run that tripped a guard fuse. This is the graceful-termination path
+ * behind the incident fix: instead of letting the generator keep streaming
+ * until the provider runs dry, we ask the SDK to interrupt in-flight. The run
+ * loop has ALREADY stopped pulling messages, so the terminal `complete` with
+ * the guard reason is emitted by that loop — this only tells the SDK to tear
+ * its CLI child down.
+ *
+ * Best-effort: if the session is not tracked (already finished / never
+ * registered) this is a no-op, and an interrupt failure leaves the CLI to exit
+ * on its own once its stdin closes.
+ */
+function abortGuardedClaudeSDKSession(sessionId) {
+  const session = getSession(sessionId);
+  if (!session) return false;
+  abortedSessionIds.add(sessionId);
+  try {
+    session.instance.interrupt?.();
+    return true;
+  } catch (error) {
+    console.error(`Error aborting guarded session ${sessionId}:`, error);
     abortedSessionIds.delete(sessionId);
     return false;
   }

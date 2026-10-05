@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   guardTaskRunToolInput,
+  MAX_TASK_DISPATCH_DEPTH,
   resolveWorkflowsEnabled,
 } from '@/modules/operators/task-run-guard.js';
 
@@ -56,4 +57,22 @@ test('resolveWorkflowsEnabled disables Workflow for task runs, keeps config defa
   assert.equal(resolveWorkflowsEnabled({}, { server: { workflowsEnabled: true } }), true);
   assert.equal(resolveWorkflowsEnabled({}, { server: { workflowsEnabled: false } }), false);
   assert.equal(resolveWorkflowsEnabled(undefined, undefined), true);
+});
+
+test('denies subagent dispatch once the fan-out depth cap is reached', () => {
+  // Root task (depth 0) may dispatch.
+  const root = guardTaskRunToolInput('Task', { prompt: 'go' }, { dispatchDepth: 0 });
+  assert.equal(root.decision, 'allow');
+
+  // At the cap, a subagent dispatch is denied — a task cannot keep spawning
+  // sub-tasks forever (the runaway cleanup run spawned read-only sub-tasks
+  // with no limit).
+  const atCap = guardTaskRunToolInput('Task', { prompt: 'go' }, { dispatchDepth: MAX_TASK_DISPATCH_DEPTH });
+  assert.equal(atCap.decision, 'deny');
+  assert.match(atCap.reason, /派发深度/);
+
+  // A missing/null depth (non-task run) is unconstrained, matching the old
+  // behaviour before lineage existed.
+  const unconstrained = guardTaskRunToolInput('Agent', { prompt: 'go' });
+  assert.equal(unconstrained.decision, 'allow');
 });

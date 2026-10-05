@@ -725,6 +725,15 @@ const migrateTasksTable = (db: Database): void => {
   if (addedTaskMode) {
     db.exec("UPDATE tasks SET permission_mode = 'autoApprove' WHERE auto_approve = 1");
   }
+
+  // Task-dispatch lineage (2026-10-01): parent_task_id + dispatch_depth cap
+  // task-spawns-task recursion/fan-out (the runaway cleanup run spawned
+  // read-only sub-tasks with no depth or count limit). Added in place at the
+  // very end, same placement rule as the context / auto_approve / permission
+  // columns above — a future rebuild gate must carry these through its copy.
+  const dispatchColumns = getTableInfo(db, 'tasks').map((column) => column.name);
+  addColumnToTableIfNotExists(db, 'tasks', dispatchColumns, 'parent_task_id', 'TEXT');
+  addColumnToTableIfNotExists(db, 'tasks', dispatchColumns, 'dispatch_depth', 'INTEGER NOT NULL DEFAULT 0');
 };
 
 /**

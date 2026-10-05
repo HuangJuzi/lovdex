@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { buildOperatorTools } from '@/modules/operators/operator.tools.js';
+import { MAX_TASK_DISPATCH_DEPTH } from '@/modules/operators/task-run-guard.js';
 
 test('create_task handler defaults status to todo + uses contextProjectPath', async () => {
   let received: { projectPath?: string; title?: string; status?: string } = {};
@@ -15,6 +16,9 @@ test('create_task handler defaults status to todo + uses contextProjectPath', as
   await tools.create_task.handler({ title: 'x' });
   assert.equal(received.status, 'todo');
   assert.equal(received.projectPath, '/ctx-proj');
+  // A task the assistant creates runs unattended (start_task_execution has no
+  // approval channel), so it must carry the auto-approve mode, not `default`.
+  assert.equal((received as { permissionMode?: string }).permissionMode, 'autoApprove');
 
   // explicit projectPath overrides the context fallback
   await tools.create_task.handler({ title: 'y', projectPath: '/explicit' });
@@ -61,6 +65,77 @@ test('create_task omits isOperator when not in the assistant workspace context',
   await tools.create_task.handler({ title: 'plain' });
   assert.equal(received.projectPath, '/ctx');
   assert.equal(received.isOperator, undefined);
+});
+
+test('create_task stamps lineage (parent_task_id + dispatch_depth) when the assistant context is a task session', async () => {
+  let received: { parentTaskId?: string | null; dispatchDepth?: number } = {};
+  const fakeTasks = {
+    createTask: (i: unknown) => {
+      received = i as typeof received;
+      return { task_id: 't4', status: 'todo' };
+    },
+  };
+  const tools = buildOperatorTools({
+    tasks: fakeTasks as never,
+    contextSessionId: 'sess-parent',
+    // The parent task is a depth-1 dispatch; the new child must be depth 2.
+    lineage: () => ({ taskId: 'task-parent', depth: 1 }),
+  });
+  await tools.create_task.handler({ title: 'child' });
+  assert.equal(received.parentTaskId, 'task-parent');
+  assert.equal(received.dispatchDepth, 2);
+});
+
+test('create_task refuses to dispatch past the fan-out depth cap', async () => {
+  const fakeTasks = {
+    createTask: (i: unknown) => ({ task_id: 't5', status: 'todo' }),
+  };
+  // A depth already at the cap: the next child would exceed it.
+  const tools = buildOperatorTools({
+    tasks: fakeTasks as never,
+    lineage: () => ({ taskId: 'task-parent', depth: MAX_TASK_DISPATCH_DEPTH }),
+  });
+  await assert.rejects(() => tools.create_task.handler({ title: 'grandchild' }), /派发深度/);
+});
+
+test('list_tasks caps rows and projects a light shape (large-output guard)', async () => {
+  const rows = Array.from({ length: 250 }, (_, i) => ({
+    task_id: `task-${i}`,
+    title: `Task ${i}`,
+    status: 'todo',
+    priority: 'P2',
+    description: 'x'.repeat(1000),
+  }));
+  const tools = buildOperatorTools({ tasks: { listTasks: () => rows } as never });
+  // No limit → default 50.
+  const dflt = (await tools.list_tasks.handler({})) as { total: number; tasks: unknown[]; hasMore: boolean };
+  assert.equal(dflt.total, 250);
+  assert.equal(dflt.tasks.length, 50, 'default page is 50');
+  // An explicit limit is hard-capped at 200 even when the caller asks for more.
+  const capped = (await tools.list_tasks.handler({ limit: 1000 })) as { total: number; tasks: unknown[]; hasMore: boolean };
+  assert.equal(capped.tasks.length, 200, 'hard cap at 200 rows');
+  assert.equal(capped.hasMore, true);
+  // The projection must not leak the fat `description` field.
+  assert.equal('description' in (capped.tasks[0] as Record<string, unknown>), false);
+  assert.equal((capped.tasks[0] as { taskId?: string }).taskId, 'task-0');
+});
+
+test('list_tasks paginates with offset and honours a status filter', async () => {
+  const rows = Array.from({ length: 10 }, (_, i) => ({
+    task_id: `task-${i}`,
+    title: `Task ${i}`,
+    status: i < 5 ? 'todo' : 'done',
+    priority: 'P2',
+  }));
+  const seen: Array<{ status?: string }> = [];
+  const tools = buildOperatorTools({
+    tasks: { listTasks: (f: { status?: string }) => { seen.push(f); return rows.filter((r) => !f.status || r.status === f.status); } } as never,
+  });
+  const result = (await tools.list_tasks.handler({ status: 'done', limit: 2, offset: 1 })) as { tasks: Array<{ taskId?: string }>; hasMore: boolean };
+  assert.equal(seen[0].status, 'done');
+  assert.equal(result.tasks.length, 2);
+  assert.equal(result.tasks[0].taskId, 'task-6');
+  assert.equal(result.hasMore, true);
 });
 
 test('create_task handler forwards priority to the tasks service', async () => {
@@ -124,7 +199,7 @@ test('update_task handler rejects an invalid priority', async () => {
 test('create_task/update_task input schema declares priority as P0-P3 enum', () => {
   const tools = buildOperatorTools({ tasks: {} as never });
   for (const name of ['create_task', 'update_task']) {
-    const props = tools[name].inputSchema.properties as Record<string, { type?: string; enum?: string[]; description?: string }>;
+    const props = (tools as unknown as Record<string, { inputSchema: { properties: Record<string, { type?: string; enum?: string[]; description?: string }> } }>)[name].inputSchema.properties;
     const priority = props.priority;
     assert.ok(priority, `${name} inputSchema must declare priority`);
     assert.equal(priority.type, 'string');
@@ -310,6 +385,16 @@ test('create_scheduled_task passes through to scheduledTasks.create', async () =
   assert.equal(received.scheduleType, 'once');
   assert.equal(received.autoRun, 1);
   assert.equal(received.title, 't');
+  // An unattended schedule must never fall through to a null model (the most
+  // expensive runtime default) or `default` permission mode (silent approval
+  // timeouts) — the handler pins both to safe unattended defaults.
+  assert.equal(received.executorModel, 'haiku', 'null model → cheap guard slot');
+  assert.equal(received.permissionMode, 'autoApprove', 'no mode → autoApprove');
+
+  // An explicit model/mode is preserved, not clobbered.
+  const tools2 = buildOperatorTools({ tasks: {} as never, scheduledTasks: fakeScheduled as never });
+  await tools2.create_scheduled_task.handler({ title: 't2', scheduleType: 'once', runAt: '2026-08-14T01:00:00.000Z', autoRun: 1, executorModel: 'DeepSeek-Flash', permissionMode: 'autoApprove' });
+  assert.equal(received.executorModel, 'DeepSeek-Flash');
 });
 
 test('update_scheduled_task splits scheduleId from the rest', async () => {

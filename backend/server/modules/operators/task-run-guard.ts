@@ -23,9 +23,21 @@ export const SUBAGENT_TOOL_NAMES: ReadonlySet<string> = new Set(['Task', 'Agent'
 /** Detached background-workflow tool that cannot guarantee synchronous result relay. */
 export const BACKGROUND_WORKFLOW_TOOL_NAMES: ReadonlySet<string> = new Set(['Workflow']);
 
+/** Max depth of task-spawns-task chains (root=0, its child=1, …). */
+export const MAX_TASK_DISPATCH_DEPTH = 2;
+
 export type TaskRunToolGuardResult =
   | { decision: 'allow'; updatedInput?: Record<string, unknown>; additionalContext?: string }
   | { decision: 'deny'; reason: string };
+
+/**
+ * The depth of the CURRENT task's position in the dispatch chain, injected by
+ * the PreToolUse hook from the task row. Null means "not a task run" (guard
+ * behaves as it did before lineage existed). 0 = root task.
+ */
+export type TaskRunGuardContext = {
+  dispatchDepth?: number | null;
+};
 
 /**
  * Decide how to handle one tool call dispatched by a headless task executor.
@@ -41,6 +53,7 @@ export type TaskRunToolGuardResult =
 export function guardTaskRunToolInput(
   toolName: unknown,
   toolInput: unknown,
+  context: TaskRunGuardContext = {},
 ): TaskRunToolGuardResult {
   const name = typeof toolName === 'string' ? toolName : String(toolName ?? '');
   const input =
@@ -57,6 +70,21 @@ export function guardTaskRunToolInput(
   }
 
   if (SUBAGENT_TOOL_NAMES.has(name)) {
+    // Fan-out depth guard: a task may not dispatch a sub-task (via the operator
+    // create_task tool) or a sub-agent past the depth budget — the runaway
+    // cleanup run spawned read-only sub-tasks with no cap. The PreToolUse hook
+    // injects the current task's depth; non-task runs are unconstrained.
+    const depth = typeof context.dispatchDepth === 'number' && context.dispatchDepth >= 0
+      ? context.dispatchDepth
+      : 0;
+    if (depth >= MAX_TASK_DISPATCH_DEPTH) {
+      return {
+        decision: 'deny',
+        reason:
+          `任务派发深度已达上限（${MAX_TASK_DISPATCH_DEPTH} 层）：本任务已是第 ${depth} 层派生，禁止再下发子任务/子代理。请在当前任务内自行完成，或把工作拆小后直接在本会话内继续。`,
+      };
+    }
+
     const updated: Record<string, unknown> = { ...input };
     let changed = false;
     // `run_in_background` defaults to true in the SDK — an omitted field still

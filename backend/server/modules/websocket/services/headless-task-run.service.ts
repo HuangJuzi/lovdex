@@ -15,7 +15,7 @@ import { appConfig as getAppConfig } from '@/modules/config/config.js';
 import { buildProviderConfigEnv } from '@/modules/config/env-sync.js';
 import { lookupRemoteHost } from '@/modules/remote-agents/remote-projects.index.js';
 import { hostSupportsLlmForward } from '@/modules/remote-agents/runtime.js';
-import { normalizePermissionMode } from '@/modules/permissions/auto-approve-policy.js';
+import { normalizePermissionMode, normalizeUnattendedPermissionMode } from '@/modules/permissions/auto-approve-policy.js';
 import { chatRunRegistry } from './chat-run-registry.service.js';
 import type { LLMProvider, RealtimeClientConnection } from '@/shared/types.js';
 
@@ -36,6 +36,12 @@ export type HeadlessTaskRunOptions = {
    * server-side — never from a client payload.
    */
   permissionMode?: string;
+  /**
+   * The task's position in the dispatch chain (0 = root), used by the fan-out
+   * depth guard so a task cannot spawn sub-tasks past the cap. Read server-side
+   * from the task row, never a client payload.
+   */
+  dispatchDepth?: number;
   /** Provider runtimes keyed by provider id (same map the WS server uses). */
   spawnFns: Record<LLMProvider, ProviderSpawnFn>;
 };
@@ -93,6 +99,20 @@ export function startHeadlessTaskRun(
     return false;
   }
 
+  // Headless runs have NO approval channel (start_task_execution is invoked
+  // server-side by the operator, no websocket client to answer a permission
+  // prompt). Any mode other than autoApprove means "wait for an approval that
+  // can never arrive" — the incident's `Permission request timed out` ×2500
+  // death spiral. Force the unattended mode here rather than trusting the
+  // (DB-originated) `permissionMode` to be already-safe: a legacy/default task
+  // row must not re-enter that loop.
+  const effectivePermissionMode = normalizeUnattendedPermissionMode(options.permissionMode);
+  if (effectivePermissionMode !== options.permissionMode) {
+    console.warn(
+      `[headless-task-run] coerced unattended permission mode ${options.permissionMode} → ${effectivePermissionMode} for session ${sessionId}`,
+    );
+  }
+
   const run = startRun({
     appSessionId: sessionId,
     provider,
@@ -117,7 +137,7 @@ export function startHeadlessTaskRun(
     // 'autoApprove' resolves to 'default' + the flag precisely so canUseTool
     // keeps being consulted (it is where the policy runs, and bypassPermissions
     // would skip it entirely).
-    ...normalizePermissionMode(options.permissionMode),
+    ...normalizePermissionMode(effectivePermissionMode),
     toolsSettings: { allowedTools: [], disallowedTools: [], skipPermissions: false },
     skipPermissions: false,
     includePartialMessages: true,
@@ -129,6 +149,9 @@ export function startHeadlessTaskRun(
     cwd: session.project_path ?? undefined,
     projectPath: session.project_path ?? undefined,
     isOperator: Boolean(session.is_operator),
+    // Fan-out depth for the subagent/sub-task guard (task-run-guard.ts). 0 =
+    // root task; a sub-task dispatched from a task session carries depth+1.
+    dispatchDepth: options.dispatchDepth ?? 0,
     // Marks this as a server-side task run (not an interactive chat). The
     // Claude runtime uses it to disable background fan-out (Workflow) and to
     // coerce subagent tool calls into the task project scope — see

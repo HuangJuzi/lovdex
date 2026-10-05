@@ -1,7 +1,13 @@
 import { isAlertSeverity } from '@/modules/notifications/alert-format.js';
 import { isAiVerdict, type AiVerdict, isTaskPriority, type TaskPriority } from '@/shared/task-status.js';
 import { compactTranscriptToText } from '@/shared/session-transcript.js';
+import { AUTO_APPROVE_MODE } from '@/modules/permissions/auto-approve-policy.js';
+import { MAX_TASK_DISPATCH_DEPTH } from './task-run-guard.js';
+import { resolveRunGuardConfig } from './run-guard.js';
 import type { TaskEngine } from '@/shared/types.js';
+
+/** 大输出治理：list_tasks 单次返回的行数硬上限。 */
+const LIST_TASKS_MAX_ROWS = 200;
 
 import type { SkillSyncService } from '@/modules/skill-sync/skill-sync.service.js';
 import { createSkillSyncOperatorTools } from './operator-skill-sync.tools.js';
@@ -35,6 +41,9 @@ export type OperatorToolDeps = {
       status?: string;
       priority?: TaskPriority;
       isOperator?: boolean;
+      permissionMode?: string;
+      parentTaskId?: string | null;
+      dispatchDepth?: number;
     }) => unknown;
     listTasks: (f: { projectPath?: string; status?: string }) => unknown[];
     getTask: (id: string) => unknown;
@@ -138,6 +147,12 @@ export type OperatorToolDeps = {
    */
   contextSessionId?: string | null;
   /**
+   * 派生链解析器：把当前助手会话映射回它所属的任务（若有），供 create_task 给
+   * 子任务打 parent_task_id + dispatch_depth，从而限制「任务下发任务」的深度与
+   * 扇出。普通交互助手会话没有所属任务 → null。注入自 index.js。
+   */
+  lineage?: (contextSessionId: string | null | undefined) => { taskId: string; depth: number } | null;
+  /**
    * Session-transfer primitive (move a task + its session to another project).
    * Injected from index.js as `sessionTransferService.moveSessionToProject`. The
    * tool handler only forwards the args — all real validation, running-session
@@ -230,13 +245,41 @@ export function buildOperatorTools(deps: OperatorToolDeps) {
       handler: async () => deps.projects!.getProjectPaths(),
     },
     list_tasks: {
-      description: 'List tasks, optional projectPath/status filter',
+      description:
+        'List tasks, optional projectPath/status filter. IMPORTANT: the full task list can be huge (hundreds of rows); ALWAYS pass a status filter (todo/in_progress/in_review/done) or projectPath to narrow the result, and paginate with limit/offset. The output is capped server-side so a huge list returns a truncated summary — never loop re-calling without a filter to "get everything".',
       inputSchema: {
         type: 'object',
-        properties: { projectPath: { type: 'string' }, status: { type: 'string' } },
+        properties: {
+          projectPath: { type: 'string' },
+          status: { type: 'string' },
+          limit: { type: 'number', description: 'max rows to return (default 50, hard cap 200)' },
+          offset: { type: 'number', description: 'row offset for pagination (default 0)' },
+        },
       },
-      handler: async (i: { projectPath?: string; status?: string }) =>
-        deps.tasks.listTasks({ projectPath: i.projectPath, status: i.status }),
+      handler: async (i: { projectPath?: string; status?: string; limit?: number; offset?: number }) => {
+        // 大输出治理：list_tasks 在 500+ 任务的库上能返回上百 KB，直接把整个
+        // JSON 塞回模型上下文的成本与「枚举」收益完全不成比例。这里落一个硬上限 +
+        // 摘要，超出的部分只给计数，不再内联整行。模型要继续读就带 status/offset
+        // 翻页，而不是一次拿全。
+        const requestedLimit = typeof i.limit === 'number' && i.limit > 0 ? Math.floor(i.limit) : 50;
+        const limit = Math.min(requestedLimit, LIST_TASKS_MAX_ROWS);
+        const offset = typeof i.offset === 'number' && i.offset >= 0 ? Math.floor(i.offset) : 0;
+        const rows = deps.tasks.listTasks({ projectPath: i.projectPath, status: i.status });
+        const page = rows.slice(offset, offset + limit);
+        return {
+          total: rows.length,
+          offset,
+          limit,
+          hasMore: offset + limit < rows.length,
+          // 只回轻量投影：id / 标题 / 状态 / 优先级，不回整行（含 description /
+          // verdict 等长字段），避免把巨量文本塞回上下文。
+          tasks: page.map((t) => {
+            const row = t as { task_id?: string; title?: string; status?: string; priority?: string };
+            return { taskId: row.task_id, title: row.title, status: row.status, priority: row.priority };
+          }),
+          hint: rows.length > limit ? `结果被截断（${rows.length} 行中的 ${limit} 行）。请用 status 过滤或 offset 翻页继续读取。` : undefined,
+        };
+      },
     },
     get_task: {
       description: 'Get a single task by id',
@@ -332,6 +375,17 @@ export function buildOperatorTools(deps: OperatorToolDeps) {
         // workspace is set and the is_operator flag would never be emitted.
         const fallbackToAssistantWorkspace =
           !i.projectPath && Boolean(deps.contextProjectPath && deps.contextIsOperatorWorkspace);
+        // Lineage: when the assistant context is itself a task's session, a
+        // task created here is a *sub-task*. Resolve the parent + depth from
+        // the injected lineage so dispatch depth and fan-out can be capped.
+        // A context without lineage (plain assistant chat) stays a root task.
+        const lineage = deps.lineage ? deps.lineage(deps.contextSessionId ?? null) : null;
+        if (lineage && lineage.depth + 1 > MAX_TASK_DISPATCH_DEPTH) {
+          throw new Error(
+            `任务派发深度已达上限（${MAX_TASK_DISPATCH_DEPTH} 层）：当前任务已是第 ${lineage.depth} 层派生，禁止再下发子任务。请在本任务内自行完成，或拆小后直接在当前会话内继续。`,
+          );
+        }
+        const dispatchDepth = lineage ? lineage.depth + 1 : 0;
         return deps.tasks.createTask({
           projectPath: fallbackToAssistantWorkspace
             ? (deps.contextProjectPath as string)
@@ -341,6 +395,14 @@ export function buildOperatorTools(deps: OperatorToolDeps) {
           status: i.status ?? 'todo',
           priority: i.priority,
           isOperator: fallbackToAssistantWorkspace ? true : undefined,
+          // A task the assistant creates without an explicit permission mode runs
+          // unattended (start_task_execution has no human approval channel), so it
+          // must carry the auto-approve mode rather than `default` — `default`
+          // would re-enter the incident's "Permission request timed out" loop on
+          // every tool call.
+          permissionMode: AUTO_APPROVE_MODE,
+          parentTaskId: lineage?.taskId ?? null,
+          dispatchDepth,
         });
       },
     },
@@ -553,7 +615,21 @@ export function buildOperatorTools(deps: OperatorToolDeps) {
         },
         required: ['title', 'scheduleType'],
       },
-      handler: async (i: Record<string, unknown>) => deps.scheduledTasks!.create(i),
+      handler: async (i: Record<string, unknown>) => {
+        // An unattended schedule created by the assistant must never fall through
+        // to `default` permission mode (silent approval timeouts) or a null
+        // executor_model (the most-expensive runtime default). Both are pinned to
+        // safe unattended defaults unless the caller explicitly set them.
+        return deps.scheduledTasks!.create({
+          ...i,
+          executorModel: typeof i.executorModel === 'string' && i.executorModel.trim()
+            ? i.executorModel
+            : resolveRunGuardConfig(undefined).defaultTaskModel,
+          permissionMode: typeof i.permissionMode === 'string' && i.permissionMode
+            ? i.permissionMode
+            : AUTO_APPROVE_MODE,
+        });
+      },
     },
     list_scheduled_tasks: {
       description:
