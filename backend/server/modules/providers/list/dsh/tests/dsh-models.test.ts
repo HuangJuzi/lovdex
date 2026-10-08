@@ -16,3 +16,11 @@ test('getCurrentActiveModel returns the catalog default', async () => {
   const current = await new DshProviderModels().getCurrentActiveModel();
   assert.equal(current.model, DSH_PREDEFINED_MODELS.DEFAULT);
 });
+
+test('changeActiveModel delegates to the shared session-override writer', async () => {
+  const result = await new DshProviderModels().changeActiveModel({
+    sessionId: 'sess-1',
+    model: 'deepseek-v4-pro',
+  });
+  assert.equal(result.provider, 'dsh');
+});

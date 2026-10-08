@@ -11,10 +11,17 @@ import {
 } from '@/shared/utils.js';
 
 /**
- * dsh surfaces its live model catalog through ACP `session/set_config_option`,
- * which is only reachable while a session/runtime is up. Until a running
- * runtime is queried, this static list stands in — mirroring how qoder ships a
- * predefined catalog and appends CLI-discovered extras.
+ * dsh's live model catalog is only reachable from a started ACP runtime (via
+ * `session/set_config_option`); this facet has no runtime handle, so this
+ * static placeholder is currently the only catalog it can offer.
+ *
+ * PROVENANCE: these ids are taken from DeepSeek Harness's own shipped package
+ * examples, NOT from a verified live catalog —
+ *   - 'deepseek-v4-flash' appears in `@deepseek-ai/dsh-sdk-client`'s README
+ *   - 'deepseek-v4-pro'   appears in `@deepseek-ai/dsh-acp`'s README
+ * The 'default' slot is the provider-neutral choice and is the safe default.
+ * Re-verify all three against a real dsh runtime before trusting the picker
+ * (tracked as the Task 11 acceptance check).
  */
 export const DSH_PREDEFINED_MODELS: ProviderModelsDefinition = {
   OPTIONS: [
@@ -27,7 +34,10 @@ export const DSH_PREDEFINED_MODELS: ProviderModelsDefinition = {
 
 export class DshProviderModels implements IProviderModels {
   async getSupportedModels(): Promise<ProviderModelsDefinition> {
-    return DSH_PREDEFINED_MODELS;
+    return {
+      OPTIONS: [...DSH_PREDEFINED_MODELS.OPTIONS],
+      DEFAULT: DSH_PREDEFINED_MODELS.DEFAULT,
+    };
   }
 
   async getCurrentActiveModel(sessionId?: string): Promise<ProviderCurrentActiveModel> {
