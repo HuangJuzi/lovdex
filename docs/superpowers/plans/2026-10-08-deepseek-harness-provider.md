@@ -227,6 +227,7 @@ test('tool_call maps to a tool_use message carrying name and input', () => {
   assert.equal(out[0].kind, 'tool_use');
   assert.equal(out[0].toolName, 'read_file');
   assert.deepEqual(out[0].toolInput, { path: '/tmp/x' });
+  assert.equal(out[0].toolId, 'tc-1');
 });
 
 test('unknown update shapes return an empty array, never throw', () => {
@@ -334,7 +335,7 @@ export class DshSessionsProvider implements IProviderSessions {
         kind: 'tool_use',
         toolName: typeof update.title === 'string' ? update.title : 'tool',
         toolInput: update.rawInput,
-        toolUseId: typeof update.toolCallId === 'string' ? update.toolCallId : undefined,
+        toolId: typeof update.toolCallId === 'string' ? update.toolCallId : undefined,
         sessionId: resolvedSessionId,
         provider: PROVIDER,
       })];
@@ -349,7 +350,7 @@ export class DshSessionsProvider implements IProviderSessions {
       }
       return [createNormalizedMessage({
         kind: 'tool_result',
-        toolUseId: typeof update.toolCallId === 'string' ? update.toolCallId : undefined,
+        toolId: typeof update.toolCallId === 'string' ? update.toolCallId : undefined,
         content: typeof update.rawOutput === 'string' ? update.rawOutput : JSON.stringify(update.rawOutput ?? ''),
         isError: status === 'failed',
         sessionId: resolvedSessionId,
