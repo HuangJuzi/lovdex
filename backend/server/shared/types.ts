@@ -74,7 +74,7 @@ export type AuthenticatedWebSocketRequest = IncomingMessage & {
  * Use this as the source of truth whenever a function or payload needs to identify
  * a specific LLM integration.
  */
-export type LLMProvider = 'claude' | 'codex' | 'opencode' | 'qoder';
+export type LLMProvider = 'claude' | 'codex' | 'opencode' | 'qoder' | 'dsh';
 
 /**
  * One selectable model row in a provider model catalog.

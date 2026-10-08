@@ -63,6 +63,21 @@ export const DEFAULT_APP_CONFIG = {
     codex: { binPath: 'codex' },
     opencode: { binPath: 'opencode', apiKeys: {} as Record<string, string> },
     qoder: { personalAccessToken: '', toolApprovalTimeoutMs: 60000 },
+    dsh: {
+      // `dsh` executable name or absolute path. The CLI is the sole launcher:
+      // Lovdex always spawns it as `dsh --profile acp` (see server/dsh-acp-runner.js).
+      binPath: 'dsh',
+      // Isolated DSH_HOME passed to the child so a Lovdex-spawned runtime never
+      // discovers the user's own profiles/credentials. Empty = use dsh default
+      // ($DSH_HOME, else ~/.dsh).
+      dshHome: '',
+      // DEEPSEEK_API_KEY handed to the child. Empty = rely on dsh's own creds.
+      apiKey: '',
+      // Optional `--patch <path>` overlay layered onto the acp profile.
+      patchPath: '',
+      // Bound for a pending tool-approval popup before the runner auto-denies.
+      toolApprovalTimeoutMs: 60000,
+    },
   },
   operator: {
     enabled: true,
