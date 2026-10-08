@@ -53,6 +53,44 @@ test('tool_call maps to a tool_use message carrying name and input', () => {
   assert.equal(out[0].toolId, 'tc-1');
 });
 
+test('tool_call_update with completed status maps to a tool_result without fabricating content', () => {
+  const raw = {
+    sessionId: 'sess-1',
+    update: {
+      sessionUpdate: 'tool_call_update',
+      toolCallId: 'tc-1',
+      status: 'completed',
+      rawOutput: 'done',
+    },
+  };
+  const out = sessions.normalizeMessage(raw, 'app-1');
+  assert.equal(out.length, 1);
+  assert.equal(out[0].kind, 'tool_result');
+  assert.equal(out[0].toolId, 'tc-1');
+  assert.equal(out[0].content, 'done');
+  assert.equal(out[0].isError, false);
+});
+
+test('a terminal tool_call_update with no rawOutput does not fabricate "" content', () => {
+  const raw = {
+    sessionId: 'sess-1',
+    update: { sessionUpdate: 'tool_call_update', toolCallId: 'tc-2', status: 'failed' },
+  };
+  const out = sessions.normalizeMessage(raw, 'app-1');
+  assert.equal(out.length, 1);
+  assert.equal(out[0].kind, 'tool_result');
+  assert.equal(out[0].isError, true);
+  assert.notEqual(out[0].content, '""');
+});
+
+test('a non-terminal tool_call_update status yields no message', () => {
+  const raw = {
+    sessionId: 'sess-1',
+    update: { sessionUpdate: 'tool_call_update', toolCallId: 'tc-3', status: 'in_progress' },
+  };
+  assert.deepEqual(sessions.normalizeMessage(raw, 'app-1'), []);
+});
+
 test('unknown update shapes return an empty array, never throw', () => {
   assert.deepEqual(sessions.normalizeMessage({ update: { sessionUpdate: 'mode_update' } }, 'a'), []);
   assert.deepEqual(sessions.normalizeMessage(null, 'a'), []);

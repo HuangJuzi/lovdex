@@ -102,7 +102,11 @@ export class DshSessionsProvider implements IProviderSessions {
       return [createNormalizedMessage({
         kind: 'tool_result',
         toolId: typeof update.toolCallId === 'string' ? update.toolCallId : undefined,
-        content: typeof update.rawOutput === 'string' ? update.rawOutput : JSON.stringify(update.rawOutput ?? ''),
+        content: typeof update.rawOutput === 'string'
+          ? update.rawOutput
+          : update.rawOutput === undefined || update.rawOutput === null
+            ? undefined
+            : JSON.stringify(update.rawOutput),
         isError: status === 'failed',
         sessionId: resolvedSessionId,
         provider: PROVIDER,
