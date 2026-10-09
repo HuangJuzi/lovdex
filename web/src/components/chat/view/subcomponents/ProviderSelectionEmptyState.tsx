@@ -216,6 +216,10 @@ export default function ProviderSelectionEmptyState({
         setDshModel(modelValue);
         localStorage.setItem("dsh-model", modelValue);
       } else {
+        // Catch-all, not "opencode": every known provider above has its own
+        // branch, so this only fires for an id the union does not name. Add an
+        // explicit branch when a sixth provider is introduced, or it will
+        // silently write the qoder slot.
         setQoderModel(modelValue);
         localStorage.setItem("qoder-model", modelValue);
       }
@@ -393,7 +397,10 @@ export default function ProviderSelectionEmptyState({
                 }),
                 dsh: t("providerSelection.readyPrompt.dsh", {
                   model: dshModel,
-                  defaultValue: "Ready with DeepSeek Harness {{model}}",
+                  // No locale key yet (i18n is out of scope for this change), so
+                  // this defaultValue is what actually renders — keep its wording
+                  // in step with the sibling entries above.
+                  defaultValue: "Ready to use DeepSeek Harness with {{model}}. Start typing your message below.",
                 }),
               }[provider]
             }
