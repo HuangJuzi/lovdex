@@ -27,6 +27,7 @@ const PROVIDER_META: { id: LLMProvider; name: string }[] = [
   { id: "codex", name: "OpenAI" },
   { id: "opencode", name: "OpenCode" },
   { id: "qoder", name: "Qoder" },
+  { id: "dsh", name: "DeepSeek" },
 ];
 
 const MOD_KEY =
@@ -57,6 +58,8 @@ type ProviderSelectionEmptyStateProps = {
   setOpenCodeModel: (model: string) => void;
   qoderModel: string;
   setQoderModel: (model: string) => void;
+  dshModel: string;
+  setDshModel: (model: string) => void;
   providerModelCatalog: Partial<Record<LLMProvider, ProviderModelsDefinition>>;
   providerModelsLoading: boolean;
   tasksEnabled: boolean;
@@ -100,11 +103,13 @@ function getCurrentModel(
   co: string,
   o: string,
   q: string,
+  d: string,
 ) {
   if (p === "claude") return c;
   if (p === "codex") return co;
   if (p === "opencode") return o;
-  return q;
+  if (p === "qoder") return q;
+  return d;
 }
 
 function getProviderDisplayName(p: LLMProvider) {
@@ -112,6 +117,7 @@ function getProviderDisplayName(p: LLMProvider) {
   if (p === "codex") return "Codex";
   if (p === "opencode") return "OpenCode";
   if (p === "qoder") return "Qoder";
+  if (p === "dsh") return "DeepSeek";
   return "Claude";
 }
 
@@ -129,6 +135,8 @@ export default function ProviderSelectionEmptyState({
   setOpenCodeModel,
   qoderModel,
   setQoderModel,
+  dshModel,
+  setDshModel,
   providerModelCatalog,
   providerModelsLoading,
   tasksEnabled,
@@ -182,6 +190,7 @@ export default function ProviderSelectionEmptyState({
     codexModel,
     opencodeModel,
     qoderModel,
+    dshModel,
   );
 
   const currentModelLabel = useMemo(() => {
@@ -203,12 +212,15 @@ export default function ProviderSelectionEmptyState({
       } else if (providerId === "opencode") {
         setOpenCodeModel(modelValue);
         localStorage.setItem("opencode-model", modelValue);
+      } else if (providerId === "dsh") {
+        setDshModel(modelValue);
+        localStorage.setItem("dsh-model", modelValue);
       } else {
         setQoderModel(modelValue);
         localStorage.setItem("qoder-model", modelValue);
       }
     },
-    [setClaudeModel, setCodexModel, setOpenCodeModel, setQoderModel],
+    [setClaudeModel, setCodexModel, setOpenCodeModel, setQoderModel, setDshModel],
   );
 
   const handleModelSelect = useCallback(
@@ -378,6 +390,10 @@ export default function ProviderSelectionEmptyState({
                 qoder: t("providerSelection.readyPrompt.qoder", {
                   model: qoderModel,
                   defaultValue: "Ready with Qoder {{model}}",
+                }),
+                dsh: t("providerSelection.readyPrompt.dsh", {
+                  model: dshModel,
+                  defaultValue: "Ready with DeepSeek Harness {{model}}",
                 }),
               }[provider]
             }
