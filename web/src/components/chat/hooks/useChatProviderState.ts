@@ -29,7 +29,7 @@ const FALLBACK_DEFAULT_MODEL: Record<LLMProvider, string> = {
   dsh: 'default',
 };
 
-const PROVIDERS: LLMProvider[] = ['claude', 'codex', 'opencode', 'qoder'];
+const PROVIDERS: LLMProvider[] = ['claude', 'codex', 'opencode', 'qoder', 'dsh'];
 
 /**
  * Providers whose runtime actually honors the persisted session-scoped model
@@ -179,6 +179,9 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
   const [qoderModel, setQoderModel] = useState<string>(() => {
     return localStorage.getItem('qoder-model') || FALLBACK_DEFAULT_MODEL.qoder;
   });
+  const [dshModel, setDshModel] = useState<string>(() => {
+    return localStorage.getItem('dsh-model') || FALLBACK_DEFAULT_MODEL.dsh;
+  });
 
   /**
    * Backend-owned capability matrix keyed by provider. Drives the permission
@@ -236,6 +239,12 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     if (targetProvider === 'qoder') {
       setQoderModel(model);
       localStorage.setItem('qoder-model', model);
+      return;
+    }
+
+    if (targetProvider === 'dsh') {
+      setDshModel(model);
+      localStorage.setItem('dsh-model', model);
       return;
     }
 
@@ -443,10 +452,8 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     codex: codexModel,
     opencode: opencodeModel,
     qoder: qoderModel,
-    // Placeholder until FE Task 2 introduces the dshModel state slot and
-    // swaps this for `dsh: dshModel`.
-    dsh: FALLBACK_DEFAULT_MODEL.dsh,
-  }), [claudeModel, codexModel, opencodeModel, qoderModel]);
+    dsh: dshModel,
+  }), [claudeModel, codexModel, opencodeModel, qoderModel, dshModel]);
 
   useEffect(() => {
     const claude = providerModelCatalog.claude;
@@ -499,6 +506,19 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
       }
     }
   }, [providerModelCatalog.qoder, qoderModel]);
+
+  useEffect(() => {
+    const dsh = providerModelCatalog.dsh;
+    if (dsh) {
+      const next = pickStoredOrCurrent('dsh-model', dshModel, dsh);
+      if (next !== dshModel) {
+        setDshModel(next);
+      }
+      if (localStorage.getItem('dsh-model') !== next) {
+        localStorage.setItem('dsh-model', next);
+      }
+    }
+  }, [providerModelCatalog.dsh, dshModel]);
 
   useEffect(() => {
     const nextEfforts: Partial<Record<LLMProvider, string>> = {};
@@ -737,6 +757,8 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     setOpenCodeModel,
     qoderModel,
     setQoderModel,
+    dshModel,
+    setDshModel,
     permissionMode,
     setPermissionMode,
     pendingPermissionRequests,
