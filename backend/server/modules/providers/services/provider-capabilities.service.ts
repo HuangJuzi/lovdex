@@ -72,6 +72,21 @@ const PROVIDER_CAPABILITIES: Record<LLMProvider, ProviderCapabilities> = {
     supportsTokenUsage: true,
     supportsEffort: true,
   },
+  // dsh is driven over ACP. Permission requests and mid-turn cancel are native
+  // ACP methods, so both are declared supported. Images and the token-usage
+  // endpoint are NOT wired yet (ACP image prompts need a durable attachment
+  // store, and no usage ledger is read), so both stay false rather than
+  // advertising a capability the runner cannot honour.
+  dsh: {
+    provider: 'dsh',
+    permissionModes: ['default', 'autoApprove'],
+    defaultPermissionMode: 'default',
+    supportsImages: false,
+    supportsAbort: true,
+    supportsPermissionRequests: true,
+    supportsTokenUsage: false,
+    supportsEffort: true,
+  },
 };
 
 /**

@@ -1,5 +1,6 @@
 import { ClaudeProvider } from '@/modules/providers/list/claude/claude.provider.js';
 import { CodexProvider } from '@/modules/providers/list/codex/codex.provider.js';
+import { DshProvider } from '@/modules/providers/list/dsh/dsh.provider.js';
 import { OpenCodeProvider } from '@/modules/providers/list/opencode/opencode.provider.js';
 import { QoderProvider } from '@/modules/providers/list/qoder/qoder.provider.js';
 import type { IProvider } from '@/shared/interfaces.js';
@@ -11,6 +12,7 @@ const providers: Record<LLMProvider, IProvider> = {
   codex: new CodexProvider(),
   opencode: new OpenCodeProvider(),
   qoder: new QoderProvider(),
+  dsh: new DshProvider(),
 };
 
 /**
