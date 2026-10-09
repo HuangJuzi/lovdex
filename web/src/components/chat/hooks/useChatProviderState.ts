@@ -24,7 +24,8 @@ const FALLBACK_DEFAULT_MODEL: Record<LLMProvider, string> = {
   opencode: 'opencode/deepseek-v4-flash-free',
   qoder: 'auto',
   // dsh's catalog DEFAULT is the neutral 'default' slot; the runner skips it
-  // rather than sending it as an ACP route, so it is safe as a placeholder.
+  // rather than sending it as an ACP route, so echoing it here is the final
+  // value, not a stand-in.
   dsh: 'default',
 };
 
