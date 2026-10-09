@@ -10,7 +10,12 @@ import { AppError } from '@/shared/utils.js';
  * dsh mounts MCP servers per session over ACP — the runner passes them into
  * `session/new`'s `mcpServers` parameter. Unlike the other providers there is
  * no persisted, addressable on-disk server store to list or mutate, so this
- * facet reads empty and rejects writes instead of silently dropping them.
+ * facet reads empty and `upsertServer` rejects instead of silently dropping.
+ *
+ * `removeServer` returns `{ removed: false }` rather than throwing: the global
+ * remove path (`removeMcpServerFromAllProviders`) fans out over every provider,
+ * so throwing here would surface a spurious error entry for what is really a
+ * clean no-op.
  */
 export class DshMcpProvider implements IProviderMcp {
   async listServers(): Promise<Record<McpScope, ProviderMcpServer[]>> {
