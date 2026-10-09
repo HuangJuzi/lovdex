@@ -117,10 +117,12 @@ test('migration is idempotent on a fresh db', () => {
     expectedSql,
   );
 
-  // The rebuilt CHECK accepts opencode + qoder (and still rejects bogus ids).
-  assert.match(resultsSql(db), /CHECK \(executor_provider IN \('claude','codex','opencode','qoder'\)\)/);
+  // The rebuilt CHECK accepts every engine the schema knows (opencode, qoder,
+  // dsh) and still rejects bogus ids.
+  assert.match(resultsSql(db), /CHECK \(executor_provider IN \('claude','codex','opencode','qoder','dsh'\)\)/);
   db.prepare(`INSERT INTO projects (project_id, project_path) VALUES ('p-x','/p')`).run();
   db.prepare(`INSERT INTO tasks (task_id, project_path, title, executor_provider) VALUES ('x1','/p','t','qoder')`).run();
+  db.prepare(`INSERT INTO tasks (task_id, project_path, title, executor_provider) VALUES ('x-dsh','/p','t','dsh')`).run();
   assert.throws(
     () => db.prepare(`INSERT INTO tasks (task_id, project_path, title, executor_provider) VALUES ('x2','/p','t','bogus')`).run(),
     /CHECK/i,

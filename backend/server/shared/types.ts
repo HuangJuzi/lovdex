@@ -937,7 +937,7 @@ export type { TaskStatus } from '@/shared/task-status.js';
 /**
  * Executor engines supported by task execution.
  */
-export type TaskEngine = 'claude' | 'codex' | 'opencode' | 'qoder';
+export type TaskEngine = 'claude' | 'codex' | 'opencode' | 'qoder' | 'dsh';
 
 /**
  * Canonical task row shape returned by the tasks repository.

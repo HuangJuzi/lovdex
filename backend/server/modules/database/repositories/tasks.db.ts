@@ -5,7 +5,7 @@ import { isAiVerdict, type TaskStatus, type AiVerdict, type PersistedSubStatus, 
 import type { TaskEngine, TaskRow } from '@/shared/types.js';
 
 export { TASK_STATUSES, isTaskStatus } from '@/shared/task-status.js';
-export const TASK_ENGINES: readonly TaskEngine[] = ['claude', 'codex', 'opencode', 'qoder'];
+export const TASK_ENGINES: readonly TaskEngine[] = ['claude', 'codex', 'opencode', 'qoder', 'dsh'];
 
 export function isTaskEngine(value: unknown): value is TaskEngine {
   return typeof value === 'string' && (TASK_ENGINES as readonly string[]).includes(value);

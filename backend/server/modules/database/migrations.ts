@@ -734,6 +734,62 @@ const migrateTasksTable = (db: Database): void => {
   const dispatchColumns = getTableInfo(db, 'tasks').map((column) => column.name);
   addColumnToTableIfNotExists(db, 'tasks', dispatchColumns, 'parent_task_id', 'TEXT');
   addColumnToTableIfNotExists(db, 'tasks', dispatchColumns, 'dispatch_depth', 'INTEGER NOT NULL DEFAULT 0');
+
+  // Rebuild tasks table so the executor CHECK accepts 'dsh'. Same
+  // rename → recreate → copy → drop pattern as the engine rebuilds above, but
+  // with TWO important differences:
+  //
+  // 1. Placement. This gate sits at the very END of the task migrations, after
+  //    every in-place ALTER and its gated backfill (auto_approve,
+  //    permission_mode, parent_task_id, dispatch_depth). The invariant
+  //    documented above the auto_approve ALTER requires exactly that: a rebuild
+  //    recreates the table from TASKS_TABLE_SCHEMA_SQL, so a gate running
+  //    BEFORE the permission_mode ALTER would create that column with its schema
+  //    default and then defeat the `addedTaskMode` backfill — silently losing
+  //    every user's autoApprove selection.
+  //
+  // 2. The copy column list is computed as the intersection of the legacy and
+  //    current schemas rather than hardcoded. The older gates can hardcode
+  //    because their marker ('sophcode', 'archived', …) only appears in
+  //    databases of a matching vintage. This gate's marker is "the DDL predates
+  //    dsh", which is true of EVERY pre-existing database — including modern
+  //    ones carrying columns the legacy fixtures never had. A hardcoded list
+  //    would silently drop whichever columns it forgot.
+  const tasksSqlForDsh =
+    (db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'").get() as { sql?: string } | undefined)?.sql ?? '';
+  if (!tasksSqlForDsh.includes("'dsh'")) {
+    console.log('Running migration: rebuild tasks table to accept the dsh executor');
+    db.exec('PRAGMA foreign_keys = OFF');
+    try {
+      db.exec('BEGIN');
+      db.exec('ALTER TABLE tasks RENAME TO tasks_legacy_dsh;');
+      db.exec(TASKS_TABLE_SCHEMA_SQL);
+      // Copy every column the legacy table actually has that the new table
+      // also has; columns added later (absent from the legacy table) fall back
+      // to their schema defaults, and the ALTERs below re-add any still missing.
+      const legacyColumns = (db.prepare('PRAGMA table_info(tasks_legacy_dsh)').all() as { name: string }[]).map((column) => column.name);
+      const currentColumns = new Set(
+        (db.prepare('PRAGMA table_info(tasks)').all() as { name: string }[]).map((column) => column.name),
+      );
+      const sharedColumns = legacyColumns.filter((name) => currentColumns.has(name));
+      const columnList = sharedColumns.map((name) => `"${name}"`).join(', ');
+      db.exec(`
+        INSERT INTO tasks (${columnList})
+        SELECT ${columnList}
+        FROM tasks_legacy_dsh
+      `);
+      db.exec('DROP TABLE tasks_legacy_dsh;');
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_tasks_project_status ON tasks(project_path, status);`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_tasks_session ON tasks(session_id);`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_tasks_source_schedule ON tasks(source_schedule_id);`);
+      db.exec('COMMIT');
+    } catch (dshRebuildError) {
+      db.exec('ROLLBACK');
+      throw dshRebuildError;
+    } finally {
+      db.exec('PRAGMA foreign_keys = ON');
+    }
+  }
 };
 
 /**

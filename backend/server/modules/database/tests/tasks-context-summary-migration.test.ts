@@ -43,7 +43,7 @@ CREATE TABLE tasks (
     status            TEXT NOT NULL DEFAULT 'todo'
                       CHECK (status IN ('todo','in_progress','in_review','done','archived')),
     executor_provider TEXT NOT NULL DEFAULT 'claude'
-                      CHECK (executor_provider IN ('claude','codex','opencode','qoder')),
+                      CHECK (executor_provider IN ('claude','codex','opencode','qoder','dsh')),
     executor_model    TEXT,
     position          REAL NOT NULL DEFAULT 0,
     session_id        TEXT,
