@@ -597,12 +597,26 @@ export async function queryDsh(command, options = {}, ws) {
     prompt: options.prompt ?? options.command ?? command ?? '',
   };
 
-  const child = spawn(cfg.binPath || 'dsh', ['--profile', 'acp'], {
+  // Launcher args. `--patch` is repeatable and layers above the profile's own
+  // patch, so it is the sanctioned way to add an LLM route the acp profile does
+  // not ship (e.g. a dsh-llm-pi-ai gateway for an OpenAI-compatible endpoint).
+  const launcherArgs = ['--profile', 'acp'];
+  if (cfg.patchPath) {
+    launcherArgs.push('--patch', cfg.patchPath);
+  }
+
+  const child = spawn(cfg.binPath || 'dsh', launcherArgs, {
     cwd: workingDir,
     env: {
       ...process.env,
       ...(cfg.dshHome ? { DSH_HOME: cfg.dshHome } : {}),
+      // Point the runtime at the configured credential / endpoint. Both are the
+      // names dsh itself reads: DEEPSEEK_API_KEY is the api-key adapter's default
+      // `apiKeyEnv`, and DEEPSEEK_BASE_URL is the Messages transport's endpoint
+      // override. Setting them here lets a Lovdex deployment route dsh at its
+      // own LLM without hand-editing a profile in $DSH_HOME.
       ...(cfg.apiKey ? { DEEPSEEK_API_KEY: cfg.apiKey } : {}),
+      ...(cfg.baseUrl ? { DEEPSEEK_BASE_URL: cfg.baseUrl } : {}),
     },
     stdio: ['pipe', 'pipe', 'pipe'],
   });
