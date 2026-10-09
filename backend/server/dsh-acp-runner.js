@@ -119,6 +119,37 @@ async function respondToPermission(responder, result) {
   }
 }
 
+/**
+ * Applies the caller's model / reasoning-effort selection to an ACP session.
+ *
+ * dsh exposes both through `session/set_config_option`: the `model` option's
+ * value is the JSON-encoded `[provider, model]` route string the catalog
+ * advertises, and `reasoning_effort` is a plain slot name. A missing selection
+ * is left alone (the session keeps its own default), and a value dsh rejects is
+ * logged rather than fatal — a bad pick must not kill the turn.
+ */
+async function applySessionConfig(context, acpSessionId, options) {
+  const selections = [];
+  if (typeof options.model === 'string' && options.model.trim() && options.model.trim() !== 'default') {
+    selections.push(['model', options.model.trim()]);
+  }
+  if (typeof options.effort === 'string' && options.effort.trim()) {
+    selections.push(['reasoning_effort', options.effort.trim()]);
+  }
+
+  for (const [configId, value] of selections) {
+    try {
+      await context.request(AGENT_METHODS.session_set_config_option, {
+        sessionId: acpSessionId,
+        configId,
+        value,
+      });
+    } catch (error) {
+      console.warn(`[dsh-runner] session/set_config_option ${configId}=${value} rejected:`, error?.message || error);
+    }
+  }
+}
+
 /** The stable id a run is known by in messages/notifications. */
 function finalSessionId(entry) {
   return entry.sessionId || entry.capturedSessionId || entry.key;
@@ -503,6 +534,7 @@ export async function runDshTurn(context, options = {}, ws, entry) {
       acpSessionId = session && typeof session.sessionId === 'string' ? session.sessionId : null;
     }
     registerSession(run, ws, acpSessionId);
+    await applySessionConfig(context, acpSessionId, options);
 
     await context.request(AGENT_METHODS.session_prompt, {
       sessionId: acpSessionId,

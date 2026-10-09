@@ -11,23 +11,26 @@ import {
 } from '@/shared/utils.js';
 
 /**
- * dsh's live model catalog is only reachable from a started ACP runtime (via
- * `session/set_config_option`); this facet has no runtime handle, so this
- * static placeholder is currently the only catalog it can offer.
+ * Catalog fallback for dsh.
  *
- * PROVENANCE: these ids are taken from DeepSeek Harness's own shipped package
- * examples, NOT from a verified live catalog —
- *   - 'deepseek-v4-flash' appears in `@deepseek-ai/dsh-sdk-client`'s README
- *   - 'deepseek-v4-pro'   appears in `@deepseek-ai/dsh-acp`'s README
- * The 'default' slot is the provider-neutral choice and is the safe default.
- * Re-verify all three against a real dsh runtime before trusting the picker
- * (tracked as the Task 11 acceptance check).
+ * The live catalog is only reachable from a started ACP runtime: `session/new`
+ * returns `configOptions` whose `model` entry groups real route ids, and
+ * `session/set_config_option` switches between them. This facet has no runtime
+ * handle, so it ships a static list for the picker's cold path.
+ *
+ * PROVENANCE: every value below was read back from a real
+ * `dsh --profile acp` session (`session/new`'s `configOptions[model]`) — not
+ * copied from documentation. The wire format is a JSON-encoded
+ * `[provider, model]` route pair; the runner sends exactly this string as the
+ * ACP config-option value. The 'default' slot is the provider-neutral choice
+ * and stays first so the pre-runtime picker has a safe selection.
  */
 export const DSH_PREDEFINED_MODELS: ProviderModelsDefinition = {
   OPTIONS: [
     { value: 'default', label: 'Default', description: 'DeepSeek Harness' },
-    { value: 'deepseek-v4-pro', label: 'DeepSeek V4 Pro', description: 'DeepSeek Harness' },
-    { value: 'deepseek-v4-flash', label: 'DeepSeek V4 Flash', description: 'DeepSeek Harness' },
+    { value: '["deepseek-official","deepseek-v4-flash"]', label: 'DeepSeek V4 Flash', description: 'deepseek-official' },
+    { value: '["deepseek-official","deepseek-v4-pro"]', label: 'DeepSeek V4 Pro', description: 'deepseek-official' },
+    { value: '["deepseek-official","deepseek-flash"]', label: 'DeepSeek Flash', description: 'deepseek-official' },
   ],
   DEFAULT: 'default',
 };

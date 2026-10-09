@@ -226,3 +226,104 @@ test('auto-approve answers without emitting a popup or leaving a pending entry',
   assert.ok(received && received.outcome.outcome === 'selected');
   assert.ok(['allow-once', 'allow-always'].includes(received.outcome.optionId));
 });
+
+test('a supplied session id is resumed through session/resume, not re-created', async () => {
+  const ws = makeWs();
+  // The fake records which method the runner used to attach the session, and
+  // answers session/resume the way a real dsh does (no sessionId in the reply).
+  const calls = [];
+  const fake = agent({ name: 'fake-dsh' })
+    .onRequest('initialize', async () => ({ protocolVersion: PROTOCOL_VERSION, agentCapabilities: {} }))
+    .onRequest('session/resume', async () => {
+      calls.push('resume');
+      return {};
+    })
+    .onRequest('session/new', async () => {
+      calls.push('new');
+      return { sessionId: 'fresh-id' };
+    })
+    .onRequest('session/prompt', async (ctx) => {
+      await ctx.client.notify('session/update', {
+        sessionId: 'resumed-id',
+        update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'resumed ok' } },
+      });
+      return { stopReason: 'end_turn' };
+    });
+
+  await drive(fake, { cwd: CWD, sessionId: 'resumed-id', prompt: 'again' }, ws);
+
+  assert.deepEqual(calls, ['resume'], 'a supplied id must resume, never session/new');
+  const created = ws.messages.find((m) => m.kind === 'session_created');
+  assert.ok(created, 'a resumed run still announces its session');
+  // sessionId carries the id the caller already knows; newSessionId the agent's.
+  assert.equal(created.sessionId, 'resumed-id');
+  assert.equal(created.newSessionId, 'resumed-id');
+  assert.equal(ws.messages.filter((m) => m.kind === 'complete').length, 1);
+});
+
+test('a refused resume falls back to a fresh session instead of failing the run', async () => {
+  const ws = makeWs();
+  const calls = [];
+  const fake = agent({ name: 'fake-dsh' })
+    .onRequest('initialize', async () => ({ protocolVersion: PROTOCOL_VERSION, agentCapabilities: {} }))
+    .onRequest('session/resume', async () => {
+      calls.push('resume');
+      // Mirrors real dsh: "Invalid params: session is not resumable: <id>".
+      throw new Error('session is not resumable: stale-id');
+    })
+    .onRequest('session/new', async () => {
+      calls.push('new');
+      return { sessionId: 'fresh-id' };
+    })
+    .onRequest('session/prompt', async () => ({ stopReason: 'end_turn' }));
+
+  await drive(fake, { cwd: CWD, sessionId: 'stale-id', prompt: 'go' }, ws);
+
+  assert.deepEqual(calls, ['resume', 'new'], 'a refused resume must fall back to session/new');
+  const created = ws.messages.find((m) => m.kind === 'session_created');
+  assert.ok(created, 'the fallback run still announces the fresh session');
+  assert.equal(created.newSessionId, 'fresh-id');
+  assert.equal(ws.messages.filter((m) => m.kind === 'complete').length, 1);
+});
+
+test('a model selection is pushed through session/set_config_option', async () => {
+  const ws = makeWs();
+  const applied = [];
+  const fake = agent({ name: 'fake-dsh' })
+    .onRequest('initialize', async () => ({ protocolVersion: PROTOCOL_VERSION, agentCapabilities: {} }))
+    .onRequest('session/new', async () => ({ sessionId: SESSION_ID }))
+    .onRequest('session/set_config_option', async (ctx) => {
+      applied.push([ctx.params.configId, ctx.params.value]);
+      return { configOptions: [] };
+    })
+    .onRequest('session/prompt', async () => ({ stopReason: 'end_turn' }));
+
+  await drive(
+    fake,
+    { cwd: CWD, sessionId: null, prompt: 'go', model: '["deepseek-official","deepseek-v4-pro"]', effort: 'max' },
+    ws,
+  );
+
+  assert.deepEqual(applied, [
+    ['model', '["deepseek-official","deepseek-v4-pro"]'],
+    ['reasoning_effort', 'max'],
+  ]);
+  assert.equal(ws.messages.filter((m) => m.kind === 'complete').length, 1);
+});
+
+test('the neutral "default" model slot is left to the runtime', async () => {
+  const ws = makeWs();
+  const applied = [];
+  const fake = agent({ name: 'fake-dsh' })
+    .onRequest('initialize', async () => ({ protocolVersion: PROTOCOL_VERSION, agentCapabilities: {} }))
+    .onRequest('session/new', async () => ({ sessionId: SESSION_ID }))
+    .onRequest('session/set_config_option', async (ctx) => {
+      applied.push([ctx.params.configId, ctx.params.value]);
+      return { configOptions: [] };
+    })
+    .onRequest('session/prompt', async () => ({ stopReason: 'end_turn' }));
+
+  await drive(fake, { cwd: CWD, sessionId: null, prompt: 'go', model: 'default' }, ws);
+
+  assert.deepEqual(applied, [], 'the neutral slot must not be sent as a route');
+});
