@@ -73,9 +73,13 @@ dsh 的会话日志默认是 **checksummed Zstandard 帧**（`session.vN.jsonl.z
 - **强制 `compression: none` 读盘**：能像 qoder 那样 `readline` 直读，但**要改用户的 dsh 配置**、占盘更大、且不尊重用户既有设置。
 - **走 ACP `session/list` + `session/resume`**（**选定**）：不碰用户配置；与 A1 "能 resume" 的模型自洽。
 
-代价（已接受）：列历史需要活着连上 dsh 进程；`fetchHistory` 依赖 ACP 而非纯文件读，离线读历史不受支持。
+> **实现后的更正（真机实测）：** 本文档 §2.4 曾写"ACP 不支持 `session/load`，因此无法重放旧会话"。实测 `dsh --profile acp` 的 `initialize` 会返回 `sessionCapabilities: { close, list, resume }` —— 它确实**没有** `session/load`，但**有 `session/resume`**（扩展方法，传 `{ sessionId, cwd }` 即可重挂一个已持久化的会话）。因此 runner 对带 provider-native id 的运行走 `session/resume`，resume 被拒时回退到 `session/new`。§2.4 那一条按此更正。
 
 ### 2.4 ACP 明确不支持的能力 → 对 dsh 禁用
+
+> **更正（真机实测）：** 原稿把 `session/load`、`session/resume` 等一并列为不支持。实测 `initialize` 返回 `sessionCapabilities: { close, list, resume }`，即 `session/resume` / `session/list` / `session/close` **都支持**；只有 `session/load`（旧会话**全量重放**）确实没有。runner 已按此实现 resume（§2.3 的更正）。下面是不支持的项里，Lovdex UI 仍需要对 dsh 禁用的部分。
+
+代价（已接受）：列历史需要活着连上 dsh 进程；`fetchHistory` 依赖 ACP 而非纯文件读，离线读历史不受支持。
 
 dsh ACP README 原文列出不支持的表面：`session/load`（旧会话重放）、会话删除、fork、additional directories、modes、commands、plans、terminals、client filesystem operations、elicitation。
 
