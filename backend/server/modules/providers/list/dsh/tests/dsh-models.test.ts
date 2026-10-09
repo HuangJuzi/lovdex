@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 
 import {
@@ -18,9 +21,24 @@ test('getCurrentActiveModel returns the catalog default', async () => {
 });
 
 test('changeActiveModel delegates to the shared session-override writer', async () => {
-  const result = await new DshProviderModels().changeActiveModel({
-    sessionId: 'sess-1',
-    model: 'deepseek-v4-pro',
-  });
-  assert.equal(result.provider, 'dsh');
+  // changeActiveModel has no filePath/injection seam, so it writes the shared
+  // session-override cache under ~/.cloudcli. Point HOME at a throwaway dir for
+  // the duration of this test so it can never touch the real user's file.
+  const fakeHome = await mkdtemp(path.join(tmpdir(), 'dsh-models-home-'));
+  const realHome = process.env.HOME;
+  process.env.HOME = fakeHome;
+  try {
+    const result = await new DshProviderModels().changeActiveModel({
+      sessionId: 'sess-1',
+      model: 'deepseek-v4-pro',
+    });
+    assert.equal(result.provider, 'dsh');
+  } finally {
+    if (realHome === undefined) {
+      delete process.env.HOME;
+    } else {
+      process.env.HOME = realHome;
+    }
+    await rm(fakeHome, { recursive: true, force: true });
+  }
 });
