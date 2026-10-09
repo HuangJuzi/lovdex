@@ -31,12 +31,12 @@ export const providerAuthService = {
  */
 export type InstalledProviderProbe = (providerName: string) => Promise<ProviderAuthStatus>;
 
-const ALL_INSTALLED_PROVIDERS = ['claude', 'codex', 'opencode', 'qoder'] as const;
+const ALL_INSTALLED_PROVIDERS = ['claude', 'codex', 'opencode', 'qoder', 'dsh'] as const;
 const INSTALLED_TTL_MS = 60_000;
 
 let installedCache: { at: number; data: { provider: string; installed: boolean }[] } | null = null;
 // Leader/follower guard: a fresh probe pass in flight is shared by concurrent
-// callers so a burst of requests never fans out into duplicate 4× spawn.sync
+// callers so a burst of requests never fans out into duplicate 5× spawn.sync
 // probes (each spawn.sync blocks the event loop for up to ~5s).
 let installedInflight: Promise<{ provider: string; installed: boolean }[]> | null = null;
 

@@ -531,13 +531,16 @@ export async function queryDsh(command, options = {}, ws) {
   entry.appSessionId = options.appSessionId ?? null;
   activeDshRuns.set(key, entry);
 
+  // `command` is the USER'S MESSAGE, not an executable — the gateway passes the
+  // prompt as this runner's first argument (see handleChatSend's `spawnFn(command,
+  // ...)`). It is only ever prompt text; the binary always comes from config.
   const turnOptions = {
     ...options,
     cwd: workingDir,
     prompt: options.prompt ?? options.command ?? command ?? '',
   };
 
-  const child = spawn(command || cfg.binPath || 'dsh', ['--profile', 'acp'], {
+  const child = spawn(cfg.binPath || 'dsh', ['--profile', 'acp'], {
     cwd: workingDir,
     env: {
       ...process.env,

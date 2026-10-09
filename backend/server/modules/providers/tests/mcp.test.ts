@@ -276,8 +276,15 @@ test('providerMcpService global adder writes to all providers and rejects unsupp
       workspacePath,
     });
 
-    assert.equal(globalResult.length, 4);
-    assert.ok(globalResult.every((entry) => entry.created === true));
+    // Every registered provider answers; dsh mounts MCP per session over ACP
+    // and has no on-disk store, so it correctly reports created: false.
+    assert.equal(globalResult.length, 5);
+    assert.equal(globalResult.filter((entry) => entry.created === true).length, 4);
+
+    const dshResult = globalResult.find((entry) => entry.provider === 'dsh');
+    assert.ok(dshResult, 'dsh must be present in the fan-out result');
+    assert.equal(dshResult.created, false);
+    assert.match(String(dshResult.error ?? ''), /per session over ACP/);
 
     const claudeProject = await readJson(path.join(workspacePath, '.mcp.json'));
     assert.ok((claudeProject.mcpServers as Record<string, unknown>)['global-http']);
