@@ -37,6 +37,7 @@ import {
 import { spawn } from 'cross-spawn';
 
 import { appConfig } from './modules/config/config.js';
+import { resolveDshProviderEnv } from './modules/config/env-sync.js';
 import { decideAutoApproval } from './modules/permissions/auto-approve-policy.js';
 import { DshSessionsProvider } from './modules/providers/list/dsh/dsh-sessions.provider.js';
 import { createCompleteMessage, createNormalizedMessage } from './shared/utils.js';
@@ -609,14 +610,10 @@ export async function queryDsh(command, options = {}, ws) {
     cwd: workingDir,
     env: {
       ...process.env,
-      ...(cfg.dshHome ? { DSH_HOME: cfg.dshHome } : {}),
-      // Point the runtime at the configured credential / endpoint. Both are the
-      // names dsh itself reads: DEEPSEEK_API_KEY is the api-key adapter's default
-      // `apiKeyEnv`, and DEEPSEEK_BASE_URL is the Messages transport's endpoint
-      // override. Setting them here lets a Lovdex deployment route dsh at its
-      // own LLM without hand-editing a profile in $DSH_HOME.
-      ...(cfg.apiKey ? { DEEPSEEK_API_KEY: cfg.apiKey } : {}),
-      ...(cfg.baseUrl ? { DEEPSEEK_BASE_URL: cfg.baseUrl } : {}),
+      // Endpoint + credential come from the shared resolver so a local run and a
+      // remote lite agree, and so the dsh provider follows the SAME rule the
+      // claude provider does: an enabled llm-proxy is the model front door.
+      ...resolveDshProviderEnv(appConfig().get()),
     },
     stdio: ['pipe', 'pipe', 'pipe'],
   });

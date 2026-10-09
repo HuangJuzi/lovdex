@@ -71,23 +71,25 @@ export const DEFAULT_APP_CONFIG = {
       // discovers the user's own profiles/credentials. Empty = use dsh default
       // ($DSH_HOME, else ~/.dsh).
       dshHome: '',
-      // Credential handed to the child as DEEPSEEK_API_KEY. dsh's api-key
-      // adapter reads that exact env name (`apiKeyEnv` defaults to it) and
-      // never inlines a secret in its config. Empty = rely on dsh's own
-      // credential store / launch environment.
-      apiKey: '',
-      // Messages-compatible endpoint handed to the child as DEEPSEEK_BASE_URL.
+      // Explicit Messages endpoint override, handed to the child as
+      // DEEPSEEK_BASE_URL. Leave EMPTY to follow the claude provider's rule: an
+      // enabled llm-proxy is the model front door, so dsh targets
+      // http://127.0.0.1:<llmProxy.port> and the proxy supplies the upstream
+      // credential (see resolveDshProviderEnv in modules/config/env-sync.ts).
       //
-      // dsh resolves the endpoint as: an explicit `baseURL` in the mounted
-      // profile/patch/settings → `$DEEPSEEK_BASE_URL` → the official root. The
-      // shipped acp profile pins no `baseURL`, so this value is honoured out of
-      // the box (verified: with it set, requests leave for that host instead of
-      // api.deepseek.com). It is a FALLBACK, though: if the active profile — or
-      // a hand-edited `$DSH_HOME/profiles/acp/cordis.patch.yml` when `dshHome`
-      // is empty — pins a `baseURL`, that explicit value shadows this one
-      // silently. Set `dshHome` to a Lovdex-owned home when you need this field
-      // to be the single source of truth. Empty = dsh's own default.
+      // Set this only to point dsh somewhere the proxy does NOT front. dsh
+      // resolves the endpoint as explicit profile `baseURL` → $DEEPSEEK_BASE_URL
+      // → the official root, so a profile that pins its own `baseURL` (e.g. a
+      // hand-edited $DSH_HOME/profiles/acp/cordis.patch.yml) shadows this value;
+      // set `dshHome` to a Lovdex-owned home when this field must win.
       baseUrl: '',
+      // Credential handed to the child as DEEPSEEK_API_KEY (dsh's api-key
+      // adapter reads that exact env name and never inlines a secret in its
+      // config). Leave EMPTY to inherit the resolved llm-proxy credential, the
+      // same `providers.claude.apiKey` the proxy itself authenticates with. The
+      // adapter requires a non-empty key even when the proxy ignores the inbound
+      // value, so the inherited default matters.
+      apiKey: '',
       // Optional `--patch <path>` overlay layered onto the acp profile. Needed
       // only for endpoints the `deepseek-official` route cannot serve — e.g. an
       // OpenAI-compatible gateway, which requires a dsh-llm-pi-ai route.

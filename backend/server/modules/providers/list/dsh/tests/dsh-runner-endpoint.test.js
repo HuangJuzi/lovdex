@@ -46,8 +46,19 @@ fs.writeFileSync(process.env.DSH_CAPTURE, JSON.stringify({
 process.exit(0);
 `;
 
-/** Runs the probe in an isolated data dir and returns what the fake dsh saw. */
-async function captureChildEnv(configPatch) {
+/** Shallow-merge at two levels so a test can add `llmProxy` / `providers.claude`
+ *  without dropping the `providers.dsh` the harness just built. */
+function mergeConfig(base, extra) {
+  const merged = { ...base, ...extra };
+  if (base.providers || extra.providers) {
+    merged.providers = { ...base.providers, ...extra.providers };
+  }
+  return merged;
+}
+
+/** Runs the probe in an isolated data dir and returns what the fake dsh saw.
+ *  `extraConfig` is merged last, so a test can turn the llm-proxy on. */
+async function captureChildEnv(configPatch, extraConfig = {}) {
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'dsh-endpoint-'));
   const dataDir = path.join(tempRoot, 'data');
   const captureFile = path.join(tempRoot, 'capture.json');
@@ -73,7 +84,10 @@ async function captureChildEnv(configPatch) {
         DSH_CAPTURE: captureFile,
         DSH_PROBE_DONE: doneFile,
         DSH_PROBE_WORKDIR: tempRoot,
-        DSH_PROBE_CONFIG: JSON.stringify({ providers: { dsh: runnerConfig } }),
+        DSH_PROBE_CONFIG: JSON.stringify(mergeConfig(
+          { providers: { dsh: runnerConfig } },
+          extraConfig,
+        )),
         TSX_TSCONFIG_PATH: path.join(BACKEND_DIR, 'server', 'tsconfig.json'),
       },
       encoding: 'utf8',
@@ -92,7 +106,7 @@ async function captureChildEnv(configPatch) {
   }
 }
 
-test('a baseUrl is forwarded to the child as DEEPSEEK_BASE_URL', async () => {
+test('an explicit baseUrl and apiKey win and are forwarded to the child', async () => {
   const observed = await captureChildEnv({
     baseUrl: 'https://my-llm.example/anthropic',
     apiKey: 'sk-test',
@@ -101,10 +115,30 @@ test('a baseUrl is forwarded to the child as DEEPSEEK_BASE_URL', async () => {
   assert.equal(observed.apiKey, 'sk-test');
 });
 
-test('an empty baseUrl leaves DEEPSEEK_BASE_URL unset so dsh keeps its own route', async () => {
-  const observed = await captureChildEnv({ baseUrl: '', apiKey: 'sk-test' });
+test('with both fields empty and no proxy, nothing is exported so dsh keeps its own route', async () => {
+  const observed = await captureChildEnv({ baseUrl: '', apiKey: '' });
   assert.equal(observed.baseUrl, null, 'an unset baseUrl must not be exported as blank');
-  assert.equal(observed.apiKey, 'sk-test', 'the key still flows on its own');
+  assert.equal(observed.apiKey, null, 'an unset apiKey must not be exported as blank');
+});
+
+test('an enabled llm-proxy becomes the endpoint, mirroring the claude provider', async () => {
+  // Same rule env-sync.ts applies to claude: proxy on → the runtime targets
+  // http://127.0.0.1:<port> and the proxy supplies the credential.
+  const observed = await captureChildEnv(
+    { baseUrl: '', apiKey: '' },
+    { llmProxy: { enabled: true, port: 8123 }, providers: { claude: { apiKey: 'proxy-owned-key' } } },
+  );
+  assert.equal(observed.baseUrl, 'http://127.0.0.1:8123');
+  assert.equal(observed.apiKey, 'proxy-owned-key', 'the proxy-resolved credential is inherited');
+});
+
+test('an explicit baseUrl overrides the proxy for dsh only', async () => {
+  const observed = await captureChildEnv(
+    { baseUrl: 'https://direct.example/anthropic', apiKey: '' },
+    { llmProxy: { enabled: true, port: 8123 }, providers: { claude: { apiKey: 'proxy-owned-key' } } },
+  );
+  assert.equal(observed.baseUrl, 'https://direct.example/anthropic');
+  assert.equal(observed.apiKey, 'proxy-owned-key', 'the credential still falls back to the proxy');
 });
 
 test('a patchPath becomes a --patch launcher flag', async () => {
@@ -114,5 +148,4 @@ test('a patchPath becomes a --patch launcher flag', async () => {
     patchPath: '/tmp/my-route.patch.yml',
   });
   assert.deepEqual(observed.argv, ['--profile', 'acp', '--patch', '/tmp/my-route.patch.yml']);
-  assert.equal(observed.baseUrl, null);
 });

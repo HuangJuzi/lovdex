@@ -105,6 +105,42 @@ function setOrDelete(key: string, value: string | undefined): void {
 }
 
 /**
+ * Resolves the env a `dsh` child needs to reach a model endpoint, using the
+ * SAME rule `providers.claude` follows above: while the local llm-proxy is
+ * enabled, the runtime targets `http://127.0.0.1:<port>` and the proxy supplies
+ * the upstream credential; otherwise it falls back to whatever the dsh section
+ * names explicitly.
+ *
+ * dsh reads two names of its own (`$DEEPSEEK_BASE_URL` for the Messages
+ * endpoint, `DEEPSEEK_API_KEY` for the api-key adapter), so the claude env vars
+ * cannot be reused verbatim. The api-key adapter *requires* a non-empty key
+ * (`MISSING_CREDENTIAL` otherwise) even though the proxy ignores the inbound
+ * value, which is why the proxy's own resolved credential — the same
+ * `providers.claude.apiKey` `resolveLlmProxy` already reports — is passed
+ * through rather than left empty.
+ *
+ * Explicit `providers.dsh.baseUrl` / `apiKey` always win, so a deployment can
+ * still point dsh at an endpoint the proxy does not front.
+ */
+export function resolveDshProviderEnv(cfg: AppConfig): Record<string, string> {
+  const out: Record<string, string> = {};
+  const dsh = cfg.providers.dsh;
+  const llmProxy = resolveLlmProxy(cfg);
+
+  const baseUrl = dsh.baseUrl?.trim()
+    || (llmProxy.enabled ? `http://127.0.0.1:${llmProxy.port}` : '');
+  if (baseUrl) out.DEEPSEEK_BASE_URL = baseUrl;
+
+  const apiKey = dsh.apiKey?.trim()
+    || (llmProxy.enabled ? llmProxy.apiKey?.trim() : '');
+  if (apiKey) out.DEEPSEEK_API_KEY = apiKey;
+
+  if (dsh.dshHome?.trim()) out.DSH_HOME = dsh.dshHome.trim();
+
+  return out;
+}
+
+/**
  * Builds the per-provider config env a REMOTE lite host should run a session
  * with. Same source fields as {@link syncProviderEnv} (so main and remote
  * agree), but returns a `Record` for the `session/start` `configEnv` param
@@ -171,6 +207,11 @@ export function buildProviderConfigEnv(
     }
     case 'qoder': {
       put('QODER_PERSONAL_ACCESS_TOKEN', providers.qoder.personalAccessToken);
+      break;
+    }
+    case 'dsh': {
+      // Same resolved env a local dsh run gets, so main and remote agree.
+      for (const [key, value] of Object.entries(resolveDshProviderEnv(cfg))) put(key, value);
       break;
     }
   }
