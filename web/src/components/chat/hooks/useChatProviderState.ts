@@ -35,10 +35,15 @@ const PROVIDERS: LLMProvider[] = ['claude', 'codex', 'opencode', 'qoder', 'dsh']
  * Providers whose runtime actually honors the persisted session-scoped model
  * override on resume. claude and codex call `resolveResumeModel`, which makes a
  * `/model` selection stick to a session across reopens even when the request
- * default (localStorage) changes afterward. opencode/qoder only forward the
- * per-send `--model`, so their override is cosmetic — the composer must keep
+ * default (localStorage) changes afterward. opencode/qoder/dsh only forward the
+ * per-send model, so their override is cosmetic — the composer must keep
  * showing the localStorage value those runtimes actually send. Gate the
  * active-model override read/apply on this set.
+ *
+ * dsh is deliberately NOT here: its real model change goes through the backend
+ * (`changeActiveModel` → ACP `session/set_config_option`, already implemented),
+ * so claiming a frontend-side resume guarantee would overstate what the
+ * composer can show. See the frontend design §1.3.
  */
 const RUNTIME_HONORS_SESSION_MODEL_OVERRIDE = new Set<LLMProvider>(['claude', 'codex']);
 
