@@ -150,7 +150,6 @@ function createRunEntry({ ws, sessionId, key }) {
     capturedSessionId: null,
     acpSessionId: null,
     acpContext: null,
-    connection: null,
     child: null,
     aborted: false,
     completeSent: false,
@@ -232,17 +231,24 @@ function registerSession(entry, ws, acpSessionId) {
   entry.acpSessionId = acpSessionId;
   entry.capturedSessionId = acpSessionId;
 
+  // Only a run that `queryDsh` actually registered belongs in the map; the
+  // in-process seam calls runDshTurn with an untracked entry, and adding its
+  // announced id would leak a stale key that nothing ever removes.
+  const tracked = activeDshRuns.get(entry.key) === entry;
+
   // A brand-new run was keyed by a placeholder; re-key it to the announced id
   // so abort-by-provider-id addresses this run (mirrors qoder's registerSession).
   // A resume keeps its existing key and simply ALIASES the fresh id to the same
   // entry, so abort works no matter which id the gateway sends.
-  if (!entry.sessionId && entry.key !== acpSessionId && activeDshRuns.get(entry.key) === entry) {
+  if (tracked && !entry.sessionId && entry.key !== acpSessionId) {
     activeDshRuns.delete(entry.key);
     entry.mapKeys.delete(entry.key);
     entry.key = acpSessionId;
   }
-  activeDshRuns.set(acpSessionId, entry);
-  entry.mapKeys.add(acpSessionId);
+  if (tracked) {
+    activeDshRuns.set(acpSessionId, entry);
+    entry.mapKeys.add(acpSessionId);
+  }
 
   if (typeof ws?.setSessionId === 'function') {
     try {
@@ -473,11 +479,10 @@ export async function runDshTurn(context, options = {}, ws, entry) {
     const acpSessionId = session && typeof session.sessionId === 'string' ? session.sessionId : null;
     registerSession(run, ws, acpSessionId);
 
-    const response = await context.request(AGENT_METHODS.session_prompt, {
+    await context.request(AGENT_METHODS.session_prompt, {
       sessionId: acpSessionId,
       prompt: [{ type: 'text', text: promptText }],
     });
-    run.stopReason = response && response.stopReason;
 
     // The ACP turn resolved: emit the single terminal complete. Aborted runs
     // are completed by the abort path, so they must not emit their own.
@@ -485,11 +490,13 @@ export async function runDshTurn(context, options = {}, ws, entry) {
       run.emitComplete({ exitCode: 0 });
       run.notifyTerminal({ exitCode: 0 });
     }
-    return response;
   } catch (error) {
     // An abort tears the connection down and rejects the prompt; the abort path
-    // owns the terminal complete, so stay silent here.
-    if (!run.aborted) {
+    // owns the terminal complete, so stay silent here. Likewise, a child that
+    // dies mid-turn fires its own `close` handler which already emitted the
+    // terminal complete — emitting an `error` frame after the turn ended would
+    // surface a stray message the client forwarded past `complete`.
+    if (!run.aborted && !run.completeSent) {
       sendMessage(ws, createNormalizedMessage({
         kind: 'error',
         content: error?.message || String(error),
@@ -717,7 +724,6 @@ export function getDshPendingApprovalsForSession(providerSessionId) {
         requestId,
         toolName: entry.toolName,
         input: entry.input,
-        context: entry.context,
         sessionId: entry.sessionId,
         receivedAt: entry.receivedAt,
       });
