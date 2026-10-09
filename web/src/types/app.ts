@@ -1,4 +1,4 @@
-export type LLMProvider = 'claude' | 'codex' | 'opencode' | 'qoder';
+export type LLMProvider = 'claude' | 'codex' | 'opencode' | 'qoder' | 'dsh';
 
 export type ProviderModelOption = {
   value: string;
@@ -94,7 +94,7 @@ export type SubStatus =
   | 'only_plan'
   | 'needs_review'
   | 'blocked';
-export type TaskEngine = 'claude' | 'codex' | 'opencode' | 'qoder';
+export type TaskEngine = 'claude' | 'codex' | 'opencode' | 'qoder' | 'dsh';
 export type TaskPriority = 'P0' | 'P1' | 'P2' | 'P3';
 export type TaskLabel = 'bug' | 'feature' | 'optimization' | 'refactor' | 'docs' | 'other' | 'reminder';
 

@@ -23,6 +23,9 @@ const FALLBACK_DEFAULT_MODEL: Record<LLMProvider, string> = {
   codex: 'gpt-5.4',
   opencode: 'opencode/deepseek-v4-flash-free',
   qoder: 'auto',
+  // dsh's catalog DEFAULT is the neutral 'default' slot; the runner skips it
+  // rather than sending it as an ACP route, so it is safe as a placeholder.
+  dsh: 'default',
 };
 
 const PROVIDERS: LLMProvider[] = ['claude', 'codex', 'opencode', 'qoder'];
@@ -439,6 +442,9 @@ export function useChatProviderState({ selectedSession, selectedProject: _select
     codex: codexModel,
     opencode: opencodeModel,
     qoder: qoderModel,
+    // Placeholder until FE Task 2 introduces the dshModel state slot and
+    // swaps this for `dsh: dshModel`.
+    dsh: FALLBACK_DEFAULT_MODEL.dsh,
   }), [claudeModel, codexModel, opencodeModel, qoderModel]);
 
   useEffect(() => {

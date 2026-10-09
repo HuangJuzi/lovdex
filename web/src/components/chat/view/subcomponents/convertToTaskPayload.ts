@@ -19,6 +19,7 @@ const FALLBACK_DEFAULT_MODEL: Record<LLMProvider, string> = {
   codex: 'gpt-5.4',
   opencode: 'opencode/deepseek-v4-flash-free',
   qoder: 'auto',
+  dsh: 'default',
 };
 
 function isTaskEngine(value: unknown): value is TaskEngine {

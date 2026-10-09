@@ -91,4 +91,5 @@ export const EXECUTOR_META: Record<TaskEngine, { label: string; badge: string }>
   codex: { label: '◈ Codex', badge: 'bg-warning/10 text-warning' },
   opencode: { label: '◈ OpenCode', badge: 'bg-chart-6/10 text-chart-6' },
   qoder: { label: '◈ Qoder', badge: 'bg-info/10 text-info' },
+  dsh: { label: '◈ DeepSeek', badge: 'bg-chart-4/10 text-chart-4' },
 };

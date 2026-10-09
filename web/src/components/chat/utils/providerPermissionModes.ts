@@ -13,6 +13,11 @@ export const PROVIDER_PERMISSION_MODES: Record<LLMProvider, PermissionMode[]> = 
   codex: ['default', 'autoApprove', 'acceptEdits', 'bypassPermissions'],
   opencode: ['default', 'autoApprove', 'acceptEdits', 'bypassPermissions', 'plan'],
   qoder: ['default', 'autoApprove', 'acceptEdits', 'bypassPermissions', 'plan'],
+  // ACP has no Claude-specific mode concepts. dsh's runner only distinguishes
+  // per-call popup approval from unattended auto-approval, so offering more
+  // would let the user pick a mode the backend does not honour. Must stay in
+  // sync with the backend's PROVIDER_CAPABILITIES.dsh.
+  dsh: ['default', 'autoApprove'],
 };
 
 /**

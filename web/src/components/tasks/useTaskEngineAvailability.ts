@@ -10,6 +10,7 @@ export const ENGINE_NAMES: Record<TaskEngine, string> = {
   codex: 'Codex',
   opencode: 'OpenCode',
   qoder: 'Qoder',
+  dsh: 'DeepSeek Harness',
 };
 
 export type EngineAvailability =
