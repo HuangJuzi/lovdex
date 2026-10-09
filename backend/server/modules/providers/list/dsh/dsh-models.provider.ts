@@ -2,6 +2,7 @@ import type { IProviderModels } from '@/shared/interfaces.js';
 import type {
   ProviderChangeActiveModelInput,
   ProviderCurrentActiveModel,
+  ProviderModelOption,
   ProviderModelsDefinition,
   ProviderSessionActiveModelChange,
 } from '@/shared/types.js';
@@ -32,11 +33,29 @@ import {
  * Only the two dsh-native ids are listed here to keep the cold-path picker
  * honest; the live catalog supersedes this list once a runtime is up.
  */
+
+/**
+ * Every model offers the same reasoning-effort slot set, but the names are
+ * dsh's own: it accepts exactly `off/low/high/max` (verified live — the frontend
+ * offers overlap but are NOT the same as this set). `high` is the runtime's own
+ * default, so the option's `default` mirrors it rather than the app-wide
+ * `'default'` sentinel, which dsh would reject as an unknown value.
+ */
+const DSH_EFFORT: NonNullable<ProviderModelOption['effort']> = {
+  default: 'high',
+  values: [
+    { value: 'off' },
+    { value: 'low' },
+    { value: 'high' },
+    { value: 'max' },
+  ],
+};
+
 export const DSH_PREDEFINED_MODELS: ProviderModelsDefinition = {
   OPTIONS: [
-    { value: 'default', label: 'Default', description: 'DeepSeek Harness' },
-    { value: '["deepseek-official","deepseek-v4-flash"]', label: 'DeepSeek V4 Flash', description: 'deepseek-official' },
-    { value: '["deepseek-official","deepseek-v4-pro"]', label: 'DeepSeek V4 Pro', description: 'deepseek-official' },
+    { value: 'default', label: 'Default', description: 'DeepSeek Harness', effort: DSH_EFFORT },
+    { value: '["deepseek-official","deepseek-v4-flash"]', label: 'DeepSeek V4 Flash', description: 'deepseek-official', effort: DSH_EFFORT },
+    { value: '["deepseek-official","deepseek-v4-pro"]', label: 'DeepSeek V4 Pro', description: 'deepseek-official', effort: DSH_EFFORT },
   ],
   DEFAULT: 'default',
 };
