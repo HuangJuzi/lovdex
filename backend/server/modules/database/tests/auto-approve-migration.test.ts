@@ -9,10 +9,16 @@ import { closeConnection, getConnection } from '@/modules/database/connection.js
 import { initializeDatabase } from '@/modules/database/init-db.js';
 
 // Shape of `tasks` BEFORE this change: exactly TASKS_TABLE_SCHEMA_SQL minus the
-// auto_approve column. Every rebuild gate inside migrateTasksTable stays silent
-// on this shape, so the in-place addColumnToTableIfNotExists ALTER is the only
-// mechanism that can add the column — which is the real rollout path for an
-// already-upgraded production DB.
+// auto_approve column, with every OTHER column and the executor CHECK already at
+// the current shape — including 'dsh', so no rebuild gate fires and the in-place
+// ALTER is the only mechanism that can add the column. That is the real rollout
+// path for an already-upgraded production DB.
+//
+// The ordering assertion below is weaker than it looks: both the ALTER path and
+// a rebuild would place auto_approve after source_schedule_id, so it does not by
+// itself prove which ran. What proves it is the fixture shape — a pre-dsh CHECK
+// here would make the dsh rebuild gate fire and recreate the table from
+// TASKS_TABLE_SCHEMA_SQL, which is NOT the path this test exists to cover.
 const TASKS_WITHOUT_AUTO_APPROVE_DDL = `
 CREATE TABLE tasks (
     task_id           TEXT PRIMARY KEY NOT NULL,
@@ -22,7 +28,7 @@ CREATE TABLE tasks (
     status            TEXT NOT NULL DEFAULT 'todo'
                       CHECK (status IN ('todo','in_progress','in_review','done','archived')),
     executor_provider TEXT NOT NULL DEFAULT 'claude'
-                      CHECK (executor_provider IN ('claude','codex','opencode','qoder')),
+                      CHECK (executor_provider IN ('claude','codex','opencode','qoder','dsh')),
     executor_model    TEXT,
     position          REAL NOT NULL DEFAULT 0,
     session_id        TEXT,
