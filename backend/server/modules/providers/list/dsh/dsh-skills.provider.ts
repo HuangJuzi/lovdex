@@ -5,7 +5,7 @@ import { SkillsProvider } from '@/modules/providers/shared/skills/skills.provide
 import type { ProviderSkillSource } from '@/shared/types.js';
 import { addUniqueProviderSkillSource, findTopmostGitRoot } from '@/shared/utils.js';
 
-// dsh-skills-filesystem scans a project root and a user root; the manifest is a
+// dsh skill discovery scans a project root and a user root; the manifest is a
 // `SKILL.md` directory bundle or a flat `<name>.md`, both under `.dsh/skills`.
 const DSH_PROJECT_SKILL_DIRS = [['.dsh', 'skills']];
 const DSH_USER_SKILL_DIRS = [['.dsh', 'skills']];
