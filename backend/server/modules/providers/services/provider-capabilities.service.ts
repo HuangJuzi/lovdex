@@ -28,7 +28,8 @@ type ProviderCapabilities = {
 /**
  * The capability matrix mirrors what each runtime actually implements today:
  * - permission modes match the option sets accepted by each CLI/SDK.
- * - only the Claude SDK integration surfaces interactive permission requests.
+ * - interactive permission requests reach the UI only where the runtime has a
+ *   real request/response channel: the Claude SDK and the dsh ACP client.
  * - Cursor has no token usage endpoint support (its store.db has no usage rows).
  */
 const PROVIDER_CAPABILITIES: Record<LLMProvider, ProviderCapabilities> = {
@@ -72,11 +73,17 @@ const PROVIDER_CAPABILITIES: Record<LLMProvider, ProviderCapabilities> = {
     supportsTokenUsage: true,
     supportsEffort: true,
   },
-  // dsh is driven over ACP. Permission requests and mid-turn cancel are native
-  // ACP methods, so both are declared supported. Images and the token-usage
+  // dsh is driven over ACP (runner lands in Task 9 of the dsh provider plan).
+  // Permission requests and mid-turn cancel are native ACP methods, so both are
+  // declared supported. The mode set is deliberately narrow: ACP has no
+  // Claude-specific mode concepts, and the runner maps the Lovdex gateway's
+  // normalized modes onto ACP itself, so only the gateway-normalized
+  // 'autoApprove' is offered alongside the default. Images and the token-usage
   // endpoint are NOT wired yet (ACP image prompts need a durable attachment
   // store, and no usage ledger is read), so both stay false rather than
-  // advertising a capability the runner cannot honour.
+  // advertising a capability the runner cannot honour. `supportsEffort` is
+  // honest ahead of the runner: ACP exposes `reasoning_effort` through
+  // `session/set_config_option`, which needs no new infrastructure.
   dsh: {
     provider: 'dsh',
     permissionModes: ['default', 'autoApprove'],
