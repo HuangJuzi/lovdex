@@ -219,10 +219,11 @@ function createRunEntry({ ws, sessionId, key }) {
 /**
  * Records the ACP session id and announces it once as `session_created`.
  *
- * Resume note: dsh's ACP does NOT support `session/load` (design §2.4), so every
- * run — including a "resume" — always issues `session/new` and receives a fresh
- * id. That new id is announced here for every run; the guard only stops a
- * duplicate announcement within a single run.
+ * A resumed run keeps the caller's id (the one the gateway already knows) and
+ * aliases the announced id to the same entry, so abort/activity checks answer
+ * for either. A brand-new run is re-keyed from its placeholder to the announced
+ * id. Either way the id is announced here exactly once per run — the guard only
+ * stops a duplicate announcement within a single run.
  */
 function registerSession(entry, ws, acpSessionId) {
   if (!acpSessionId || entry.acpSessionId === acpSessionId) {
@@ -238,8 +239,8 @@ function registerSession(entry, ws, acpSessionId) {
 
   // A brand-new run was keyed by a placeholder; re-key it to the announced id
   // so abort-by-provider-id addresses this run (mirrors qoder's registerSession).
-  // A resume keeps its existing key and simply ALIASES the fresh id to the same
-  // entry, so abort works no matter which id the gateway sends.
+  // A resumed run keeps its existing key and simply ALIASES the announced id to
+  // the same entry, so abort works no matter which id the gateway sends.
   if (tracked && !entry.sessionId && entry.key !== acpSessionId) {
     activeDshRuns.delete(entry.key);
     entry.mapKeys.delete(entry.key);
@@ -263,7 +264,10 @@ function registerSession(entry, ws, acpSessionId) {
     sendMessage(ws, createNormalizedMessage({
       kind: 'session_created',
       newSessionId: acpSessionId,
-      sessionId: acpSessionId,
+      // The gateway learns the provider id from BOTH fields (qoder sends the
+      // same value in each), so a resume re-announces the id the run already
+      // had rather than the stale one the client passed in.
+      sessionId: entry.sessionId || acpSessionId,
       provider: PROVIDER,
     }));
   }
@@ -468,15 +472,36 @@ export async function runDshTurn(context, options = {}, ws, entry) {
       clientCapabilities: {},
     });
 
-    // Resume is NOT supported: dsh's ACP lacks `session/load`, so we always
-    // create a fresh session even when the caller supplied a provider id. The
-    // app session key is reused (no DB translation needed here); see the module
-    // header and the synchronizer facet for the rationale.
-    const session = await context.request(AGENT_METHODS.session_new, {
-      cwd: workingDir,
-      mcpServers: [],
-    });
-    const acpSessionId = session && typeof session.sessionId === 'string' ? session.sessionId : null;
+    // Resume: dsh's ACP has no `session/load`, but it does advertise
+    // `sessionCapabilities.resume` — an extension method that reattaches to a
+    // persisted session id and restores its log (verified against a real
+    // `dsh --profile acp`: initialize reports sessionCapabilities.resume, and
+    // `session/resume { sessionId, cwd }` is answered). Use it when the caller
+    // supplied a provider-native id; otherwise create a fresh session.
+    const suppliedSessionId = typeof run.sessionId === 'string' && run.sessionId ? run.sessionId : null;
+    let acpSessionId = suppliedSessionId;
+    if (suppliedSessionId) {
+      try {
+        await context.request(AGENT_METHODS.session_resume, {
+          sessionId: suppliedSessionId,
+          cwd: workingDir,
+          mcpServers: [],
+        });
+      } catch (error) {
+        // A resume the agent refuses (unknown id, different workspace) must not
+        // kill the run: fall back to a fresh session, exactly as if the caller
+        // had never supplied an id. The announced id then replaces the stale one.
+        console.warn(`[dsh-runner] session/resume failed for ${suppliedSessionId}, starting a fresh session:`, error?.message || error);
+        acpSessionId = null;
+      }
+    }
+    if (!acpSessionId) {
+      const session = await context.request(AGENT_METHODS.session_new, {
+        cwd: workingDir,
+        mcpServers: [],
+      });
+      acpSessionId = session && typeof session.sessionId === 'string' ? session.sessionId : null;
+    }
     registerSession(run, ws, acpSessionId);
 
     await context.request(AGENT_METHODS.session_prompt, {
