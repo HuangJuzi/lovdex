@@ -19,7 +19,7 @@ import ProviderSelectionEmptyState from './ProviderSelectionEmptyState';
 import ToolGroupContainer from './ToolGroupContainer';
 import LoadAllMessagesOverlay from './LoadAllMessagesOverlay';
 
-const ALL_PROVIDERS: LLMProvider[] = ['claude', 'codex', 'opencode', 'qoder'];
+const ALL_PROVIDERS: LLMProvider[] = ['claude', 'codex', 'opencode', 'qoder', 'dsh'];
 
 interface ChatMessagesPaneProps {
   scrollContainerRef: RefObject<HTMLDivElement>;
@@ -44,6 +44,8 @@ interface ChatMessagesPaneProps {
   setOpenCodeModel: (model: string) => void;
   qoderModel: string;
   setQoderModel: (model: string) => void;
+  dshModel: string;
+  setDshModel: (model: string) => void;
   providerModelCatalog: Partial<Record<LLMProvider, ProviderModelsDefinition>>;
   providerModelsLoading: boolean;
   tasksEnabled: boolean;
@@ -98,6 +100,8 @@ function ChatMessagesPane({
   setOpenCodeModel,
   qoderModel,
   setQoderModel,
+  dshModel,
+  setDshModel,
   providerModelCatalog,
   providerModelsLoading,
   tasksEnabled,
@@ -246,6 +250,8 @@ function ChatMessagesPane({
           setOpenCodeModel={setOpenCodeModel}
           qoderModel={qoderModel}
           setQoderModel={setQoderModel}
+          dshModel={dshModel}
+          setDshModel={setDshModel}
           providerModelCatalog={providerModelCatalog}
           providerModelsLoading={providerModelsLoading}
           tasksEnabled={tasksEnabled}

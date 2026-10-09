@@ -85,6 +85,8 @@ function ChatInterface({
     setOpenCodeModel,
     qoderModel,
     setQoderModel,
+    dshModel,
+    setDshModel,
     permissionMode,
     pendingPermissionRequests,
     setPendingPermissionRequests,
@@ -415,7 +417,9 @@ function ChatInterface({
         ? opencodeModel
         : provider === 'qoder'
           ? qoderModel
-          : claudeModel;
+          : provider === 'dsh'
+            ? dshModel
+            : claudeModel;
   const currentModelLabel = useMemo(() => {
     const option = providerModelCatalog[provider]?.OPTIONS.find((o) => o.value === currentModelValue);
     const label = option?.label || currentModelValue;
@@ -472,6 +476,8 @@ function ChatInterface({
           setOpenCodeModel={setOpenCodeModel}
           qoderModel={qoderModel}
           setQoderModel={setQoderModel}
+          dshModel={dshModel}
+          setDshModel={setDshModel}
           providerModelCatalog={providerModelCatalog}
           providerModelsLoading={providerModelsLoading}
           tasksEnabled={false}
