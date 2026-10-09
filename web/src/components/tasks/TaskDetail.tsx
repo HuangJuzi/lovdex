@@ -731,6 +731,7 @@ export function TaskDetailPage() {
                     <option value="codex">Codex</option>
                     <option value="opencode">OpenCode</option>
                     <option value="qoder">Qoder</option>
+                    <option value="dsh">DeepSeek Harness</option>
                   </select>
                 </div>
                 <div className="flex items-center gap-3">

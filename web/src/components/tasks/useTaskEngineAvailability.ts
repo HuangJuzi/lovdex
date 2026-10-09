@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { TaskEngine } from '../../types/app';
 import { api } from '../../utils/api';
 
-export const ENGINE_IDS: TaskEngine[] = ['claude', 'codex', 'opencode', 'qoder'];
+export const ENGINE_IDS: TaskEngine[] = ['claude', 'codex', 'opencode', 'qoder', 'dsh'];
 
 export const ENGINE_NAMES: Record<TaskEngine, string> = {
   claude: 'Claude Code',

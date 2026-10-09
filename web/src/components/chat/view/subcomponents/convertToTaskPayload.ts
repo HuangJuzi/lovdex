@@ -23,7 +23,7 @@ const FALLBACK_DEFAULT_MODEL: Record<LLMProvider, string> = {
 };
 
 function isTaskEngine(value: unknown): value is TaskEngine {
-  return value === 'claude' || value === 'codex' || value === 'opencode' || value === 'qoder';
+  return value === 'claude' || value === 'codex' || value === 'opencode' || value === 'qoder' || value === 'dsh';
 }
 
 function resolveProviderModelDefault(provider: LLMProvider | undefined | null): string {

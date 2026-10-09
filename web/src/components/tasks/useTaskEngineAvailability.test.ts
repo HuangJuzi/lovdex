@@ -52,16 +52,16 @@ test('local with installed engines resolves ready(source local)', () => {
   assert.deepEqual(state, { status: 'ready', options: ['claude'], source: 'local' });
 });
 
-test('local with an empty probe degrades to all four with a hint', () => {
+test('local with an empty probe degrades to all five with a hint', () => {
   const state = computeEngineAvailability({ isAssistant: false, targetHostId: null, records: [] }) as Extract<EngineAvailability, { status: 'ready' }>;
   assert.equal(state.status, 'ready');
-  assert.deepEqual(state.options, ['claude', 'codex', 'opencode', 'qoder']);
+  assert.deepEqual(state.options, ['claude', 'codex', 'opencode', 'qoder', 'dsh']);
   assert.ok(state.hint);
 });
 
-test('local probe failure degrades to all four with a hint', () => {
+test('local probe failure degrades to all five with a hint', () => {
   const state = computeEngineAvailability({ isAssistant: false, targetHostId: null, records: null }) as Extract<EngineAvailability, { status: 'ready' }>;
   assert.equal(state.status, 'ready');
-  assert.deepEqual(state.options, ['claude', 'codex', 'opencode', 'qoder']);
+  assert.deepEqual(state.options, ['claude', 'codex', 'opencode', 'qoder', 'dsh']);
   assert.ok(state.hint);
 });

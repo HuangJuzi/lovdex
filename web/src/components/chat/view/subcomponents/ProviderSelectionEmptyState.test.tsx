@@ -12,7 +12,7 @@ import type { LLMProvider } from '../../../../types/app';
 
 import ProviderSelectionEmptyState from './ProviderSelectionEmptyState';
 
-const ALL_PROVIDERS: LLMProvider[] = ['claude', 'codex', 'opencode', 'qoder'];
+const ALL_PROVIDERS: LLMProvider[] = ['claude', 'codex', 'opencode', 'qoder', 'dsh'];
 
 const installed = (
   available: LLMProvider[],
@@ -40,6 +40,8 @@ function renderPicker(installedProviders: Record<LLMProvider, boolean> | null) {
       setOpenCodeModel={noop}
       qoderModel="qoder-default"
       setQoderModel={noop}
+      dshModel="dsh-default"
+      setDshModel={noop}
       providerModelCatalog={{}}
       providerModelsLoading={false}
       tasksEnabled={false}

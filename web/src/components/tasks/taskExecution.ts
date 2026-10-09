@@ -56,6 +56,8 @@ function settingsKeyFor(provider: string): string {
     case 'qoder':
       return 'qoder-settings';
     default:
+      // claude AND dsh share this key — dsh has no tools allow/deny list and
+      // its approvals flow through ACP. See the frontend design §3.1.
       return 'claude-settings';
   }
 }
