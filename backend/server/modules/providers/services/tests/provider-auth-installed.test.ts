@@ -27,15 +27,16 @@ test('getInstalledProviders probes each provider once and caches within the TTL'
     { provider: 'codex', installed: true },
     { provider: 'opencode', installed: false },
     { provider: 'qoder', installed: true },
+    { provider: 'dsh', installed: true },
   ]);
-  assert.deepEqual(probed, ['claude', 'codex', 'opencode', 'qoder']);
+  assert.deepEqual(probed, ['claude', 'codex', 'opencode', 'qoder', 'dsh']);
 
   // Second call inside the TTL serves the cache; the probe is NOT re-invoked.
   const second = await getInstalledProviders(async () => {
     throw new Error('must not be probed again');
   });
   assert.deepEqual(second, first);
-  assert.equal(probed.length, 4);
+  assert.equal(probed.length, 5);
 });
 
 test('getInstalledProviders is optimistic (installed true) when the probe throws', async () => {
@@ -48,6 +49,7 @@ test('getInstalledProviders is optimistic (installed true) when the probe throws
     { provider: 'codex', installed: true },
     { provider: 'opencode', installed: true },
     { provider: 'qoder', installed: true },
+    { provider: 'dsh', installed: true },
   ]);
 });
 
@@ -60,13 +62,13 @@ test('getInstalledProviders re-probes after the 60s TTL expires', async () => {
   };
 
   await getInstalledProviders(probe);
-  assert.equal(calls, 4);
+  assert.equal(calls, 5);
 
   const originalNow = Date.now;
   Date.now = () => originalNow() + 61_000;
   try {
     await getInstalledProviders(probe);
-    assert.equal(calls, 8, 'TTL expired → each provider probed again');
+    assert.equal(calls, 10, 'TTL expired → each provider probed again');
   } finally {
     Date.now = originalNow;
   }
@@ -91,5 +93,5 @@ test('getInstalledProviders dedupes concurrent cache misses into one probe pass'
   const [r1, r2] = await Promise.all([p1, p2]);
 
   assert.deepEqual(r1, r2);
-  assert.equal(calls, 4, 'two concurrent callers share ONE 4-provider probe pass');
+  assert.equal(calls, 5, 'two concurrent callers share ONE 5-provider probe pass');
 });
