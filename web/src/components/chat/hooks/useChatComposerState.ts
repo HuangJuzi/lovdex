@@ -55,6 +55,7 @@ interface UseChatComposerStateArgs {
   currentProviderEffort: string;
   opencodeModel: string;
   qoderModel: string;
+  dshModel: string;
   isLoading: boolean;
   canAbortSession: boolean;
   tokenBudget: Record<string, unknown> | null;
@@ -207,6 +208,7 @@ export function useChatComposerState({
   currentProviderEffort,
   opencodeModel,
   qoderModel,
+  dshModel,
   isLoading,
   canAbortSession,
   tokenBudget,
@@ -399,7 +401,9 @@ export function useChatComposerState({
               ? opencodeModel
               : provider === 'qoder'
                   ? qoderModel
-                  : claudeModel,
+                  : provider === 'dsh'
+                      ? dshModel
+                      : claudeModel,
           tokenUsage: tokenBudget,
         };
 
@@ -451,6 +455,7 @@ export function useChatComposerState({
       claudeModel,
       codexModel,
       currentSessionId,
+      dshModel,
       opencodeModel,
       qoderModel,
       handleBuiltInCommand,
@@ -682,6 +687,10 @@ export function useChatComposerState({
               ? 'opencode-settings'
               : provider === 'qoder'
                   ? 'qoder-settings'
+                  // dsh deliberately shares the claude key: its runner approves
+                  // through ACP (like Claude's canUseTool), it has no tools
+                  // allow/deny list, and a dedicated key would render a settings
+                  // panel the backend never reads. See the frontend design §3.1.
                 : 'claude-settings';
         const savedSettings = safeLocalStorage.getItem(settingsKey);
         if (savedSettings) {
@@ -706,7 +715,9 @@ export function useChatComposerState({
           ? opencodeModel
           : provider === 'qoder'
             ? qoderModel
-            : claudeModel;
+            : provider === 'dsh'
+              ? dshModel
+              : claudeModel;
 
     return {
       model,
@@ -727,6 +738,7 @@ export function useChatComposerState({
     claudeModel,
     codexModel,
     currentProviderEffort,
+    dshModel,
     opencodeModel,
     qoderModel,
     permissionMode,

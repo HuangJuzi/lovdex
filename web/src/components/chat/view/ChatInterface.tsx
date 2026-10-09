@@ -251,6 +251,7 @@ function ChatInterface({
     currentProviderEffort,
     opencodeModel,
     qoderModel,
+    dshModel,
     isLoading: isProcessing,
     canAbortSession,
     tokenBudget,
