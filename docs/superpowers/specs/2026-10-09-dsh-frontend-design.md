@@ -50,7 +50,7 @@ export type TaskEngine = 'claude' | 'codex' | 'opencode' | 'qoder' | 'dsh';
 | `chat/hooks/useChatProviderState.ts:437` `providerModels` | 四值 | `dsh: dshModel` | 跟随新增状态位 |
 | `chat/utils/providerPermissionModes.ts:11` `PROVIDER_PERMISSION_MODES` | 四值 | `['default', 'autoApprove']` | **必须与后端 `provider-capabilities.service.ts` 的 dsh 条目一致**（该文件自称"改一处要改三处"） |
 | `tasks/useTaskEngineAvailability.ts:8` `ENGINE_NAMES` | 四值 | `'DeepSeek Harness'` | 展示名 |
-| `tasks/taskStatus.ts:89` `EXECUTOR_META` | 四值 | `{ label: 'DeepSeek Harness', badge: … }` | 与 qoder 条目同形 |
+| `tasks/taskStatus.ts:89` `EXECUTOR_META` | 四值 | `{ label: '◈ DeepSeek', badge: 'bg-chart-4/10 text-chart-4' }` | 与 qoder 条目同形（`◈ 名称` + 一对 token） |
 | `chat/view/subcomponents/convertToTaskPayload.ts:17` `FALLBACK_DEFAULT_MODEL` | 四值 | `'default'` | 同 2.2 第一行 |
 
 ### 2.3 静默错分支（不报错但行为错——最危险的一类）
