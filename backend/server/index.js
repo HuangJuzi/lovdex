@@ -270,12 +270,13 @@ const wss = createWebSocketServer(server, {
             qoder: abortQoderSession,
             dsh: abortDshSession,
         },
-        // Pending tool approvals may be owned by either interactive provider
-        // (Claude's SDK callback or Qoder's stdio control protocol) or a remote
-        // lite host. Request ids are globally-unique UUIDs, so the routing
+        // Pending tool approvals may be owned by any interactive provider (the
+        // Claude SDK callback, Qoder's stdio control protocol, or dsh's ACP
+        // session/request_permission) or a remote lite host. Request ids are
+        // globally-unique (dsh namespaces its ACP ids per run), so the routing
         // resolves remote-owned approvals over the ws bus and dispatches the
-        // rest to both local resolvers — the one that does not own the request
-        // is a no-op.
+        // rest to every local resolver — the ones that do not own the request
+        // are no-ops.
         resolveToolApproval: remoteRouting.wrapResolveToolApproval((requestId, payload) => {
             resolveToolApproval(requestId, payload);
             resolveQoderToolApproval(requestId, payload);
