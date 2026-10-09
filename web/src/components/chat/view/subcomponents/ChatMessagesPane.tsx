@@ -174,10 +174,11 @@ function ChatMessagesPane({
     [messageKeyMap],
   );
 
-  // Install availability of the four providers on the machine that will execute
-  // the session: the local machine for ordinary projects, the bound remote host
-  // for remote projects. Drives the provider-picker filtering (and the
-  // auto-jump off an uninstalled provider) inside ProviderSelectionEmptyState.
+  // Install availability of each provider (see ALL_PROVIDERS) on the machine
+  // that will execute the session: the local machine for ordinary projects, the
+  // bound remote host for remote projects. Drives the provider-picker filtering
+  // (and the auto-jump off an uninstalled provider) inside
+  // ProviderSelectionEmptyState.
   const [installedProviders, setInstalledProviders] = useState<Record<LLMProvider, boolean> | null>(null);
 
   useEffect(() => {
