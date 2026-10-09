@@ -48,6 +48,12 @@ import {
     queryQoder,
     resolveQoderToolApproval,
 } from './qoder-runner.js';
+import {
+    abortDshSession,
+    getDshPendingApprovalsForSession,
+    queryDsh,
+    resolveDshToolApproval,
+} from './dsh-acp-runner.js';
 import commandsRoutes from './routes/commands.js';
 import sessionsRoutes from './routes/sessions.js';
 import projectModuleRoutes from './modules/projects/projects.routes.js';
@@ -246,6 +252,7 @@ const spawnFns = {
     codex: remoteRouting.wrapSpawn('codex', queryCodex),
     opencode: remoteRouting.wrapSpawn('opencode', queryOpenCode),
     qoder: remoteRouting.wrapSpawn('qoder', queryQoder),
+    dsh: remoteRouting.wrapSpawn('dsh', queryDsh),
 };
 
 // Single WebSocket server that handles chat.
@@ -261,6 +268,7 @@ const wss = createWebSocketServer(server, {
             codex: abortCodexSession,
             opencode: abortOpenCodeSession,
             qoder: abortQoderSession,
+            dsh: abortDshSession,
         },
         // Pending tool approvals may be owned by either interactive provider
         // (Claude's SDK callback or Qoder's stdio control protocol) or a remote
@@ -271,6 +279,7 @@ const wss = createWebSocketServer(server, {
         resolveToolApproval: remoteRouting.wrapResolveToolApproval((requestId, payload) => {
             resolveToolApproval(requestId, payload);
             resolveQoderToolApproval(requestId, payload);
+            resolveDshToolApproval(requestId, payload);
         }),
         getPendingApprovalsForSession: (providerSessionId) => {
             const remote = remoteRouting.getPendingApprovals(providerSessionId);
@@ -278,6 +287,7 @@ const wss = createWebSocketServer(server, {
             return [
                 ...getPendingApprovalsForSession(providerSessionId),
                 ...getQoderPendingApprovalsForSession(providerSessionId),
+                ...getDshPendingApprovalsForSession(providerSessionId),
             ];
         },
     },
