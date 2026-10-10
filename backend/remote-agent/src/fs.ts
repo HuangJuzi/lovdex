@@ -15,6 +15,8 @@ export type RemoteDirEntry = {
 };
 
 export type AllowlistedFs = {
+  /** Resolve `input` against the configured roots; throws on escape. */
+  resolveWithin(input: string): string;
   stat(p: string): Promise<{
     exists: boolean;
     isDirectory: boolean;
@@ -98,6 +100,10 @@ export function createAllowlistedFs(opts: {
   const defaultMaxReadBytes = Math.min(opts.maxReadBytes ?? DEFAULT_MAX_READ_BYTES, MAX_READ_BYTES_CAP);
 
   return {
+    resolveWithin(input) {
+      return resolveWithinRoots(input, roots);
+    },
+
     async stat(p) {
       const target = resolveWithinRoots(p, roots);
       try {
