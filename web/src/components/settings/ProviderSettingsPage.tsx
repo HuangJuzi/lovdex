@@ -3,6 +3,19 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { api } from '../../utils/api';
 import { Button } from '../../shared/view/ui';
 
+import { ProviderProfileSelector } from './ProviderProfileSelector';
+import {
+  FORM_FIELDS,
+  buildConfigPutBody,
+  findNewProfileId,
+  isProfileModified,
+  profileFormEntries,
+  readSelections,
+  withProfileBuckets,
+  type ProviderKey,
+  type ProfileBuckets,
+} from './providerProfiles';
+
 /**
  * Provider 凭据 + 运行参数设置。
  *
@@ -37,15 +50,15 @@ type ProvidersConfig = {
   qoder?: { personalAccessToken?: string };
 };
 type ServerConfig = { port?: number; host?: string; corsOrigin?: string };
-type LlmProxyConfig = { enabled?: boolean };
+type LlmProxyConfig = { enabled?: boolean; anthropicUrl?: string };
 type AppConfig = {
   providers?: ProvidersConfig;
   server?: ServerConfig;
   llmProxy?: LlmProxyConfig;
+  providerProfiles?: ProfileBuckets;
+  activeProviderProfiles?: Record<string, string>;
   [k: string]: unknown;
 };
-
-type ProviderKey = 'claude' | 'codex' | 'opencode' | 'qoder';
 
 type AuthStatusData = {
   installed?: boolean;
@@ -169,10 +182,12 @@ function SecretField({
 function Section({
   title,
   provider,
+  headerExtra,
   children,
 }: {
   title: string;
   provider?: ProviderKey;
+  headerExtra?: ReactNode;
   children: ReactNode;
 }) {
   return (
@@ -181,6 +196,7 @@ function Section({
         <h2 className="text-sm font-semibold text-foreground">{title}</h2>
         {provider && <AuthStatus provider={provider} />}
       </div>
+      {headerExtra && <div className="mb-3">{headerExtra}</div>}
       <div className="flex flex-col gap-3">{children}</div>
     </section>
   );
@@ -193,6 +209,9 @@ export function ProviderSettingsForm() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
+  const [selections, setSelections] = useState<Record<ProviderKey, string>>({
+    claude: '', codex: '', opencode: '', qoder: '',
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -204,7 +223,10 @@ export function ProviderSettingsForm() {
           return;
         }
         const cfg = (await res.json()) as AppConfig;
-        if (!cancelled) setDraft(cfg);
+        if (!cancelled) {
+          setDraft(cfg);
+          setSelections(readSelections(cfg));
+        }
       })
       .catch(() => {
         if (!cancelled) setLoadError(true);
@@ -233,6 +255,130 @@ export function ProviderSettingsForm() {
     });
   }
 
+  /** 选档：只填表单，不写盘（保存时才生效）。 */
+  function selectProfile(provider: ProviderKey, id: string) {
+    setSavedMsg(null);
+    setSelections((prev) => ({ ...prev, [provider]: id }));
+    if (!id || !draft) return;
+    const profile = draft.providerProfiles?.[provider]?.[id];
+    if (!profile) return;
+    // 复用 patchProvider：它已经是这份文件里唯一经过类型检查的"改一个表单字段"写法。
+    for (const [field, value] of profileFormEntries(profile, FORM_FIELDS[provider])) {
+      patchProvider(provider, field, value);
+    }
+  }
+
+  /** 存为新档：先把表单落盘（含档选择），再从生效字段快照 —— 存下来的就是屏幕上看到的。 */
+  async function createProfile(provider: ProviderKey) {
+    if (!draft) return;
+    const raw = window.prompt('配置档名称');
+    if (raw === null) return;
+    const name = raw.trim();
+    if (!name) {
+      setSaveError('配置档名称不能为空');
+      return;
+    }
+    setSaving(true);
+    setSaveError(null);
+    setSavedMsg(null);
+    try {
+      const beforeIds = Object.keys(draft.providerProfiles?.[provider] ?? {});
+      const putRes = await api.put('/config', buildConfigPutBody(draft, selections));
+      if (!putRes.ok) {
+        setSaveError(`保存失败（${putRes.status}）`);
+        return;
+      }
+      const postRes = await api.post('/config/provider-profiles', { provider, name });
+      if (!postRes.ok) {
+        const err = await postRes.json().catch(() => null);
+        setSaveError(err?.error?.message ?? err?.error ?? `新建配置档失败（${postRes.status}）`);
+        return;
+      }
+      const cfg = (await postRes.json()) as AppConfig;
+      const newId = findNewProfileId(beforeIds, Object.keys(cfg.providerProfiles?.[provider] ?? {}));
+      setDraft((prev) => (prev ? withProfileBuckets(prev, cfg) : cfg));
+      setSelections((prev) => ({ ...prev, [provider]: newId || prev[provider] }));
+      setSavedMsg(`已存为配置档「${name}」`);
+    } catch (err) {
+      setSaveError((err as Error).message ?? '新建配置档失败');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function renameProfile(provider: ProviderKey) {
+    if (!draft) return;
+    const id = selections[provider];
+    const current = draft.providerProfiles?.[provider]?.[id]?.name ?? '';
+    const raw = window.prompt('新的配置档名称', current);
+    if (raw === null) return;
+    const name = raw.trim();
+    if (!name || name === current) return;
+    setSaveError(null);
+    try {
+      // 这次 PUT 不带 activeProviderProfiles，所以档标记不变；name 不是密钥，
+      // deepMerge 直接改掉。注意它和任何 PUT 一样会触发一次 llm-proxy reconcile。
+      const res = await api.put('/config', { providerProfiles: { [provider]: { [id]: { name } } } });
+      if (!res.ok) {
+        setSaveError(`重命名失败（${res.status}）`);
+        return;
+      }
+      const cfg = (await res.json()) as AppConfig;
+      setDraft((prev) => (prev ? withProfileBuckets(prev, cfg) : cfg));
+      setSavedMsg(`已重命名为「${name}」`);
+    } catch (err) {
+      setSaveError((err as Error).message ?? '重命名失败');
+    }
+  }
+
+  async function deleteProfile(provider: ProviderKey) {
+    if (!draft) return;
+    const id = selections[provider];
+    const name = draft.providerProfiles?.[provider]?.[id]?.name ?? '';
+    if (!window.confirm(`删除配置档「${name}」？（不会改变当前生效的配置）`)) return;
+    setSaveError(null);
+    try {
+      const res = await api.delete(
+        `/config/provider-profiles/${provider}/${encodeURIComponent(id)}`,
+      );
+      if (!res.ok) {
+        setSaveError(`删除失败（${res.status}）`);
+        return;
+      }
+      const cfg = (await res.json()) as AppConfig;
+      // 只换配置档两个键 → 表单里未保存的编辑与生效字段都原样保留。
+      setDraft((prev) => (prev ? withProfileBuckets(prev, cfg) : cfg));
+      setSelections((prev) => (prev[provider] === id ? { ...prev, [provider]: '' } : prev));
+      setSavedMsg(`已删除配置档「${name}」`);
+    } catch (err) {
+      setSaveError((err as Error).message ?? '删除失败');
+    }
+  }
+
+  function selectorFor(provider: ProviderKey) {
+    const profiles = draft?.providerProfiles?.[provider] ?? {};
+    const id = selections[provider];
+    const modified = id
+      ? isProfileModified(
+          (draft?.providers?.[provider] ?? {}) as Record<string, unknown>,
+          profiles[id] ?? { name: '', values: {} },
+          FORM_FIELDS[provider],
+        )
+      : false;
+    return (
+      <ProviderProfileSelector
+        profiles={profiles}
+        selectedId={id}
+        modified={modified}
+        disabled={saving}
+        onSelect={(next) => selectProfile(provider, next)}
+        onCreate={() => void createProfile(provider)}
+        onRename={() => void renameProfile(provider)}
+        onDelete={() => void deleteProfile(provider)}
+      />
+    );
+  }
+
   function setLlmProxyEnabled(value: boolean) {
     setSavedMsg(null);
     setDraft((prev) => {
@@ -249,7 +395,7 @@ export function ProviderSettingsForm() {
     try {
       // Send the whole draft as-is: the backend strips `••••`-prefixed masked
       // values so real secrets are preserved. No client-side masking handling.
-      const res = await api.put('/config', draft);
+      const res = await api.put('/config', buildConfigPutBody(draft, selections));
       if (!res.ok) {
         const err = await res.json().catch(() => null);
         setSaveError(err?.error?.message ?? err?.error ?? `保存失败（${res.status}）`);
@@ -293,7 +439,11 @@ export function ProviderSettingsForm() {
         Base URL / 凭据 / 模型保存后对新会话立即生效；某字段留空并保存 = 清除该配置。
       </p>
 
-      <Section title="Claude" provider="claude">
+      <Section
+        title="Claude"
+        provider="claude"
+        headerExtra={selectorFor('claude')}
+      >
         <SecretField
           label="API Key (apiKey)"
           value={claude.apiKey ?? ''}
@@ -336,9 +486,22 @@ export function ProviderSettingsForm() {
           placeholder="逗号分隔的模型名，留空关闭"
           onChange={(v) => patchProvider('claude', 'oneMillionModels', v)}
         />
+        {llmProxy.enabled === true && (llmProxy.anthropicUrl ?? '').trim() !== '' && (
+          <p className="text-xs text-warning">
+            本地代理已显式指定上游（llmProxy.anthropicUrl），它不再跟随这里的 Base URL
+            —— 切换配置档只影响直连路径，代理仍打老上游。
+          </p>
+        )}
+        <p className="text-xs text-muted-foreground">
+          配置档由服务端保管密钥；切换后点保存生效，只影响新会话（运行中的会话沿用启动时的凭据）。
+        </p>
       </Section>
 
-      <Section title="Codex" provider="codex">
+      <Section
+        title="Codex"
+        provider="codex"
+        headerExtra={selectorFor('codex')}
+      >
         <TextField
           label="可执行路径 (binPath)"
           value={codex.binPath ?? ''}
@@ -351,23 +514,40 @@ export function ProviderSettingsForm() {
           onChange={(v) => patchProvider('codex', 'apiKey', v)}
           revealable={false}
         />
+        <p className="text-xs text-muted-foreground">
+          配置档由服务端保管密钥；切换后点保存生效，只影响新会话（运行中的会话沿用启动时的凭据）。
+        </p>
       </Section>
 
-      <Section title="OpenCode" provider="opencode">
+      <Section
+        title="OpenCode"
+        provider="opencode"
+        headerExtra={selectorFor('opencode')}
+      >
         <TextField
           label="可执行路径 (binPath)"
           value={opencode.binPath ?? ''}
           placeholder="opencode"
           onChange={(v) => patchProvider('opencode', 'binPath', v)}
         />
+        <p className="text-xs text-muted-foreground">
+          配置档由服务端保管密钥；切换后点保存生效，只影响新会话（运行中的会话沿用启动时的凭据）。
+        </p>
       </Section>
 
-      <Section title="Qoder" provider="qoder">
+      <Section
+        title="Qoder"
+        provider="qoder"
+        headerExtra={selectorFor('qoder')}
+      >
         <SecretField
           label="Personal Access Token (personalAccessToken)"
           value={qoder.personalAccessToken ?? ''}
           onChange={(v) => patchProvider('qoder', 'personalAccessToken', v)}
         />
+        <p className="text-xs text-muted-foreground">
+          配置档由服务端保管密钥；切换后点保存生效，只影响新会话（运行中的会话沿用启动时的凭据）。
+        </p>
       </Section>
 
       <Section title="LLM Proxy（报错修复 + 远程转发）">
