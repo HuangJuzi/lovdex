@@ -1,4 +1,4 @@
-import test from 'node:test';
+import test, { type TestContext } from 'node:test';
 import assert from 'node:assert';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -25,7 +25,7 @@ function buildTestApp(cfg: AppConfigApi) {
 
 /** Binds an app on an ephemeral port; server close + tmp dir clean-up are
  * guaranteed even when assertions throw. `t.after` hooks also run on failure. */
-function listen(t: ReturnType<typeof test>, cfg: AppConfigApi) {
+function listen(t: TestContext, cfg: AppConfigApi) {
   const app = buildTestApp(cfg);
   const server = app.listen(0);
   t.after(() => server.close());

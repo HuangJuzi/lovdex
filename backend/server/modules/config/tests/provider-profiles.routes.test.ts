@@ -1,4 +1,4 @@
-import test from 'node:test';
+import test, { type TestContext } from 'node:test';
 import assert from 'node:assert';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -10,7 +10,7 @@ import type { AppConfigApi } from '../config.js';
 import { buildProviderProfilesRouter } from '../provider-profiles.js';
 
 /** 把 profiles router 挂起来；鉴权在挂载点做（同 index.js），这里不重复。 */
-function listen(t: ReturnType<typeof test>, cfg: AppConfigApi) {
+function listen(t: TestContext, cfg: AppConfigApi) {
   const app = express();
   app.use(express.json());
   app.use('/api/config', buildProviderProfilesRouter({ cfg }));
@@ -20,7 +20,7 @@ function listen(t: ReturnType<typeof test>, cfg: AppConfigApi) {
   return { port };
 }
 
-function freshCfg(t: ReturnType<typeof test>): AppConfigApi {
+function freshCfg(t: TestContext): AppConfigApi {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lovdex-ppr-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   return createAppConfig({ dataDir: dir });
