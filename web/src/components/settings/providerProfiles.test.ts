@@ -1,0 +1,99 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+
+import {
+  FORM_FIELDS,
+  NO_PROFILE,
+  buildConfigPutBody,
+  findNewProfileId,
+  isProfileModified,
+  profileFormEntries,
+  readSelections,
+  selectionFor,
+  withProfileBuckets,
+} from './providerProfiles';
+
+const CLIENT_PROFILE = {
+  name: '主账号',
+  values: {
+    apiKey: 'sk-ant****abcdef',
+    baseUrl: 'https://a.example',
+    defaultModel: 'm1',
+    opusModel: 'm2',
+    sonnetModel: 'm3',
+    haikuModel: 'm4',
+  },
+};
+
+test('NO_PROFILE is an empty string, never null (backend deepMerge treats null as absent)', () => {
+  assert.strictEqual(NO_PROFILE, '');
+});
+
+test('selectionFor falls back to NO_PROFILE for missing/empty markers', () => {
+  assert.strictEqual(selectionFor({ claude: 'p_a' }, 'claude'), 'p_a');
+  assert.strictEqual(selectionFor({ claude: '' }, 'claude'), NO_PROFILE);
+  assert.strictEqual(selectionFor(undefined, 'claude'), NO_PROFILE);
+  assert.strictEqual(selectionFor({}, 'codex'), NO_PROFILE);
+});
+
+test('readSelections fills every provider key', () => {
+  assert.deepStrictEqual(readSelections({ activeProviderProfiles: { claude: 'p_a' } }), {
+    claude: 'p_a',
+    codex: '',
+    opencode: '',
+    qoder: '',
+  });
+  assert.deepStrictEqual(readSelections({}), { claude: '', codex: '', opencode: '', qoder: '' });
+});
+
+test('profileFormEntries returns only the form fields the profile carries as strings', () => {
+  assert.deepStrictEqual(profileFormEntries(CLIENT_PROFILE, FORM_FIELDS.claude), [
+    ['apiKey', 'sk-ant****abcdef'],
+    ['baseUrl', 'https://a.example'],
+    ['defaultModel', 'm1'],
+    ['opusModel', 'm2'],
+    ['sonnetModel', 'm3'],
+    ['haikuModel', 'm4'],
+  ]);
+  // opencode 表单只渲染 binPath：apiKeys（对象）不该被塞进表单
+  const opencode = { name: 'o', values: { binPath: '/usr/bin/opencode', apiKeys: { OPENAI_API_KEY: 'sk-o' } } };
+  assert.deepStrictEqual(profileFormEntries(opencode, FORM_FIELDS.opencode), [['binPath', '/usr/bin/opencode']]);
+});
+
+test('isProfileModified compares only the form fields (masked values compare fine)', () => {
+  const form = { apiKey: 'sk-ant****abcdef', baseUrl: 'https://a.example', defaultModel: 'm1' };
+  assert.strictEqual(isProfileModified(form, CLIENT_PROFILE, FORM_FIELDS.claude), false);
+  assert.strictEqual(
+    isProfileModified({ ...form, defaultModel: 'typed' }, CLIENT_PROFILE, FORM_FIELDS.claude),
+    true,
+  );
+  // 表单没渲染的字段不参与比对
+  assert.strictEqual(isProfileModified(form, CLIENT_PROFILE, ['apiKey']), false);
+});
+
+test('buildConfigPutBody echoes the draft and normalises selections to never-null', () => {
+  const draft = { providers: { claude: { baseUrl: 'https://x.example' } }, server: { port: 3188 } };
+  const body = buildConfigPutBody(draft, { claude: 'p_a', codex: '', opencode: '', qoder: '' });
+  assert.deepStrictEqual(body.activeProviderProfiles, { claude: 'p_a', codex: '', opencode: '', qoder: '' });
+  assert.deepStrictEqual(body.providers, draft.providers);
+  assert.deepStrictEqual(body.server, draft.server);
+});
+
+test('withProfileBuckets swaps only the two profile keys (unsaved form edits survive)', () => {
+  const draft = { providers: { claude: { baseUrl: 'typed-but-unsaved' } }, server: { port: 1 } };
+  const cfg = {
+    providerProfiles: { claude: { p_a: { name: 'A', values: {} } } },
+    activeProviderProfiles: { claude: 'p_a' },
+  };
+  const next = withProfileBuckets(draft, cfg) as Record<string, unknown>;
+  assert.deepStrictEqual(next.providerProfiles, cfg.providerProfiles);
+  assert.deepStrictEqual(next.activeProviderProfiles, cfg.activeProviderProfiles);
+  assert.deepStrictEqual(next.providers, draft.providers); // 未保存的编辑还在
+  assert.deepStrictEqual(next.server, draft.server);
+});
+
+test('findNewProfileId picks the id that was not there before', () => {
+  assert.strictEqual(findNewProfileId(['p_a'], ['p_a', 'p_new']), 'p_new');
+  assert.strictEqual(findNewProfileId([], ['p_only']), 'p_only');
+  assert.strictEqual(findNewProfileId(['p_a'], ['p_a']), '');
+});
