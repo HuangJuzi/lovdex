@@ -53,11 +53,13 @@
 
 现状（`index.js:1519-1536`）：multer `diskStorage` 把文件写到 `os.tmpdir()`，handler 里再 `copyFile` 到目标目录。10GB 文件会同时占用临时盘和目标盘，峰值 2×。
 
-改为**目标目录内落地**：
+改为**目标目录内落地**，复用仓库既有的项目内临时目录约定（`PROJECT_TMP_DIR = '.lovdex-tmp'`，`backend/server/modules/assets/services/file-assets.service.ts:7`；该目录内含 `*` 的 `.gitignore`，天然不进 git status）：
 
-1. multer 的 `destination` 回调改为目标目录下的临时目录 `<targetDir>/.lovdex-upload-<rand>/`，文件名保留原名（原始文件名仍在 `file.originalname`，folder 上传的 `relativePaths` 逻辑不变）。
+1. multer 的 `destination` 回调改为**唯一子目录** `<projectRoot>/.lovdex-tmp/upload-<rand>/`，文件名保留原名（原始文件名仍在 `file.originalname`，folder 上传的 `relativePaths` 逻辑不变）。
 2. multer 完成后，对每个文件把 `<tmpDir>/<name>` **`rename`** 到 `path.join(resolvedTargetDir, fileName)`——同盘原子操作，不再 `copyFile`。
-3. 结束或失败时递归删除该临时目录（现有 catch / 清理点改指向它）。
+3. 结束或失败时**只递归删除这个 `<rand>` 子目录**（不是整个 `.lovdex-tmp`，否则会误删聊天附件）。
+
+注意 `targetDir` 只有在 handler 内解析（`relativePaths`、`validatePathInProject`）之后才确定，而 multer 的 `destination` 回调在解析之前，因此需要把「解析目标目录」提前到 multer 中间件之前（现在远程分支内部才解析）。本机与远程分支共用同一个已解析的 `resolvedTargetDir`。
 
 注意 `targetDir` 只有在 handler 内解析（`relativePaths`、`validatePathInProject`）之后才确定，而 multer 的 `destination` 回调在解析之前，因此需要把「解析目标目录」提前到 multer 中间件之前（现在远程分支内部才解析）。本机与远程分支共用同一个已解析的 `resolvedTargetDir`。
 
@@ -110,7 +112,7 @@ uploadId → { fd, targetPath, partPath, nextIndex, received, createdAt }
 
 ### 4.5 本会话不做的事（明确记录，避免被当成遗漏）
 
-- **`POST /api/assets/files`（聊天附件，≤50MB）单文件上限不动**。`REMOTE_MAX_UPLOAD_BYTES` 被移除后，这个模块（`assets.routes.ts`）本来也不 import 它，无耦合。
+- **`POST /api/assets/files`（聊天附件，≤50MB）单文件上限不动**。该模块（`assets.routes.ts`）是**纯本机**的（无 remote 分支，也不 import `REMOTE_MAX_UPLOAD_BYTES`），与本次改动无耦合。
 - **远程大文件预览/下载不做**。故「上传 10GB 后无法在 UI 打开」是已知且接受的状态。
 - **分片不落盘重试**。断网/刷新即失败，用户重传。
 
