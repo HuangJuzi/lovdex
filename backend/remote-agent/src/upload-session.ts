@@ -75,7 +75,13 @@ export function createUploadSessions(opts: {
     } catch {
       /* already closed */
     }
-    await fsp.unlink(session.partPath).catch(() => {});
+    // ENOENT just means it was already reaped; anything else (EACCES, EBUSY)
+    // would otherwise leave a `.part` nobody ever reports.
+    await fsp.unlink(session.partPath).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== 'ENOENT') {
+        console.warn(`[upload] failed to remove ${session.partPath}:`, error.message);
+      }
+    });
   }
 
   function refreshTimer(session: Session, uploadId: string): void {

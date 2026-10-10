@@ -88,8 +88,10 @@ test('fs/uploadChunk rejects an absurdly large frame before decoding it', async 
     uploadId: string;
   };
 
-  // 16MiB encoded cap + 1 byte; main slices at 4MiB so this is never legitimate.
-  const oversized = 'A'.repeat(16 * 1024 * 1024 + 1);
+  // 16MiB encoded cap + 1 byte; main slices at 4MiB so this is never
+  // legitimate. Deliberately NOT valid base64, so the frame also proves the
+  // guard rejects before any decode work is attempted.
+  const oversized = '!'.repeat(16 * 1024 * 1024 + 1);
   await assert.rejects(
     () => handleRpc('fs/uploadChunk', { uploadId, index: 0, data: oversized }, cfg),
     /chunk too large/,
