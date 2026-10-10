@@ -6,7 +6,7 @@ export const FILE_TREE_DEFAULT_VIEW_MODE: FileTreeViewMode = 'detailed';
 
 export const FILE_TREE_VIEW_MODES: FileTreeViewMode[] = ['simple', 'compact', 'detailed'];
 
-export const MAX_FILE_UPLOAD_SIZE_MB = 200;
+export const MAX_FILE_UPLOAD_SIZE_MB = 10240;
 
 export const MAX_FILE_UPLOAD_SIZE_BYTES = MAX_FILE_UPLOAD_SIZE_MB * 1024 * 1024;
 
