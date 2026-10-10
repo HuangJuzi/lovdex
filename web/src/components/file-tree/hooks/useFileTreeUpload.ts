@@ -109,15 +109,23 @@ const buildUploadFormData = (files: File[], targetPath: string) => {
   return formData;
 };
 
+/** Build the upload URL. `targetPath` rides the query string so the backend can
+ *  resolve the destination (and its staging dir) before multer parses the body. */
+export const buildUploadUrl = (projectId: string, targetPath: string) => {
+  const base = `/api/projects/${encodeURIComponent(projectId)}/files/upload`;
+  return targetPath ? `${base}?targetPath=${encodeURIComponent(targetPath)}` : base;
+};
+
 const uploadFormDataWithProgress = (
   projectId: string,
+  targetPath: string,
   formData: FormData,
   onProgress: (progress: number) => void,
 ) =>
   new Promise<UploadResponse>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
 
-    xhr.open('POST', `/api/projects/${encodeURIComponent(projectId)}/files/upload`);
+    xhr.open('POST', buildUploadUrl(projectId, targetPath));
 
     const token = getStoredAuthToken();
     if (!IS_PLATFORM() && token) {
@@ -334,6 +342,7 @@ export const useFileTreeUpload = ({
       try {
         const response = await uploadFormDataWithProgress(
           selectedProject.projectId,
+          targetPath,
           buildUploadFormData(files, targetPath),
           (progress) => {
             latestProgress = progress;
