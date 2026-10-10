@@ -7,6 +7,14 @@
  * 设计见 docs/superpowers/specs/2026-10-10-provider-profiles-design.md。
  */
 
+/**
+ * 设置页**有配置档 UI** 的 provider。
+ *
+ * 注意这个集合比后端的 `PROFILE_FIELDS` **窄**：后端还带 `dsh`（它今天在设置页
+ * 没有凭据区块，是刻意不做）。所以 API 建出来的 `dsh` 档在前端是看不见的、其
+ * `activeProviderProfiles.dsh` 标记也没法从这里清。**给后端 PROFILE_FIELDS 加
+ * provider 时，如果同时要给它 UI，必须一并加宽这个联合类型** —— 否则是静默失能。
+ */
 export type ProviderKey = 'claude' | 'codex' | 'opencode' | 'qoder';
 
 export type ProviderProfile = { name: string; values: Record<string, unknown> };

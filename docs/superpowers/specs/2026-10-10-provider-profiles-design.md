@@ -164,7 +164,8 @@ Claude                                        已认证（xxx）
 选项 =「自定义（不归属任何档）」+ 各档名。
 
 - 选某档 → 把该 provider 的**表单字段**替换成该档的值（`apiKey` 显示该档的打码串，其余字段是真值）。**此刻不写盘**。
-- 档名后加状态标注：表单值与档完全一致 → `当前`；被手改过 → `（已修改）`。比对在客户端做——打码串也能比，因为打码由真值决定，值同则码同。
+- 档名在被手改过时加后缀 `（已修改）`；**不加后缀即表示表单与该档一致**。比对在客户端做——打码串也能比，因为打码由真值决定，值同则码同。
+  （早期草稿还提过一个正向的 `当前` 徽标；实现时判定它与"无后缀"表达同一件事、纯属冗余，故未做。）
 - 切到「自定义」→ 表单值不动，只是保存时发 `activeProviderProfiles[provider] = ''`。
 
 ### 5.2 保存
@@ -191,7 +192,7 @@ Section 内加一行小字：
 仓库的 web 测试是 `renderToStaticMarkup` SSR（不跑 effect、无 DOM，见 `SettingsPage.test.tsx:1`），所以把逻辑抽成纯函数模块 `web/src/components/settings/providerProfiles.ts`：
 
 - `profileToFormValues(profile)` —— 档 → 表单字段
-- `findActiveProfileId(formValues, profiles, activeMap)` —— 标注「当前 / 已修改」
+- `isProfileModified(providerValues, profile, fields)` —— 决定标不标「已修改」
 - `buildConfigPutBody(draft, selections)` —— 含 `activeProviderProfiles`（自定义 → `''`）
 
 用 `node:test` 直接测纯函数；再补一个 SSR 冒烟断言下拉渲染出来。
