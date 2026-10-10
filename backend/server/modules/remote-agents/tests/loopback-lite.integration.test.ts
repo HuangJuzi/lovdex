@@ -1,11 +1,18 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
+import { promises as fsp } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { WebSocket } from 'ws';
 import type { WebSocketServer } from 'ws';
 import { createRemoteAgentsRegistry } from '../remote-agents.registry.js';
 import { createRemoteAgentWss } from '../remote-agent.server.js';
 import { createRemoteRouting } from '../remote-spawn.js';
+import { createRemoteFsClient } from '../remote-fs.service.js';
+import { pushFileToRemote, UPLOAD_CHUNK_BYTES } from '@/modules/uploads/remote-upload.service.js';
+import { handleRpc } from '../../../../remote-agent/src/rpc-dispatch.js';
+import type { RemoteAgentConfig } from '../../../../remote-agent/src/config.js';
 
 /**
  * In-process loopback: a REAL ws client plays the lite role over a REAL http
@@ -133,8 +140,17 @@ function fakeLite(
   };
 }
 
-/** Connects a lite ws client, sends hello, resolves after the hello ack. */
-async function connectLite(port: number, hostId: string): Promise<WebSocket> {
+/**
+ * Connects a lite ws client, sends hello, resolves after the hello ack.
+ *
+ * `hello` overrides the advertised roots/capabilities; the defaults (`['/srv']`,
+ * `[]`) keep every existing caller's behaviour identical.
+ */
+async function connectLite(
+  port: number,
+  hostId: string,
+  hello?: { roots?: string[]; capabilities?: string[] },
+): Promise<WebSocket> {
   const ws = new WebSocket(`ws://127.0.0.1:${port}/api/remote-agents/ws?token=loop-token`);
   await new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('connectLite: open timeout')), 2000);
@@ -167,8 +183,8 @@ async function connectLite(port: number, hostId: string): Promise<WebSocket> {
         agentVersion: '1',
         nodeVersion: '20',
         os: 'linux',
-        roots: ['/srv'],
-        capabilities: [],
+        roots: hello?.roots ?? ['/srv'],
+        capabilities: hello?.capabilities ?? [],
       }),
     );
   });
@@ -349,6 +365,120 @@ test(
       ws?.close();
       await new Promise<void>((r) => (wss ? wss.close(() => r()) : r()));
       await new Promise<void>((r) => server.close(() => r()));
+    }
+  },
+);
+
+test(
+  'loopback lite: multi-chunk remote upload lands byte-for-byte on the lite disk',
+  { timeout: 20_000 },
+  async () => {
+    // The lite's allowlist root (where the bytes must land) and a separate dir
+    // for the LOCAL source file (which the lite knows nothing about).
+    const liteRoot = await fsp.realpath(await fsp.mkdtemp(path.join(os.tmpdir(), 'loop-upload-root-')));
+    const srcDir = await fsp.realpath(await fsp.mkdtemp(path.join(os.tmpdir(), 'loop-upload-src-')));
+
+    const server = http.createServer();
+    const registry = createRemoteAgentsRegistry();
+    let wss: WebSocketServer | undefined;
+    let ws: WebSocket | undefined;
+
+    try {
+      const cfg: RemoteAgentConfig = {
+        serverUrl: 'ws://127.0.0.1/api/remote-agents/ws',
+        token: 'loop-token',
+        hostId: 'h1',
+        roots: [liteRoot],
+        skillRoots: [],
+        agentVersion: '1.0.0-test',
+      };
+
+      wss = createRemoteAgentWss(server, {
+        verifyToken: (t) => (t === 'loop-token' ? 'h1' : null),
+        registry,
+        onHostOnline: () => {},
+        onHostOffline: () => {},
+      });
+      const port = await listen(server);
+
+      const client = await connectLite(port, 'h1', {
+        roots: [liteRoot],
+        capabilities: ['fs/uploadBegin', 'fs/uploadChunk', 'fs/uploadEnd'],
+      });
+      ws = client;
+      assert.equal(registry.isOnline('h1'), true);
+
+      // This ws client IS the lite: every `fs/upload*` rpc_req from main is run
+      // through the REAL `handleRpc` — the same zod param schemas, allowlisted
+      // fs, and hardened upload-session machine that ship to a remote host. No
+      // fake re-implements the chunk bookkeeping, so a break in either half
+      // (main slicing / lite session) surfaces as a real failure here.
+      client.on('message', (raw) => {
+        void (async () => {
+          let frame: { type?: string; id?: string; method?: string; params?: unknown };
+          try {
+            frame = JSON.parse(String(raw));
+          } catch {
+            return;
+          }
+          if (frame.type !== 'rpc_req' || typeof frame.id !== 'string') return;
+          if (!frame.method || !frame.method.startsWith('fs/upload')) {
+            // A main-side method rename must surface, not be blind-acked.
+            client.send(
+              JSON.stringify({
+                type: 'rpc_res',
+                id: frame.id,
+                ok: false,
+                error: `unexpected rpc_req method: ${frame.method}`,
+              }),
+            );
+            return;
+          }
+          try {
+            const data = await handleRpc(frame.method, frame.params, cfg);
+            client.send(JSON.stringify({ type: 'rpc_res', id: frame.id, ok: true, data }));
+          } catch (err) {
+            client.send(
+              JSON.stringify({
+                type: 'rpc_res',
+                id: frame.id,
+                ok: false,
+                error: err instanceof Error ? err.message : String(err),
+              }),
+            );
+          }
+        })();
+      });
+
+      // One byte over a single chunk, filled with a non-trivial pattern so a
+      // dropped/duplicated/reordered chunk cannot accidentally compare equal.
+      const size = UPLOAD_CHUNK_BYTES + 7;
+      const pattern = Buffer.alloc(size, 9);
+      const srcPath = path.join(srcDir, 'source.bin');
+      await fsp.writeFile(srcPath, pattern);
+
+      const destPath = path.join(liteRoot, 'landed.bin');
+      const result = await pushFileToRemote(
+        { fsClient: createRemoteFsClient(() => registry), hostId: 'h1' },
+        srcPath,
+        destPath,
+      );
+
+      assert.equal(result.size, size, 'reported size equals the source byte count');
+
+      const landed = await fsp.readFile(destPath);
+      assert.equal(landed.length, size, 'bytes on the lite disk match the source length');
+      assert.ok(landed.equals(pattern), 'bytes on the lite disk are byte-for-byte the source');
+
+      const entries = await fsp.readdir(liteRoot);
+      const leftovers = entries.filter((e) => e.includes('.part'));
+      assert.deepEqual(leftovers, [], 'no .part file left behind after a committed upload');
+    } finally {
+      ws?.close();
+      await new Promise<void>((r) => (wss ? wss.close(() => r()) : r()));
+      await new Promise<void>((r) => server.close(() => r()));
+      await fsp.rm(liteRoot, { recursive: true, force: true });
+      await fsp.rm(srcDir, { recursive: true, force: true });
     }
   },
 );
