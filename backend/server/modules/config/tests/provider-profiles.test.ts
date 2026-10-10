@@ -175,3 +175,23 @@ test('applyProfileSelections rejects reserved provider names instead of pollutin
   }) as { providers: Record<string, unknown> };
   assert.strictEqual(Object.getPrototypeOf(resolved.providers), Object.prototype);
 });
+
+test('applyProfileSelections rejects a provider that has a store bucket but is not in the whitelist', () => {
+  const cfg = tmpCfg();
+  // 手改 app.config.json 塞了一个白名单外的桶：没有 isKnownProvider 守卫时，
+  // profile 查得到 → providers['evil'] 会被真的写进去，这个用例就会失败。
+  cfg.update({
+    providerProfiles: { evil: { p_x: { name: 'E', values: { apiKey: 'sk-evil' } } } },
+  });
+
+  assert.throws(
+    () => applyProfileSelections(cfg, { activeProviderProfiles: { evil: 'p_x' } }),
+    UnknownProfileError,
+  );
+  // 而且没有被应用出去
+  const resolved = applyProfileSelections(cfg, {
+    providers: {},
+    activeProviderProfiles: { evil: '' },
+  }) as { providers: Record<string, unknown> };
+  assert.strictEqual(resolved.providers.evil, undefined);
+});
