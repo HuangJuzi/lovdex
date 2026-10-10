@@ -9,6 +9,9 @@ import {
   decodeAgentFrameIn,
   makeSessionStartParamsSchema,
   makeSessionMessagesParamsSchema,
+  makeFsUploadBeginParamsSchema,
+  makeFsUploadChunkParamsSchema,
+  makeFsUploadEndParamsSchema,
 } from '../protocol.js';
 
 test('rpc request frame encodes/decodes round-trip', () => {
@@ -175,4 +178,27 @@ test('makeRpcCancel() produces a valid rpc_cancel frame', () => {
   assert.equal(cancel.type, 'rpc_cancel');
   assert.equal(cancel.id, 'req-42');
   assert.ok(isAgentFrameOut(cancel));
+});
+test('fs/uploadBegin params schema requires a non-empty path', () => {
+  const schema = makeFsUploadBeginParamsSchema();
+  assert.deepEqual(schema.parse({ path: '/srv/app/a.bin' }), { path: '/srv/app/a.bin' });
+  assert.throws(() => schema.parse({ path: '' }));
+  assert.throws(() => schema.parse({}));
+});
+
+test('fs/uploadChunk params schema requires uploadId, non-negative index and base64 data', () => {
+  const schema = makeFsUploadChunkParamsSchema();
+  const ok = schema.parse({ uploadId: 'u1', index: 0, data: 'AAAA' });
+  assert.equal(ok.index, 0);
+  assert.equal(ok.data, 'AAAA');
+  assert.throws(() => schema.parse({ uploadId: 'u1', index: -1, data: 'AAAA' })); // negative
+  assert.throws(() => schema.parse({ uploadId: 'u1', index: 1.5, data: 'AAAA' })); // non-integer
+  assert.throws(() => schema.parse({ uploadId: 'u1', index: 0 })); // data required
+  assert.throws(() => schema.parse({ index: 0, data: 'AAAA' })); // uploadId required
+});
+
+test('fs/uploadEnd params schema requires uploadId', () => {
+  const schema = makeFsUploadEndParamsSchema();
+  assert.deepEqual(schema.parse({ uploadId: 'u1' }), { uploadId: 'u1' });
+  assert.throws(() => schema.parse({}));
 });

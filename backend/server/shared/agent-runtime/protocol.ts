@@ -324,6 +324,33 @@ export function makeFsDeleteParamsSchema() {
 }
 
 /**
+ * Zod schema for the `fs/uploadBegin` `rpc_req` params. Starts a chunked
+ * upload session for `path`; the lite returns an opaque `uploadId`.
+ */
+export function makeFsUploadBeginParamsSchema() {
+  return z.object({ path: z.string().min(1) });
+}
+
+/**
+ * Zod schema for the `fs/uploadChunk` `rpc_req` params. `index` must arrive
+ * strictly in order starting at 0 — the lite rejects gaps/replays. `data` is
+ * base64; the main side slices at 4MiB so one frame stays well under the ws
+ * `maxPayload` ceiling on both ends.
+ */
+export function makeFsUploadChunkParamsSchema() {
+  return z.object({
+    uploadId: z.string().min(1),
+    index: z.number().int().min(0),
+    data: z.string(),
+  });
+}
+
+/** Zod schema for the `fs/uploadEnd` `rpc_req` params. Finalizes the upload. */
+export function makeFsUploadEndParamsSchema() {
+  return z.object({ uploadId: z.string().min(1) });
+}
+
+/**
  * Zod schema for the `git/exec` `rpc_req` params.
  */
 export function makeGitExecParamsSchema() {
