@@ -5,9 +5,6 @@ import type { RemoteAgentsRegistry } from './remote-agents.registry.js';
 /** Capped read size for remote file reads (bytes). */
 export const REMOTE_MAX_READ_BYTES = 32 * 1024 * 1024; // 32 MiB
 
-/** Capped upload size for remote file writes (bytes). */
-export const REMOTE_MAX_UPLOAD_BYTES = 32 * 1024 * 1024;
-
 /** One node of a remote file tree (a directory walked recursively). */
 export type RemoteFileTreeNode = {
   name: string;
@@ -61,6 +58,14 @@ export type RemoteFsClient = {
     content: string,
     encoding?: 'utf8' | 'base64',
   ): Promise<{ success: boolean; size: number }>;
+  uploadBegin(hostId: string, pathText: string): Promise<{ uploadId: string }>;
+  uploadChunk(
+    hostId: string,
+    uploadId: string,
+    index: number,
+    dataBase64: string,
+  ): Promise<{ received: number }>;
+  uploadEnd(hostId: string, uploadId: string): Promise<{ success: boolean; size: number }>;
   create(
     hostId: string,
     parentPath: string,
@@ -86,6 +91,16 @@ export function createRemoteFsClient(getRegistry: () => RemoteAgentsRegistry): R
     },
     write(h, p, content, encoding = 'utf8') {
       return reg().rpc(h, 'fs/write', { path: p, content, encoding }, 120_000);
+    },
+    uploadBegin(h, p) {
+      return reg().rpc(h, 'fs/uploadBegin', { path: p });
+    },
+    uploadChunk(h, uploadId, index, dataBase64) {
+      return reg().rpc(h, 'fs/uploadChunk', { uploadId, index, data: dataBase64 });
+    },
+    uploadEnd(h, uploadId) {
+      // 120s: the lite fsyncs and renames a multi-GB `.part` on this call.
+      return reg().rpc(h, 'fs/uploadEnd', { uploadId }, 120_000);
     },
     create(h, parentPath, type, name) {
       return reg().rpc(h, 'fs/create', { parentPath, type, name });

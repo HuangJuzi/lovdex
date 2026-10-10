@@ -190,3 +190,28 @@ test('errors from rpc propagate', async () => {
 
   await assert.rejects(() => client.stat('h9', '/srv/app'), /remote host offline: h9/);
 });
+
+test('uploadBegin/Chunk/End delegate to the matching rpc methods', async () => {
+  const replies: Record<string, unknown> = {
+    'fs/uploadBegin': { uploadId: 'u1' },
+    'fs/uploadChunk': { received: 5 },
+    'fs/uploadEnd': { success: true, size: 11 },
+  };
+  const { reg, calls } = fakeRegistry((call) => replies[call.method]);
+  const client = createRemoteFsClient(() => reg);
+
+  assert.deepEqual(await client.uploadBegin('h4', '/srv/app/a.bin'), { uploadId: 'u1' });
+  assert.deepEqual(await client.uploadChunk('h4', 'u1', 0, 'aGVsbG8='), { received: 5 });
+  assert.deepEqual(await client.uploadEnd('h4', 'u1'), { success: true, size: 11 });
+
+  assert.deepEqual(calls, [
+    { hostId: 'h4', method: 'fs/uploadBegin', params: { path: '/srv/app/a.bin' } },
+    { hostId: 'h4', method: 'fs/uploadChunk', params: { uploadId: 'u1', index: 0, data: 'aGVsbG8=' } },
+    { hostId: 'h4', method: 'fs/uploadEnd', params: { uploadId: 'u1' } },
+  ]);
+});
+
+test('upload methods no longer expose a 32MB upload cap', async () => {
+  const mod = await import('../remote-fs.service.js');
+  assert.equal('REMOTE_MAX_UPLOAD_BYTES' in mod, false);
+});
