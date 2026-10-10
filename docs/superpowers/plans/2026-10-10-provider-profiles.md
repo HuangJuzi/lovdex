@@ -554,7 +554,7 @@ import express from 'express';
 
 import { createAppConfig } from '../config.js';
 import type { AppConfigApi } from '../config.js';
-import { buildProviderProfilesRouter, isKnownProvider } from '../provider-profiles.js';
+import { buildProviderProfilesRouter } from '../provider-profiles.js';
 
 /** 把 profiles router 挂起来；鉴权在挂载点做（同 index.js），这里不重复。 */
 function listen(t: ReturnType<typeof test>, cfg: AppConfigApi) {
@@ -662,7 +662,7 @@ Expected: FAIL —`buildProviderProfilesRouter is not a function`。
 
 - [ ] **Step 3: 实现**
 
-追加到 `backend/server/modules/config/provider-profiles.ts` 末尾：
+追加到 `backend/server/modules/config/provider-profiles.ts` 末尾，并**在文件顶部加一行** `import { Router } from 'express';`（Task 2 特意没引入它，因为那时还是纯领域逻辑）：
 
 ```ts
 /**
