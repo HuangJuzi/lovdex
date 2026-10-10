@@ -120,6 +120,16 @@ function stubFsClient(dirs: { name: string; type: 'dir' | 'file' | 'symlink'; si
     async delete() {
       throw new Error('not used');
     },
+    // Upload surface is unused by these list/stat-only route tests.
+    async uploadBegin() {
+      throw new Error('not used');
+    },
+    async uploadChunk() {
+      throw new Error('not used');
+    },
+    async uploadEnd() {
+      throw new Error('not used');
+    },
   };
 }
 
@@ -708,6 +718,15 @@ test('GET /:id/dirs RPC failure → 502 REMOTE_FS_ERROR', async () => {
       throw new Error('not used');
     },
     async delete() {
+      throw new Error('not used');
+    },
+    async uploadBegin() {
+      throw new Error('not used');
+    },
+    async uploadChunk() {
+      throw new Error('not used');
+    },
+    async uploadEnd() {
       throw new Error('not used');
     },
   };
