@@ -136,9 +136,19 @@ body：`{ "provider": "claude", "name": "sophnet 主账号" }`
 - 同样**不触发** env 同步 / 代理重启。
 - 未知 provider / id → `404`。
 
-### 4.4 重命名：不新增端点
+### 4.4 `PUT /api/config/provider-profiles/:provider/:id`（新增）
 
-直接 `PUT { providerProfiles: { claude: { p_9f3c1a: { name: '新名' } } } }`。`name` 不是密钥，`deepMerge` 直接改掉。
+body：`{ "name": "新名" }`
+
+- 校验 `name`（trim、非空、≤40）→ 不合法 `400`；未知 provider / id → `404`。
+- `name` 不是密钥，`deepMerge` 直接改掉；**`values` 与 `providers.*` 都不动**。
+- 返回 masked 的 `GET /api/config` 同形 body。
+- 不触发 env 同步 / 代理重启。
+
+> **为什么不用 `PUT /api/config` 顺手改档名**（早期草稿如此）：那条路径会连带
+> `onWrite()` → `llmProxyManager.reconcile()`，为改一个纯标注字段白重启一次本地 Go
+> 代理，打断正在走代理的会话。配置档的三个写端点（POST/PUT/DELETE）因此都不带
+> `onWrite` —— 它们的共同契约就是"不改变实际跑什么"。
 
 ### 4.5 挂载
 
@@ -176,7 +186,7 @@ Claude                                        已认证（xxx）
 
 - **存为新档** → 输入名字 → 先 `PUT(draft)`（把表单里未保存的修改落进生效字段）→ 再 `POST(provider, name)` → 用返回的 masked 配置刷新 draft，下拉切到新档。
   下拉停在某档时点它 = 把该档复制成新档（因为 PUT 阶段会先把该档真值应用上去）。
-- **重命名** → 输入名字 → `PUT { providerProfiles: { <p>: { <id>: { name } } } }`。
+- **重命名** → 输入名字 → `PUT /api/config/provider-profiles/<p>/<id>` body `{ name }`（走配置档自己的端点，不重启本地代理；见 §4.4）。
 - **删除** → 二次确认 → `DELETE`。删的若正是当前档，下拉回落到「自定义」，**表单值原样保留**（用户不会因为删档丢掉当前配置）。
 
 ### 5.4 文案

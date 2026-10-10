@@ -1690,3 +1690,18 @@ Expected: 只有本计划涉及的文件；无遗留则跳过。
 - **spec 覆盖**：§3 数据模型 → Task 1；§3.1 白名单 → Task 2；§3.2 打码 → Task 1 第 4 个用例；§4.1 PUT 规则 → Task 4；§4.2 POST → Task 3；§4.3 DELETE（含清标记）→ Task 1 + 3；§4.4 重命名走 PUT → Task 7；§4.5 挂载 → Task 4；§5 UI → Task 6 + 7；§5.4 文案与 llmProxy 警示 → Task 7 Step 4；§5.5 可测性 → Task 5 + 6；§6.1 生效链路 → 无需代码（未改动），Task 8 Step 6 验证；§6.2 边界（'' vs null、未知档 404、name 校验）→ Task 1/2/3/4 用例；§7 错误处理 → Task 3/4；§8 测试与验收 → Task 8。
 - **与 spec 的两处细化（不改语义）**：① 未知 provider 在 POST/DELETE 都返回 404（spec §4.2 未规定，与 §4.3 对齐）；② 删除配置档走新方法 `removeProviderProfile()` 而非 `update()`，因为 spec §4.3 没意识到 `deepMerge` 删不掉键。
 - **类型一致性**：`ProviderKey` / `ProviderProfile` / `NO_PROFILE` / `selectionFor` / `readSelections` / `profileFormEntries` / `isProfileModified` / `buildConfigPutBody` / `withProfileBuckets` / `findNewProfileId` 在 Task 5 定义、Task 7 使用，签名一致；`applyProfileSelections` / `UnknownProfileError` / `snapshotProviderFields` / `validateProfileName` / `buildProviderProfilesRouter` / `newProfileId` 在 Task 2/3 定义、Task 4 使用，一致。
+
+---
+
+## 执行后的修订（计划正文未同步，以此为准）
+
+执行期间与终审各发现若干问题，已改**代码**并就地更新了本节；计划正文里的对应代码块保持原样（它是执行前的快照）。**若要照本计划重跑，先读这一节。**
+
+1. **重命名改为独立端点**（终审 Important）：计划 Task 3 的 router 只有 POST/DELETE，Task 7 的 `renameProfile` 走 `PUT /api/config`。那条路径会连带 `onWrite()` → `llmProxyManager.reconcile()`，为改一个纯标注字段白重启一次本地 Go 代理、打断走代理的会话。已改为 router 里新增 `PUT /provider-profiles/:provider/:id`（body `{ name }`，不触发 env 同步/reconcile），前端改用它。spec §4.4 已同步重写。测试补在 `provider-profiles.routes.test.ts`。
+2. **`isProfileModified` 必须跳过表单里不存在的字段**：计划给的字面实现过不了它自己的测试（测试的 form 只带 6 个 claude 字段中的 3 个，缺失字段被 `String(undefined ?? '')` 比成 `''` → 假"已修改"）。已加 `field in providerValues` 守卫；**该字段在表单里存在但为空串时仍参与比对**，所以"用户清空某字段"照样被识别为已修改。
+3. **保留名守卫必须是 `Object.hasOwn`**：`PROFILE_FIELDS['__proto__']` / `['constructor']` 会从 `Object.prototype` 取到真值，裸索引会放行客户端塞进来的保留名。已加 `isKnownProvider()`，并补了一个**去掉守卫就会失败**的区分性用例（原先三条 `throws` 断言不加守卫也能过，属测试表演）。
+4. **选择器测试断言收紧成 `disabled=""`**：`BTN` 的 className 里含 Tailwind 的 `disabled:opacity-50` 类 token，宽松的 `/<button[^>]*disabled[^>]*>删除/` 会从上一个按钮的 class 跨过来误命中。
+5. **测试 helper 的参数类型写 `TestContext`**（终审）：`ReturnType<typeof test>` 解析成 `Promise<void>` 而非 `TestContext`，每个 `listen(t, cfg)` 调用点 + helper 内的 `t.after` 都产生 tsc 错误。本功能新建的测试文件因此贡献了 10 个新增错误（基线 13 → 27）；改用 `import test, { type TestContext } from 'node:test'` 后降到 **6**（比动手前更少，顺带清掉 `config.routes.test.ts` 里 7 个存量同类错误）。
+6. **spec 里的 `当前` 徽标未实现**（终审）：只做了 `（已修改）` 后缀，不加后缀即表示与档一致 —— 那两者表达同一件事，正向徽标是冗余的。spec 已修正。
+7. **`ProviderKey` 比后端 `PROFILE_FIELDS` 窄**（终审，刻意）：后端带 `dsh`（设置页刻意不做凭据区块），前端联合类型只有 4 个。已在前端类型上写明"给后端加 provider 时若同时要给它 UI，必须一并加宽这个联合类型"。
+8. **未修、已记录**：`findNewProfileId` 在多标签页并发建档时可能选错档（概率极低、可恢复、不丢数据）；`removeProviderProfile` 在"无变化"时仍写盘一次（router 已先校验存在性，不可达）；新增 5 条 `boundaries/no-unknown` warning（与同目录 9 条存量同形，该插件不认 `.js` 后缀）。
