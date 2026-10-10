@@ -318,9 +318,12 @@ export function ProviderSettingsForm() {
     if (!name || name === current) return;
     setSaveError(null);
     try {
-      // 这次 PUT 不带 activeProviderProfiles，所以档标记不变；name 不是密钥，
-      // deepMerge 直接改掉。注意它和任何 PUT 一样会触发一次 llm-proxy reconcile。
-      const res = await api.put('/config', { providerProfiles: { [provider]: { [id]: { name } } } });
+      // 走配置档自己的端点（不是 PUT /api/config）：改名不改变实际跑什么，
+      // 因此不触发 syncProviderEnv，也不会白重启一次本地 Go 代理。
+      const res = await api.put(
+        `/config/provider-profiles/${provider}/${encodeURIComponent(id)}`,
+        { name },
+      );
       if (!res.ok) {
         const err = await res.json().catch(() => null);
         setSaveError(err?.error?.message ?? err?.error ?? `重命名失败（${res.status}）`);

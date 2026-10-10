@@ -113,12 +113,16 @@ export function applyProfileSelections(cfg: AppConfigApi, body: unknown): unknow
 }
 
 /**
- * POST   /provider-profiles            — 用当前生效字段快照出一个新档
+ * POST  /provider-profiles               — 用当前生效字段快照出一个新档
+ * PUT   /provider-profiles/:provider/:id — 改档名（只有 name 是非密钥字段）
  * DELETE /provider-profiles/:provider/:id — 删一个档
  *
- * 两者都**不改变实际跑什么**，所以都不触发 syncProviderEnv / llm-proxy
+ * 三者都**不改变实际跑什么**，所以都不触发 syncProviderEnv / llm-proxy
  * reconcile —— 只有 PUT /api/config 需要。鉴权在挂载点做（见 index.js），
  * 与本 router 无关（与 buildConfigWriteRouter 同构）。
+ *
+ * 重命名特意走这里而不是 PUT /api/config：后者会连带 restart 一次本地 Go 代理
+ * （onWrite → reconcile），为改一个纯标注字段打断正在走代理的会话不值得。
  */
 export function buildProviderProfilesRouter(deps: { cfg: AppConfigApi }): Router {
   const router = Router();
@@ -164,6 +168,29 @@ export function buildProviderProfilesRouter(deps: { cfg: AppConfigApi }): Router
       res.json(deps.cfg.getMasked());
     } catch (err) {
       console.error('provider profile delete failed:', err);
+      res.status(500).json({ error: 'config write failed' });
+    }
+  });
+
+  router.put('/provider-profiles/:provider/:id', (req, res) => {
+    const { provider, id } = req.params;
+    if (!isKnownProvider(provider)) {
+      return res.status(404).json({ error: { message: `unknown provider: ${provider}` } });
+    }
+    if (!deps.cfg.get().providerProfiles[provider]?.[id]) {
+      return res.status(404).json({ error: { message: `unknown provider profile: ${provider}/${id}` } });
+    }
+    const body = (req.body ?? {}) as { name?: unknown };
+    const invalid = validateProfileName(body.name);
+    if (invalid) return res.status(400).json({ error: { message: invalid } });
+    try {
+      // name 不是密钥，deepMerge 直接改掉；values 原样不动。
+      deps.cfg.update({
+        providerProfiles: { [provider]: { [id]: { name: (body.name as string).trim() } } },
+      });
+      res.json(deps.cfg.getMasked());
+    } catch (err) {
+      console.error('provider profile rename failed:', err);
       res.status(500).json({ error: 'config write failed' });
     }
   });

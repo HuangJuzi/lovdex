@@ -103,3 +103,77 @@ test('DELETE /provider-profiles/:provider/:id 404s on an unknown id', async (t) 
   });
   assert.strictEqual(res.status, 404);
 });
+
+test('POST /provider-profiles does NOT touch the effective provider fields', async (t) => {
+  const cfg = freshCfg(t);
+  cfg.update({
+    providers: { claude: { apiKey: 'sk-ant-real-key-abcdef', baseUrl: 'https://a.example' } },
+  });
+  const { port } = listen(t, cfg);
+
+  const res = await fetch(`http://127.0.0.1:${port}/api/config/provider-profiles`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ provider: 'claude', name: 'A' }),
+  });
+  assert.strictEqual(res.status, 200);
+
+  // 建档只是把生效值拷进存储；生效字段本身与 activeProviderProfiles 都不该动
+  const claude = cfg.get().providers.claude;
+  assert.strictEqual(claude.apiKey, 'sk-ant-real-key-abcdef');
+  assert.strictEqual(claude.baseUrl, 'https://a.example');
+  assert.deepStrictEqual(cfg.get().activeProviderProfiles, {});
+});
+
+test('PUT /provider-profiles/:provider/:id renames without touching values or effective fields', async (t) => {
+  const cfg = freshCfg(t);
+  cfg.update({
+    providers: { claude: { apiKey: 'sk-active-key-zzzzzz', baseUrl: 'https://active.example' } },
+    providerProfiles: {
+      claude: { p_a: { name: '旧名', values: { apiKey: 'sk-profile-key-aaaaaa' } } },
+    },
+    activeProviderProfiles: { claude: 'p_a' },
+  });
+  const { port } = listen(t, cfg);
+
+  const res = await fetch(`http://127.0.0.1:${port}/api/config/provider-profiles/claude/p_a`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: ' 新名 ' }),
+  });
+  assert.strictEqual(res.status, 200);
+
+  const stored = cfg.get().providerProfiles.claude.p_a;
+  assert.strictEqual(stored.name, '新名'); // trim 过
+  assert.strictEqual(stored.values.apiKey, 'sk-profile-key-aaaaaa'); // values 原样
+  assert.strictEqual(cfg.get().providers.claude.apiKey, 'sk-active-key-zzzzzz'); // 生效字段没被带跑
+  assert.strictEqual(cfg.get().activeProviderProfiles.claude, 'p_a'); // 标记没动
+
+  const body = (await res.json()) as {
+    providerProfiles: { claude: { p_a: { name: string } } };
+  };
+  assert.strictEqual(body.providerProfiles.claude.p_a.name, '新名');
+});
+
+test('PUT /provider-profiles/:provider/:id rejects a blank name and 404s on an unknown id', async (t) => {
+  const cfg = freshCfg(t);
+  cfg.update({
+    providerProfiles: { claude: { p_a: { name: 'A', values: {} } } },
+  });
+  const { port } = listen(t, cfg);
+
+  const blank = await fetch(`http://127.0.0.1:${port}/api/config/provider-profiles/claude/p_a`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: '   ' }),
+  });
+  assert.strictEqual(blank.status, 400);
+  assert.strictEqual(cfg.get().providerProfiles.claude.p_a.name, 'A'); // 没被改
+
+  const missing = await fetch(`http://127.0.0.1:${port}/api/config/provider-profiles/claude/p_nope`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'X' }),
+  });
+  assert.strictEqual(missing.status, 404);
+});
