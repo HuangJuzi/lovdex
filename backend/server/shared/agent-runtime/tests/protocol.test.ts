@@ -179,6 +179,7 @@ test('makeRpcCancel() produces a valid rpc_cancel frame', () => {
   assert.equal(cancel.id, 'req-42');
   assert.ok(isAgentFrameOut(cancel));
 });
+
 test('fs/uploadBegin params schema requires a non-empty path', () => {
   const schema = makeFsUploadBeginParamsSchema();
   assert.deepEqual(schema.parse({ path: '/srv/app/a.bin' }), { path: '/srv/app/a.bin' });
