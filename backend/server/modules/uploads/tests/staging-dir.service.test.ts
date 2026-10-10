@@ -111,18 +111,30 @@ test('a REMOTE project never stages under its (other-host) project path', async 
   // A remote project's path names a directory on ANOTHER machine. Staging under
   // it would either EACCES on that mkdir or silently create the directory on
   // the wrong host — so the staging dir must live in the local OS temp dir.
-  const remoteRoot = '/srv/app-on-the-other-host';
-  const staging = await resolveUploadStagingDir({ projectRoot: remoteRoot, isRemote: true });
+  //
+  // The remote path is a fresh temp dir (not a hard-coded '/srv/...') so the
+  // test proves nothing was created THERE without depending on the machine's
+  // /srv being absent or unwritable.
+  const remoteHostRoot = path.join(await mkproject(), 'app-on-the-other-host');
+  const staging = await resolveUploadStagingDir({ projectRoot: remoteHostRoot, isRemote: true });
 
-  const tempReal = await fsp.realpath(os.tmpdir());
-  assert.equal(
-    staging.startsWith(tempReal + path.sep),
-    true,
-    `remote staging must be in the local temp dir, got ${staging}`,
-  );
-  assert.equal(staging.startsWith(remoteRoot), false);
-  assert.ok((await fsp.stat(staging)).isDirectory());
-  // And crucially: nothing was created on the main machine for that path.
-  assert.equal(await fsp.stat(path.join(remoteRoot, '.lovdex-tmp')).then(() => true, () => false), false);
-  await removeUploadStagingDir(staging);
+  try {
+    // realpath both sides: os.tmpdir() may itself be a symlink (macOS /var).
+    const tempReal = await fsp.realpath(os.tmpdir());
+    const stagingReal = await fsp.realpath(staging);
+    assert.equal(
+      path.dirname(stagingReal),
+      tempReal,
+      `remote staging must be a child of the local temp dir, got ${staging}`,
+    );
+    assert.ok((await fsp.stat(stagingReal)).isDirectory());
+    // And crucially: nothing was created on the main machine for that path.
+    assert.equal(
+      await fsp.stat(path.join(remoteHostRoot, '.lovdex-tmp')).then(() => true, () => false),
+      false,
+      'a remote project must not get a .lovdex-tmp on the MAIN machine',
+    );
+  } finally {
+    await removeUploadStagingDir(staging);
+  }
 });
