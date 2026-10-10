@@ -7,6 +7,9 @@ import type { QuerySdkLike, RunManager } from './agent-run.js';
 import type { RemoteAgentConfig } from './config.js';
 import type { RemoteProvider } from '../../server/shared/agent-runtime/protocol.js';
 import {
+  makeFsUploadBeginParamsSchema,
+  makeFsUploadChunkParamsSchema,
+  makeFsUploadEndParamsSchema,
   makeGitExecParamsSchema,
   makeSessionMessagesParamsSchema,
   makeSessionStartParamsSchema,
@@ -15,6 +18,10 @@ import {
   makeSkillsManifestParamsSchema,
 } from '../../server/shared/agent-runtime/protocol.js';
 import { skillStoreFor } from './skills.js';
+import { createUploadSessions } from './upload-session.js';
+
+/** Sanity bound on one upload chunk (main slices at 4MiB). Guards the disk. */
+const MAX_UPLOAD_CHUNK_BYTES = 16 * 1024 * 1024;
 
 /**
  * Bridge to the current WebSocket push bus. index.ts calls {@link setPushEmitter}
@@ -96,6 +103,34 @@ export function interruptAllFor(cfg: RemoteAgentConfig): number {
   let interrupted = 0;
   for (const m of runManagers.values()) interrupted += m.interruptAll();
   return interrupted;
+}
+
+/**
+ * Chunked-upload sessions, memoized by the joined roots so they share the
+ * same allowlisted fs as the rest of the file surface and stay isolated
+ * between unit tests with distinct roots.
+ */
+const uploadSessionsByRoots = new Map<string, ReturnType<typeof createUploadSessions>>();
+
+function uploadSessionsFor(cfg: RemoteAgentConfig): ReturnType<typeof createUploadSessions> {
+  const key = cfg.roots.join('\0');
+  let sessions = uploadSessionsByRoots.get(key);
+  if (!sessions) {
+    sessions = createUploadSessions({ fs: allowlistedFsFor(cfg) });
+    uploadSessionsByRoots.set(key, sessions);
+  }
+  return sessions;
+}
+
+/**
+ * Drop every in-flight upload for these roots. Called when the main link drops:
+ * the chunk stream is gone, so a half-written `.part` must not linger (and a
+ * reconnect would start a fresh session anyway).
+ */
+export async function abortUploadSessionsFor(cfg: RemoteAgentConfig): Promise<void> {
+  const key = cfg.roots.join('\0');
+  const sessions = uploadSessionsByRoots.get(key);
+  if (sessions) await sessions.abortAll();
 }
 
 /**
@@ -190,6 +225,28 @@ export async function handleRpc(
     }
     const p = params as { path: string; maxBytes?: number; encoding?: 'utf8' | 'base64' };
     return fsApi.read(p.path, p.maxBytes, p.encoding ?? 'utf8');
+  }
+  if (
+    method === 'fs/uploadBegin'
+    || method === 'fs/uploadChunk'
+    || method === 'fs/uploadEnd'
+  ) {
+    const sessions = uploadSessionsFor(cfg);
+    if (method === 'fs/uploadBegin') {
+      const p = makeFsUploadBeginParamsSchema().parse(params as unknown);
+      return sessions.begin(p.path);
+    }
+    if (method === 'fs/uploadChunk') {
+      const p = makeFsUploadChunkParamsSchema().parse(params as unknown);
+      // base64 inflates 4/3; compare the ENCODED length against the encoded
+      // bound so no decoding happens for an oversized frame.
+      if (p.data.length > MAX_UPLOAD_CHUNK_BYTES) {
+        throw new Error('upload chunk too large');
+      }
+      return sessions.chunk(p.uploadId, p.index, p.data);
+    }
+    const p = makeFsUploadEndParamsSchema().parse(params as unknown);
+    return sessions.end(p.uploadId);
   }
   if (method === 'fs/write' || method === 'fs/create' || method === 'fs/rename' || method === 'fs/delete' || method === 'fs/tree') {
     const fsApi = allowlistedFsFor(cfg);

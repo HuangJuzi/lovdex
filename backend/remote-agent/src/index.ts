@@ -18,7 +18,7 @@ import {
 } from '../../server/shared/agent-runtime/protocol.js';
 import { createLlmForwarder } from './llm-forwarder.js';
 import { loadConfigFile, type RemoteAgentConfig } from './config.js';
-import { handleRpc, interruptAllFor, setPushEmitter } from './rpc-dispatch.js';
+import { abortUploadSessionsFor, handleRpc, interruptAllFor, setPushEmitter } from './rpc-dispatch.js';
 
 const HEARTBEAT_MS = 15_000;
 const RECONNECT_MS = 3_000;
@@ -243,6 +243,12 @@ export function createLiteService(cfg: RemoteAgentConfig): LiteService {
   const handleClose = (code: number) => {
     if (stopped) return;
     clearTimers();
+    // A dropped link means no more chunks are coming: drop every half-written
+    // `.part` for this host's roots instead of waiting out the idle timer.
+    // Placed BEFORE the fatal-code branch below, which returns/exits early.
+    void abortUploadSessionsFor(cfg).catch((err) =>
+      console.error('[remote-agent] upload cleanup failed:', err),
+    );
     const fatal = FATAL_CLOSE_CODES[code];
     if (fatal !== undefined) {
       console.error(`[remote-agent] connection rejected by server (${code}: ${fatal}); exiting`);
