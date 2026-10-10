@@ -77,6 +77,29 @@ export function validateProfileName(raw: unknown): string | null {
   return null;
 }
 
+/** 同一 provider 下档名重复时的错误文案（建档与重命名共用，避免两处漂移）。 */
+export const PROFILE_NAME_TAKEN = 'a profile with this name already exists';
+
+/**
+ * 该 provider 下是否已有同名档（trim 后逐字比较，**大小写敏感**）。
+ *
+ * 重命名必须传 `excludeId` 排除自己，否则"改成当前这个名字"会被自己判重。
+ * 大小写敏感是有意的：`Main` 与 `main` 视为两档，用户看得见区别、不会困惑。
+ */
+export function profileNameTaken(
+  cfg: AppConfig,
+  provider: string,
+  name: string,
+  excludeId?: string,
+): boolean {
+  const bucket = cfg.providerProfiles[provider];
+  if (!bucket) return false;
+  const want = name.trim();
+  return Object.entries(bucket).some(
+    ([id, profile]) => id !== excludeId && profile.name.trim() === want,
+  );
+}
+
 export function newProfileId(): string {
   return `p_${crypto.randomBytes(6).toString('hex')}`;
 }
@@ -113,11 +136,12 @@ export function applyProfileSelections(cfg: AppConfigApi, body: unknown): unknow
 }
 
 /**
- * POST  /provider-profiles               — 用当前生效字段快照出一个新档
- * PUT   /provider-profiles/:provider/:id — 改档名（只有 name 是非密钥字段）
- * DELETE /provider-profiles/:provider/:id — 删一个档
+ * POST   /provider-profiles                     — 用当前生效字段快照出一个新档
+ * POST   /provider-profiles/:provider/:id/snapshot — 把当前生效字段重快照进已有档
+ * PUT    /provider-profiles/:provider/:id       — 改档名（只有 name 是非密钥字段）
+ * DELETE /provider-profiles/:provider/:id       — 删一个档
  *
- * 三者都**不改变实际跑什么**，所以都不触发 syncProviderEnv / llm-proxy
+ * 四者都**不改变实际跑什么**，所以都不触发 syncProviderEnv / llm-proxy
  * reconcile —— 只有 PUT /api/config 需要。鉴权在挂载点做（见 index.js），
  * 与本 router 无关（与 buildConfigWriteRouter 同构）。
  *
@@ -136,6 +160,9 @@ export function buildProviderProfilesRouter(deps: { cfg: AppConfigApi }): Router
     }
     const invalid = validateProfileName(body.name);
     if (invalid) return res.status(400).json({ error: { message: invalid } });
+    if (profileNameTaken(deps.cfg.get(), provider, (body.name as string).trim())) {
+      return res.status(400).json({ error: { message: PROFILE_NAME_TAKEN } });
+    }
     try {
       const id = newProfileId();
       deps.cfg.update({
@@ -172,6 +199,35 @@ export function buildProviderProfilesRouter(deps: { cfg: AppConfigApi }): Router
     }
   });
 
+  /**
+   * 「保存到该档」：把当前生效字段重新快照进已有档，**覆盖它的 values**，name 与
+   * id 不变。前端同样发不出密钥（GET 打码、PUT 丢打码串），所以这一步只能服务端做
+   * —— 与建档同一个理由。
+   *
+   * 注意 values 里除 opencode 的 apiKeys 外都是顶层字符串，deepMerge 逐键覆盖等价于
+   * 整份替换；apiKeys 是嵌套对象、走的是合并而非替换，但它没有 UI，不影响。
+   */
+  router.post('/provider-profiles/:provider/:id/snapshot', (req, res) => {
+    const { provider, id } = req.params;
+    if (!isKnownProvider(provider)) {
+      return res.status(404).json({ error: { message: `unknown provider: ${provider}` } });
+    }
+    if (!deps.cfg.get().providerProfiles[provider]?.[id]) {
+      return res.status(404).json({ error: { message: `unknown provider profile: ${provider}/${id}` } });
+    }
+    try {
+      deps.cfg.update({
+        providerProfiles: {
+          [provider]: { [id]: { values: snapshotProviderFields(deps.cfg.get(), provider) } },
+        },
+      });
+      res.json(deps.cfg.getMasked());
+    } catch (err) {
+      console.error('provider profile snapshot failed:', err);
+      res.status(500).json({ error: 'config write failed' });
+    }
+  });
+
   router.put('/provider-profiles/:provider/:id', (req, res) => {
     const { provider, id } = req.params;
     if (!isKnownProvider(provider)) {
@@ -183,6 +239,10 @@ export function buildProviderProfilesRouter(deps: { cfg: AppConfigApi }): Router
     const body = (req.body ?? {}) as { name?: unknown };
     const invalid = validateProfileName(body.name);
     if (invalid) return res.status(400).json({ error: { message: invalid } });
+    // excludeId=自己：改成当前这个名字是无副作用的 no-op，不该判重。
+    if (profileNameTaken(deps.cfg.get(), provider, (body.name as string).trim(), id)) {
+      return res.status(400).json({ error: { message: PROFILE_NAME_TAKEN } });
+    }
     try {
       // name 不是密钥，deepMerge 直接改掉；values 原样不动。
       deps.cfg.update({

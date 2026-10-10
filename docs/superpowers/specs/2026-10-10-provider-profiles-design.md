@@ -129,6 +129,15 @@ body：`{ "provider": "claude", "name": "sophnet 主账号" }`
 - 返回 masked 的 `GET /api/config` 同形 body（前端直接拿它替换 draft）。
 - **不触发** `syncProviderEnv` / `reconcile()`：新建档不改变任何生效字段。
 
+#### 4.2.1 覆盖已有档：`POST /api/config/provider-profiles/:provider/:id/snapshot`（新增）
+
+无 body。把**当前生效字段**重新快照进已有档，**覆盖它的 `values`；`name` 与 id 不变**。
+
+- 与建档同一个理由只能服务端做：前端发不出密钥（GET 打码、PUT 丢打码串）。
+- 未知 provider / id → `404`；返回 masked 的配置；同样**不触发** env 同步 / 代理重启。
+- 用户清空某个字段后再覆盖 → 那个字段在档里被写成 `''`（`''` 不是打码串，`deepMerge` 的 `'' ?? base` = `''`），**不是**被跳过。
+- `values` 里除 `opencode.apiKeys` 外都是顶层字符串，逐键覆盖等价于整份替换；`apiKeys` 是嵌套对象、走的是合并而非替换（它没有 UI，不影响）。
+
 ### 4.3 `DELETE /api/config/provider-profiles/:provider/:id`（新增）
 
 - 删掉该档。若它正是 `activeProviderProfiles[provider]`，顺手把标记清成 `''`（**生效字段不动**）。
@@ -166,7 +175,7 @@ app.use('/api/config', authenticateToken, buildProviderProfilesRouter({ cfg: cfg
 
 ```
 Claude                                        已认证（xxx）
-配置档  [ sophnet 主账号 ▾ ]   [存为新档] [重命名] [删除]
+配置档  [ sophnet 主账号 ▾ ]   [保存到该档] [存为新档] [重命名] [删除]
 ```
 
 ### 5.1 下拉行为
@@ -182,8 +191,10 @@ Claude                                        已认证（xxx）
 
 页脚那个全局「保存」按钮不动。它 PUT 出去的 body = 各 provider 的表单字段 + 各下拉当前的档标记。于是"选档→保存"= 应用该档，"选档→改模型→保存"= 该档的 key/url + 你改的模型（第 4.1 节的表）。
 
-### 5.3 三个操作按钮
+### 5.3 四个操作按钮
 
+- **保存到该档** → 只在「选了档 **且** 表单与它不一致」时可点（与档一致时保存是空操作；没选档时该走「存为新档」）。点击 → 先 `PUT(draft)`（把未保存的修改落进生效字段）→ 再 `POST /provider-profiles/<p>/<id>/snapshot`（服务端把生效字段重快照进该档，覆盖 `values`、**`name` 与 id 不变**）→ 刷新 draft，下拉恢复"未修改"。
+  **这是"改已有档"的唯一入口** —— 没有它就只能另存为新档、留着旧档不动，很别扭。
 - **存为新档** → 输入名字 → 先 `PUT(draft)`（把表单里未保存的修改落进生效字段）→ 再 `POST(provider, name)` → 用返回的 masked 配置刷新 draft，下拉切到新档。
   下拉停在某档时点它 = 把该档复制成新档（因为 PUT 阶段会先把该档真值应用上去）。
 - **重命名** → 输入名字 → `PUT /api/config/provider-profiles/<p>/<id>` body `{ name }`（走配置档自己的端点，不重启本地代理；见 §4.4）。
@@ -221,7 +232,9 @@ Section 内加一行小字：
 
 - 允许存空 `apiKey` 的档；应用它 = 清空 key。
 - **档 id 不存在 → 404，不静默忽略。**静默忽略会让用户以为切了其实没切，是最坏的一种失败模式。
-- `name`：trim 后为空或长度 > 40 → 400。**同名允许**（id 才是主键）。
+- `name`：trim 后为空或长度 > 40 → 400。
+- **同一 provider 内档名必须唯一**：trim 后逐字比较（**大小写敏感**，`Main` 与 `main` 算两档），建档与重命名两条路径都查；重命名排除自己，所以"改成当前这个名字"是无副作用的 no-op 而不是冲突。重复 → `400`，文案 `a profile with this name already exists`。
+  跨 provider 同名不算重（`claude` 与 `qoder` 都可以有「主账号」）。id 仍是主键；档名唯一只是给用户一个可预测的名字空间。
 - 档数不设上限。
 - 客户端若把打码串塞进 `values`：`stripMaskedPlaceholders` 会剥掉 → `deepMerge` 保留原真值。安全兜底。
 - POST 快照必须 `structuredClone`，不能引用现有对象。

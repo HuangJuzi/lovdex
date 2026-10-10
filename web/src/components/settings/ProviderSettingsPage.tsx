@@ -326,7 +326,9 @@ export function ProviderSettingsForm() {
       );
       if (!res.ok) {
         const err = await res.json().catch(() => null);
-        setSaveError(err?.error?.message ?? err?.error ?? `重命名失败（${res.status}）`);
+        // 服务端的校验文案是英文（与 validateProfileName 一致），这里包一层中文语境。
+        const detail = err?.error?.message ?? err?.error;
+        setSaveError(detail ? `重命名失败：${detail}` : `重命名失败（${res.status}）`);
         return;
       }
       const cfg = (await res.json()) as AppConfig;
@@ -349,7 +351,8 @@ export function ProviderSettingsForm() {
       );
       if (!res.ok) {
         const err = await res.json().catch(() => null);
-        setSaveError(err?.error?.message ?? err?.error ?? `删除失败（${res.status}）`);
+        const detail = err?.error?.message ?? err?.error;
+        setSaveError(detail ? `删除失败：${detail}` : `删除失败（${res.status}）`);
         return;
       }
       const cfg = (await res.json()) as AppConfig;
@@ -359,6 +362,42 @@ export function ProviderSettingsForm() {
       setSavedMsg(`已删除配置档「${name}」`);
     } catch (err) {
       setSaveError((err as Error).message ?? '删除失败');
+    }
+  }
+
+  /** 把当前生效的（也就是屏幕上这份）配置覆盖进选中的档。 */
+  async function updateProfile(provider: ProviderKey) {
+    if (!draft) return;
+    const id = selections[provider];
+    if (!id) return;
+    const name = draft.providerProfiles?.[provider]?.[id]?.name ?? '';
+    setSaving(true);
+    setSaveError(null);
+    setSavedMsg(null);
+    try {
+      // 先 PUT 表单（把未保存的修改落进生效字段），再让服务端把生效字段重快照进该档
+      // —— 与建档同一个顺序，所以存进去的确实是屏幕上这套；密钥全程不经手浏览器。
+      const putRes = await api.put('/config', buildConfigPutBody(draft, selections));
+      if (!putRes.ok) {
+        setSaveError(`保存失败（${putRes.status}）`);
+        return;
+      }
+      const res = await api.post(
+        `/config/provider-profiles/${provider}/${encodeURIComponent(id)}/snapshot`,
+      );
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        const detail = err?.error?.message ?? err?.error;
+        setSaveError(detail ? `表单已保存，但覆盖配置档失败：${detail}` : `表单已保存，但覆盖配置档失败（${res.status}）`);
+        return;
+      }
+      const cfg = (await res.json()) as AppConfig;
+      setDraft((prev) => (prev ? withProfileBuckets(prev, cfg) : cfg));
+      setSavedMsg(`已把当前配置保存到「${name}」`);
+    } catch (err) {
+      setSaveError((err as Error).message ?? '保存到配置档失败');
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -379,6 +418,7 @@ export function ProviderSettingsForm() {
         modified={modified}
         disabled={saving}
         onSelect={(next) => selectProfile(provider, next)}
+        onUpdate={() => void updateProfile(provider)}
         onCreate={() => void createProfile(provider)}
         onRename={() => void renameProfile(provider)}
         onDelete={() => void deleteProfile(provider)}

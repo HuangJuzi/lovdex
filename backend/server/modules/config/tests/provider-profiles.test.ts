@@ -9,6 +9,7 @@ import {
   PROFILE_FIELDS,
   UnknownProfileError,
   applyProfileSelections,
+  profileNameTaken,
   snapshotProviderFields,
   validateProfileName,
 } from '../provider-profiles.js';
@@ -59,6 +60,28 @@ test('validateProfileName rejects empty/whitespace/too-long names', () => {
   assert.strictEqual(validateProfileName(undefined), 'name is required');
   assert.strictEqual(validateProfileName('x'.repeat(41)), 'name must be at most 40 characters');
   assert.strictEqual(validateProfileName('x'.repeat(40)), null);
+});
+
+test('profileNameTaken is trim-insensitive, case-sensitive, per-provider, and can exclude self', () => {
+  const cfg = tmpCfg();
+  cfg.update({
+    providerProfiles: {
+      claude: { p_a: { name: 'Main', values: {} }, p_b: { name: '其它', values: {} } },
+      qoder: { p_q: { name: 'Main', values: {} } },
+    },
+  });
+  const c = cfg.get();
+
+  assert.strictEqual(profileNameTaken(c, 'claude', 'Main'), true);
+  assert.strictEqual(profileNameTaken(c, 'claude', '  Main  '), true); // trim 后同名
+  assert.strictEqual(profileNameTaken(c, 'claude', 'main'), false); // 大小写敏感
+  assert.strictEqual(profileNameTaken(c, 'claude', '没这个'), false);
+  // 重名只在同一个 provider 内算重
+  assert.strictEqual(profileNameTaken(c, 'qoder', 'Main'), true);
+  assert.strictEqual(profileNameTaken(c, 'codex', 'Main'), false); // 该 provider 下没桶
+  // excludeId 只排除自己，不放过别人
+  assert.strictEqual(profileNameTaken(c, 'claude', 'Main', 'p_a'), false);
+  assert.strictEqual(profileNameTaken(c, 'claude', '其它', 'p_a'), true);
 });
 
 test('applyProfileSelections leaves a body without selections untouched', () => {

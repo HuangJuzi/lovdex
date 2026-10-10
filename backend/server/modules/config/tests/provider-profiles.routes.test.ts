@@ -177,3 +177,124 @@ test('PUT /provider-profiles/:provider/:id rejects a blank name and 404s on an u
   });
   assert.strictEqual(missing.status, 404);
 });
+
+test('POST /provider-profiles rejects a duplicate name within the same provider', async (t) => {
+  const cfg = freshCfg(t);
+  cfg.update({ providerProfiles: { claude: { p_a: { name: '主账号', values: {} } } } });
+  const { port } = listen(t, cfg);
+
+  const res = await fetch(`http://127.0.0.1:${port}/api/config/provider-profiles`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ provider: 'claude', name: '  主账号  ' }), // trim 后同名
+  });
+  assert.strictEqual(res.status, 400);
+  const body = (await res.json()) as { error: { message: string } };
+  assert.strictEqual(body.error.message, 'a profile with this name already exists');
+  assert.deepStrictEqual(Object.keys(cfg.get().providerProfiles.claude), ['p_a']); // 没建出来
+
+  // 同名只限同一个 provider：另一个 provider 可以叫同一个名字
+  const other = await fetch(`http://127.0.0.1:${port}/api/config/provider-profiles`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ provider: 'qoder', name: '主账号' }),
+  });
+  assert.strictEqual(other.status, 200);
+});
+
+test('PUT /provider-profiles/:provider/:id rejects a name another profile already uses', async (t) => {
+  const cfg = freshCfg(t);
+  cfg.update({
+    providerProfiles: { claude: { p_a: { name: '甲', values: {} }, p_b: { name: '乙', values: {} } } },
+  });
+  const { port } = listen(t, cfg);
+
+  const dup = await fetch(`http://127.0.0.1:${port}/api/config/provider-profiles/claude/p_b`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: '甲' }),
+  });
+  assert.strictEqual(dup.status, 400);
+  assert.strictEqual(cfg.get().providerProfiles.claude.p_b.name, '乙'); // 没被改
+
+  // 改成自己当前的名字是无副作用的 no-op，不该被自己判重
+  const self = await fetch(`http://127.0.0.1:${port}/api/config/provider-profiles/claude/p_b`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: '乙' }),
+  });
+  assert.strictEqual(self.status, 200);
+});
+
+test('POST /provider-profiles/:provider/:id/snapshot overwrites values in place', async (t) => {
+  const cfg = freshCfg(t);
+  cfg.update({
+    providers: {
+      claude: { apiKey: 'sk-new-real-key-abcdef', baseUrl: 'https://new.example', defaultModel: 'm-new' },
+    },
+    providerProfiles: {
+      claude: {
+        p_a: {
+          name: '主账号',
+          values: { apiKey: 'sk-old-key-111111', baseUrl: 'https://old.example', defaultModel: 'm-old' },
+        },
+      },
+    },
+    activeProviderProfiles: { claude: 'p_a' },
+  });
+  const { port } = listen(t, cfg);
+
+  const res = await fetch(
+    `http://127.0.0.1:${port}/api/config/provider-profiles/claude/p_a/snapshot`,
+    { method: 'POST' },
+  );
+  assert.strictEqual(res.status, 200);
+
+  const stored = cfg.get().providerProfiles.claude.p_a;
+  assert.strictEqual(stored.name, '主账号'); // name 不变
+  assert.strictEqual(stored.values.apiKey, 'sk-new-real-key-abcdef'); // 生效里的真值被覆盖进来
+  assert.strictEqual(stored.values.baseUrl, 'https://new.example');
+  assert.strictEqual(stored.values.defaultModel, 'm-new');
+  assert.deepStrictEqual(Object.keys(cfg.get().providerProfiles.claude), ['p_a']); // 没多出档
+  assert.strictEqual(cfg.get().activeProviderProfiles.claude, 'p_a'); // 标记没动
+
+  // 响应仍是 masked
+  const body = (await res.json()) as {
+    providerProfiles: { claude: { p_a: { values: { apiKey: string } } } };
+  };
+  assert.strictEqual(body.providerProfiles.claude.p_a.values.apiKey, 'sk-new****abcdef');
+});
+
+test('snapshot clears a value that is empty in the effective config', async (t) => {
+  const cfg = freshCfg(t);
+  cfg.update({
+    providers: { claude: { apiKey: 'sk-k-1111111111', baseUrl: 'https://a.example', defaultModel: '' } },
+    providerProfiles: { claude: { p_a: { name: 'A', values: { defaultModel: 'stale-model' } } } },
+  });
+  const { port } = listen(t, cfg);
+
+  const res = await fetch(
+    `http://127.0.0.1:${port}/api/config/provider-profiles/claude/p_a/snapshot`,
+    { method: 'POST' },
+  );
+  assert.strictEqual(res.status, 200);
+  // '' 不是打码串，deepMerge 的 `'' ?? base` = ''，所以能真的清掉旧值
+  assert.strictEqual(cfg.get().providerProfiles.claude.p_a.values.defaultModel, '');
+});
+
+test('POST /provider-profiles/:provider/:id/snapshot 404s on an unknown id and provider', async (t) => {
+  const cfg = freshCfg(t);
+  const { port } = listen(t, cfg);
+
+  const unknown = await fetch(
+    `http://127.0.0.1:${port}/api/config/provider-profiles/claude/p_nope/snapshot`,
+    { method: 'POST' },
+  );
+  assert.strictEqual(unknown.status, 404);
+
+  const bogus = await fetch(
+    `http://127.0.0.1:${port}/api/config/provider-profiles/nope/p_a/snapshot`,
+    { method: 'POST' },
+  );
+  assert.strictEqual(bogus.status, 404);
+});
