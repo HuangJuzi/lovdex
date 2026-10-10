@@ -133,3 +133,101 @@ test('PUT rejects JSON array body with the route guard', async (t) => {
   });
   assert.strictEqual(res.status, 400);
 });
+
+test('PUT with a profile selection applies the profile real key and lets body fields override', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lovdex-route-'));
+  const cfg = createAppConfig({ dataDir: dir });
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  cfg.update({
+    providers: { claude: { apiKey: 'sk-active-key-zzzzzz', baseUrl: 'https://active.example', defaultModel: 'active-model' } },
+    providerProfiles: {
+      claude: {
+        p_a: {
+          name: 'A',
+          values: { apiKey: 'sk-profile-key-aaaaaa', baseUrl: 'https://profile.example', defaultModel: 'profile-model' },
+        },
+      },
+    },
+  });
+
+  const { port } = listen(t, cfg);
+
+  // 客户端把 GET 回来的打码 apiKey 原样打回来（含 ****，服务端会 strip 成 undefined），
+  // 同时手改 defaultModel。
+  const res = await fetch(`http://127.0.0.1:${port}/api/config`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      providers: { claude: { apiKey: 'sk-active****zzzzzz', defaultModel: 'model-i-typed' } },
+      activeProviderProfiles: { claude: 'p_a' },
+    }),
+  });
+  assert.strictEqual(res.status, 200);
+
+  const claude = cfg.get().providers.claude;
+  assert.strictEqual(claude.apiKey, 'sk-profile-key-aaaaaa'); // 档的真值勝出
+  assert.strictEqual(claude.baseUrl, 'https://profile.example'); // body 没提 → 档值
+  assert.strictEqual(claude.defaultModel, 'model-i-typed'); // body 显式给了 → body 勝出
+  assert.strictEqual(cfg.get().activeProviderProfiles.claude, 'p_a');
+});
+
+test('PUT with an unknown profile id is a 404, not a silent no-op', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lovdex-route-'));
+  const cfg = createAppConfig({ dataDir: dir });
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  cfg.update({ providers: { claude: { baseUrl: 'https://before.example' } } });
+
+  const { port } = listen(t, cfg);
+
+  const res = await fetch(`http://127.0.0.1:${port}/api/config`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      providers: { claude: { baseUrl: 'https://after.example' } },
+      activeProviderProfiles: { claude: 'p_nope' },
+    }),
+  });
+  assert.strictEqual(res.status, 404);
+  // 整个写被拒绝：连 baseUrl 都没落地
+  assert.strictEqual(cfg.get().providers.claude.baseUrl, 'https://before.example');
+});
+
+test("PUT with an empty-string selection clears the marker ('' not null)", async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lovdex-route-'));
+  const cfg = createAppConfig({ dataDir: dir });
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  cfg.update({
+    providerProfiles: { claude: { p_a: { name: 'A', values: { baseUrl: 'https://a.example' } } } },
+    activeProviderProfiles: { claude: 'p_a' },
+  });
+
+  const { port } = listen(t, cfg);
+
+  const res = await fetch(`http://127.0.0.1:${port}/api/config`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ activeProviderProfiles: { claude: '' } }),
+  });
+  assert.strictEqual(res.status, 200);
+  assert.strictEqual(cfg.get().activeProviderProfiles.claude, '');
+});
+
+test('PUT with a null selection keeps the existing marker (deepMerge treats null as absent)', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lovdex-route-'));
+  const cfg = createAppConfig({ dataDir: dir });
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  cfg.update({
+    providerProfiles: { claude: { p_a: { name: 'A', values: {} } } },
+    activeProviderProfiles: { claude: 'p_a' },
+  });
+
+  const { port } = listen(t, cfg);
+
+  const res = await fetch(`http://127.0.0.1:${port}/api/config`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ activeProviderProfiles: { claude: null } }),
+  });
+  assert.strictEqual(res.status, 200);
+  assert.strictEqual(cfg.get().activeProviderProfiles.claude, 'p_a');
+});

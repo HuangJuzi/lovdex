@@ -2,6 +2,7 @@ import { Router } from 'express';
 
 import type { AppConfigApi } from './config.js';
 import { syncProviderEnv } from './env-sync.js';
+import { UnknownProfileError, applyProfileSelections } from './provider-profiles.js';
 
 /**
  * Config HTTP API.
@@ -35,10 +36,17 @@ export function buildConfigWriteRouter(deps: { cfg: AppConfigApi; onWrite?: () =
       return res.status(400).json({ error: 'config body must be a JSON object' });
     }
     try {
-      syncProviderEnv(deps.cfg.update(stripMaskedPlaceholders(body)));
+      // 先解析档选择再合并：被选中的档提供客户端表达不出来的真凭据值，body 自己的
+      // 字段再覆盖它（打码字段已被 strip 成 undefined，deepMerge 会保住档里的值）。
+      const resolved = applyProfileSelections(deps.cfg, stripMaskedPlaceholders(body));
+      syncProviderEnv(deps.cfg.update(resolved));
       deps.onWrite?.();
       res.json(deps.cfg.getMasked());
     } catch (err) {
+      if (err instanceof UnknownProfileError) {
+        // 整个写被拒绝：静默忽略会看起来像切换成功了。
+        return res.status(404).json({ error: { message: err.message } });
+      }
       // update() failures are persist/IO faults (EACCES, disk full, corrupt
       // file, ...) — a server-side error. Never mislabel as a client 400 or
       // surface raw fs text.

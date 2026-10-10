@@ -87,6 +87,7 @@ import { c } from './utils/colors.js';
 import { appConfig as getAppConfig } from './modules/config/config.js';
 import { resolveRunGuardConfig } from './modules/operators/run-guard.js';
 import { buildConfigReadRouter, buildConfigWriteRouter } from './modules/config/config.routes.js';
+import { buildProviderProfilesRouter } from './modules/config/provider-profiles.js';
 import { syncProviderEnv } from './modules/config/env-sync.js';
 import { createSchedulerService, buildSchedulerRouter } from './modules/scheduler/index.js';
 import {
@@ -419,6 +420,7 @@ app.use('/api/auth', authRoutes);
 // like server.isPlatform before a token exists); PUT requires a valid JWT.
 app.use('/api/config', buildConfigReadRouter({ cfg: cfgStore }));
 app.use('/api/config', authenticateToken, buildConfigWriteRouter({ cfg: cfgStore, onWrite: () => llmProxyManager.reconcile() }));
+app.use('/api/config', authenticateToken, buildProviderProfilesRouter({ cfg: cfgStore }));
 
 // Projects API Routes
 app.use('/api/projects', authenticateToken, projectModuleRoutes);
