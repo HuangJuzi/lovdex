@@ -291,7 +291,9 @@ export function ProviderSettingsForm() {
       const postRes = await api.post('/config/provider-profiles', { provider, name });
       if (!postRes.ok) {
         const err = await postRes.json().catch(() => null);
-        setSaveError(err?.error?.message ?? err?.error ?? `新建配置档失败（${postRes.status}）`);
+        const detail = err?.error?.message ?? err?.error ?? `新建配置档失败（${postRes.status}）`;
+        // 上面的 PUT 已经成功 —— 表单确实已经落盘了，别让"失败"看起来像什么都没发生。
+        setSaveError(`表单已保存，但建档失败：${detail}`);
         return;
       }
       const cfg = (await postRes.json()) as AppConfig;
@@ -320,7 +322,8 @@ export function ProviderSettingsForm() {
       // deepMerge 直接改掉。注意它和任何 PUT 一样会触发一次 llm-proxy reconcile。
       const res = await api.put('/config', { providerProfiles: { [provider]: { [id]: { name } } } });
       if (!res.ok) {
-        setSaveError(`重命名失败（${res.status}）`);
+        const err = await res.json().catch(() => null);
+        setSaveError(err?.error?.message ?? err?.error ?? `重命名失败（${res.status}）`);
         return;
       }
       const cfg = (await res.json()) as AppConfig;
@@ -342,7 +345,8 @@ export function ProviderSettingsForm() {
         `/config/provider-profiles/${provider}/${encodeURIComponent(id)}`,
       );
       if (!res.ok) {
-        setSaveError(`删除失败（${res.status}）`);
+        const err = await res.json().catch(() => null);
+        setSaveError(err?.error?.message ?? err?.error ?? `删除失败（${res.status}）`);
         return;
       }
       const cfg = (await res.json()) as AppConfig;
