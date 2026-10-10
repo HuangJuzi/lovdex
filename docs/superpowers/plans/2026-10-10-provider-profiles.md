@@ -1235,9 +1235,12 @@ test('marks the selected profile as 已修改 only while modified', () => {
 
 test('disables rename/delete when no profile is selected', () => {
   const none = render({ selectedId: '' });
-  assert.match(none, /<button[^>]*disabled[^>]*>重命名/);
-  assert.match(none, /<button[^>]*disabled[^>]*>删除/);
-  assert.doesNotMatch(render({ selectedId: 'p_a' }), /<button[^>]*disabled[^>]*>删除/);
+  // 断言必须收紧成 `disabled=""`（React SSR 对真禁用属性输出的形状）：
+  // BTN 的 className 里有 Tailwind 的 `disabled:opacity-50` 类 token，宽松的
+  // `/<button[^>]*disabled[^>]*>删除/` 会从上一个按钮的 class 里跨过来误命中。
+  assert.match(none, /<button[^>]*disabled=""[^>]*>重命名/);
+  assert.match(none, /<button[^>]*disabled=""[^>]*>删除/);
+  assert.doesNotMatch(render({ selectedId: 'p_a' }), /<button[^>]*disabled=""[^>]*>删除/);
 });
 ```
 
