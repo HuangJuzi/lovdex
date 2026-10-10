@@ -125,3 +125,53 @@ test('applyProfileSelections throws on an unknown profile id (never silently ign
     (err: unknown) => err instanceof UnknownProfileError && (err as UnknownProfileError).id === 'p_nope',
   );
 });
+
+test('applyProfileSelections handles several providers in one body', () => {
+  const cfg = tmpCfg();
+  cfg.update({
+    providerProfiles: {
+      claude: { p_c: { name: 'C', values: { apiKey: 'sk-claude' } } },
+      qoder: { p_q: { name: 'Q', values: { personalAccessToken: 'pat-qoder' } } },
+    },
+  });
+
+  const resolved = applyProfileSelections(cfg, {
+    providers: { qoder: { personalAccessToken: 'typed-pat' } },
+    activeProviderProfiles: { claude: 'p_c', qoder: 'p_q' },
+  }) as { providers: Record<string, Record<string, unknown>> };
+
+  assert.strictEqual(resolved.providers.claude.apiKey, 'sk-claude'); // body 里没有 claude → 档值
+  assert.strictEqual(resolved.providers.qoder.personalAccessToken, 'typed-pat'); // body 显式覆盖
+});
+
+test('applyProfileSelections ignores non-string / empty ids', () => {
+  const cfg = tmpCfg();
+  const body = { providers: { claude: { baseUrl: 'https://x.example' } } };
+  for (const bad of ['', null, 7, { id: 'p_a' }] as unknown[]) {
+    const withBad = { ...body, activeProviderProfiles: { claude: bad } };
+    assert.deepStrictEqual(applyProfileSelections(cfg, withBad), withBad);
+  }
+});
+
+test('applyProfileSelections rejects reserved provider names instead of polluting providers', () => {
+  const cfg = tmpCfg();
+  // 字面量 `__proto__:` 会改原型，所以保留名用例必须用**计算键**构造自己的属性。
+  const reserved: Array<Record<string, unknown>> = [
+    { ['__proto__']: 'p_x' },
+    { constructor: 'p_x' },
+    { prototype: 'p_x' },
+  ];
+  for (const selection of reserved) {
+    assert.throws(
+      () => applyProfileSelections(cfg, { activeProviderProfiles: selection }),
+      UnknownProfileError,
+    );
+  }
+
+  // providers 对象本身没被污染
+  const resolved = applyProfileSelections(cfg, {
+    providers: { claude: { baseUrl: 'https://x.example' } },
+    activeProviderProfiles: { claude: '' },
+  }) as { providers: Record<string, unknown> };
+  assert.strictEqual(Object.getPrototypeOf(resolved.providers), Object.prototype);
+});

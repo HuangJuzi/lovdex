@@ -45,9 +45,20 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
-/** 从生效配置里拷出某个 provider 白名单内的字段（深拷贝）。 */
+/**
+ * provider 名是不是我们真正带配置档的那几个。
+ * **必须走 `Object.hasOwn`**：`PROFILE_FIELDS['__proto__']` / `['constructor']` 会从
+ * `Object.prototype` 上取到真值（前者是对象、后者是函数），裸索引判断会放行客户端
+ * 塞进来的保留名，进而在 `providers[provider] = …` 那一步触发 `__proto__` setter
+ * 把 `providers` 的原型整个换掉。
+ */
+export function isKnownProvider(provider: unknown): provider is string {
+  return typeof provider === 'string' && Object.hasOwn(PROFILE_FIELDS, provider);
+}
+
+/** 从生效配置里拷出某个 provider 白名单内的字段（深拷贝）；未知 provider 返回空。 */
 export function snapshotProviderFields(cfg: AppConfig, provider: string): Record<string, unknown> {
-  const fields = PROFILE_FIELDS[provider] ?? [];
+  const fields = isKnownProvider(provider) ? PROFILE_FIELDS[provider] : [];
   const source =
     (cfg.providers as unknown as Record<string, Record<string, unknown> | undefined>)[provider] ?? {};
   const out: Record<string, unknown> = {};
@@ -90,6 +101,8 @@ export function applyProfileSelections(cfg: AppConfigApi, body: unknown): unknow
   let touched = false;
   for (const [provider, id] of Object.entries(selections)) {
     if (typeof id !== 'string' || id === '') continue;
+    // 保留名 / 未知 provider 一律当"指向不存在的档"处理，绝不静默放过。
+    if (!isKnownProvider(provider)) throw new UnknownProfileError(provider, id);
     const profile = cfg.get().providerProfiles[provider]?.[id];
     if (!profile) throw new UnknownProfileError(provider, id);
     providers[provider] = deepMerge(structuredClone(profile.values), providers[provider]);
