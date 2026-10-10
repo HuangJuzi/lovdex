@@ -951,7 +951,7 @@ Expected: FAIL，`abortUploadSessionsFor is not a function`（`handleRpc('fs/upl
 
 - [ ] **Step 3: 接线 dispatch**
 
-**额外要求（安全审查补充）：给单块大小加上限。** `chunk` 目前不限 `received` 总量也不限单块字节数，一个出错或恶意的对端可以把 lite 的磁盘灌满（`idleMs` 只限时间不限体积）。在 `uploadSessionsFor` 的调用点做便宜的一层防御：解析完 params 后，若 `Buffer.byteLength(p.data, 'base64')` 超过 `UPLOAD_CHUNK_BYTES * 4`（16MiB，主侧按 4MiB 切片，4× 余量足够）就直接抛错，不进会话。这说明性常量加在 `rpc-dispatch.ts` 顶部：
+**额外要求（安全审查补充）：给单块大小加上限。** `chunk` 目前不限 `received` 总量也不限单块字节数，一个出错或恶意的对端可以把 lite 的磁盘灌满（`idleMs` 只限时间不限体积）。在 dispatch 的调用点做一层廉价防御：解析完 params 后，若 base64 字符长度超过上限就直接抛错，不进会话。常量加在 `rpc-dispatch.ts` 顶部：
 
 ```ts
 /** Sanity bound on one upload chunk (main slices at 4MiB). Guards the disk. */
@@ -963,15 +963,16 @@ const MAX_UPLOAD_CHUNK_BYTES = 16 * 1024 * 1024;
 ```ts
     if (method === 'fs/uploadChunk') {
       const p = makeFsUploadChunkParamsSchema().parse(params as unknown);
-      // base64 inflates 4/3; cheap length check before decoding.
-      if (p.data.length > MAX_UPLOAD_CHUNK_BYTES * 2) {
+      // base64 inflates 4/3; compare the ENCODED length against the encoded
+      // bound so no decoding happens for an oversized frame.
+      if (p.data.length > MAX_UPLOAD_CHUNK_BYTES) {
         throw new Error('upload chunk too large');
       }
       return sessions.chunk(p.uploadId, p.index, p.data);
     }
 ```
 
-（`data.length * 3/4` 即字节数；用 base64 字符长度乘 2 作上界是刻意宽松的廉价守卫，真正的 4MiB 约束在主侧。）
+（`MAX_UPLOAD_CHUNK_BYTES` 在这里是**编码后** 16MiB ≈ 解码前 12MiB，比主侧的 4MiB 切片宽 3 倍，只拦离谱输入，不做精细校验 —— 真正的 4MiB 约束在主侧。）
 
 `backend/remote-agent/src/rpc-dispatch.ts`：
 
