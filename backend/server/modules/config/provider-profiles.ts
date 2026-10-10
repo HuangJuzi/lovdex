@@ -20,7 +20,10 @@ import { deepMerge } from './config.js';
  * 需与设置页表单字段保持一致（web/src/components/settings/providerProfiles.ts）。
  */
 export const PROFILE_FIELDS: Record<string, readonly string[]> = {
-  claude: ['baseUrl', 'apiKey', 'defaultModel', 'opusModel', 'sonnetModel', 'haikuModel'],
+  // oneMillionModels（决定哪些模型带 1M 上下文 beta 头，见 claude-models.provider.ts）
+  // 是**按平台而异**的能力位，属于一组凭据 —— 漏了它，改完「保存到该档」不会亮，
+  // 而且它也不会被存进档里（静默丢字段）。
+  claude: ['baseUrl', 'apiKey', 'defaultModel', 'opusModel', 'sonnetModel', 'haikuModel', 'oneMillionModels'],
   codex: ['binPath', 'apiKey'],
   opencode: ['binPath', 'apiKeys'],
   qoder: ['personalAccessToken'],

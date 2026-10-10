@@ -26,7 +26,8 @@
 - **不把配置档做成"生效指针"**（`providers.claude.activeProfile` + `get()` 返回解析视图）。方案 B，已否决：`get()`/`getRaw()` 语义分叉，读 `get()` 的代码全都拿到视图而非落盘值。
 - **不用前端 localStorage 存档**（方案 C，已否决）：密钥明文落浏览器，且打码串 PUT 上去会被服务端丢弃、根本切不过去。
 - **不纳入 `llmProxy.*` 到配置档**（用户已确认配置档内容 = baseUrl + apiKey + 模型名）。
-- **不纳入 `oneMillionModels`、`dshHome`、`patchPath`**。要加只是白名单加一行。
+- **不纳入 `dshHome`、`patchPath`**（dsh 的路由 overlay，不是凭据）。要加只是白名单加一行。
+- ~~不纳入 `oneMillionModels`~~ → **已纳入**（2026-10-10 修订，见 §3.1）。`oneMillionModels` 决定哪些模型带 1M 上下文 beta 头（`claude-models.provider.ts:32`），是**按平台而异**的能力位，属于一组凭据；当初排除它是错的判断。
 - **不做配置档数量上限、不做导入导出、不做同名去重**。
 
 ## 2. 核心约束：密钥不能经由浏览器在两处之间搬运
@@ -69,7 +70,7 @@
 
 | provider | 字段 |
 |---|---|
-| `claude` | `baseUrl` `apiKey` `defaultModel` `opusModel` `sonnetModel` `haikuModel` |
+| `claude` | `baseUrl` `apiKey` `defaultModel` `opusModel` `sonnetModel` `haikuModel` `oneMillionModels` |
 | `codex` | `binPath` `apiKey` |
 | `opencode` | `binPath` `apiKeys`（整个 env→key 映射一起存） |
 | `qoder` | `personalAccessToken` |

@@ -71,6 +71,26 @@ test('isProfileModified compares only the form fields (masked values compare fin
   assert.strictEqual(isProfileModified(form, CLIENT_PROFILE, ['apiKey']), false);
 });
 
+test('regression: 表单渲染的每个字段都必须在 FORM_FIELDS 里，否则改了它「保存到该档」不会亮', () => {
+  // 真实踩到的坑：oneMillionModels 在表单里可编辑，但一度不在 FORM_FIELDS 里，
+  // 于是改完「百万上下文模型」后 isProfileModified 恒为 false，按钮一直是灰的
+  // （更糟的是它也不会被存进档里）。
+  assert.ok(
+    FORM_FIELDS.claude.includes('oneMillionModels'),
+    'oneMillionModels 是表单字段，必须在 FORM_FIELDS.claude 里',
+  );
+  assert.strictEqual(
+    isProfileModified({ oneMillionModels: 'DeepSeek-V4-Pro-0813' }, CLIENT_PROFILE, FORM_FIELDS.claude),
+    true,
+  );
+  assert.strictEqual(isProfileModified({ oneMillionModels: '' }, CLIENT_PROFILE, FORM_FIELDS.claude), false);
+  // 选档时它也要被填回表单
+  assert.deepStrictEqual(
+    profileFormEntries({ name: 'x', values: { oneMillionModels: 'm1,m2' } }, FORM_FIELDS.claude),
+    [['oneMillionModels', 'm1,m2']],
+  );
+});
+
 test('buildConfigPutBody echoes the draft and normalises selections to never-null', () => {
   const draft = { providers: { claude: { baseUrl: 'https://x.example' } }, server: { port: 3188 } };
   const body = buildConfigPutBody(draft, { claude: 'p_a', codex: '', opencode: '', qoder: '' });

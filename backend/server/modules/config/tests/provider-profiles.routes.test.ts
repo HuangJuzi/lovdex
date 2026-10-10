@@ -230,7 +230,13 @@ test('POST /provider-profiles/:provider/:id/snapshot overwrites values in place'
   const cfg = freshCfg(t);
   cfg.update({
     providers: {
-      claude: { apiKey: 'sk-new-real-key-abcdef', baseUrl: 'https://new.example', defaultModel: 'm-new' },
+      claude: {
+        apiKey: 'sk-new-real-key-abcdef',
+        baseUrl: 'https://new.example',
+        defaultModel: 'm-new',
+        // 老档里没有它（老白名单也不含）—— 必须能被覆盖进来，不能静默丢
+        oneMillionModels: 'DeepSeek-V4-Pro-0813',
+      },
     },
     providerProfiles: {
       claude: {
@@ -255,6 +261,7 @@ test('POST /provider-profiles/:provider/:id/snapshot overwrites values in place'
   assert.strictEqual(stored.values.apiKey, 'sk-new-real-key-abcdef'); // 生效里的真值被覆盖进来
   assert.strictEqual(stored.values.baseUrl, 'https://new.example');
   assert.strictEqual(stored.values.defaultModel, 'm-new');
+  assert.strictEqual(stored.values.oneMillionModels, 'DeepSeek-V4-Pro-0813');
   assert.deepStrictEqual(Object.keys(cfg.get().providerProfiles.claude), ['p_a']); // 没多出档
   assert.strictEqual(cfg.get().activeProviderProfiles.claude, 'p_a'); // 标记没动
 

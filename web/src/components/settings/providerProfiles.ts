@@ -25,10 +25,12 @@ export type ProfileBuckets = Record<string, Record<string, ProviderProfile>>;
  * "表单是不是被改过了"的比对范围。
  * opencode 只渲染 binPath（它的 apiKeys 没有 UI，由服务端在保存时整份应用）。
  * 与后端 provider-profiles.ts 的 PROFILE_FIELDS 是两个同心圆：那边是"档里存
- * 什么"，这边是"表单看得见什么"。
+ * 什么"，这边是"表单看得见什么"。**这里必须是表单字段的全集且 ⊆ 后端的
+ * PROFILE_FIELDS** —— 漏一个的症状是：改了那个字段「保存到该档」不亮（比对范围
+ * 不含它），而且它也不会被存进档里。加表单字段时两个白名单一起改。
  */
 export const FORM_FIELDS: Record<ProviderKey, readonly string[]> = {
-  claude: ['apiKey', 'baseUrl', 'defaultModel', 'opusModel', 'sonnetModel', 'haikuModel'],
+  claude: ['apiKey', 'baseUrl', 'defaultModel', 'opusModel', 'sonnetModel', 'haikuModel', 'oneMillionModels'],
   codex: ['binPath', 'apiKey'],
   opencode: ['binPath'],
   qoder: ['personalAccessToken'],

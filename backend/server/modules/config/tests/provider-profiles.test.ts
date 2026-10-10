@@ -20,8 +20,9 @@ function tmpCfg() {
 
 test('PROFILE_FIELDS has an entry for every provider we ship profiles for', () => {
   assert.deepStrictEqual(Object.keys(PROFILE_FIELDS).sort(), ['claude', 'codex', 'dsh', 'opencode', 'qoder']);
+  // oneMillionModels 必须在内：它是按平台而异的能力位，漏了会静默丢字段
   assert.deepStrictEqual(PROFILE_FIELDS.claude, [
-    'baseUrl', 'apiKey', 'defaultModel', 'opusModel', 'sonnetModel', 'haikuModel',
+    'baseUrl', 'apiKey', 'defaultModel', 'opusModel', 'sonnetModel', 'haikuModel', 'oneMillionModels',
   ]);
 });
 
