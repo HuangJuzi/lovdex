@@ -154,9 +154,11 @@ const SUB_STATUS_CHECK = `CHECK (sub_status IS NULL OR sub_status IN (${PERSISTE
 const PRIORITY_CHECK = `CHECK (priority IN (${TASK_PRIORITIES.map((p) => `'${p}'`).join(',')}))`;
 const LABEL_CHECK = `CHECK (label IN (${TASK_LABELS.map((l) => `'${l}'`).join(',')}))`;
 // Task executor engines. Kept in sync with TaskEngine in shared/types.ts and
-// TASK_ENGINES in tasks.db.ts. The CHECK constraint is rebuilt by a migration
-// when a new engine is added so existing DBs accept it.
-const EXECUTOR_PROVIDERS = ['claude', 'codex', 'opencode', 'qoder', 'dsh'] as const;
+// TASK_ENGINES in tasks.db.ts — `tests/task-engine-lists-sync.test.ts` asserts
+// all three agree, so add a new engine to all of them together. The CHECK
+// constraint is rebuilt by a migration when a new engine is added so existing
+// DBs accept it.
+export const EXECUTOR_PROVIDERS = ['claude', 'codex', 'opencode', 'qoder', 'dsh'] as const;
 const EXECUTOR_CHECK = `CHECK (executor_provider IN (${EXECUTOR_PROVIDERS.map((p) => `'${p}'`).join(',')}))`;
 
 export const TASKS_TABLE_SCHEMA_SQL = `

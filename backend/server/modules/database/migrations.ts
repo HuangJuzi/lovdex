@@ -430,6 +430,26 @@ const ensureProjectsForSessionPaths = (db: Database): void => {
   `);
 };
 
+// ---------------------------------------------------------------------------
+// INVARIANT for the tasks table (read before adding a rebuild gate or column)
+// ---------------------------------------------------------------------------
+// SQLite cannot ALTER a CHECK constraint, so widening one (a new executor
+// engine, status, label, sub_status, …) requires the rename → recreate from
+// TASKS_TABLE_SCHEMA_SQL → copy rows → drop pattern used by the gates below.
+//
+// Two rules follow, and breaking either silently loses user data:
+//
+//  1. Every such gate must sit AFTER the in-place ALTERs at the END of this
+//     function (auto_approve, permission_mode, context_*, parent_task_id,
+//     dispatch_depth). A rebuild recreates the table from the schema, so a gate
+//     running before an ALTER makes that ALTER a no-op — and any backfill gated
+//     on `addColumnToTableIfNotExists` returning true never fires.
+//
+//  2. A gate whose marker matches MODERN databases must copy the intersection
+//     of the legacy and current columns. The older gates get away with a
+//     hardcoded list only because their markers predate the newer columns; that
+//     is safety by vintage, not by construction.
+// ---------------------------------------------------------------------------
 const migrateTasksTable = (db: Database): void => {
   if (!tableExists(db, 'tasks')) {
     console.log('Running migration: creating tasks table');
@@ -751,10 +771,12 @@ const migrateTasksTable = (db: Database): void => {
   // 2. The copy column list is computed as the intersection of the legacy and
   //    current schemas rather than hardcoded. The older gates can hardcode
   //    because their marker ('sophcode', 'archived', …) only appears in
-  //    databases of a matching vintage. This gate's marker is "the DDL predates
-  //    dsh", which is true of EVERY pre-existing database — including modern
-  //    ones carrying columns the legacy fixtures never had. A hardcoded list
-  //    would silently drop whichever columns it forgot.
+  //    databases of a matching vintage — they are safe by vintage, not by
+  //    construction, and would drop the newer columns if they ever fired on a
+  //    modern database. Do NOT "simplify" this gate to match them: its marker
+  //    is "the DDL predates dsh", which is true of EVERY pre-existing database,
+  //    including modern ones carrying columns those hardcoded lists never knew
+  //    about.
   const tasksSqlForDsh =
     (db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'").get() as { sql?: string } | undefined)?.sql ?? '';
   if (!tasksSqlForDsh.includes("'dsh'")) {
@@ -765,12 +787,12 @@ const migrateTasksTable = (db: Database): void => {
       db.exec('ALTER TABLE tasks RENAME TO tasks_legacy_dsh;');
       db.exec(TASKS_TABLE_SCHEMA_SQL);
       // Copy every column the legacy table actually has that the new table
-      // also has; columns added later (absent from the legacy table) fall back
-      // to their schema defaults, and the ALTERs below re-add any still missing.
-      const legacyColumns = (db.prepare('PRAGMA table_info(tasks_legacy_dsh)').all() as { name: string }[]).map((column) => column.name);
-      const currentColumns = new Set(
-        (db.prepare('PRAGMA table_info(tasks)').all() as { name: string }[]).map((column) => column.name),
-      );
+      // also has. Columns the legacy table lacks are simply absent from the
+      // INSERT, so the recreated table takes their schema default — this gate
+      // is the LAST statement in migrateTasksTable, so there is no later ALTER
+      // to fall back on and the defaults are the whole story.
+      const legacyColumns = getTableInfo(db, 'tasks_legacy_dsh').map((column) => column.name);
+      const currentColumns = new Set(getTableInfo(db, 'tasks').map((column) => column.name));
       const sharedColumns = legacyColumns.filter((name) => currentColumns.has(name));
       const columnList = sharedColumns.map((name) => `"${name}"`).join(', ');
       db.exec(`
