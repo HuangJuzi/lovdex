@@ -138,6 +138,8 @@ test('begin over a dangling symlink leaf is rejected (no write-through)', async 
 
 test('the .part file is created inside the roots, never beside them', async () => {
   const root = await mkroot();
+  // The target's own directory must exist — `begin` never creates it.
+  await fsp.mkdir(path.join(root, 'sub'));
   const s = makeSessions(root);
   const { uploadId } = await s.begin(path.join(root, 'sub', 'a.bin'));
   void uploadId;
@@ -152,7 +154,9 @@ test('begin when the target IS a root is rejected (its .part would fall outside)
   const root = await mkroot();
   const s = makeSessions(root);
 
-  await assert.rejects(() => s.begin(root), /allowed root/);
+  // `root` IS a root and a directory, so the pre-existing directory-target
+  // guard fires before the part-dir resolve; either way `begin` must refuse.
+  await assert.rejects(() => s.begin(root), /allowed root|cannot upload over a directory/);
   // Nothing was created beside the root either.
   assert.equal(await fsp.stat(`${root}.part-x`).then(() => true, () => false), false);
   await fsp.rm(root, { recursive: true, force: true });
