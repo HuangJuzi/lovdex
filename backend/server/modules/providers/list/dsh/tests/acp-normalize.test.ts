@@ -71,7 +71,7 @@ test('tool_call_update with completed status maps to a tool_result without fabri
   assert.equal(out[0].isError, false);
 });
 
-test('a terminal tool_call_update with no rawOutput does not fabricate "" content', () => {
+test('a terminal tool_call_update with no rawOutput yields empty-string content, never undefined', () => {
   const raw = {
     sessionId: 'sess-1',
     update: { sessionUpdate: 'tool_call_update', toolCallId: 'tc-2', status: 'failed' },
@@ -80,7 +80,13 @@ test('a terminal tool_call_update with no rawOutput does not fabricate "" conten
   assert.equal(out.length, 1);
   assert.equal(out[0].kind, 'tool_result');
   assert.equal(out[0].isError, true);
+  // Two distinct wrong shapes to rule out:
+  //   '""'      — the old `JSON.stringify(rawOutput ?? '')` fabricated it
+  //   undefined — a later fix emitted it, and JSON.stringify(undefined).trim()
+  //               in the web renderer threw (ErrorBoundary, attributed to
+  //               ChatInterface). '' is the only shape both sides agree on.
   assert.notEqual(out[0].content, '""');
+  assert.equal(out[0].content, '');
 });
 
 test('a non-terminal tool_call_update status yields no message', () => {

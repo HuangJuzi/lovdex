@@ -9,7 +9,18 @@ import { classifyAutoApproveNotice, interactionNoticeCopy } from '../utils/autoA
 import { decodeHtmlEntities, unescapeWithMathProtection, formatUsageLimitText } from '../utils/chatFormatting';
 
 function formatToolResultContent(content: unknown): string {
-  const text = typeof content === 'string' ? content : JSON.stringify(content);
+  // `JSON.stringify(undefined)` returns undefined (not a string), so the old
+  // `typeof content === 'string' ? content : JSON.stringify(content)` produced
+  // an undefined `text` for a tool_result with no content — and `text.trim()`
+  // below then threw, which took the whole pane down through the ErrorBoundary.
+  // A provider may legitimately report a tool result with nothing in it (dsh's
+  // ACP normalizer emits `content: undefined` for a terminal `tool_call_update`
+  // that carries no rawOutput), so a missing value must degrade to '' here.
+  const text = typeof content === 'string'
+    ? content
+    : content === undefined || content === null
+      ? ''
+      : JSON.stringify(content) ?? '';
   const toolUseErrorMatch = /^<tool_use_error>([\s\S]*)<\/tool_use_error>$/.exec(text.trim());
   return toolUseErrorMatch ? toolUseErrorMatch[1] : text;
 }

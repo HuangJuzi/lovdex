@@ -102,10 +102,14 @@ export class DshSessionsProvider implements IProviderSessions {
       return [createNormalizedMessage({
         kind: 'tool_result',
         toolId: typeof update.toolCallId === 'string' ? update.toolCallId : undefined,
+        // A result with no rawOutput is a real, renderable outcome ("the tool
+        // returned nothing"), not a missing value: emit '' rather than
+        // `undefined`. `undefined` here is what crashed the web renderer once
+        // (JSON.stringify(undefined).trim()), and an empty result is honest.
         content: typeof update.rawOutput === 'string'
           ? update.rawOutput
           : update.rawOutput === undefined || update.rawOutput === null
-            ? undefined
+            ? ''
             : JSON.stringify(update.rawOutput),
         isError: status === 'failed',
         sessionId: resolvedSessionId,

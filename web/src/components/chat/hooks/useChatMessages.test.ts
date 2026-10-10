@@ -74,6 +74,26 @@ test('a genuine tool error carries no autoApproveDeny', () => {
   assert.equal(toolUse?.toolResult?.autoApproveDeny, undefined);
 });
 
+// A tool_result whose `content` is missing entirely must not take the whole
+// chat pane down. dsh's ACP normalizer emits `content: undefined` for a
+// terminal `tool_call_update` that carries no rawOutput, and the converter used
+// to run `JSON.stringify(undefined).trim()` on it — a TypeError that surfaced as
+// an ErrorBoundary screen attributed to ChatInterface (the hook runs inside its
+// render). Undefined and null must both degrade to the empty string here, so no
+// provider's wire shape can crash the renderer.
+test('a tool_result with no content does not throw and renders empty', () => {
+  for (const missing of [undefined, null]) {
+    const messages = normalizedToChatMessages(rows([
+      { ...base, id: 'u9', kind: 'tool_use', toolName: 'Bash', toolInput: {}, toolId: 'T9' },
+      { ...base, id: 'r9', kind: 'tool_result', toolId: 'T9', content: missing },
+    ]));
+
+    const toolUse = messages.find((m) => m.isToolUse);
+    assert.ok(toolUse, `tool_use must still convert when content is ${String(missing)}`);
+    assert.equal(toolUse?.toolResult?.content, '');
+  }
+});
+
 // ---------------------------------------------------------------------------
 // `permission_auto` → ⚡ 实时提示的接线。
 //
