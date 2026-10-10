@@ -336,6 +336,56 @@ test('applyProfileSelections throws on an unknown profile id (never silently ign
     (err: unknown) => err instanceof UnknownProfileError && (err as UnknownProfileError).id === 'p_nope',
   );
 });
+
+test('applyProfileSelections handles several providers in one body', () => {
+  const cfg = tmpCfg();
+  cfg.update({
+    providerProfiles: {
+      claude: { p_c: { name: 'C', values: { apiKey: 'sk-claude' } } },
+      qoder: { p_q: { name: 'Q', values: { personalAccessToken: 'pat-qoder' } } },
+    },
+  });
+
+  const resolved = applyProfileSelections(cfg, {
+    providers: { qoder: { personalAccessToken: 'typed-pat' } },
+    activeProviderProfiles: { claude: 'p_c', qoder: 'p_q' },
+  }) as { providers: Record<string, Record<string, unknown>> };
+
+  assert.strictEqual(resolved.providers.claude.apiKey, 'sk-claude'); // body 里没有 claude → 档值
+  assert.strictEqual(resolved.providers.qoder.personalAccessToken, 'typed-pat'); // body 显式覆盖
+});
+
+test('applyProfileSelections ignores non-string / empty ids', () => {
+  const cfg = tmpCfg();
+  const body = { providers: { claude: { baseUrl: 'https://x.example' } } };
+  for (const bad of ['', null, 7, { id: 'p_a' }] as unknown[]) {
+    const withBad = { ...body, activeProviderProfiles: { claude: bad } };
+    assert.deepStrictEqual(applyProfileSelections(cfg, withBad), withBad);
+  }
+});
+
+test('applyProfileSelections rejects reserved provider names instead of polluting providers', () => {
+  const cfg = tmpCfg();
+  // 字面量 `__proto__:` 会改原型，所以保留名用例必须用**计算键**构造自己的属性。
+  const reserved: Array<Record<string, unknown>> = [
+    { ['__proto__']: 'p_x' },
+    { constructor: 'p_x' },
+    { prototype: 'p_x' },
+  ];
+  for (const selection of reserved) {
+    assert.throws(
+      () => applyProfileSelections(cfg, { activeProviderProfiles: selection }),
+      UnknownProfileError,
+    );
+  }
+
+  // providers 对象本身没被污染
+  const resolved = applyProfileSelections(cfg, {
+    providers: { claude: { baseUrl: 'https://x.example' } },
+    activeProviderProfiles: { claude: '' },
+  }) as { providers: Record<string, unknown> };
+  assert.strictEqual(Object.getPrototypeOf(resolved.providers), Object.prototype);
+});
 ```
 
 - [ ] **Step 2: 跑测试确认失败**
@@ -399,9 +449,20 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
-/** 从生效配置里拷出某个 provider 白名单内的字段（深拷贝）。 */
+/**
+ * provider 名是不是我们真正带配置档的那几个。
+ * **必须走 `Object.hasOwn`**：`PROFILE_FIELDS['__proto__']` / `['constructor']` 会从
+ * `Object.prototype` 上取到真值（前者是对象、后者是函数），裸索引判断会放行客户端
+ * 塞进来的保留名，进而在 `providers[provider] = …` 那一步触发 `__proto__` setter
+ * 把 `providers` 的原型整个换掉。
+ */
+export function isKnownProvider(provider: unknown): provider is string {
+  return typeof provider === 'string' && Object.hasOwn(PROFILE_FIELDS, provider);
+}
+
+/** 从生效配置里拷出某个 provider 白名单内的字段（深拷贝）。未知 provider 返回空。 */
 export function snapshotProviderFields(cfg: AppConfig, provider: string): Record<string, unknown> {
-  const fields = PROFILE_FIELDS[provider] ?? [];
+  const fields = isKnownProvider(provider) ? PROFILE_FIELDS[provider] : [];
   const source =
     (cfg.providers as unknown as Record<string, Record<string, unknown> | undefined>)[provider] ?? {};
   const out: Record<string, unknown> = {};
@@ -444,6 +505,8 @@ export function applyProfileSelections(cfg: AppConfigApi, body: unknown): unknow
   let touched = false;
   for (const [provider, id] of Object.entries(selections)) {
     if (typeof id !== 'string' || id === '') continue;
+    // 保留名 / 未知 provider 一律当"指向不存在的档"处理，绝不静默放过。
+    if (!isKnownProvider(provider)) throw new UnknownProfileError(provider, id);
     const profile = cfg.get().providerProfiles[provider]?.[id];
     if (!profile) throw new UnknownProfileError(provider, id);
     providers[provider] = deepMerge(structuredClone(profile.values), providers[provider]);
@@ -491,7 +554,7 @@ import express from 'express';
 
 import { createAppConfig } from '../config.js';
 import type { AppConfigApi } from '../config.js';
-import { buildProviderProfilesRouter } from '../provider-profiles.js';
+import { buildProviderProfilesRouter, isKnownProvider } from '../provider-profiles.js';
 
 /** 把 profiles router 挂起来；鉴权在挂载点做（同 index.js），这里不重复。 */
 function listen(t: ReturnType<typeof test>, cfg: AppConfigApi) {
@@ -616,7 +679,8 @@ export function buildProviderProfilesRouter(deps: { cfg: AppConfigApi }): Router
   router.post('/provider-profiles', (req, res) => {
     const body = (req.body ?? {}) as { provider?: unknown; name?: unknown };
     const provider = typeof body.provider === 'string' ? body.provider : '';
-    if (!PROFILE_FIELDS[provider]) {
+    // isKnownProvider 走 Object.hasOwn —— 裸索引会把 '__proto__'/'constructor' 放行。
+    if (!isKnownProvider(provider)) {
       return res.status(404).json({ error: { message: `unknown provider: ${provider}` } });
     }
     const invalid = validateProfileName(body.name);
@@ -642,7 +706,7 @@ export function buildProviderProfilesRouter(deps: { cfg: AppConfigApi }): Router
 
   router.delete('/provider-profiles/:provider/:id', (req, res) => {
     const { provider, id } = req.params;
-    if (!PROFILE_FIELDS[provider]) {
+    if (!isKnownProvider(provider)) {
       return res.status(404).json({ error: { message: `unknown provider: ${provider}` } });
     }
     if (!deps.cfg.get().providerProfiles[provider]?.[id]) {
