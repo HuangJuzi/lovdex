@@ -1115,6 +1115,10 @@ export function profileFormEntries(
 /**
  * 表单值与档是否还有差别（决定标不标「已修改」）。
  * 打码串也能比：打码由真值决定，值同则码同。
+ *
+ * `fields` 限定比对范围（表单渲染了哪些字段）；范围内的字段若**在表单值里根本不存在**，
+ * 也不参与比对 —— 否则会和档里的值比出"假已修改"。用户把某字段清空时键仍在（值是 ''），
+ * 那种情况照常比对，所以清空仍会被正确识别为"已修改"。
  */
 export function isProfileModified(
   providerValues: Record<string, unknown>,
@@ -1122,7 +1126,8 @@ export function isProfileModified(
   fields: readonly string[],
 ): boolean {
   return fields.some(
-    (field) => String(providerValues[field] ?? '') !== String(profile.values[field] ?? ''),
+    (field) =>
+      field in providerValues && String(providerValues[field] ?? '') !== String(profile.values[field] ?? ''),
   );
 }
 
