@@ -135,3 +135,101 @@ test('begin over a dangling symlink leaf is rejected (no write-through)', async 
   await fsp.rm(root, { recursive: true, force: true });
   await fsp.rm(outside, { recursive: true, force: true });
 });
+
+test('the .part file is created inside the roots, never beside them', async () => {
+  const root = await mkroot();
+  const s = makeSessions(root);
+  const { uploadId } = await s.begin(path.join(root, 'sub', 'a.bin'));
+  void uploadId;
+  const partPath = s.partPathForTest(uploadId) as string;
+
+  // Inside the root (a bare `${target}.part` concat would put it at root+'.part-…').
+  assert.equal(path.dirname(partPath), path.join(root, 'sub'));
+  await fsp.rm(root, { recursive: true, force: true });
+});
+
+test('begin when the target IS a root is rejected (its .part would fall outside)', async () => {
+  const root = await mkroot();
+  const s = makeSessions(root);
+
+  await assert.rejects(() => s.begin(root), /allowed root/);
+  // Nothing was created beside the root either.
+  assert.equal(await fsp.stat(`${root}.part-x`).then(() => true, () => false), false);
+  await fsp.rm(root, { recursive: true, force: true });
+});
+
+test('a symlink planted at a guessable part name cannot be written through', async () => {
+  const root = await mkroot();
+  const outside = await mkroot();
+  const victim = path.join(outside, 'authorized_keys');
+  await fsp.writeFile(victim, 'REAL KEY');
+  const s = makeSessions(root);
+
+  // The old naming scheme was `up-<pid>-<counter>`; plant links for the first
+  // few counters a fresh process would hand out.
+  for (const n of [1, 2, 3]) {
+    await fsp.symlink(victim, path.join(root, `.a.bin.part-up-${process.pid}-${n}`));
+    await fsp.symlink(victim, path.join(root, `a.bin.part-up-${process.pid}-${n}`));
+  }
+
+  const { uploadId } = await s.begin(path.join(root, 'a.bin'));
+  await s.chunk(uploadId, 0, Buffer.from('PWNED').toString('base64'));
+  await s.end(uploadId);
+
+  assert.equal(await fsp.readFile(victim, 'utf8'), 'REAL KEY', 'the outside file must be untouched');
+  assert.equal(await fsp.readFile(path.join(root, 'a.bin'), 'utf8'), 'PWNED');
+  await fsp.rm(root, { recursive: true, force: true });
+  await fsp.rm(outside, { recursive: true, force: true });
+});
+
+test('upload ids are not guessable across sessions', async () => {
+  const root = await mkroot();
+  const s = makeSessions(root);
+  const a = await s.begin(path.join(root, 'a.bin'));
+  const b = await s.begin(path.join(root, 'b.bin'));
+
+  assert.notEqual(a.uploadId, b.uploadId);
+  // No counter/pid spelling to predict.
+  assert.equal(/\d+-\d+$/.test(a.uploadId), false);
+  await fsp.rm(root, { recursive: true, force: true });
+});
+
+test('begin rejects a directory target instead of failing at end', async () => {
+  const root = await mkroot();
+  const dir = path.join(root, 'adir');
+  await fsp.mkdir(dir);
+  const s = makeSessions(root);
+
+  await assert.rejects(() => s.begin(dir), /cannot upload over a directory/);
+  await fsp.rm(root, { recursive: true, force: true });
+});
+
+test('a failed end removes the .part file instead of orphaning it', async () => {
+  const root = await mkroot();
+  const s = createUploadSessions({
+    fs: createAllowlistedFs({ roots: [root] }),
+    idleMs: 60_000,
+    rename: async () => {
+      throw Object.assign(new Error('EISDIR: illegal operation on a directory'), { code: 'EISDIR' });
+    },
+  });
+  const target = path.join(root, 'a.bin');
+  const { uploadId } = await s.begin(target);
+  const partPath = s.partPathForTest(uploadId) as string;
+  await s.chunk(uploadId, 0, Buffer.from('data').toString('base64'));
+
+  await assert.rejects(() => s.end(uploadId), /EISDIR/);
+
+  assert.equal(s.size(), 0);
+  assert.equal(await fsp.stat(partPath).then(() => true, () => false), false, 'no .part left behind');
+  await fsp.rm(root, { recursive: true, force: true });
+});
+
+test('createUploadSessions rejects a non-positive or non-finite idleMs', async () => {
+  const root = await mkroot();
+  const fsApi = createAllowlistedFs({ roots: [root] });
+
+  assert.throws(() => createUploadSessions({ fs: fsApi, idleMs: 0 }), /positive finite/);
+  assert.throws(() => createUploadSessions({ fs: fsApi, idleMs: Number.POSITIVE_INFINITY }), /positive finite/);
+  await fsp.rm(root, { recursive: true, force: true });
+});
