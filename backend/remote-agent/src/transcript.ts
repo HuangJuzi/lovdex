@@ -64,8 +64,13 @@ export function readSessionMessagesDir(
   home: string = os.homedir(),
 ): ProviderSessionFiles {
   const dir = resolveProviderTranscriptDir(provider, projectPath, home);
-  const mainPath = dir ? path.join(dir, `${providerSessionId}.jsonl`) : null;
-  if (!mainPath || !existsSync(mainPath)) {
+  // Narrow once here: a null dir (codex/opencode — no transcript format) and a
+  // missing main file are the same "no history" outcome for the caller.
+  if (!dir) {
+    return { exists: false, transcript: '', agentFiles: {} };
+  }
+  const mainPath = path.join(dir, `${providerSessionId}.jsonl`);
+  if (!existsSync(mainPath)) {
     return { exists: false, transcript: '', agentFiles: {} };
   }
 
