@@ -111,6 +111,7 @@ import { createRemoteAgentsRegistry } from './modules/remote-agents/remote-agent
 import { createRemoteAgentWss } from './modules/remote-agents/remote-agent.server.js';
 import { createRemoteRouting } from './modules/remote-agents/remote-spawn.js';
 import { createRemoteFsClient, REMOTE_MAX_READ_BYTES } from './modules/remote-agents/remote-fs.service.js';
+import { pushFileToRemote } from './modules/uploads/remote-upload.service.js';
 import { createRemoteHistoryClient } from './modules/remote-agents/remote-history.service.js';
 import { createRemoteAgentsRouter } from './modules/remote-agents/remote-agents.routes.js';
 import { setRemoteAgentsRuntime, getRemoteAgentsRuntime } from './modules/remote-agents/runtime.js';
@@ -1618,8 +1619,7 @@ const uploadFilesHandler = async (req, res) => {
 
             // Route to a remote host when the project is backed by one. The lite
             // fs/write does not create missing parent dirs, so ancestors are
-            // created first (mirrors the local mkdir -p below). Multer uses disk
-            // storage here, so each temp file's Buffer is re-read for the RPC.
+            // created first (mirrors the local mkdir -p below).
             const hostId = lookupRemoteHost(projectRoot);
             if (hostId) {
                 const { fsClient } = getRemoteAgentsRuntime();
@@ -1660,36 +1660,25 @@ const uploadFilesHandler = async (req, res) => {
                     // Validate destination path
                     const destValidation = validatePathInProject(projectRoot, destPath);
                     if (!destValidation.valid) {
-                        // Clean up temp file
-                        await fsPromises.unlink(file.path).catch(() => {});
                         continue;
-                    }
-
-                    if (file.size > REMOTE_MAX_UPLOAD_BYTES) {
-                        // Remove any temp files left behind before aborting.
-                        for (const f of req.files) {
-                            await fsPromises.unlink(f.path).catch(() => {});
-                        }
-                        return res.status(413).json({ error: `File ${file.originalname} exceeds 32MB remote upload limit` });
-                    }
-                    const buf = await fsPromises.readFile(file.path);
-                    if (buf.length > REMOTE_MAX_UPLOAD_BYTES) {
-                        for (const f of req.files) {
-                            await fsPromises.unlink(f.path).catch(() => {});
-                        }
-                        return res.status(413).json({ error: `File ${file.originalname} exceeds 32MB remote upload limit` });
                     }
 
                     // Ensure parent directory exists for nested folder uploads.
                     await ensureRemoteParent(path.dirname(destPath), resolvedTargetDir);
 
-                    await fsClient.write(hostId, destValidation.resolved, buf.toString('base64'), 'base64');
-                    await fsPromises.unlink(file.path).catch(() => {});
+                    // Streamed in 4MiB chunks over the upload RPCs — the whole
+                    // file never lands in one Buffer/frame (the old single-frame
+                    // base64 path capped out at 32MB).
+                    const pushed = await pushFileToRemote(
+                        { fsClient, hostId },
+                        file.path,
+                        destValidation.resolved,
+                    );
 
                     uploadedFiles.push({
                         name: fileName,
                         path: destValidation.resolved,
-                        size: buf.length,
+                        size: pushed.size,
                         mimeType: file.mimetype
                     });
                 }
