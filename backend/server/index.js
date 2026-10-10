@@ -61,6 +61,12 @@ import userRoutes from './routes/user.js';
 import authRoutes from './modules/auth/auth.routes.js';
 import providerRoutes from './modules/providers/provider.routes.js';
 import { assetsRoutes } from './modules/assets/index.js';
+import { MAX_FILE_UPLOAD_COUNT, MAX_FILE_UPLOAD_SIZE_BYTES, MAX_FILE_UPLOAD_SIZE_MB } from './modules/uploads/upload-limits.js';
+import {
+    createUploadStagingDir,
+    moveStagedFileIntoPlace,
+    removeUploadStagingDir,
+} from './modules/uploads/staging-dir.service.js';
 import { initializeDatabase, projectsDb, remoteHostsDb, scheduledTasksDb, sessionsDb, tasksDb } from './modules/database/index.js';
 import { buildTasksRouter, createTasksService } from './modules/tasks/index.js';
 import { createGitModule } from './modules/git/index.js';
@@ -104,7 +110,7 @@ import { operatorAuditDb } from './modules/database/repositories/operator-audit.
 import { createRemoteAgentsRegistry } from './modules/remote-agents/remote-agents.registry.js';
 import { createRemoteAgentWss } from './modules/remote-agents/remote-agent.server.js';
 import { createRemoteRouting } from './modules/remote-agents/remote-spawn.js';
-import { createRemoteFsClient, REMOTE_MAX_READ_BYTES, REMOTE_MAX_UPLOAD_BYTES } from './modules/remote-agents/remote-fs.service.js';
+import { createRemoteFsClient, REMOTE_MAX_READ_BYTES } from './modules/remote-agents/remote-fs.service.js';
 import { createRemoteHistoryClient } from './modules/remote-agents/remote-history.service.js';
 import { createRemoteAgentsRouter } from './modules/remote-agents/remote-agents.routes.js';
 import { setRemoteAgentsRuntime, getRemoteAgentsRuntime } from './modules/remote-agents/runtime.js';
@@ -137,9 +143,6 @@ const RUNNING_VERSION = (() => {
         return null;
     }
 })();
-const MAX_FILE_UPLOAD_SIZE_MB = 200;
-const MAX_FILE_UPLOAD_SIZE_BYTES = MAX_FILE_UPLOAD_SIZE_MB * 1024 * 1024;
-const MAX_FILE_UPLOAD_COUNT = 20;
 
 // Config singleton (Task 5/6): server-level runtime parameters now live in
 // <DATA_DIR>/app.config.json instead of env. The snapshot below is read once at
@@ -164,6 +167,11 @@ function readUsageNumber(value) {
 
 const app = express();
 const server = http.createServer(app);
+// A 10GB upload over a slow link far exceeds Node's 300s default
+// requestTimeout; the body is a stream, so a long request is expected here.
+// `0` disables the timeout. Headers still arrive up front, so the 60s
+// headersTimeout default stays (it guards slow-header attacks, not body size).
+server.requestTimeout = 0;
 
 // ---------------------------------------------------------------------------
 // Remote agents (远程项目) wiring.
@@ -1516,16 +1524,42 @@ const uploadFilesHandler = async (req, res) => {
     // Dynamic import of multer
     const multer = (await import('multer')).default;
 
+    // Resolve the project + target dir BEFORE multer runs: the staging dir
+    // lives inside the project (same filesystem as the target), so the final
+    // move is a rename rather than a cross-device copy.
+    const { projectId } = req.params;
+    const projectRoot = await projectsDb.getProjectPathById(projectId);
+    if (!projectRoot) {
+        return res.status(404).json({ error: 'Project not found' });
+    }
+    const targetDir = typeof req.query.targetPath === 'string' ? req.query.targetPath : '';
+    let resolvedTargetDir;
+    if (!targetDir || targetDir === '.' || targetDir === './') {
+        resolvedTargetDir = path.resolve(projectRoot);
+    } else {
+        const validation = validatePathInProject(projectRoot, targetDir);
+        if (!validation.valid) {
+            return res.status(403).json({ error: validation.error });
+        }
+        resolvedTargetDir = validation.resolved;
+    }
+
+    // Staging lives under the PROJECT ROOT (not the target dir): the target
+    // dir is whatever `targetPath` says, and the move to it stays same-device
+    // because both live inside the same project tree.
+    let stagingDir;
+    try {
+        stagingDir = await createUploadStagingDir(projectRoot);
+    } catch (error) {
+        console.error('[upload] failed to create staging dir:', error);
+        return res.status(500).json({ error: 'Failed to prepare upload directory' });
+    }
+
     const uploadMiddleware = multer({
         storage: multer.diskStorage({
-            destination: (req, file, cb) => {
-                cb(null, os.tmpdir());
-            },
+            destination: (req, file, cb) => cb(null, stagingDir),
             filename: (req, file, cb) => {
-                // Use a unique temp name, but preserve original name in file.originalname
-                // Note: file.originalname may contain path separators for folder uploads
                 const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-                // For temp file, just use a safe unique name without the path
                 cb(null, `upload-${uniqueSuffix}`);
             }
         }),
@@ -1539,6 +1573,9 @@ const uploadFilesHandler = async (req, res) => {
     uploadMiddleware.array('files', MAX_FILE_UPLOAD_COUNT)(req, res, async (err) => {
         if (err) {
             console.error('Multer error:', err);
+            // The `finally` below only covers the post-multer branch, so the
+            // staging dir is dropped here too (a rejected upload still got one).
+            await removeUploadStagingDir(stagingDir);
             if (err.code === 'LIMIT_FILE_SIZE') {
                 return res.status(400).json({ error: `File too large. Maximum size is ${MAX_FILE_UPLOAD_SIZE_MB}MB.` });
             }
@@ -1549,8 +1586,9 @@ const uploadFilesHandler = async (req, res) => {
         }
 
         try {
-            const { projectId } = req.params;
-            const { targetPath, relativePaths, requestedFileCount: requestedFileCountRaw } = req.body;
+            // `projectRoot` / `resolvedTargetDir` were resolved before multer ran
+            // (targetPath comes in on the query string, not the multipart body).
+            const { relativePaths, requestedFileCount: requestedFileCountRaw } = req.body;
 
             // Parse relative paths if provided (for folder uploads)
             let filePaths = [];
@@ -1564,8 +1602,7 @@ const uploadFilesHandler = async (req, res) => {
 
             console.log('[DEBUG] File upload request:', {
                 projectId,
-                targetPath: JSON.stringify(targetPath),
-                targetPathType: typeof targetPath,
+                targetPath: JSON.stringify(resolvedTargetDir),
                 filesCount: req.files?.length,
                 relativePaths: filePaths
             });
@@ -1578,35 +1615,6 @@ const uploadFilesHandler = async (req, res) => {
             const requestedFileCount = Number.isFinite(parsedRequestedFileCount) && parsedRequestedFileCount > 0
                 ? parsedRequestedFileCount
                 : req.files.length;
-
-            // Resolve the project directory through the DB using the new projectId.
-            const projectRoot = await projectsDb.getProjectPathById(projectId);
-            if (!projectRoot) {
-                return res.status(404).json({ error: 'Project not found' });
-            }
-
-            console.log('[DEBUG] Project root:', projectRoot);
-
-            // Validate and resolve target path
-            // If targetPath is empty or '.', use project root directly
-            const targetDir = targetPath || '';
-            let resolvedTargetDir;
-
-            console.log('[DEBUG] Target dir:', JSON.stringify(targetDir));
-
-            if (!targetDir || targetDir === '.' || targetDir === './') {
-                // Empty path means upload to project root
-                resolvedTargetDir = path.resolve(projectRoot);
-                console.log('[DEBUG] Using project root as target:', resolvedTargetDir);
-            } else {
-                const validation = validatePathInProject(projectRoot, targetDir);
-                if (!validation.valid) {
-                    console.log('[DEBUG] Path validation failed:', validation.error);
-                    return res.status(403).json({ error: validation.error });
-                }
-                resolvedTargetDir = validation.resolved;
-                console.log('[DEBUG] Resolved target dir:', resolvedTargetDir);
-            }
 
             // Route to a remote host when the project is backed by one. The lite
             // fs/write does not create missing parent dirs, so ancestors are
@@ -1696,43 +1704,22 @@ const uploadFilesHandler = async (req, res) => {
                 });
             }
 
-            // Ensure target directory exists
-            try {
-                await fsPromises.access(resolvedTargetDir);
-            } catch {
-                await fsPromises.mkdir(resolvedTargetDir, { recursive: true });
-            }
-
-            // Move uploaded files from temp to target directory
+            // Stage → move. Same filesystem, so this is a rename (no 2× disk
+            // spike); EXDEV falls back to a copy inside the helper.
             const uploadedFiles = [];
-            console.log('[DEBUG] Processing files:', req.files.map(f => ({ originalname: f.originalname, path: f.path })));
             for (let i = 0; i < req.files.length; i++) {
                 const file = req.files[i];
-                // Use relative path if provided (for folder uploads), otherwise use originalname
                 const fileName = (filePaths && filePaths[i]) ? filePaths[i] : file.originalname;
-                console.log('[DEBUG] Processing file:', fileName, '(originalname:', file.originalname + ')');
                 const destPath = path.join(resolvedTargetDir, fileName);
 
-                // Validate destination path
                 const destValidation = validatePathInProject(projectRoot, destPath);
                 if (!destValidation.valid) {
-                    console.log('[DEBUG] Destination validation failed for:', destPath);
-                    // Clean up temp file
-                    await fsPromises.unlink(file.path).catch(() => {});
                     continue;
                 }
 
-                // Ensure parent directory exists (for nested files from folder upload)
                 const parentDir = path.dirname(destPath);
-                try {
-                    await fsPromises.access(parentDir);
-                } catch {
-                    await fsPromises.mkdir(parentDir, { recursive: true });
-                }
-
-                // Move file (copy + unlink to handle cross-device scenarios)
-                await fsPromises.copyFile(file.path, destPath);
-                await fsPromises.unlink(file.path);
+                await fsPromises.mkdir(parentDir, { recursive: true });
+                await moveStagedFileIntoPlace(file.path, destPath);
 
                 uploadedFiles.push({
                     name: fileName,
@@ -1752,17 +1739,13 @@ const uploadFilesHandler = async (req, res) => {
             });
         } catch (error) {
             console.error('Error uploading files:', error);
-            // Clean up any remaining temp files
-            if (req.files) {
-                for (const file of req.files) {
-                    await fsPromises.unlink(file.path).catch(() => {});
-                }
-            }
             if (error.code === 'EACCES') {
                 res.status(403).json({ error: 'Permission denied' });
             } else {
                 res.status(500).json({ error: error.message });
             }
+        } finally {
+            await removeUploadStagingDir(stagingDir);
         }
     });
 };
