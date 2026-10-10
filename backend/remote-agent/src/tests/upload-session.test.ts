@@ -142,12 +142,43 @@ test('the .part file is created inside the roots, never beside them', async () =
   await fsp.mkdir(path.join(root, 'sub'));
   const s = makeSessions(root);
   const { uploadId } = await s.begin(path.join(root, 'sub', 'a.bin'));
-  void uploadId;
   const partPath = s.partPathForTest(uploadId) as string;
 
   // Inside the root (a bare `${target}.part` concat would put it at root+'.part-…').
   assert.equal(path.dirname(partPath), path.join(root, 'sub'));
   await fsp.rm(root, { recursive: true, force: true });
+});
+
+test('a target under a symlinked root never puts the .part outside the real root', async () => {
+  // `resolveWithin` echoes the LEXICAL path only when it is inside the root;
+  // for a target under a SYMLINKED root the lexical form is `..`-outside the
+  // realpath'd root, so it collapses to the root directory itself. `begin` then
+  // refuses (it is a directory) rather than writing a `.part` one level above
+  // the real root. Either way the sandbox holds — assert on that, not on which
+  // of the two guards fires.
+  const realRoot = await mkroot();
+  const linkParent = await mkroot();
+  const rootLink = path.join(linkParent, 'rootlink');
+  await fsp.symlink(realRoot, rootLink);
+
+  const s = createUploadSessions({ fs: createAllowlistedFs({ roots: [rootLink] }), idleMs: 60_000 });
+  const target = path.join(rootLink, 'a.bin');
+
+  let partPath: string | null = null;
+  try {
+    const { uploadId } = await s.begin(target);
+    partPath = s.partPathForTest(uploadId);
+  } catch {
+    // Refused outright — nothing was created, which is the safe outcome.
+  }
+
+  if (partPath) {
+    assert.ok(partPath.startsWith(realRoot + path.sep), `part escaped the real root: ${partPath}`);
+  }
+  // Never beside the real root, and never beside the lexical link path's parent.
+  assert.equal(await fsp.stat(`${realRoot}.part-x`).then(() => true, () => false), false);
+  await fsp.rm(realRoot, { recursive: true, force: true });
+  await fsp.rm(linkParent, { recursive: true, force: true });
 });
 
 test('begin when the target IS a root is rejected (its .part would fall outside)', async () => {

@@ -64,7 +64,6 @@ export function createUploadSessions(opts: {
   }
   const rename = opts.rename ?? fsp.rename;
   const sessions = new Map<string, Session>();
-  let counter = 0;
 
   async function drop(uploadId: string): Promise<void> {
     const session = sessions.get(uploadId);
@@ -107,9 +106,10 @@ export function createUploadSessions(opts: {
       if (targetStat?.isSymbolicLink()) throw new Error('path outside allowed root (symlink leaf)');
 
       // The part file lives in the target's directory so `end`'s rename stays
-      // on ONE filesystem. Resolve that directory through the allowlist as
-      // well: when the target is a root, its dirname escapes the sandbox and a
-      // bare `${resolvedTarget}.part-…` would create the file outside the roots.
+      // on ONE filesystem. That directory goes through the allowlist too, so
+      // the ONLY path this module ever opens with caller input is vetted.
+      // Belt-and-braces today — a root target is already refused above — but
+      // it is what keeps a future relaxation of the directory guard safe.
       const partDir = opts.fs.resolveWithin(path.dirname(resolvedTarget));
 
       // Random name + O_EXCL: a peer that can write inside the project cannot
@@ -127,7 +127,6 @@ export function createUploadSessions(opts: {
         timer: null,
       };
       sessions.set(uploadId, session);
-      counter += 1;
       refreshTimer(session, uploadId);
       return { uploadId };
     },
