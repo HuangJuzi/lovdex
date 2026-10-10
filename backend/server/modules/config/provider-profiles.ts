@@ -9,6 +9,7 @@
  * 设计见 docs/superpowers/specs/2026-10-10-provider-profiles-design.md。
  */
 import crypto from 'node:crypto';
+import { Router } from 'express';
 
 import type { AppConfig, AppConfigApi } from './config.js';
 import { deepMerge } from './config.js';
@@ -109,4 +110,63 @@ export function applyProfileSelections(cfg: AppConfigApi, body: unknown): unknow
     touched = true;
   }
   return touched ? { ...b, providers } : body;
+}
+
+/**
+ * POST   /provider-profiles            — 用当前生效字段快照出一个新档
+ * DELETE /provider-profiles/:provider/:id — 删一个档
+ *
+ * 两者都**不改变实际跑什么**，所以都不触发 syncProviderEnv / llm-proxy
+ * reconcile —— 只有 PUT /api/config 需要。鉴权在挂载点做（见 index.js），
+ * 与本 router 无关（与 buildConfigWriteRouter 同构）。
+ */
+export function buildProviderProfilesRouter(deps: { cfg: AppConfigApi }): Router {
+  const router = Router();
+
+  router.post('/provider-profiles', (req, res) => {
+    const body = (req.body ?? {}) as { provider?: unknown; name?: unknown };
+    const provider = typeof body.provider === 'string' ? body.provider : '';
+    // isKnownProvider 走 Object.hasOwn —— 裸索引会把 '__proto__'/'constructor' 放行。
+    if (!isKnownProvider(provider)) {
+      return res.status(404).json({ error: { message: `unknown provider: ${provider}` } });
+    }
+    const invalid = validateProfileName(body.name);
+    if (invalid) return res.status(400).json({ error: { message: invalid } });
+    try {
+      const id = newProfileId();
+      deps.cfg.update({
+        providerProfiles: {
+          [provider]: {
+            [id]: {
+              name: (body.name as string).trim(),
+              values: snapshotProviderFields(deps.cfg.get(), provider),
+            },
+          },
+        },
+      });
+      res.json(deps.cfg.getMasked());
+    } catch (err) {
+      console.error('provider profile create failed:', err);
+      res.status(500).json({ error: 'config write failed' });
+    }
+  });
+
+  router.delete('/provider-profiles/:provider/:id', (req, res) => {
+    const { provider, id } = req.params;
+    if (!isKnownProvider(provider)) {
+      return res.status(404).json({ error: { message: `unknown provider: ${provider}` } });
+    }
+    if (!deps.cfg.get().providerProfiles[provider]?.[id]) {
+      return res.status(404).json({ error: { message: `unknown provider profile: ${provider}/${id}` } });
+    }
+    try {
+      deps.cfg.removeProviderProfile(provider, id);
+      res.json(deps.cfg.getMasked());
+    } catch (err) {
+      console.error('provider profile delete failed:', err);
+      res.status(500).json({ error: 'config write failed' });
+    }
+  });
+
+  return router;
 }
