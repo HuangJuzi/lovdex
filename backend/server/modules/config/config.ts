@@ -128,6 +128,26 @@ export const DEFAULT_APP_CONFIG = {
     vlmMaxTokens: 8000,
     routing: {} as Record<string, string | { model: string; upstream?: string }>,
   },
+  /**
+   * 多套凭据「配置档」：某个 provider 的一组凭据字段的命名快照（字段范围见
+   * provider-profiles.ts 的 PROFILE_FIELDS）。**纯存储** —— `providers.*` 才
+   * 是"实际跑什么"的唯一真源；配置档只有被应用时才改变行为（PUT 带
+   * activeProviderProfiles 选择，服务端把该档真值拷进 `providers.*`，所以
+   * 密钥从不经过浏览器）。
+   *
+   * values 里存的是**真密钥**：GET 会打码（maskConfig 按 key 名递归），PUT 会在
+   * 合并前丢掉打码占位串，所以客户端把整份 draft 打回来也绝不会覆盖已存的 key。
+   */
+  providerProfiles: {} as Record<
+    string,
+    Record<string, { name: string; values: Record<string, unknown> }>
+  >,
+  /**
+   * 每个 provider 的生效字段当前来自哪个档。**仅 UI 标注用**，env-sync / 各
+   * runner 从不读它。空串（**不是 null** —— deepMerge 的 `override ?? base` 会把
+   * null 当成"未提供"而保留旧值）表示"自定义，不归属任何档"。
+   */
+  activeProviderProfiles: {} as Record<string, string>,
   runtime: { fsConcurrency: 64 },
 };
 
@@ -151,7 +171,7 @@ const ZERO_HINT_KEYS = new Set(['code', 'jwtSecret']);
  */
 const SENSITIVE_CONTAINER_KEYS = new Set(['apiKeys']);
 
-function deepMerge<T>(base: T, override: unknown): T {
+export function deepMerge<T>(base: T, override: unknown): T {
   if (Array.isArray(base) || Array.isArray(override)) {
     return (override ?? base) as T;
   }
@@ -220,6 +240,12 @@ export type AppConfigApi = {
   getMasked(): AppConfig;
   /** Deep-merges a partial update and atomically persists. */
   update(partial: unknown): AppConfig;
+  /**
+   * 删除一个配置档。`update()` 走的 deepMerge 只能加键/覆盖键、删不掉键，
+   * 所以删除必须走自己的路径。若该档正是当前档则顺手清空标记（`''`）；
+   * **生效字段刻意不动** —— 删档不该改变正在跑的东西。
+   */
+  removeProviderProfile(provider: string, id: string): AppConfig;
   /** The config file path. */
   filePath: string;
 };
@@ -286,6 +312,15 @@ export function createAppConfig(options?: {
     update(partial: unknown): AppConfig {
       const next = deepMerge(structuredClone(current), partial) as AppConfig;
       if (!next.auth.jwtSecret) next.auth.jwtSecret = current.auth.jwtSecret;
+      persist(next);
+      current = next;
+      return current;
+    },
+    removeProviderProfile(provider: string, id: string): AppConfig {
+      const next = structuredClone(current);
+      const bucket = next.providerProfiles[provider];
+      if (bucket) delete bucket[id];
+      if (next.activeProviderProfiles[provider] === id) next.activeProviderProfiles[provider] = '';
       persist(next);
       current = next;
       return current;

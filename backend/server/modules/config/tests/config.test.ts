@@ -159,3 +159,57 @@ test('apiKey masks as first6****last6 while other secrets keep tail mask', () =>
   assert.strictEqual(masked.providers.claude.apiKey, 'sk-ant****567890');
   assert.strictEqual(masked.providers.claude.authToken, '••••9876');
 });
+
+test('providerProfiles / activeProviderProfiles default to empty objects', () => {
+  const cfg = createAppConfig({ dataDir: tmpDir() });
+  assert.deepStrictEqual(cfg.get().providerProfiles, {});
+  assert.deepStrictEqual(cfg.get().activeProviderProfiles, {});
+});
+
+test('removeProviderProfile deletes the entry and clears a matching active marker', () => {
+  const cfg = createAppConfig({ dataDir: tmpDir() });
+  cfg.update({
+    providerProfiles: {
+      claude: {
+        p_a: { name: 'A', values: { apiKey: 'sk-a', baseUrl: 'https://a.example' } },
+        p_b: { name: 'B', values: { apiKey: 'sk-b' } },
+      },
+    },
+    activeProviderProfiles: { claude: 'p_a' },
+  });
+
+  cfg.removeProviderProfile('claude', 'p_a');
+
+  const got = cfg.get();
+  assert.strictEqual(got.providerProfiles.claude.p_a, undefined);
+  assert.strictEqual(got.providerProfiles.claude.p_b.values.apiKey, 'sk-b');
+  // 删掉当前档 → 标记清空（用 '' 而不是 null，见 deepMerge 的 `override ?? base`）
+  assert.strictEqual(got.activeProviderProfiles.claude, '');
+});
+
+test('removeProviderProfile leaves the non-active marker alone', () => {
+  const cfg = createAppConfig({ dataDir: tmpDir() });
+  cfg.update({
+    providerProfiles: { claude: { p_a: { name: 'A', values: {} }, p_b: { name: 'B', values: {} } } },
+    activeProviderProfiles: { claude: 'p_a' },
+  });
+
+  cfg.removeProviderProfile('claude', 'p_b');
+
+  assert.strictEqual(cfg.get().activeProviderProfiles.claude, 'p_a');
+});
+
+test('masked GET masks apiKey inside providerProfiles (no real key leaks)', () => {
+  const cfg = createAppConfig({ dataDir: tmpDir() });
+  cfg.update({
+    providerProfiles: {
+      claude: { p_a: { name: 'A', values: { apiKey: 'sk-ant-real-key-abcdef' } } },
+    },
+  });
+
+  const masked = cfg.getMasked() as unknown as {
+    providerProfiles: { claude: { p_a: { name: string; values: { apiKey: string } } } };
+  };
+  assert.strictEqual(masked.providerProfiles.claude.p_a.name, 'A');
+  assert.strictEqual(masked.providerProfiles.claude.p_a.values.apiKey, 'sk-ant****abcdef');
+});
