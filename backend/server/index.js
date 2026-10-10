@@ -63,9 +63,9 @@ import providerRoutes from './modules/providers/provider.routes.js';
 import { assetsRoutes } from './modules/assets/index.js';
 import { MAX_FILE_UPLOAD_COUNT, MAX_FILE_UPLOAD_SIZE_BYTES, MAX_FILE_UPLOAD_SIZE_MB } from './modules/uploads/upload-limits.js';
 import {
-    createUploadStagingDir,
     moveStagedFileIntoPlace,
     removeUploadStagingDir,
+    resolveUploadStagingDir,
 } from './modules/uploads/staging-dir.service.js';
 import { initializeDatabase, projectsDb, remoteHostsDb, scheduledTasksDb, sessionsDb, tasksDb } from './modules/database/index.js';
 import { buildTasksRouter, createTasksService } from './modules/tasks/index.js';
@@ -1545,12 +1545,15 @@ const uploadFilesHandler = async (req, res) => {
         resolvedTargetDir = validation.resolved;
     }
 
-    // Staging lives under the PROJECT ROOT (not the target dir): the target
-    // dir is whatever `targetPath` says, and the move to it stays same-device
-    // because both live inside the same project tree.
+    // Local or remote decides where the bytes may be staged: a remote project's
+    // path names a directory on ANOTHER host, so staging under it would either
+    // fail (EACCES) or litter the wrong machine. Resolved before multer because
+    // the storage destination needs it up front.
+    const hostId = lookupRemoteHost(projectRoot);
+
     let stagingDir;
     try {
-        stagingDir = await createUploadStagingDir(projectRoot);
+        stagingDir = await resolveUploadStagingDir({ projectRoot, isRemote: Boolean(hostId) });
     } catch (error) {
         console.error('[upload] failed to create staging dir:', error);
         return res.status(500).json({ error: 'Failed to prepare upload directory' });
@@ -1620,7 +1623,6 @@ const uploadFilesHandler = async (req, res) => {
             // Route to a remote host when the project is backed by one. The lite
             // fs/write does not create missing parent dirs, so ancestors are
             // created first (mirrors the local mkdir -p below).
-            const hostId = lookupRemoteHost(projectRoot);
             if (hostId) {
                 const { fsClient } = getRemoteAgentsRuntime();
                 const ensureRemoteParent = async (startDir, stopDir) => {

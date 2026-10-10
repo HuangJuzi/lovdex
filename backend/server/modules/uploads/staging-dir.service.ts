@@ -1,20 +1,42 @@
 import { promises as fsp } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 import { PROJECT_TMP_DIR } from '@/modules/assets/services/file-assets.service.js';
+
+/**
+ * Where one upload request stages its bytes.
+ *
+ * A LOCAL project stages inside itself so the final move is a same-filesystem
+ * `rename` instead of a copy (a 10GB upload peaks at 1× disk, not 2×).
+ *
+ * A REMOTE project must never be staged under its `projectRoot`: that path
+ * names a directory on the OTHER host, so touching it here would either fail
+ * with EACCES or silently litter an unrelated local directory. Its bytes still
+ * need a local scratch — multer writes them here and the chunked push streams
+ * them out — so they go to the OS temp dir, which is what the pre-chunking code
+ * used for every upload.
+ */
+export async function resolveUploadStagingDir(opts: {
+  projectRoot: string;
+  isRemote: boolean;
+}): Promise<string> {
+  if (opts.isRemote) {
+    return fsp.mkdtemp(path.join(os.tmpdir(), 'lovdex-upload-'));
+  }
+  return createUploadStagingDir(opts.projectRoot);
+}
 
 /** Injected rename, so tests can force the cross-device fallback. */
 export type RenameFn = (from: string, to: string) => Promise<void>;
 
 /**
- * Uploads are staged inside the project (not `os.tmpdir()`) so the final move
- * is a same-filesystem `rename` instead of a copy. A 10GB upload therefore
- * peaks at 1× disk instead of 2×.
- *
- * The staging dir is a unique child of the project's shared `.lovdex-tmp`
+ * Stage inside a LOCAL project: a unique child of its shared `.lovdex-tmp`
  * (which already carries a `*` .gitignore, so staged bytes never appear in
  * `git status`). Only the child is ever removed — never `.lovdex-tmp` itself,
  * which also holds chat attachments.
+ *
+ * Do not call this for a remote project; use {@link resolveUploadStagingDir}.
  */
 export async function createUploadStagingDir(projectRoot: string): Promise<string> {
   const base = path.join(projectRoot, PROJECT_TMP_DIR);

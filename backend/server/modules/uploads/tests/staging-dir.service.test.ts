@@ -8,6 +8,7 @@ import {
   createUploadStagingDir,
   moveStagedFileIntoPlace,
   removeUploadStagingDir,
+  resolveUploadStagingDir,
 } from '../staging-dir.service.js';
 import { MAX_FILE_UPLOAD_SIZE_MB, MAX_FILE_UPLOAD_SIZE_BYTES } from '../upload-limits.js';
 
@@ -95,4 +96,33 @@ test('removeUploadStagingDir is idempotent and never removes the parent .lovdex-
   await removeUploadStagingDir(staging); // second call must not throw
   assert.equal(await fsp.stat(path.join(project, '.lovdex-tmp')).then(() => true, () => false), true);
   await fsp.rm(project, { recursive: true, force: true });
+});
+
+test('a LOCAL project stages inside itself (so the final move is a rename)', async () => {
+  const project = await mkproject();
+  const staging = await resolveUploadStagingDir({ projectRoot: project, isRemote: false });
+
+  assert.equal(path.dirname(staging), path.join(project, '.lovdex-tmp'));
+  await removeUploadStagingDir(staging);
+  await fsp.rm(project, { recursive: true, force: true });
+});
+
+test('a REMOTE project never stages under its (other-host) project path', async () => {
+  // A remote project's path names a directory on ANOTHER machine. Staging under
+  // it would either EACCES on that mkdir or silently create the directory on
+  // the wrong host — so the staging dir must live in the local OS temp dir.
+  const remoteRoot = '/srv/app-on-the-other-host';
+  const staging = await resolveUploadStagingDir({ projectRoot: remoteRoot, isRemote: true });
+
+  const tempReal = await fsp.realpath(os.tmpdir());
+  assert.equal(
+    staging.startsWith(tempReal + path.sep),
+    true,
+    `remote staging must be in the local temp dir, got ${staging}`,
+  );
+  assert.equal(staging.startsWith(remoteRoot), false);
+  assert.ok((await fsp.stat(staging)).isDirectory());
+  // And crucially: nothing was created on the main machine for that path.
+  assert.equal(await fsp.stat(path.join(remoteRoot, '.lovdex-tmp')).then(() => true, () => false), false);
+  await removeUploadStagingDir(staging);
 });
