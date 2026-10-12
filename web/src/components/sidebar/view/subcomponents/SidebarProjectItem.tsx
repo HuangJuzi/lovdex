@@ -165,6 +165,7 @@ export default function SidebarProjectItem({
   return (
     <div
       ref={itemRef}
+      data-project-id={project.projectId}
       className={cn('md:space-y-1', isDeleting && 'opacity-50 pointer-events-none')}
     >
       {/* 项目头吸顶：sticky 的包含块是本元素的父级（挂了 itemRef 的那个最外层

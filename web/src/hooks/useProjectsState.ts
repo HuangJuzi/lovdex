@@ -490,7 +490,10 @@ export function useProjectsState({
       // payload omits (most auto-discovered ones). Ask for it by path so the
       // match below can find it — otherwise the deep link silently no-ops and
       // the workspace stays empty.
-      const response = await api.projects(initialProjectPath);
+      // A `/session/:id` deep link additionally asks for that session by id:
+      // old task sessions fall outside the project's newest-first top-20 page,
+      // and without it the sidebar can't resolve the selection at all.
+      const response = await api.projects(initialProjectPath, sessionId ?? undefined);
       const projectData = (await response.json()) as Project[];
 
       setProjects((prevProjects) => {
@@ -512,7 +515,7 @@ export function useProjectsState({
         setIsLoadingProjects(false);
       }
     }
-  }, [initialProjectPath]);
+  }, [initialProjectPath, sessionId]);
 
   const refreshProjectsSilently = useCallback(async () => {
     // Keep chat view stable while still syncing sidebar/session metadata in background.
@@ -1029,8 +1032,10 @@ export function useProjectsState({
   const handleSidebarRefresh = useCallback(async () => {
     try {
       // Carry the deep-link path so a refresh does not drop the very project
-      // the URL points at back out of the explicit-only list.
-      const response = await api.projects(initialProjectPath);
+      // the URL points at back out of the explicit-only list. Same for the
+      // deep-linked session (URL `/session/:id`) — it must survive a manual
+      // sidebar refresh even when outside the project's top-20 page.
+      const response = await api.projects(initialProjectPath, sessionId ?? undefined);
       const freshProjects = (await response.json()) as Project[];
       const projectsWithTaskMaster = mergeTaskMasterCache(freshProjects, projects);
       const mergedProjects = mergeExpandedSessionPages(projects, projectsWithTaskMaster);
@@ -1084,7 +1089,7 @@ export function useProjectsState({
     } catch (error) {
       console.error('Error refreshing sidebar:', error);
     }
-  }, [projects, initialProjectPath]);
+  }, [projects, initialProjectPath, sessionId]);
 
   const loadMoreProjectSessions = useCallback(async (projectId: string) => {
     const project = projects.find((candidate) => candidate.projectId === projectId);

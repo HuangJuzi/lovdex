@@ -77,6 +77,15 @@ type GetProjectsWithSessionsOptions = {
    * Naming one here returns just that project alongside the usual list.
    */
   includePath?: string;
+  /**
+   * A session id to surface inside its owning project's session page. Sessions
+   * are paginated newest-first (default top-20), so an old task session deep
+   * link (`/session/:id` from the task board) can fall outside the first page
+   * — the sidebar then can't resolve it and nothing gets selected. Naming the
+   * session here guarantees it a slot in the payload. Its owning project is
+   * also surfaced like `includePath` (non-explicit projects included).
+   */
+  includeSessionId?: string;
 };
 
 type SessionPaginationOptions = {
@@ -235,6 +244,16 @@ export async function getProjectsWithSessions(
   // Normalized the same way rows are stored, so a deep link spelled with a
   // trailing slash or `..` still matches its row.
   const includePath = options.includePath ? normalizeProjectPath(options.includePath) : null;
+  // Deep-linked session: resolve its owning project once so the row filter can
+  // surface a non-explicit project AND the session page can guarantee it a slot.
+  // Archived sessions are ignored — they never belong in the live sidebar.
+  const includeSessionRow = options.includeSessionId
+    ? sessionsDb.getSessionById(options.includeSessionId)
+    : null;
+  const includeSession = includeSessionRow && !includeSessionRow.isArchived ? includeSessionRow : null;
+  const includeSessionProjectPath = includeSession?.project_path
+    ? normalizeProjectPath(includeSession.project_path)
+    : null;
   const projectRows = (projectsDb.getProjectPaths() as Array<{
     project_id: string;
     project_path: string;
@@ -247,6 +266,7 @@ export async function getProjectsWithSessions(
     Boolean(row.is_explicit)
       || (operatorWorkspaceRoot !== null && row.project_path === operatorWorkspaceRoot)
       || (includePath !== null && row.project_path === includePath)
+      || (includeSessionProjectPath !== null && row.project_path === includeSessionProjectPath)
   );
   const totalProjects = projectRows.length;
   const projects: ProjectListItem[] = [];
@@ -300,6 +320,16 @@ export async function getProjectsWithSessions(
       });
       sessions = sessionsPage.sessions;
       sessionTotal = sessionsPage.total;
+      // The deep-linked session must be in the payload even when it falls
+      // outside the newest-first page (old task sessions usually do). Prepend
+      // it when missing — deduped against the page by session id.
+      if (
+        includeSession
+        && includeSessionProjectPath === projectPath
+        && !sessions.some((session) => session.id === includeSession.session_id)
+      ) {
+        sessions = [mapSessionRowToSummary(includeSession as SessionRepositoryRow), ...sessions];
+      }
     }
 
     projects.push({

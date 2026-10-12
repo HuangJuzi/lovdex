@@ -214,6 +214,19 @@ export function useSidebarController({
       next.add(nextProjectId);
       return next;
     });
+
+    // 展开的同时把该项目行滚到侧栏列表顶部：owning 项目可能排在列表深处
+    // （按星标/最近活动排序），不滚的话「展开+高亮」发生在视口外等于没发生。
+    // 等两帧：一帧让 expandedProjects 状态先渲染出会话列表，再一帧确保
+    // ScrollArea 的滚动容器已更新尺寸。连续快速跳转时后一次滚动覆盖前一次，
+    // 最终停在最后一次的目标位置。
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        document
+          .querySelector(`[data-project-id="${CSS.escape(nextProjectId)}"]`)
+          ?.scrollIntoView({ block: 'start' });
+      });
+    });
   }, [_selectedSession?.id, _selectedSession?.__projectId, selectedProject?.projectId]);
 
   // 展开状态持久化：AppContent 在 /tasks 等路由间切换时整体卸载/重挂，

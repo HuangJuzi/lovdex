@@ -79,11 +79,16 @@ router.get(
     // `?includePath=` surfaces one normally-hidden project so a deep link can
     // resolve it. See GetProjectsWithSessionsOptions.includePath.
     const includePath = readQueryStringValue(req.query.includePath).trim() || undefined;
+    // `?includeSession=` surfaces one session (and its owning project) so a
+    // `/session/:id` deep link resolves even when the session falls outside
+    // the project's newest-first session page. See includeSessionId.
+    const includeSessionId = readQueryStringValue(req.query.includeSession).trim() || undefined;
     const projects = await getProjectsWithSessions({
       skipSynchronization,
       sessionsLimit,
       sessionsOffset,
       includePath,
+      includeSessionId,
     });
     res.json(projects);
   }),

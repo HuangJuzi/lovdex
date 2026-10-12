@@ -54,6 +54,26 @@ function SessionListSkeleton() {
   );
 }
 
+/**
+ * 渲染顺序：当前选中的会话固定排第一，其余保持载荷顺序（最新在前）。
+ * 只影响显示顺序，不改动数据 —— 配合 includeSession 深链参数，从任务页
+ * 跳进的老会话即使时间排序靠后也能在列表顶部看到自己。
+ */
+export function orderSessionsWithSelectedFirst(
+  sessions: SessionWithProvider[],
+  selectedSession: ProjectSession | null,
+): SessionWithProvider[] {
+  if (!selectedSession) {
+    return sessions;
+  }
+  const selectedIndex = sessions.findIndex((session) => session.id === selectedSession.id);
+  if (selectedIndex <= 0) {
+    return sessions;
+  }
+  const selected = sessions[selectedIndex];
+  return [selected, ...sessions.slice(0, selectedIndex), ...sessions.slice(selectedIndex + 1)];
+}
+
 export default function SidebarProjectSessions({
   project,
   isExpanded,
@@ -82,6 +102,8 @@ export default function SidebarProjectSessions({
   }
 
   const hasSessions = sessions.length > 0;
+  // 选中会话置顶（仅显示顺序；selectedSession 归属本项目时才有意义）。
+  const orderedSessions = orderSessionsWithSelectedFirst(sessions, selectedSession);
 
   return (
     <div className="ml-3 space-y-1 rounded-r-lg border-l-2 border-primary/30 bg-muted/25 py-1 pl-3">
@@ -93,7 +115,7 @@ export default function SidebarProjectSessions({
         </div>
       ) : (
         <>
-          {sessions.map((session) => (
+          {orderedSessions.map((session) => (
             <SidebarSessionItem
               key={session.id}
               project={project}

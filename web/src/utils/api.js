@@ -102,11 +102,16 @@ export const api = {
   // `includePath` surfaces one normally-hidden (non-explicit) project so a
   // `?project=<path>` deep link can resolve it; see the backend's
   // GetProjectsWithSessionsOptions.includePath.
-  projects: (includePath) => authenticatedFetch(
-    includePath
-      ? `/api/projects?includePath=${encodeURIComponent(includePath)}`
-      : '/api/projects'
-  ),
+  // `includeSessionId` surfaces that session inside its owning project's
+  // session page (old task sessions fall outside the newest-first top-20), so
+  // `/session/:id` deep links can resolve the sidebar selection.
+  projects: (includePath, includeSessionId) => {
+    const params = new URLSearchParams();
+    if (includePath) params.set('includePath', includePath);
+    if (includeSessionId) params.set('includeSession', includeSessionId);
+    const queryString = params.toString();
+    return authenticatedFetch(queryString ? `/api/projects?${queryString}` : '/api/projects');
+  },
   archivedProjects: () => authenticatedFetch('/api/projects/archived'),
   projectSessions: (projectId, { limit = 20, offset = 0 } = {}) => {
     const params = new URLSearchParams();
