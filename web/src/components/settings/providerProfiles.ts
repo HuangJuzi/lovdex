@@ -48,7 +48,7 @@ export function selectionFor(active: Record<string, string> | undefined, provide
   return active?.[provider] || NO_PROFILE;
 }
 
-/** 从 GET 回来的配置里读出四个 provider 的档选择。 */
+/** 从 GET 回来的配置里读出每个 provider 的档选择。 */
 export function readSelections(cfg: Record<string, unknown>): Record<ProviderKey, string> {
   const active = (cfg.activeProviderProfiles ?? {}) as Record<string, string>;
   return {
