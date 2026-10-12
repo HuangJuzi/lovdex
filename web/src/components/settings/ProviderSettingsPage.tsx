@@ -477,6 +477,7 @@ export function ProviderSettingsForm() {
   const codex = draft?.providers?.codex ?? {};
   const opencode = draft?.providers?.opencode ?? {};
   const qoder = draft?.providers?.qoder ?? {};
+  const dsh = draft?.providers?.dsh ?? {};
   const server = draft?.server ?? {};
   const llmProxy = draft?.llmProxy ?? {};
 
@@ -593,6 +594,31 @@ export function ProviderSettingsForm() {
           value={qoder.personalAccessToken ?? ''}
           onChange={(v) => patchProvider('qoder', 'personalAccessToken', v)}
         />
+        <p className="text-xs text-muted-foreground">
+          配置档由服务端保管密钥；切换后点保存生效，只影响新会话（运行中的会话沿用启动时的凭据）。
+        </p>
+      </Section>
+
+      <Section
+        title="DeepSeek"
+        provider="dsh"
+        headerExtra={selectorFor('dsh')}
+      >
+        <SecretField
+          label="API Key (apiKey)"
+          value={dsh.apiKey ?? ''}
+          onChange={(v) => patchProvider('dsh', 'apiKey', v)}
+          revealable={false}
+        />
+        <TextField
+          label="Base URL (baseUrl)"
+          value={dsh.baseUrl ?? ''}
+          placeholder="留空 = 跟随 llm-proxy（推荐）；仅指向代理不代理的上游时填写"
+          onChange={(v) => patchProvider('dsh', 'baseUrl', v)}
+        />
+        <p className="text-xs text-muted-foreground">
+          apiKey 留空 = 继承 llm-proxy 的凭据（与 claude provider 同一把）。两个字段都只影响新会话。
+        </p>
         <p className="text-xs text-muted-foreground">
           配置档由服务端保管密钥；切换后点保存生效，只影响新会话（运行中的会话沿用启动时的凭据）。
         </p>
