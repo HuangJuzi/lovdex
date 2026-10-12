@@ -437,7 +437,9 @@ function ChatInterface({
             ? t('messageTypes.opencode', { defaultValue: 'OpenCode' })
             : provider === 'qoder'
               ? t('messageTypes.qoder', { defaultValue: 'Qoder' })
-              : t('messageTypes.claude');
+              : provider === 'dsh'
+                ? t('messageTypes.dsh', { defaultValue: 'DeepSeek' })
+                : t('messageTypes.claude');
 
     return (
       <div className="flex h-full items-center justify-center">
@@ -610,7 +612,9 @@ function ChatInterface({
                     ? t('messageTypes.opencode', { defaultValue: 'OpenCode' })
                     : provider === 'qoder'
                         ? t('messageTypes.qoder', { defaultValue: 'Qoder' })
-                    : t('messageTypes.claude'),
+                        : provider === 'dsh'
+                            ? t('messageTypes.dsh', { defaultValue: 'DeepSeek' })
+                            : t('messageTypes.claude'),
           })}
           isTextareaExpanded={isTextareaExpanded}
           sendByCtrlEnter={sendByCtrlEnter}

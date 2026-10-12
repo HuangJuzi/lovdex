@@ -1,6 +1,7 @@
 import type { LLMProvider } from '../../types/app';
 import ClaudeLogo from './ClaudeLogo';
 import CodexLogo from './CodexLogo';
+import DshLogo from './DshLogo';
 import OpenCodeLogo from './OpenCodeLogo';
 import QoderLogo from './QoderLogo';
 
@@ -23,6 +24,10 @@ export default function SessionProviderLogo({
 
   if (provider === 'qoder') {
     return <QoderLogo className={className} />;
+  }
+
+  if (provider === 'dsh') {
+    return <DshLogo className={className} />;
   }
 
   return <ClaudeLogo className={className} />;

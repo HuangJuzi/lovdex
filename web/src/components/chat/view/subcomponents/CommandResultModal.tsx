@@ -62,6 +62,7 @@ const PROVIDER_LABELS: Record<string, string> = {
   codex: 'Codex',
   opencode: 'OpenCode',
   qoder: 'Qoder',
+  dsh: 'DeepSeek',
 };
 
 const FALLBACK_COMMANDS: CommandEntry[] = [

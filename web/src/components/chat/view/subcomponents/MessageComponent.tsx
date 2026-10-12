@@ -171,7 +171,9 @@ const MessageComponent = memo(({ message, prevMessage, createDiff, onFileOpen, s
                           ? t('messageTypes.opencode', { defaultValue: 'OpenCode' })
                           : provider === 'qoder'
                               ? t('messageTypes.qoder', { defaultValue: 'Qoder' })
-                              : t('messageTypes.claude'))}
+                              : provider === 'dsh'
+                                  ? t('messageTypes.dsh', { defaultValue: 'DeepSeek' })
+                                  : t('messageTypes.claude'))}
               </div>
             </div>
           )}

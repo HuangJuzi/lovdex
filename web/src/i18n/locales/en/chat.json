@@ -18,7 +18,8 @@
     "claude": "Claude",
     "codex": "Codex",
     "opencode": "OpenCode",
-    "qoder": "Qoder"
+    "qoder": "Qoder",
+    "dsh": "DeepSeek"
   },
   "tools": {
     "settings": "Tool Settings",
@@ -164,7 +165,8 @@
       "codex": "Ready to use Codex with {{model}}. Start typing your message below.",
       "opencode": "Ready to use OpenCode with {{model}}. Start typing your message below.",
       "default": "Select a provider above to begin",
-      "qoder": "Ready to use Qoder with {{model}}. Start typing your message below."
+      "qoder": "Ready to use Qoder with {{model}}. Start typing your message below.",
+      "dsh": "Ready to use DeepSeek Harness with {{model}}. Start typing your message below."
     },
     "pressToSearch": "Press <kbd>{{shortcut}}</kbd> to search sessions, files, and commits"
   },
