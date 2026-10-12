@@ -64,6 +64,14 @@
 - 实现细节：上一个选中会话的归属项目用 ref 记录（副作用内对比，避免重渲染循环）。归属项目取 `selectedSession.__projectId ?? selectedProject.projectId`——注意 URL 解析路径（`useProjectsState` 的匹配 effect）产出的 session 对象不保证带 `__projectId`（那是侧栏 `handleSessionClick` 才打的标记），所以 **selectedProject 对比是外部跳转的主路径**，`__projectId` 只在侧栏点击链路上可用。
 - 任何「落进会话」的路径（冷启动 restore-last-session / /tasks 切回主页面恢复同一会话 / URL 直开/刷新）都会走「null→session」触发展开：**有意为之，且是最终裁决的语义**（2026-10-12 用户确认）——/tasks 与 / 是不同 Route，往返必然重挂 AppContent、ref 清零，「切回同一会话不展开」与「URL 直开展开」在此实现下不可区分，两者统一为「落进会话 = 展开归属项目」。代价是用户曾手动收起的项目在切回/刷新时会被重新展开一次，接受。
 
+### 追加需求（2026-10-12 用户复述确认，commit 9363583）
+
+用户澄清的完整需求：从任务切到 session 后，owning 项目要滚到列表顶、要展开、目标 session 显示在会话列表第一行。在已完成的「展开+高亮」之上补三件事：
+
+1. **老会话可解析（根因修复）**：`/api/projects` 新增 `?includeSession=<id>`（模仿既有 `?includePath=` 深链模式）——按 session_id 反查 owning 项目（非 explicit 也浮出），目标会话不在 newest-first top-20 页内时前置补进该项目载荷（按 id 去重；archived 会话忽略，等同未传参）。前端 `api.projects()` 增加第二参数，`/session/:id` 在场的 `fetchProjects`/`handleSidebarRefresh` 都带上。修复「跳到老任务会话时侧栏整个不选中」。
+2. **选中会话渲染置顶**：`SidebarProjectSessions` 用纯函数 `orderSessionsWithSelectedFirst` 把 selectedSession 排到本列表第一（仅显示顺序，不改数据；选中会话不在本列表/已在首位时原样返回）。
+3. **项目行滚动到顶**：跳转展开 effect 触发时，双 rAF 后对 `[data-project-id]`（SidebarProjectItem 根 div 新增的定位属性）`scrollIntoView({ block: 'start' })`。只挂在跳转展开分支上——侧栏手动点击不抢滚动。
+
 ### 验收标准
 
 - 从任务页「打开会话」/ 通知点击 / 收件箱跳入 → 左侧栏 owning 项目展开，session 行高亮（primary 边框 + 左 accent 条）。
