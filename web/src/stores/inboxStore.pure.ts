@@ -21,6 +21,7 @@ export type InboxAction =
   | { type: 'updated'; row: InboxNotification }
   | { type: 'replaceAll'; rows: InboxNotification[] }
   | { type: 'markReadLocal'; id: string }
+  | { type: 'markReadManyLocal'; ids: string[] }
   | { type: 'markAllReadLocal' };
 
 /** 未读总数 —— 与后端 unread-count、/inbox 页头、列表红点同一口径（含 info）。 */
@@ -66,6 +67,14 @@ export function inboxReducer(state: InboxState, action: InboxAction): InboxState
           it.notification_id === action.id && !it.read_at ? { ...it, read_at: new Date().toISOString() } : it,
         ),
       };
+    case 'markReadManyLocal': {
+      const ids = new Set(action.ids);
+      return {
+        items: state.items.map((it) =>
+          ids.has(it.notification_id) && !it.read_at ? { ...it, read_at: new Date().toISOString() } : it,
+        ),
+      };
+    }
     case 'markAllReadLocal':
       return { items: state.items.map((it) => (it.read_at ? it : { ...it, read_at: new Date().toISOString() })) };
     default:

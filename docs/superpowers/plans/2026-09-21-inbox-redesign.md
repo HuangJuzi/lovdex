@@ -1387,7 +1387,7 @@ env -u TSX_TSCONFIG_PATH npx tsx --test src/components/inbox/inboxTarget.test.ts
 2. 点左栏某条 → 右栏内容跟着换
 3. 详情里多行正文**保留换行**（找一条 body 里带 `\n` 的通知；没有的话临时造一条）
 4. 点「打开会话 / 查看任务」能跳走
-5. 点「全部已读」→ 未读角标清零、已读行变淡
+5. 点「全部已读」（页头按钮）→ 未读角标清零、已读行变淡
 6. 窄屏（把窗口拖到 <1024px）：变单列列表，**顶部出现菜单按钮**，点它能拉出侧边栏抽屉
 7. 窄屏点某条 → 从底部滑出全屏 sheet，内容与右栏一致
 
@@ -1702,11 +1702,10 @@ git commit -m "feat(ui): soften notification toast with frosted card and motion"
 ```tsx
   // 候选集：未读且非 info。`info` 永不进汇总弹窗，这是既有约定（见
   // docs/superpowers/specs/2026-09-20-inbox-notification-design.md §5），不要顺手改掉。
-  const summaryItems = inbox.items
-    .filter((it) => !it.read_at && it.severity !== 'info')
-    .slice(0, 8);
-  const summaryCritical = summaryItems.filter((it) => it.severity === 'critical');
-  const summaryWarning = summaryItems.filter((it) => it.severity === 'warning');
+  // 弹窗只展示**最新一条**：它是「有东西来了」的提醒信号，其余未读在收件箱里看。
+  const summaryItem = inbox.items.find((it) => !it.read_at && it.severity !== 'info') ?? null;
+  const summaryItems = summaryItem ? [summaryItem] : [];
+  const summaryTotal = inbox.items.filter((it) => !it.read_at && it.severity !== 'info').length;
 ```
 
 - [ ] **Step 3: 替换 Dialog 内容**
@@ -1720,51 +1719,43 @@ git commit -m "feat(ui): soften notification toast with frosted card and motion"
               CommandResultModal 已经在用的模式。 */}
           <DialogTitle>你有未读通知</DialogTitle>
           <h2 className="text-lg font-semibold">你有未读通知</h2>
-          <p className="mt-0.5 text-xs text-muted-foreground">共 {summaryItems.length} 条需要你看一眼</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">共 {summaryTotal} 条需要你看一眼</p>
 
           <div className="mt-3 space-y-3">
-            {[
-              { key: 'critical', label: '严重', items: summaryCritical },
-              { key: 'warning', label: '警告', items: summaryWarning },
-            ]
-              .filter((g) => g.items.length > 0)
-              .map((group) => (
-                <section key={group.key}>
-                  <div className="mb-1 text-2xs font-semibold uppercase text-muted-foreground">
-                    {group.label}
-                  </div>
-                  <ul className="space-y-1">
-                    {group.items.map((it) => {
-                      const target = inboxTargetPath(it);
-                      return (
-                        <li key={it.notification_id}>
-                          <button
-                            type="button"
-                            disabled={!target}
-                            onClick={() => {
-                              if (!target) return;
-                              setSummaryOpen(false);
-                              markReadLocal(it.notification_id);
-                              navigate(target);
-                            }}
-                            className="w-full truncate rounded-md px-2 py-1.5 text-left text-sm enabled:hover:bg-muted disabled:cursor-default"
-                          >
-                            {it.title}
-                            {it.occurrence_count > 1 ? (
-                              <span className="ml-1.5 text-2xs text-muted-foreground">×{it.occurrence_count}</span>
-                            ) : null}
-                          </button>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </section>
-              ))}
+            {summaryItem ? (
+              <section>
+                <div className="mb-1 text-2xs font-semibold uppercase text-muted-foreground">
+                  {severityLabel(summaryItem.severity)}
+                </div>
+                <ul className="space-y-1">
+                  <li key={summaryItem.notification_id}>
+                    <button
+                      type="button"
+                      disabled={!inboxTargetPath(summaryItem)}
+                      onClick={() => {
+                        const target = inboxTargetPath(summaryItem);
+                        if (!target) return;
+                        setSummaryOpen(false);
+                        markReadManyLocal([summaryItem.notification_id]);
+                        navigate(target);
+                      }}
+                      className="w-full truncate rounded-md px-2 py-1.5 text-left text-sm enabled:hover:bg-muted disabled:cursor-default"
+                    >
+                      {summaryItem.title}
+                      {summaryItem.occurrence_count > 1 ? (
+                        <span className="ml-1.5 text-2xs text-muted-foreground">×{summaryItem.occurrence_count}</span>
+                      ) : null}
+                    </button>
+                  </li>
+                </ul>
+              </section>
+            ) : null}
           </div>
 
           <div className="mt-4 flex justify-end gap-2">
-            <Button variant="ghost" size="sm" onClick={() => { markAllReadLocal(); setSummaryOpen(false); }}>
-              全部已读
+            <Button variant="ghost" size="sm" onClick={() => setSummaryOpen(false)}>知道了</Button>
+            <Button variant="outline" size="sm" onClick={() => { markReadManyLocal(summaryItems.map((it) => it.notification_id)); setSummaryOpen(false); }}>
+              标记已读
             </Button>
             <Button size="sm" onClick={() => { setSummaryOpen(false); navigate('/inbox'); }}>去收件箱</Button>
           </div>
@@ -1774,10 +1765,10 @@ git commit -m "feat(ui): soften notification toast with frosted card and motion"
 
 - [ ] **Step 4: 补 import**
 
-`AppContent.tsx` 第 8 行的 store import 增加 `markReadLocal`、`markAllReadLocal`：
+`AppContent.tsx` 第 8 行的 store import 增加 `markReadManyLocal`（批量只标弹窗里列出的那几条）：
 
 ```tsx
-import { refreshInbox, applyInboxEvent, claimUnannouncedImportant, subscribeInbox, getInboxSnapshot, markReadLocal, markAllReadLocal } from '../../stores/inboxStore';
+import { refreshInbox, applyInboxEvent, claimUnannouncedImportant, subscribeInbox, getInboxSnapshot, markReadManyLocal } from '../../stores/inboxStore';
 ```
 
 新增一行：
@@ -1799,10 +1790,10 @@ npm run typecheck
 
 制造一条未读 critical 通知（最简单的办法：从收件箱上报 skill 发一条，或直接改库里 `notifications` 表某行 `read_at = NULL`），刷新页面：
 
-1. 弹窗**有可见标题**「你有未读通知」+ 副标题条数
-2. 列表按「严重 / 警告」分组
-3. 点某条 → 弹窗关闭并跳到对应任务/会话
-4. 点「全部已读」→ 弹窗关闭、角标清零
+1. 弹窗**有可见标题**「你有未读通知」+ 副标题报全部未读非 info 的条数
+2. 列表**只显示最新一条**（而不是一长串）
+3. 点那条 → 弹窗关闭并跳到对应任务/会话
+4. 点「标记已读」→ 弹窗关闭，**只**标掉弹窗里列出的那一条，其余未读的角标仍在
 5. **info 级别的通知不出现**在这个弹窗里
 
 - [ ] **Step 7: 提交**

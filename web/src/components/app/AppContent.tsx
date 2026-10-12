@@ -6,8 +6,8 @@ import Sidebar from '../sidebar/view/Sidebar';
 import MainContent from '../main-content/view/MainContent';
 import InboxPage from '../inbox/InboxPage';
 import { Button, Dialog, DialogContent, DialogTitle, ToastStack, useToastStack } from '../../shared/view/ui';
-import { refreshInbox, applyInboxEvent, claimUnannouncedImportant, subscribeInbox, getInboxSnapshot, markReadLocal, markAllReadLocal } from '../../stores/inboxStore';
-import { inboxTargetPath } from '../inbox/inboxTarget';
+import { refreshInbox, applyInboxEvent, claimUnannouncedImportant, subscribeInbox, getInboxSnapshot, markReadManyLocal } from '../../stores/inboxStore';
+import { inboxTargetPath, severityLabel } from '../inbox/inboxTarget';
 import { useWebSocket } from '../../contexts/WebSocketContext';
 import { useDeviceSettings } from '../../hooks/useDeviceSettings';
 import { useSessionProtection } from '../../hooks/useSessionProtection';
@@ -231,12 +231,10 @@ function AppContentInner() {
 
   // 候选集：未读且非 info。`info` 永不进汇总弹窗，这是既有约定（见
   // docs/superpowers/specs/2026-09-20-inbox-notification-design.md §5），不要顺手改掉。
-  const summaryItems = inbox.items
-    .filter((it) => !it.read_at && it.severity !== 'info')
-    .slice(0, 8);
+  // 弹窗只展示**最新一条**：它是「有东西来了」的提醒信号，其余未读在收件箱里看。
+  const summaryItem = inbox.items.find((it) => !it.read_at && it.severity !== 'info') ?? null;
+  const summaryItems = summaryItem ? [summaryItem] : [];
   const summaryTotal = inbox.items.filter((it) => !it.read_at && it.severity !== 'info').length;
-  const summaryCritical = summaryItems.filter((it) => it.severity === 'critical');
-  const summaryWarning = summaryItems.filter((it) => it.severity === 'warning');
 
   // 首挂：拉取收件箱。
   useEffect(() => {
@@ -375,52 +373,45 @@ function AppContentInner() {
           <p className="mt-0.5 text-xs text-muted-foreground">共 {summaryTotal} 条需要你看一眼</p>
 
           <div className="mt-3 space-y-3">
-            {[
-              { key: 'critical', label: '严重', items: summaryCritical },
-              { key: 'warning', label: '警告', items: summaryWarning },
-            ]
-              .filter((g) => g.items.length > 0)
-              .map((group) => (
-                <section key={group.key}>
-                  <div className="mb-1 text-2xs font-semibold uppercase text-muted-foreground">
-                    {group.label}
-                  </div>
-                  <ul className="space-y-1">
-                    {group.items.map((it) => {
-                      const target = inboxTargetPath(it);
-                      return (
-                        <li key={it.notification_id}>
-                          <button
-                            type="button"
-                            disabled={!target}
-                            onClick={() => {
-                              if (!target) return;
-                              setSummaryOpen(false);
-                              markReadLocal(it.notification_id);
-                              navigate(target);
-                            }}
-                            className="w-full truncate rounded-md px-2 py-1.5 text-left text-sm enabled:hover:bg-muted disabled:cursor-default"
-                          >
-                            {it.title}
-                            {it.occurrence_count > 1 ? (
-                              <span className="ml-1.5 text-2xs text-muted-foreground">×{it.occurrence_count}</span>
-                            ) : null}
-                          </button>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </section>
-              ))}
+            {summaryItem ? (
+              <section>
+                <div className="mb-1 text-2xs font-semibold uppercase text-muted-foreground">
+                  {severityLabel(summaryItem.severity)}
+                </div>
+                <ul className="space-y-1">
+                  <li key={summaryItem.notification_id}>
+                    <button
+                      type="button"
+                      disabled={!inboxTargetPath(summaryItem)}
+                      onClick={() => {
+                        const target = inboxTargetPath(summaryItem);
+                        if (!target) return;
+                        setSummaryOpen(false);
+                        markReadManyLocal([summaryItem.notification_id]);
+                        navigate(target);
+                      }}
+                      className="w-full truncate rounded-md px-2 py-1.5 text-left text-sm enabled:hover:bg-muted disabled:cursor-default"
+                    >
+                      {summaryItem.title}
+                      {summaryItem.occurrence_count > 1 ? (
+                        <span className="ml-1.5 text-2xs text-muted-foreground">×{summaryItem.occurrence_count}</span>
+                      ) : null}
+                    </button>
+                  </li>
+                </ul>
+              </section>
+            ) : null}
           </div>
 
           <div className="mt-4 flex justify-end gap-2">
             {/* 「知道了」是纯关闭：不改任何已读状态。少了它，用户想原样关掉弹窗
-                就只能去点「全部已读」（有副作用）或跳走 —— 三选一里必须有一个
+                就只能去点「标记已读」（有副作用）或跳走 —— 三选一里必须有一个
                 无副作用的出口。 */}
             <Button variant="ghost" size="sm" onClick={() => setSummaryOpen(false)}>知道了</Button>
-            <Button variant="outline" size="sm" onClick={() => { markAllReadLocal(); setSummaryOpen(false); }}>
-              全部已读
+            {/* 「标记已读」只标弹窗里列出的这一条，不碰收件箱里其余未读 ——
+                弹窗是「看一眼这一条」，不是「清空整个收件箱」。 */}
+            <Button variant="outline" size="sm" onClick={() => { markReadManyLocal(summaryItems.map((it) => it.notification_id)); setSummaryOpen(false); }}>
+              标记已读
             </Button>
             <Button size="sm" onClick={() => { setSummaryOpen(false); if (!isInboxRoute) navigate('/inbox'); }}>去收件箱</Button>
           </div>

@@ -1833,9 +1833,9 @@ import { refreshInbox, applyInboxEvent, getUnreadCount, getInboxSnapshot } from 
         <DialogContent>
           <DialogTitle>你有未读通知</DialogTitle>
           <div className="mt-2 space-y-1.5">
-            {getInboxSnapshot().items.filter((it) => !it.read_at && it.severity !== 'info').slice(0, 8).map((it) => (
-              <div key={it.notification_id} className="truncate text-sm">· {it.title}{it.occurrence_count > 1 ? ` ×${it.occurrence_count}` : ''}</div>
-            ))}
+            {getInboxSnapshot().items.find((it) => !it.read_at && it.severity !== 'info') ? (
+              <div className="truncate text-sm">· {getInboxSnapshot().items.find((it) => !it.read_at && it.severity !== 'info')!.title}</div>
+            ) : null}
           </div>
           <div className="mt-4 flex justify-end gap-2">
             <Button variant="ghost" size="sm" onClick={() => setSummaryOpen(false)}>知道了</Button>

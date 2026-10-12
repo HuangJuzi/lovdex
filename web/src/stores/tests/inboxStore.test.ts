@@ -49,6 +49,26 @@ test('markReadLocal：本地置已读', () => {
   assert.equal(next.items[0].read_at !== null, true);
 });
 
+test('markReadManyLocal：只标指定批次，其余未读保持未读', () => {
+  const state: InboxState = {
+    items: [
+      n({ notification_id: 'a', read_at: null }),
+      n({ notification_id: 'b', read_at: null }),
+      n({ notification_id: 'c', read_at: 'now' }),
+    ],
+  };
+  const next = inboxReducer(state, { type: 'markReadManyLocal', ids: ['a', 'c'] });
+  assert.equal(next.items[0].read_at !== null, true, 'a 应置已读');
+  assert.equal(next.items[1].read_at, null, 'b 不在批次里，应保持未读');
+  assert.equal(next.items[2].read_at, 'now', 'c 原已读不变');
+});
+
+test('markReadManyLocal：空批次不改任何状态', () => {
+  const state: InboxState = { items: [n({ notification_id: 'a', read_at: null })] };
+  const next = inboxReducer(state, { type: 'markReadManyLocal', ids: [] });
+  assert.equal(next.items[0].read_at, null);
+});
+
 test('selectUnannouncedImportant：只挑未读、非 info、且没打扰过的', () => {
   const rows = [
     n({ notification_id: 'a' }),                     // 未读 warning → 命中

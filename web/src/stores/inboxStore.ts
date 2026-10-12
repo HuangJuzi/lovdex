@@ -6,6 +6,7 @@
  */
 
 import { api } from '../utils/api';
+
 import {
   inboxReducer,
   countUnread,
@@ -101,8 +102,14 @@ export function claimUnannouncedImportant(): InboxNotification[] {
 }
 
 export function markReadLocal(id: string): void {
-  setState(inboxReducer(state, { type: 'markReadLocal', id }));
-  void api.notifications.markRead(id);
+  markReadManyLocal([id]);
+}
+
+/** 标记指定的一批为已读（弹窗里「标记已读」只标它列出的那些，不动其他未读）。 */
+export function markReadManyLocal(ids: string[]): void {
+  if (ids.length === 0) return;
+  setState(inboxReducer(state, { type: 'markReadManyLocal', ids }));
+  for (const id of ids) void api.notifications.markRead(id);
 }
 
 export function markAllReadLocal(): void {
