@@ -27,8 +27,8 @@ export const PROFILE_FIELDS: Record<string, readonly string[]> = {
   codex: ['binPath', 'apiKey'],
   opencode: ['binPath', 'apiKeys'],
   qoder: ['personalAccessToken'],
-  // dsh 今天在设置页没有凭据区块（见 2026-10-09 dsh 前端设计：刻意不做），
-  // 所以这里支持但 UI 够不着。留着是为了 API 完整 + 以后加区块时不用改后端。
+  // dsh（DeepSeek Harness）在设置页有自己的凭据区块（2026-10-12 加入，
+  // 见 web/src/components/settings/ProviderSettingsPage.tsx 的 DeepSeek Section）。
   dsh: ['baseUrl', 'apiKey'],
 };
 

@@ -59,18 +59,16 @@
 - **触发条件**：选中会话 id 发生变化，且新选中会话的归属项目（`selectedSession.__projectId`）≠ 上一个选中会话的归属项目。
 - **动作**：无条件把该 projectId 加入 `expandedProjects`（不受 `initialSelectionSettled` 限制）。
 - **不触发的场景**（保持现状）：
-  - 选中会话未变（从 /tasks 切回主页面恢复同一会话）→ 守卫照旧；
   - 会话变了但归属项目没变（同项目内换会话，含侧栏点击）→ 项目多半已展开；即便用户手动收起过，也不强制展开（尊重用户意图）；
   - 侧栏点击项目头/会话行 → 现有 `userToggledProjectRef` 让位机制不变。
 - 实现细节：上一个选中会话的归属项目用 ref 记录（副作用内对比，避免重渲染循环）。归属项目取 `selectedSession.__projectId ?? selectedProject.projectId`——注意 URL 解析路径（`useProjectsState` 的匹配 effect）产出的 session 对象不保证带 `__projectId`（那是侧栏 `handleSessionClick` 才打的标记），所以 **selectedProject 对比是外部跳转的主路径**，`__projectId` 只在侧栏点击链路上可用。
-- 冷启动 restore-last-session（挂载时恢复上次会话）同样走「null→session」路径、会触发展开：**有意为之**——落进某个会话时侧栏展示「在哪个项目」与跳转进入是同一诉求，与「URL 直开/刷新 → 展开」的验收一致。
+- 任何「落进会话」的路径（冷启动 restore-last-session / /tasks 切回主页面恢复同一会话 / URL 直开/刷新）都会走「null→session」触发展开：**有意为之，且是最终裁决的语义**（2026-10-12 用户确认）——/tasks 与 / 是不同 Route，往返必然重挂 AppContent、ref 清零，「切回同一会话不展开」与「URL 直开展开」在此实现下不可区分，两者统一为「落进会话 = 展开归属项目」。代价是用户曾手动收起的项目在切回/刷新时会被重新展开一次，接受。
 
 ### 验收标准
 
 - 从任务页「打开会话」/ 通知点击 / 收件箱跳入 → 左侧栏 owning 项目展开，session 行高亮（primary 边框 + 左 accent 条）。
 - 侧栏手动收起某项目后，同项目内点其他会话 → 不强制展开。
-- 从 /tasks 切回主页面（同一会话）→ 维持持久化展开状态，不强制展开。
-- URL 直开/刷新（带 sessionId）→ 展开（选中会话从 null 变化，属于触发路径）。
+- 「落进会话 = 展开归属项目」统一语义：URL 直开/刷新、冷启动 restore、/tasks 切回主页面恢复会话，均展开 owning 项目（重挂后 ref 清零、均走 null→P 路径，无法也不必区分）。
 
 ### 测试
 
