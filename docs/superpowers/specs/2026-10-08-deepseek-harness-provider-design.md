@@ -81,6 +81,8 @@ dsh 的会话日志默认是 **checksummed Zstandard 帧**（`session.vN.jsonl.z
 
 代价（已接受）：列历史需要活着连上 dsh 进程；`fetchHistory` 依赖 ACP 而非纯文件读，离线读历史不受支持。
 
+> **更正（2026-10-12 实测推翻本节前提）：** `session/resume` 成功后**不回放任何 `session/update` 通知**（真机探针实测 0 帧），`session/list` 只返回 `{sessionId, cwd}` 摘要——"历史走 ACP"这条路拿不到历史，§6.2 预留的「UI 降级」也未实现，导致 dsh 会话跳转后一片空白（任务→会话空态）。且当年"zstd 读盘需要外部解压"的前提已不成立：Node ≥ 22.15 的 `node:zlib` 原生提供 `zstdDecompressSync`。**修复**：`DshSessionsProvider.fetchHistory` 改为直接读 `<dsh home>/sessions/<munged cwd>/<session id>/session.vN.jsonl.zstd`，按 zstd 魔数分帧、逐帧解压（每帧一条或多条 JSONL 记录），归一化为 Lovdex 消息（实现见 `dsh-session-log.ts` + `dsh-sessions.provider.ts`）；顺带用日志里的 `session/title` 惰性回填 DB 的 summary/jsonl_path。存量的 8 个 dsh 会话数据因此全部可救回。
+
 dsh ACP README 原文列出不支持的表面：`session/load`（旧会话重放）、会话删除、fork、additional directories、modes、commands、plans、terminals、client filesystem operations、elicitation。
 
 **处理**：Lovdex UI 上对应的入口（fork、删除会话、**内嵌终端**、额外目录）对 dsh provider **禁用或降级**，做法与 qoder 处理"无本地 token ledger"一致（返回零值结构、隐藏入口）。内嵌终端尤其重要：Lovdex 有 `terminal: { spawnPty }`（`server/index.js` 的 terminal 配置），而 dsh ACP 不支持 terminals。

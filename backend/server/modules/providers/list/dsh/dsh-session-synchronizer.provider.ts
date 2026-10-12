@@ -6,12 +6,16 @@ import type { IProviderSessionSynchronizer } from '@/shared/interfaces.js';
  * IMPORTANT — semantic difference from the other providers' synchronizers:
  * dsh persists sessions as checksummed Zstandard frames by default
  * (`session.vN.jsonl.zstd`), so this synchronizer deliberately does NOT parse
- * transcripts off disk. History/indexing is served over ACP (`session/list` +
- * `session/resume`) by the runner; this class exists to satisfy the shared
- * contract. `synchronizeFile` therefore never reads the file it is given.
+ * transcripts off disk during background scans. History IS served from disk —
+ * by the sessions provider's `fetchHistory`, which decodes the zstd frames
+ * with the built-in `node:zlib` (see `dsh-session-log.ts`) — but rows for
+ * app-created sessions already exist from the gateway, and their
+ * summary/jsonl_path are backfilled lazily on the first history read, so
+ * there is no indexing work for a background scan to do. `synchronizeFile`
+ * therefore never reads the file it is given.
  *
  * See docs/superpowers/specs/2026-10-08-deepseek-harness-provider-design.md §2.3
- * for why the on-disk format was not forced to `compression: none` instead.
+ * for why the on-disk format was not forced to `compression: none`.
  */
 export class DshSessionSynchronizer implements IProviderSessionSynchronizer {
   async synchronize(since?: Date): Promise<number> {
