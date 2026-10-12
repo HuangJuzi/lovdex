@@ -193,8 +193,9 @@ export function useSidebarController({
   // 跨项目跳转强制展开：外部入口（任务页/通知/URL 直开/restore-last-session）
   // 只改 URL 不经侧栏，owning 项目高亮但列表常是收起的。选中会话变化且归属
   // 项目变化时展开目标项目一次——不受首挂守卫限制（那是给「切回主页面恢复
-  // 同一会话」的）。侧栏内点击不受影响：userToggledProjectRef 的让位只约束
-  // 上面的 effect，而侧栏点击通常伴随同项目（不触发本 effect 的展开分支）。
+  // 同一会话」的）。侧栏内的项目头点击在 toggleProject 里同步 lastSessionProjectRef
+  // 让位（见彼处注释），会话行点击携带的 __projectId 就是归属项目、同项目切换
+  // 不触发本 effect 的展开分支。
   const lastSessionProjectRef = useRef<string | null>(null);
   useEffect(() => {
     const nextProjectId = _selectedSession?.__projectId ?? selectedProject?.projectId ?? null;
@@ -401,6 +402,10 @@ export function useSidebarController({
     // 记下用户显式切换的项目：同一次点击往往还会改变选中项目，自动展开副作用
     // 必须让位，否则刚收起的项目会被立刻重新展开。
     userToggledProjectRef.current = projectId;
+    // 下面的「跳转强制展开」effect 也读项目身份，同样要让位：点已展开的非选中
+    // 项目头 = 切选中 + 收起，若不在这里同步 ref，该 effect 会把 prev 停在上一个
+    // 选中项目上、判成「跨项目跳转」而把刚收起的项目又展开（要点两次才收得起）。
+    lastSessionProjectRef.current = projectId;
     setExpandedProjects((prev) => toggleExpandedProject(prev, projectId));
   }, []);
 
