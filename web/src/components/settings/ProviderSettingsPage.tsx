@@ -48,6 +48,7 @@ type ProvidersConfig = {
   codex?: { binPath?: string; apiKey?: string };
   opencode?: { binPath?: string };
   qoder?: { personalAccessToken?: string };
+  dsh?: { baseUrl?: string; apiKey?: string };
 };
 type ServerConfig = { port?: number; host?: string; corsOrigin?: string };
 type LlmProxyConfig = { enabled?: boolean; anthropicUrl?: string };
@@ -210,7 +211,7 @@ export function ProviderSettingsForm() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
   const [selections, setSelections] = useState<Record<ProviderKey, string>>({
-    claude: '', codex: '', opencode: '', qoder: '',
+    claude: '', codex: '', opencode: '', qoder: '', dsh: '',
   });
 
   useEffect(() => {

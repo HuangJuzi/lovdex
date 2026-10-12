@@ -42,8 +42,9 @@ test('readSelections fills every provider key', () => {
     codex: '',
     opencode: '',
     qoder: '',
+    dsh: '',
   });
-  assert.deepStrictEqual(readSelections({}), { claude: '', codex: '', opencode: '', qoder: '' });
+  assert.deepStrictEqual(readSelections({}), { claude: '', codex: '', opencode: '', qoder: '', dsh: '' });
 });
 
 test('profileFormEntries returns only the form fields the profile carries as strings', () => {
@@ -93,8 +94,8 @@ test('regression: 表单渲染的每个字段都必须在 FORM_FIELDS 里，否�
 
 test('buildConfigPutBody echoes the draft and normalises selections to never-null', () => {
   const draft = { providers: { claude: { baseUrl: 'https://x.example' } }, server: { port: 3188 } };
-  const body = buildConfigPutBody(draft, { claude: 'p_a', codex: '', opencode: '', qoder: '' });
-  assert.deepStrictEqual(body.activeProviderProfiles, { claude: 'p_a', codex: '', opencode: '', qoder: '' });
+  const body = buildConfigPutBody(draft, { claude: 'p_a', codex: '', opencode: '', qoder: '', dsh: '' });
+  assert.deepStrictEqual(body.activeProviderProfiles, { claude: 'p_a', codex: '', opencode: '', qoder: '', dsh: '' });
   assert.deepStrictEqual(body.providers, draft.providers);
   assert.deepStrictEqual(body.server, draft.server);
 });
@@ -116,4 +117,10 @@ test('findNewProfileId picks the id that was not there before', () => {
   assert.strictEqual(findNewProfileId(['p_a'], ['p_a', 'p_new']), 'p_new');
   assert.strictEqual(findNewProfileId([], ['p_only']), 'p_only');
   assert.strictEqual(findNewProfileId(['p_a'], ['p_a']), '');
+});
+
+test('FORM_FIELDS.dsh matches the backend PROFILE_FIELDS whitelist', () => {
+  // 后端 provider-profiles.ts: PROFILE_FIELDS.dsh = ['baseUrl', 'apiKey']。
+  // 前端必须 ⊆ 后端（多一个 = 存档时后端丢弃该字段，静默失能）。
+  assert.deepStrictEqual(FORM_FIELDS.dsh, ['baseUrl', 'apiKey']);
 });
