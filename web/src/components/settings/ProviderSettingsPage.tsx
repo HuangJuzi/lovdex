@@ -613,14 +613,14 @@ export function ProviderSettingsForm() {
         <TextField
           label="Base URL (baseUrl)"
           value={dsh.baseUrl ?? ''}
-          placeholder="留空 = 跟随 llm-proxy（推荐）；仅指向代理不代理的上游时填写"
+          placeholder="留空 = llm-proxy 开启时走代理（推荐）、未开启回落官方端点；仅指向代理不代理的上游时填写"
           onChange={(v) => patchProvider('dsh', 'baseUrl', v)}
         />
         <p className="text-xs text-muted-foreground">
-          apiKey 留空 = 继承 llm-proxy 的凭据（与 claude provider 同一把）。两个字段都只影响新会话。
-        </p>
-        <p className="text-xs text-muted-foreground">
-          配置档由服务端保管密钥；切换后点保存生效，只影响新会话（运行中的会话沿用启动时的凭据）。
+          两个字段留空都不是「清除」：apiKey 留空继承 llm-proxy 的凭据（与 claude
+          provider 同一把，代理未开启时回落 DEEPSEEK_API_KEY 环境变量），baseUrl 留空
+          按上面的回落规则。配置档由服务端保管密钥；切换后点保存生效，只影响新会话
+          （运行中的会话沿用启动时的凭据）。
         </p>
       </Section>
 
