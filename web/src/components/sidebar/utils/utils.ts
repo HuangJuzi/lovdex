@@ -91,6 +91,27 @@ export const shouldAutoExpandSelectedProject = ({
   return selectedProjectId !== userToggledProjectId;
 };
 
+/**
+ * 「选中会话跨项目变化」是否要强制展开目标项目。
+ *
+ * 外部跳转（任务页「打开会话」/ 通知点击 / URL 直开 / restore-last-session）
+ * 只改 URL，不经过侧栏点击链路——此时 owning 项目高亮了但会话列表常是收起的
+ * （首挂守卫严格遵守持久化展开状态）。本判定让「会话换了、项目也换了」强制
+ * 展开一次；「同项目内换会话」不展开（尊重用户手动收起）。
+ */
+export const shouldExpandOnSessionJump = ({
+  prevProjectId,
+  nextProjectId,
+}: {
+  prevProjectId: string | null;
+  nextProjectId: string | null;
+}): boolean => {
+  if (!nextProjectId) {
+    return false;
+  }
+  return prevProjectId !== nextProjectId;
+};
+
 const LEGACY_STARRED_PROJECTS_STORAGE_KEY = 'starredProjects';
 
 /**

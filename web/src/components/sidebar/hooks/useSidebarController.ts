@@ -17,6 +17,7 @@ import {
   readLegacyStarredProjectIds,
   readStoredExpandedProjects,
   shouldAutoExpandSelectedProject,
+  shouldExpandOnSessionJump,
   sortProjects,
   toggleExpandedProject,
   writeStoredExpandedProjects,
@@ -188,6 +189,31 @@ export function useSidebarController({
       return next;
     });
   }, [selectedProject?.projectId]);
+
+  // 跨项目跳转强制展开：外部入口（任务页/通知/URL 直开/restore-last-session）
+  // 只改 URL 不经侧栏，owning 项目高亮但列表常是收起的。选中会话变化且归属
+  // 项目变化时展开目标项目一次——不受首挂守卫限制（那是给「切回主页面恢复
+  // 同一会话」的）。侧栏内点击不受影响：userToggledProjectRef 的让位只约束
+  // 上面的 effect，而侧栏点击通常伴随同项目（不触发本 effect 的展开分支）。
+  const lastSessionProjectRef = useRef<string | null>(null);
+  useEffect(() => {
+    const nextProjectId = _selectedSession?.__projectId ?? selectedProject?.projectId ?? null;
+    const prevProjectId = lastSessionProjectRef.current;
+    lastSessionProjectRef.current = nextProjectId;
+
+    if (!nextProjectId || !shouldExpandOnSessionJump({ prevProjectId, nextProjectId })) {
+      return;
+    }
+
+    setExpandedProjects((prev) => {
+      if (prev.has(nextProjectId)) {
+        return prev;
+      }
+      const next = new Set(prev);
+      next.add(nextProjectId);
+      return next;
+    });
+  }, [_selectedSession?.id, _selectedSession?.__projectId, selectedProject?.projectId]);
 
   // 展开状态持久化：AppContent 在 /tasks 等路由间切换时整体卸载/重挂，
   // 若不加持久化，每次切回主页面所有 Project 的展开状态都会被重置。

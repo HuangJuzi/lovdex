@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import type { Project, ProjectSession } from '../../../types/app';
 
-import { excludeHiddenProjects, formatCompactSessionAge, getRecentSessions, getSessionDotState, isProjectActive, isSessionActive, isSessionRecentlyActive, readStoredExpandedProjects, shouldAutoExpandSelectedProject, sortProjects, toggleExpandedProject, writeStoredExpandedProjects } from './utils';
+import { excludeHiddenProjects, formatCompactSessionAge, getRecentSessions, getSessionDotState, isProjectActive, isSessionActive, isSessionRecentlyActive, readStoredExpandedProjects, shouldAutoExpandSelectedProject, shouldExpandOnSessionJump, sortProjects, toggleExpandedProject, writeStoredExpandedProjects } from './utils';
 
 const mkSession = (id: string, lastActivity?: string): ProjectSession => ({
   id,
@@ -338,6 +338,35 @@ test('shouldAutoExpandSelectedProject returns false without a selected project',
       userToggledProjectId: null,
       initialSelectionSettled: true,
     }),
+    false,
+  );
+});
+
+test('shouldExpandOnSessionJump expands when the selected session moves across projects', () => {
+  // 外部跳转（任务页/通知/URL 直开）：选中会话从 null 或别的项目变到 p2
+  assert.equal(
+    shouldExpandOnSessionJump({ prevProjectId: null, nextProjectId: 'p2' }),
+    true,
+  );
+  assert.equal(
+    shouldExpandOnSessionJump({ prevProjectId: 'p1', nextProjectId: 'p2' }),
+    true,
+  );
+});
+
+test('shouldExpandOnSessionJump does not expand for same-project or empty selection', () => {
+  // 同项目内换会话（含侧栏点击）：不强制展开，尊重用户可能的手动收起
+  assert.equal(
+    shouldExpandOnSessionJump({ prevProjectId: 'p1', nextProjectId: 'p1' }),
+    false,
+  );
+  // 没有选中会话（回到「新会话」页）
+  assert.equal(
+    shouldExpandOnSessionJump({ prevProjectId: 'p1', nextProjectId: null }),
+    false,
+  );
+  assert.equal(
+    shouldExpandOnSessionJump({ prevProjectId: null, nextProjectId: null }),
     false,
   );
 });
