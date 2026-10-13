@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import { queryDsh } from '../../../../../dsh-acp-runner.js';
 
@@ -51,7 +52,10 @@ test('queryDsh spawns the dsh binary, never the user message', async () => {
     }
 
     assert.ok(argv, 'the fake dsh binary must have been executed from PATH');
-    assert.deepEqual(argv, ['--profile', 'acp']);
+    // The bundled retry overlay is always layered first; no deployment patchPath
+    // is configured here, so argv is exactly profile + that one overlay.
+    const bundledPatch = fileURLToPath(new URL('../../../../../dsh-retry.patch.yml', import.meta.url));
+    assert.deepEqual(argv, ['--profile', 'acp', '--patch', bundledPatch]);
     assert.ok(
       !argv.includes('please summarize the README'),
       'the user message must never reach argv',

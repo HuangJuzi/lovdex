@@ -93,6 +93,9 @@ export const DEFAULT_APP_CONFIG = {
       // Optional `--patch <path>` overlay layered onto the acp profile. Needed
       // only for endpoints the `deepseek-official` route cannot serve — e.g. an
       // OpenAI-compatible gateway, which requires a dsh-llm-pi-ai route.
+      // Lovdex always layers its bundled retry overlay FIRST (see
+      // server/dsh-retry.patch.yml); later overlays replace earlier ones per
+      // config key, so a patch set here still overrides the bundled values.
       patchPath: '',
       // Bound for a pending tool-approval popup before the runner auto-denies.
       toolApprovalTimeoutMs: 60000,

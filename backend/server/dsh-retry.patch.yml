@@ -1,0 +1,25 @@
+# Bundled `--patch` overlay Lovdex layers under every `dsh --profile acp` run
+# (appended BEFORE any deployment-supplied `providers.dsh.patchPath`, so an
+# explicit patch still replaces these values per key).
+#
+# Why: the sophnet Messages gateway intermittently answers 429 (RATE_LIMIT) in
+# bursts. dsh's stock retry policy is maxRetries=5 with a 10s backoff ceiling —
+# observed exhausted chains give up after ~8s of waiting, the turn then ends
+# with reason=error, and Lovdex marks the task failed mid-flight. Widening the
+# budget (8 retries, 60s ceiling, honoring Retry-After through the same 60s)
+# rides out the observed bursts instead of dying inside them.
+- id: llm-deepseek
+  config:
+    retryPolicy:
+      mode: normal
+      maxRetries: 8
+      retryableCodes:
+        - EMPTY_RESPONSE
+        - RATE_LIMIT
+        - SERVER
+        - TIMEOUT
+        - TRANSPORT
+      backoff:
+        initialDelayMs: 1000
+        maxDelayMs: 60000
+        jitterRatio: 0.2

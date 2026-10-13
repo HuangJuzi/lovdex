@@ -26,6 +26,7 @@
  */
 
 import { Readable, Writable } from 'node:stream';
+import { fileURLToPath } from 'node:url';
 
 import {
   AGENT_METHODS,
@@ -44,6 +45,13 @@ import { createCompleteMessage, createNormalizedMessage } from './shared/utils.j
 import { notifyRunFailed, notifyRunStopped } from './services/notification-orchestrator.js';
 
 const PROVIDER = 'dsh';
+
+/**
+ * The bundled retry-tuning overlay, resolved once at startup (a plain read of a
+ * file this repo ships — a missing file is a packaging bug, and letting the
+ * spawn fail loudly is the honest failure mode).
+ */
+const BUNDLED_RETRY_PATCH = fileURLToPath(new URL('./dsh-retry.patch.yml', import.meta.url));
 
 // Live runs keyed by the provider-native session id (or a fresh key until the
 // ACP `session/new` response announces one). One entry per spawned child.
@@ -601,7 +609,10 @@ export async function queryDsh(command, options = {}, ws) {
   // Launcher args. `--patch` is repeatable and layers above the profile's own
   // patch, so it is the sanctioned way to add an LLM route the acp profile does
   // not ship (e.g. a dsh-llm-pi-ai gateway for an OpenAI-compatible endpoint).
-  const launcherArgs = ['--profile', 'acp'];
+  // The bundled retry overlay goes FIRST: later overlays replace earlier ones
+  // per config key, so a deployment-supplied patchPath still wins on any key
+  // it names (including a full retryPolicy takeover).
+  const launcherArgs = ['--profile', 'acp', '--patch', BUNDLED_RETRY_PATCH];
   if (cfg.patchPath) {
     launcherArgs.push('--patch', cfg.patchPath);
   }

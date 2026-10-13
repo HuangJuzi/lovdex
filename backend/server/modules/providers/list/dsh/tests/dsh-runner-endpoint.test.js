@@ -46,6 +46,11 @@ fs.writeFileSync(process.env.DSH_CAPTURE, JSON.stringify({
 process.exit(0);
 `;
 
+/** The bundled retry patch this repo ships (see `dsh-acp-runner.js`). */
+function bundledRetryPatchPath() {
+  return fileURLToPath(new URL('../../../../../dsh-retry.patch.yml', import.meta.url));
+}
+
 /** Shallow-merge at two levels so a test can add `llmProxy` / `providers.claude`
  *  without dropping the `providers.dsh` the harness just built. */
 function mergeConfig(base, extra) {
@@ -141,11 +146,25 @@ test('an explicit baseUrl overrides the proxy for dsh only', async () => {
   assert.equal(observed.apiKey, 'proxy-owned-key', 'the credential still falls back to the proxy');
 });
 
-test('a patchPath becomes a --patch launcher flag', async () => {
+test('a patchPath becomes a --patch launcher flag layered after the bundled retry tuning', async () => {
   const observed = await captureChildEnv({
     baseUrl: '',
     apiKey: '',
     patchPath: '/tmp/my-route.patch.yml',
   });
-  assert.deepEqual(observed.argv, ['--profile', 'acp', '--patch', '/tmp/my-route.patch.yml']);
+  // Later --patch overlays replace earlier ones per config key, so the bundled
+  // retry tuning goes FIRST and an explicit deployment patch still wins.
+  assert.deepEqual(observed.argv, [
+    '--profile', 'acp',
+    '--patch', bundledRetryPatchPath(),
+    '--patch', '/tmp/my-route.patch.yml',
+  ]);
+});
+
+test('the bundled retry tuning patch exists and widens the llm-deepseek retry budget', async () => {
+  const patchPath = bundledRetryPatchPath();
+  const content = await fs.readFile(patchPath, 'utf8');
+  assert.match(content, /id:\s*llm-deepseek/, 'targets the api-key adapter entry');
+  assert.match(content, /maxRetries:\s*8/, 'raises the retry budget above the default 5');
+  assert.match(content, /maxDelayMs:\s*60000/, 'lets backoff and Retry-After reach 60s (default 10s)');
 });
