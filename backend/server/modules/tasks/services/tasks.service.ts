@@ -615,6 +615,19 @@ export function createTasksService(
       parentTaskId: input.parentTaskId ?? null,
       dispatchDepth: input.dispatchDepth ?? 0,
     });
+    // 建任务带 sessionId（ConvertToTaskDialog 的「转为任务」）→ 任务标题成为该
+    // 会话的名字：会话从此归任务所有，标题是权威名，直接写 custom_name（与
+    // updateTask 改名同步 / startExecution 命名同一语义）。仅 DB 写入、不落盘、
+    // 不触发 rename hook —— 无环。空标题（仅可能来自空白标题建任务，该路径标题
+    // 由后台 LLM 回写）不同步；会话行消失（悬空外键）时同样跳过。
+    if (row.session_id && createdTitle.trim()) {
+      try {
+        opts.deps?.sessionsDb?.updateSessionCustomName(row.session_id, createdTitle.trim());
+      } catch (err) {
+        // 与会话改名/回填同一 per-row 守卫：名称同步失败不影响任务创建本身。
+        console.error(`[tasks] sync session name failed for session ${row.session_id}`, err);
+      }
+    }
     emit({ kind: 'task_upserted', task: row, actor: 'user' });
     // The model missed the blocking window: it is still in flight, so let it
     // replace the placeholder name once it lands. `writeBack` never rejects

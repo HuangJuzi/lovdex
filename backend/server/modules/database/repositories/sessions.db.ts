@@ -281,7 +281,7 @@ export const sessionsDb = {
     const db = getConnection();
     db.prepare(
       `UPDATE sessions
-       SET custom_name = ?
+       SET custom_name = ?, updated_at = CURRENT_TIMESTAMP
        WHERE session_id = ?`
     ).run(customName, sessionId);
   },

@@ -722,6 +722,77 @@ test('createTask with a sessionId links the task and honors status', async () =>
   assert.equal(task.status, 'todo');
 });
 
+test('createTask with a sessionId syncs the session custom name to the task title', async () => {
+  const { db } = makeDbStub();
+  const named: { sessionId: string; customName: string }[] = [];
+  const sessions = {
+    getSessionById: (sid: string) => (sid === 's1'
+      ? { session_id: 's1', project_path: '/p', custom_name: '旧名' }
+      : null),
+    updateSessionCustomName: (sessionId: string, customName: string) => {
+      named.push({ sessionId, customName });
+    },
+  } as unknown as typeof import('@/modules/database/index.js').sessionsDb;
+  const svc = createTasksService(db, {
+    broadcast: () => {},
+    deps: { projectsDb: makeProjectStub('/p'), sessionsDb: sessions },
+  });
+  const task = await svc.createTask({
+    title: '  转为任务的会话  ',
+    projectPath: '/p',
+    executorProvider: 'claude',
+    sessionId: 's1',
+  }) as StoredTask;
+  // 标题去空白后成为会话名（与 updateTask / startExecution 同一语义）。
+  assert.deepEqual(named, [{ sessionId: 's1', customName: '转为任务的会话' }]);
+  assert.equal(task.session_id, 's1');
+});
+
+test('createTask with a sessionId and a blank title derives a name and syncs it', async () => {
+  const { db } = makeDbStub();
+  const named: { sessionId: string; customName: string }[] = [];
+  const sessions = {
+    getSessionById: (sid: string) => (sid === 's1'
+      ? { session_id: 's1', project_path: '/p', custom_name: null }
+      : null),
+    updateSessionCustomName: (sessionId: string, customName: string) => {
+      named.push({ sessionId, customName });
+    },
+  } as unknown as typeof import('@/modules/database/index.js').sessionsDb;
+  const svc = createTasksService(db, {
+    broadcast: () => {},
+    deps: { projectsDb: makeProjectStub('/p'), sessionsDb: sessions },
+    titleBlockingMs: 0,
+  });
+  const task = await svc.createTask({
+    title: '   ',
+    description: '第一行描述',
+    projectPath: '/p',
+    executorProvider: 'claude',
+    sessionId: 's1',
+  }) as StoredTask;
+  // 空白标题走了本地兜底名（非空白），仍在创建时同步。
+  assert.deepEqual(named, [{ sessionId: 's1', customName: '第一行描述' }]);
+  assert.equal(task.title, '第一行描述');
+});
+
+test('createTask without a sessionId never touches the session name', async () => {
+  const { db } = makeDbStub();
+  const named: { sessionId: string; customName: string }[] = [];
+  const sessions = {
+    getSessionById: () => null,
+    updateSessionCustomName: (sessionId: string, customName: string) => {
+      named.push({ sessionId, customName });
+    },
+  } as unknown as typeof import('@/modules/database/index.js').sessionsDb;
+  const svc = createTasksService(db, {
+    broadcast: () => {},
+    deps: { projectsDb: makeProjectStub('/p'), sessionsDb: sessions },
+  });
+  await svc.createTask({ title: 'x', projectPath: '/p', executorProvider: 'claude' });
+  assert.deepEqual(named, []);
+});
+
 test('createTask with a sessionId rejects an unknown session', async () => {
   const svc = createTasksService(makeDbStub().db, {
     broadcast: () => {},
