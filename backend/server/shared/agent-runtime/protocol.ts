@@ -323,6 +323,21 @@ export function makeFsDeleteParamsSchema() {
   return z.object({ path: z.string().min(1), type: z.enum(['file', 'directory']) });
 }
 
+/** Zod schema for the `fs/move` `rpc_req` params: batch move into `targetDir`. */
+export function makeFsMoveParamsSchema() {
+  return z.object({
+    targetDir: z.string().min(1),
+    items: z
+      .array(
+        z.object({
+          path: z.string().min(1),
+          type: z.enum(['file', 'directory']),
+        }),
+      )
+      .min(1),
+  });
+}
+
 /**
  * Zod schema for the `fs/uploadBegin` `rpc_req` params. Starts a chunked
  * upload session for `path`; the lite returns an opaque `uploadId`.

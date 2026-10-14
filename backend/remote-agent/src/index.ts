@@ -130,6 +130,7 @@ export function buildHelloFrame(cfg: RemoteAgentConfig): string {
       'fs/tree',
       'fs/create',
       'fs/rename',
+      'fs/move',
       'fs/delete',
       'fs/uploadBegin',
       'fs/uploadChunk',

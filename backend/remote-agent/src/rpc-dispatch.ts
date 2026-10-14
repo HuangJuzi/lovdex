@@ -10,6 +10,7 @@ import {
   makeFsUploadBeginParamsSchema,
   makeFsUploadChunkParamsSchema,
   makeFsUploadEndParamsSchema,
+  makeFsMoveParamsSchema,
   makeGitExecParamsSchema,
   makeSessionMessagesParamsSchema,
   makeSessionStartParamsSchema,
@@ -166,7 +167,7 @@ export function makeProbeAccessor() {
  * - `session/messages`  → read a session's transcript ON THIS HOST and return the raw file contents (remote chat history; claude/qoder).
  * - `session/interrupt` → signal the run to stop (`{ interrupted: boolean }`).
  * - `approval/respond`  → resolve a pending tool approval (`{ accepted: boolean }`).
- * - `fs/stat|list|read|write|tree|create|rename|delete` → allowlisted fs ops scoped to `cfg.roots`.
+ * - `fs/stat|list|read|write|tree|create|rename|move|delete` → allowlisted fs ops scoped to `cfg.roots`.
  * - `git/exec`          → roots-allowlisted git subprocess (abortable via controller).
  * - `providers/probe`   → probe installed provider CLIs + git + node.
  * - `skills/manifest|bundle|apply` → directory-level skill read/write scoped to
@@ -248,7 +249,7 @@ export async function handleRpc(
     const p = makeFsUploadEndParamsSchema().parse(params as unknown);
     return sessions.end(p.uploadId);
   }
-  if (method === 'fs/write' || method === 'fs/create' || method === 'fs/rename' || method === 'fs/delete' || method === 'fs/tree') {
+  if (method === 'fs/write' || method === 'fs/create' || method === 'fs/rename' || method === 'fs/move' || method === 'fs/delete' || method === 'fs/tree') {
     const fsApi = allowlistedFsFor(cfg);
     if (method === 'fs/write') {
       const p = params as { path: string; content: string; encoding?: 'utf8' | 'base64' };
@@ -265,6 +266,10 @@ export async function handleRpc(
     if (method === 'fs/rename') {
       const p = params as { oldPath: string; newName: string };
       return fsApi.rename(p.oldPath, p.newName);
+    }
+    if (method === 'fs/move') {
+      const p = makeFsMoveParamsSchema().parse(params);
+      return fsApi.move(p.targetDir, p.items);
     }
     const p = params as { path: string; type: 'file' | 'directory' };
     return fsApi.delete(p.path, p.type);

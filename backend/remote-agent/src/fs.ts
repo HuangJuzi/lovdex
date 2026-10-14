@@ -49,6 +49,10 @@ export type AllowlistedFs = {
     name: string,
   ): Promise<{ success: boolean; path: string }>;
   rename(oldPath: string, newName: string): Promise<{ success: boolean; newPath: string }>;
+  move(
+    targetDir: string,
+    items: Array<{ path: string; type: 'file' | 'directory' }>,
+  ): Promise<{ success: boolean; movedCount: number; skippedCount: number }>;
   delete(p: string, type: 'file' | 'directory'): Promise<{ success: boolean }>;
 };
 
@@ -83,6 +87,7 @@ function formatPermissions(mode: number): { permissions: string; permissionsRwx:
 }
 
 import { resolveRealPath, resolveWithinRoots } from '../../server/shared/path-allowlist.js';
+import { planMoves, collectMoveConflicts } from '../../server/shared/file-move-planner.js';
 
 // Re-exported so existing importers (`skills.ts`, tests, future callers) keep
 // resolving it from here.
@@ -273,6 +278,53 @@ export function createAllowlistedFs(opts: {
       }
       await fsp.rename(oldTarget, newTarget);
       return { success: true, newPath: newTarget };
+    },
+
+    async move(targetDir, items) {
+      const resolvedTarget = resolveWithinRoots(targetDir, roots);
+      const targetStat = await fsp.stat(resolvedTarget);
+      if (!targetStat.isDirectory()) {
+        throw new Error('move target is not a directory');
+      }
+
+      const resolvedItems = items.map((it) => ({
+        path: resolveWithinRoots(it.path, roots),
+        type: it.type,
+      }));
+
+      const plan = planMoves(resolvedItems, resolvedTarget);
+      if (!plan.ok) {
+        if (plan.code === 'INTO_ITSELF') {
+          throw new Error(`cannot move a folder into itself: ${plan.path}`);
+        }
+        throw new Error(
+          `duplicate target name in batch: ${plan.path} conflicts with ${plan.conflictWith}`,
+        );
+      }
+
+      // Pre-flight the whole batch BEFORE any rename: a mid-batch conflict must
+      // not leave the tree half-moved.
+      const exists = async (p: string) => {
+        try {
+          await fsp.access(p);
+          return true;
+        } catch {
+          return false;
+        }
+      };
+      const conflicts = await collectMoveConflicts(plan.moves, exists);
+      if (conflicts.length > 0) {
+        throw new Error(`Target already exists: ${conflicts.join(', ')}`);
+      }
+
+      for (const m of plan.moves) {
+        await fsp.rename(m.from, m.to);
+      }
+      return {
+        success: true,
+        movedCount: plan.moves.length,
+        skippedCount: plan.skippedNoOp.length,
+      };
     },
 
     async delete(p, type) {
