@@ -12,11 +12,19 @@ export type PlannedMove = { from: string; to: string; name: string };
 
 export type MovePlan =
   | { ok: true; moves: PlannedMove[]; skippedNoOp: string[] }
-  | { ok: false; code: 'INTO_ITSELF'; path: string };
+  | { ok: false; code: 'INTO_ITSELF'; path: string }
+  | { ok: false; code: 'DUPLICATE_TARGET'; path: string; conflictWith: string };
 
 const isUnder = (child: string, ancestor: string) =>
   child.startsWith(ancestor + '/');
 
+/**
+ * Plan a batch move of `items` into `targetDir`.
+ *
+ * Input contract: paths are assumed already normalized by the caller's
+ * `path.resolve` — absolute POSIX paths, no trailing slash, and strictly below
+ * each caller's own root (a root directory itself is never a movable item).
+ */
 export function planMoves(items: MoveItem[], targetDir: string): MovePlan {
   // Deduplicate exact paths (later duplicates dropped).
   const seen = new Set<string>();
@@ -28,13 +36,14 @@ export function planMoves(items: MoveItem[], targetDir: string): MovePlan {
   }
 
   // Drop items already covered by a selected ancestor directory.
-  const deduped = unique.filter(
+  const topLevel = unique.filter(
     (it) => !unique.some((other) => other.path !== it.path && isUnder(it.path, other.path)),
   );
 
   const moves: PlannedMove[] = [];
   const skippedNoOp: string[] = [];
-  for (const it of deduped) {
+  const claimedTargets = new Map<string, string>();
+  for (const it of topLevel) {
     // Moving an item onto itself or into its own subtree is invalid.
     if (targetDir === it.path || isUnder(targetDir, it.path)) {
       return { ok: false, code: 'INTO_ITSELF', path: it.path };
@@ -45,6 +54,13 @@ export function planMoves(items: MoveItem[], targetDir: string): MovePlan {
       skippedNoOp.push(it.path);
       continue;
     }
+    // Two different sources resolving to the same destination would silently
+    // overwrite each other on rename — reject the batch instead.
+    const previous = claimedTargets.get(to);
+    if (previous !== undefined) {
+      return { ok: false, code: 'DUPLICATE_TARGET', path: it.path, conflictWith: previous };
+    }
+    claimedTargets.set(to, it.path);
     moves.push({ from: it.path, to, name });
   }
   return { ok: true, moves, skippedNoOp };

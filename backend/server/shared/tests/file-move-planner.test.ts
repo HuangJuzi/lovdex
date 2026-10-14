@@ -73,6 +73,21 @@ test('planMoves: drops descendants of other selected items and exact duplicates'
   );
 });
 
+test('planMoves: same basename from different sources into one dir is rejected', () => {
+  const plan = planMoves(
+    [
+      { path: '/proj/a/README.md', type: 'file' },
+      { path: '/proj/b/README.md', type: 'file' },
+    ],
+    '/proj/dst',
+  );
+  assert.equal(plan.ok, false);
+  if (plan.ok) return;
+  assert.equal(plan.code, 'DUPLICATE_TARGET');
+  assert.equal(plan.path, '/proj/b/README.md');
+  assert.equal(plan.conflictWith, '/proj/a/README.md');
+});
+
 test('collectMoveConflicts: lists names of existing destinations', async () => {
   const moves = [
     { from: '/proj/a.ts', to: '/proj/lib/a.ts', name: 'a.ts' },
