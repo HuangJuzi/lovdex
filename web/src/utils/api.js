@@ -266,6 +266,12 @@ export const api = {
       body: JSON.stringify({ path, type }),
     }),
 
+  moveFiles: (projectId, { items, targetDir }) =>
+    authenticatedFetch(`/api/projects/${projectId}/files/move`, {
+      method: 'POST',
+      body: JSON.stringify({ items, targetDir: targetDir || '' }),
+    }),
+
   uploadFiles: (projectId, formData) =>
     authenticatedFetch(`/api/projects/${projectId}/files/upload`, {
       method: 'POST',
