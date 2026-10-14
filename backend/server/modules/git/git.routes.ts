@@ -854,6 +854,11 @@ router.post('/delete-branch', async (req, res) => {
   }
 
   try {
+    // Mirror create-branch and the other branch call sites: reject names that
+    // could be misread as flags or escape the ref namespace before interpolating
+    // `branch` into git args and the 409 message. Throws -> generic 500 below.
+    validateBranchName(branch);
+
     const projectPath = await getActualProjectPath(project);
     await validateGitRepository(projectPath);
 

@@ -478,18 +478,27 @@ export const useFileTreeUpload = ({
     [resetPendingUploadTarget, uploadFiles],
   );
 
+  // The tree also hosts internal row drags (moving files, see
+  // useFileTreeMove). Those carry a custom MIME type instead of 'Files', so
+  // every upload drag handler bails out of them — otherwise an internal drag
+  // would raise the "drop files to upload" overlay and could hijack the drop.
+  const isFileDrag = (e: DragEvent) => e.dataTransfer.types.includes('Files');
+
   const handleDragEnter = useCallback((e: DragEvent) => {
+    if (!isFileDrag(e)) return;
     e.preventDefault();
     e.stopPropagation();
     setIsDragOver(true);
   }, []);
 
   const handleDragOver = useCallback((e: DragEvent) => {
+    if (!isFileDrag(e)) return;
     e.preventDefault();
     e.stopPropagation();
   }, []);
 
   const handleDragLeave = useCallback((e: DragEvent) => {
+    if (!isFileDrag(e)) return;
     e.preventDefault();
     e.stopPropagation();
     // Only set isDragOver to false if we're leaving the entire tree
@@ -501,6 +510,7 @@ export const useFileTreeUpload = ({
 
   const handleDrop = useCallback(
     async (e: DragEvent) => {
+      if (!isFileDrag(e)) return;
       e.preventDefault();
       e.stopPropagation();
       setIsDragOver(false);
@@ -521,13 +531,17 @@ export const useFileTreeUpload = ({
     [dropTarget, setUploadError, showToast, uploadFiles],
   );
 
+  // Per-row upload drop. Gated on a files drag for the same reason as the
+  // tree-level handlers: an internal move drag must not set the upload target.
   const handleItemDragOver = useCallback((e: DragEvent, itemPath: string) => {
+    if (!isFileDrag(e)) return;
     e.preventDefault();
     e.stopPropagation();
     setDropTarget(itemPath);
   }, []);
 
   const handleItemDrop = useCallback((e: DragEvent, itemPath: string) => {
+    if (!isFileDrag(e)) return;
     e.preventDefault();
     e.stopPropagation();
     setDropTarget(itemPath);

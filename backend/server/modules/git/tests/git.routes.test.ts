@@ -170,6 +170,18 @@ test('delete-branch reports BRANCH_NOT_MERGED for an unmerged branch and force-d
     }).toString();
     assert.ok(afterPlain.includes('feat/unmerged'));
 
+    // A failure that is NOT "unmerged" must stay a generic 500 with no code:
+    // only the unmerged case is recoverable by retrying with force.
+    const missingRes = await fetch(`${base}/api/git/delete-branch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project: 'repo', branch: 'no-such-branch' }),
+    });
+    assert.equal(missingRes.status, 500);
+    const missingBody = (await missingRes.json()) as { code?: string; error?: string };
+    assert.equal(missingBody.code, undefined);
+    assert.ok(typeof missingBody.error === 'string');
+
     // Force delete (-D) succeeds and removes the branch.
     const forceRes = await fetch(`${base}/api/git/delete-branch`, {
       method: 'POST',

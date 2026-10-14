@@ -33,6 +33,13 @@ export function useFileTreeMove({ selectedProject, onRefresh, showToast }: UseFi
         isSelected(dragged.path) && selectedEntries.length > 0 ? selectedEntries : [dragged];
       e.dataTransfer.setData(TREE_DRAG_MIME, JSON.stringify({ items }));
       e.dataTransfer.effectAllowed = 'move';
+      // A drag abandoned outside the tree (Esc, drop on the desktop) fires no
+      // dragleave/drop here, so the highlight would stick. One-shot cleanup.
+      const clear = () => {
+        document.removeEventListener('dragend', clear);
+        setMoveTarget(null);
+      };
+      document.addEventListener('dragend', clear);
     },
     [],
   );
@@ -55,7 +62,12 @@ export function useFileTreeMove({ selectedProject, onRefresh, showToast }: UseFi
     [],
   );
 
-  const handleItemDragLeave = useCallback(() => {
+  /** Crossing a row's own child elements (icon, label) fires dragleave before
+   *  the matching dragenter, so only clear when the pointer really left the row. */
+  const handleItemDragLeave = useCallback((e: DragEvent) => {
+    const row = e.currentTarget as Node | null;
+    const next = e.relatedTarget as Node | null;
+    if (row && next && row.contains(next)) return;
     setMoveTarget(null);
   }, []);
 
