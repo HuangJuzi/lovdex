@@ -53,19 +53,6 @@ const getFileDisplayName = (file: File) => {
   return relativePath.split(/[\\/]/).pop() || file.name;
 };
 
-const validateFilesForUpload = (files: File[]): string | null => {
-  if (files.length > MAX_FILE_UPLOAD_COUNT) {
-    return `You can upload up to ${MAX_FILE_UPLOAD_COUNT} files at once.`;
-  }
-
-  const oversizedFile = files.find((file) => file.size > MAX_FILE_UPLOAD_SIZE_BYTES);
-  if (oversizedFile) {
-    return `${getFileDisplayName(oversizedFile)} is larger than ${MAX_FILE_UPLOAD_SIZE_LABEL}.`;
-  }
-
-  return null;
-};
-
 const parseUploadResponse = (xhr: XMLHttpRequest): UploadResponse => {
   if (!xhr.responseText) {
     return {};
@@ -114,6 +101,17 @@ const buildUploadFormData = (files: File[], targetPath: string) => {
 export const buildUploadUrl = (projectId: string, targetPath: string) => {
   const base = `/api/projects/${encodeURIComponent(projectId)}/files/upload`;
   return targetPath ? `${base}?targetPath=${encodeURIComponent(targetPath)}` : base;
+};
+
+/** Slice files into multer-legal batches (folder picks can exceed
+ *  MAX_FILE_UPLOAD_COUNT; batches upload strictly in sequence). */
+export const chunkFilesForUpload = (files: File[], limit: number): File[][] => {
+  if (files.length === 0) return [];
+  const batches: File[][] = [];
+  for (let i = 0; i < files.length; i += limit) {
+    batches.push(files.slice(i, i + limit));
+  }
+  return batches;
 };
 
 const uploadFormDataWithProgress = (
@@ -267,6 +265,8 @@ export const useFileTreeUpload = ({
   const [operationLoading, setOperationLoading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<FileTreeUploadProgressState | null>(null);
   const treeRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
   const clearProgressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const clearProgressTimer = useCallback(() => {
@@ -320,12 +320,17 @@ export const useFileTreeUpload = ({
         return;
       }
 
-      const validationError = validateFilesForUpload(files);
-      if (validationError) {
-        showToast(validationError, 'error');
-        setUploadError(validationError, files.length, targetPath, fileName);
+      // The size check stays per-file across all batches.
+      const oversizedFile = files.find((file) => file.size > MAX_FILE_UPLOAD_SIZE_BYTES);
+      if (oversizedFile) {
+        const message = `${getFileDisplayName(oversizedFile)} is larger than ${MAX_FILE_UPLOAD_SIZE_LABEL}.`;
+        showToast(message, 'error');
+        setUploadError(message, files.length, targetPath, fileName);
         return;
       }
+
+      const batches = chunkFilesForUpload(files, MAX_FILE_UPLOAD_COUNT);
+      const totalBytes = files.reduce((sum, f) => sum + f.size, 0);
 
       clearProgressTimer();
       setOperationLoading(true);
@@ -337,45 +342,52 @@ export const useFileTreeUpload = ({
         targetPath,
       });
 
-      let latestProgress = 0;
+      let uploadedTotal = 0;
+      let sentBytes = 0;
 
       try {
-        const response = await uploadFormDataWithProgress(
-          selectedProject.projectId,
-          targetPath,
-          buildUploadFormData(files, targetPath),
-          (progress) => {
-            latestProgress = progress;
-            setUploadProgress((current) =>
-              current && current.status === 'uploading'
-                ? { ...current, progress }
-                : current,
-            );
-          },
-        );
-
-        const uploadedCount =
-          typeof response.uploadedCount === 'number' ? response.uploadedCount : response.files?.length ?? files.length;
-        const requestedFileCount =
-          typeof response.requestedFileCount === 'number' ? response.requestedFileCount : files.length;
+        for (const batch of batches) {
+          const batchBase = sentBytes;
+          const batchBytes = batch.reduce((sum, f) => sum + f.size, 0);
+          await uploadFormDataWithProgress(
+            selectedProject.projectId,
+            targetPath,
+            buildUploadFormData(batch, targetPath),
+            (progress) => {
+              // Aggregate: scale this batch's progress into its byte share of
+              // the whole upload so the bar advances monotonically.
+              const overall =
+                totalBytes > 0
+                  ? Math.min(99, Math.round(((batchBase + (progress / 100) * batchBytes) / totalBytes) * 100))
+                  : progress;
+              setUploadProgress((current) =>
+                current && current.status === 'uploading'
+                  ? { ...current, progress: overall }
+                  : current,
+              );
+            },
+          );
+          sentBytes += batchBytes;
+          uploadedTotal += batch.length;
+        }
 
         setUploadProgress({
           status: 'complete',
           progress: 100,
-          fileCount: requestedFileCount,
-          uploadedCount,
+          fileCount: files.length,
+          uploadedCount: uploadedTotal,
           fileName,
           targetPath,
         });
 
-        showToast(formatUploadSuccessMessage(uploadedCount, requestedFileCount), 'success');
+        showToast(formatUploadSuccessMessage(uploadedTotal, files.length), 'success');
         scheduleProgressClear(COMPLETE_PROGRESS_CLEAR_DELAY_MS);
         onRefresh();
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Upload failed';
         console.error('Upload error:', err);
         showToast(message, 'error');
-        setUploadError(message, files.length, targetPath, fileName, latestProgress);
+        setUploadError(message, files.length, targetPath, fileName, 0);
       } finally {
         setOperationLoading(false);
         setDropTarget(null);
@@ -391,9 +403,42 @@ export const useFileTreeUpload = ({
     ],
   );
 
+  // Remembers where an "upload here" context-menu action wants the next
+  // picker selection to land. Cleared as soon as the selection is consumed.
+  const pendingUploadTargetRef = useRef<string>('');
+
+  const openFilePicker = useCallback((targetPath = '') => {
+    pendingUploadTargetRef.current = targetPath;
+    fileInputRef.current?.click();
+  }, []);
+
+  const openFolderPicker = useCallback((targetPath = '') => {
+    pendingUploadTargetRef.current = targetPath;
+    folderInputRef.current?.click();
+  }, []);
+
   const handleFileSelect = useCallback(
     async (fileList: FileList | File[]) => {
-      await uploadFiles(Array.from(fileList), '');
+      const target = pendingUploadTargetRef.current;
+      pendingUploadTargetRef.current = '';
+      await uploadFiles(Array.from(fileList), target);
+    },
+    [uploadFiles],
+  );
+
+  // A webkitdirectory pick gives one root folder; every file carries
+  // webkitRelativePath ('<root>/…'), which buildUploadFormData already
+  // forwards as relativePaths — the backend recreates the tree.
+  const handleFolderSelect = useCallback(
+    async (fileList: FileList | File[]) => {
+      const target = pendingUploadTargetRef.current;
+      pendingUploadTargetRef.current = '';
+      const files = Array.from(fileList).filter((f) => {
+        const rel = (f as File & { webkitRelativePath?: string }).webkitRelativePath || '';
+        const base = rel.split('/')[0] || '';
+        return !['.DS_Store', 'Thumbs.db', 'desktop.ini'].includes(base);
+      });
+      await uploadFiles(files, target);
     },
     [uploadFiles],
   );
@@ -459,7 +504,12 @@ export const useFileTreeUpload = ({
     operationLoading,
     uploadProgress,
     treeRef,
+    fileInputRef,
+    folderInputRef,
     handleFileSelect,
+    openFilePicker,
+    openFolderPicker,
+    handleFolderSelect,
     handleDragEnter,
     handleDragOver,
     handleDragLeave,
