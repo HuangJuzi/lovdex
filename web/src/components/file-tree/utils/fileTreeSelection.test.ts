@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  flattenVisiblePaths,
   isDescendantOfAny,
   topMostSelectedPaths,
   rangeBetween,
@@ -27,4 +28,17 @@ test('rangeBetween: inclusive slice by visible order', () => {
   assert.deepEqual(rangeBetween(order, 'a.ts', 'b.ts'), ['a.ts', 'docs', 'docs/x.ts', 'b.ts']);
   assert.deepEqual(rangeBetween(order, 'c.ts', 'docs'), ['docs', 'docs/x.ts', 'b.ts', 'c.ts']); // reversed works
   assert.deepEqual(rangeBetween(order, 'a.ts', 'missing.ts'), []); // unknown endpoint -> empty
+  assert.deepEqual(rangeBetween(order, 'b.ts', 'b.ts'), ['b.ts']); // same endpoint -> single row
+});
+
+test('flattenVisiblePaths: descends only into expanded directories', () => {
+  const tree = [
+    { path: 'docs', type: 'directory', children: [{ path: 'docs/x.ts', type: 'file' }] },
+    { path: 'a.ts', type: 'file' },
+  ];
+
+  // Collapsed: the child is NOT a visible row (matches FileTreeNode's render).
+  assert.deepEqual(flattenVisiblePaths(tree, new Set()), ['docs', 'a.ts']);
+  // Expanded: the child joins the visible order right after its parent.
+  assert.deepEqual(flattenVisiblePaths(tree, new Set(['docs'])), ['docs', 'docs/x.ts', 'a.ts']);
 });

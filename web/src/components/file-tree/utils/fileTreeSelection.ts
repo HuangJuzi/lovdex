@@ -24,13 +24,19 @@ export function rangeBetween(visibleOrder: string[], from: string, to: string): 
 
 type VisibleNode = { path: string; type: string; children?: unknown[] };
 
-/** Flatten the currently visible tree (respects expansion + search filter). */
-export function flattenVisiblePaths(items: VisibleNode[]): string[] {
+/**
+ * Flatten the tree down to the rows the user can actually see: a directory's
+ * children are included only when that directory is expanded. `expandedDirs`
+ * is REQUIRED — FileTreeNode renders children only under
+ * `expandedDirs.has(path)`, so flattening without it would hand Shift-range
+ * selection paths for rows that are collapsed out of view.
+ */
+export function flattenVisiblePaths(items: VisibleNode[], expandedDirs: Set<string>): string[] {
   const out: string[] = [];
   const walk = (nodes: VisibleNode[]): void => {
     for (const n of nodes) {
       out.push(n.path);
-      if (n.type === 'directory' && Array.isArray(n.children)) {
+      if (n.type === 'directory' && expandedDirs.has(n.path) && Array.isArray(n.children)) {
         walk(n.children as VisibleNode[]);
       }
     }
