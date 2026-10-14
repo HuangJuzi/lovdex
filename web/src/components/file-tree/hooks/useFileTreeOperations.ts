@@ -178,6 +178,7 @@ export function useFileTreeOperations({
     try {
       const targets = item ? [item] : items ?? [];
       const failed: string[] = [];
+      let failureReason = '';
       for (const target of targets) {
         try {
           const response = await api.deleteFile(selectedProject.projectId, {
@@ -190,7 +191,10 @@ export function useFileTreeOperations({
           }
         } catch (err) {
           console.error('Delete failed for', target.path, err);
-          failed.push(target.name);
+          if (!failureReason) failureReason = (err as Error).message;
+          // Report the PATH, not the name: two same-named files in different
+          // folders would otherwise be indistinguishable in the toast.
+          failed.push(target.path);
         }
       }
 
@@ -202,7 +206,12 @@ export function useFileTreeOperations({
           'success',
         );
       } else if (failed.length === targets.length) {
-        showToast(t('fileTree.toast.deleteFailed', 'Failed to delete'), 'error');
+        showToast(
+          targets.length === 1
+            ? t('fileTree.toast.deleteFailedReason', 'Failed to delete: {{reason}}', { reason: failureReason })
+            : t('fileTree.toast.deleteFailed', 'Failed to delete'),
+          'error',
+        );
       } else {
         showToast(
           t('fileTree.toast.deletePartial', 'Deleted {{ok}} of {{count}}; failed: {{failed}}', {
@@ -386,7 +395,7 @@ export function useFileTreeOperations({
 
         if (skipped.length > 0) {
           showToast(
-            t('fileTree.toast.zipSkipped', 'Skipped (too large or unreadable): {{names}}', {
+            t('fileTree.toast.zipSkipped', 'Downloaded, but skipped (too large or unreadable): {{names}}', {
               names: skipped.join(', '),
             }),
             'error',
