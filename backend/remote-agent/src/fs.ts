@@ -282,9 +282,19 @@ export function createAllowlistedFs(opts: {
 
     async move(targetDir, items) {
       const resolvedTarget = resolveWithinRoots(targetDir, roots);
-      const targetStat = await fsp.stat(resolvedTarget);
+      let targetStat;
+      try {
+        targetStat = await fsp.stat(resolvedTarget);
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+          throw Object.assign(new Error('ENOENT: Target directory does not exist'), {
+            code: 'ENOENT',
+          });
+        }
+        throw err;
+      }
       if (!targetStat.isDirectory()) {
-        throw new Error('move target is not a directory');
+        throw Object.assign(new Error('ENOTDIR: Target is not a directory'), { code: 'ENOTDIR' });
       }
 
       const resolvedItems = items.map((it) => ({
@@ -292,18 +302,34 @@ export function createAllowlistedFs(opts: {
         type: it.type,
       }));
 
+      // A configured root is never movable (mirrors `delete`'s 'cannot delete
+      // root'): moving it away leaves it dangling in the allowlist. Only the
+      // SOURCES are checked — `targetDir` is deliberately not, because dropping
+      // onto the root container legitimately resolves to the project root.
+      const isConfiguredRoot = (p: string) =>
+        roots.some((root) => {
+          const resolvedRoot = resolveRealPath(root);
+          // Compare BOTH forms: the lexical echo (symlinked roots keep their
+          // requested path) and the realpath target.
+          return path.resolve(p) === resolvedRoot || path.resolve(p) === path.resolve(root);
+        });
+      if (resolvedItems.some((it) => isConfiguredRoot(it.path))) {
+        throw Object.assign(new Error('EINVAL: Cannot move a project root'), { code: 'EINVAL' });
+      }
+
       const plan = planMoves(resolvedItems, resolvedTarget);
       if (!plan.ok) {
         if (plan.code === 'INTO_ITSELF') {
-          throw new Error(`cannot move a folder into itself: ${plan.path}`);
+          throw Object.assign(new Error('EINVAL: Cannot move a folder into itself'), {
+            code: 'EINVAL',
+          });
         }
-        throw new Error(
-          `duplicate target name in batch: ${plan.path} conflicts with ${plan.conflictWith}`,
-        );
+        const name = plan.path.split('/').pop() ?? plan.path;
+        throw Object.assign(new Error(`EEXIST: Duplicate target name in batch: ${name}`), {
+          code: 'EEXIST',
+        });
       }
 
-      // Pre-flight the whole batch BEFORE any rename: a mid-batch conflict must
-      // not leave the tree half-moved.
       const exists = async (p: string) => {
         try {
           await fsp.access(p);
@@ -312,9 +338,24 @@ export function createAllowlistedFs(opts: {
           return false;
         }
       };
+
+      // Pre-flight the WHOLE batch before any rename — both destination
+      // conflicts AND missing sources — so a mid-batch failure cannot leave the
+      // tree half-moved. The TOCTOU window between this pre-check and the
+      // renames below is NOT covered: a failure there stops at the first error
+      // with no rollback.
       const conflicts = await collectMoveConflicts(plan.moves, exists);
       if (conflicts.length > 0) {
-        throw new Error(`Target already exists: ${conflicts.join(', ')}`);
+        throw Object.assign(new Error(`EEXIST: Target already exists: ${conflicts.join(', ')}`), {
+          code: 'EEXIST',
+        });
+      }
+      for (const m of plan.moves) {
+        if (!(await exists(m.from))) {
+          throw Object.assign(new Error(`ENOENT: Source no longer exists: ${m.name}`), {
+            code: 'ENOENT',
+          });
+        }
       }
 
       for (const m of plan.moves) {

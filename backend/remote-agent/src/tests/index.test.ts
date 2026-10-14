@@ -57,6 +57,7 @@ test('hello frame advertises the skills capability', () => {
   assert.equal(frame.type, 'hello');
   assert.ok(frame.capabilities.includes(SKILLS_CAPABILITY));
   assert.ok(frame.capabilities.includes('fs/read'));
+  assert.ok(frame.capabilities.includes('fs/move'));
   assert.ok(frame.capabilities.includes('fs/uploadBegin'));
   assert.ok(frame.capabilities.includes('fs/uploadChunk'));
   assert.ok(frame.capabilities.includes('fs/uploadEnd'));
