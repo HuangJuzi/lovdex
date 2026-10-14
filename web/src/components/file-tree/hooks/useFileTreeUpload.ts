@@ -106,7 +106,7 @@ export const buildUploadUrl = (projectId: string, targetPath: string) => {
 /** Slice files into multer-legal batches (folder picks can exceed
  *  MAX_FILE_UPLOAD_COUNT; batches upload strictly in sequence). */
 export const chunkFilesForUpload = (files: File[], limit: number): File[][] => {
-  if (files.length === 0) return [];
+  if (files.length === 0 || limit < 1) return [];
   const batches: File[][] = [];
   for (let i = 0; i < files.length; i += limit) {
     batches.push(files.slice(i, i + limit));
@@ -343,13 +343,14 @@ export const useFileTreeUpload = ({
       });
 
       let uploadedTotal = 0;
+      let serverAccepted = 0;
       let sentBytes = 0;
 
       try {
         for (const batch of batches) {
           const batchBase = sentBytes;
           const batchBytes = batch.reduce((sum, f) => sum + f.size, 0);
-          await uploadFormDataWithProgress(
+          const response = await uploadFormDataWithProgress(
             selectedProject.projectId,
             targetPath,
             buildUploadFormData(batch, targetPath),
@@ -359,35 +360,50 @@ export const useFileTreeUpload = ({
               const overall =
                 totalBytes > 0
                   ? Math.min(99, Math.round(((batchBase + (progress / 100) * batchBytes) / totalBytes) * 100))
-                  : progress;
+                  : Math.round(((batches.indexOf(batch) + progress / 100) / batches.length) * 100);
+              // Never let an aggregate dip below what is already shown: with
+              // zero-byte files the byte weighting degenerates, and a later
+              // batch must still not rewind the bar.
               setUploadProgress((current) =>
                 current && current.status === 'uploading'
-                  ? { ...current, progress: overall }
+                  ? { ...current, progress: Math.max(current.progress, Math.min(99, overall)) }
                   : current,
               );
             },
           );
           sentBytes += batchBytes;
           uploadedTotal += batch.length;
+          // The server silently skips files whose destination fails validation,
+          // so its own count is the authority on what actually landed.
+          serverAccepted +=
+            typeof response.uploadedCount === 'number' ? response.uploadedCount : batch.length;
         }
 
         setUploadProgress({
           status: 'complete',
           progress: 100,
           fileCount: files.length,
-          uploadedCount: uploadedTotal,
+          uploadedCount: serverAccepted,
           fileName,
           targetPath,
         });
 
-        showToast(formatUploadSuccessMessage(uploadedTotal, files.length), 'success');
+        showToast(formatUploadSuccessMessage(serverAccepted, files.length), 'success');
         scheduleProgressClear(COMPLETE_PROGRESS_CLEAR_DELAY_MS);
         onRefresh();
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Upload failed';
         console.error('Upload error:', err);
-        showToast(message, 'error');
+        // Earlier batches may already be on disk; say so and refresh the tree
+        // rather than implying nothing was written.
+        showToast(
+          uploadedTotal > 0
+            ? `${message} (${uploadedTotal} of ${files.length} uploaded before the failure)`
+            : message,
+          'error',
+        );
         setUploadError(message, files.length, targetPath, fileName, 0);
+        if (uploadedTotal > 0) onRefresh();
       } finally {
         setOperationLoading(false);
         setDropTarget(null);
@@ -404,26 +420,45 @@ export const useFileTreeUpload = ({
   );
 
   // Remembers where an "upload here" context-menu action wants the next
-  // picker selection to land. Cleared as soon as the selection is consumed.
+  // picker selection to land. Cleared as soon as the selection is consumed —
+  // or when the picker is dismissed without a selection, so a cancelled
+  // "upload here" cannot silently redirect a later toolbar upload.
   const pendingUploadTargetRef = useRef<string>('');
+
+  const resetPendingUploadTarget = useCallback(() => {
+    pendingUploadTargetRef.current = '';
+  }, []);
+
+  // A dismissed file dialog fires no `change`; the window regaining focus is
+  // the only signal that the pick is over. Deferred a tick so the `change`
+  // event (which follows focus) still sees the pending target.
+  const armPickerDismissReset = useCallback(() => {
+    const onFocus = () => {
+      window.removeEventListener('focus', onFocus);
+      setTimeout(resetPendingUploadTarget, 0);
+    };
+    window.addEventListener('focus', onFocus, { once: true });
+  }, [resetPendingUploadTarget]);
 
   const openFilePicker = useCallback((targetPath = '') => {
     pendingUploadTargetRef.current = targetPath;
+    armPickerDismissReset();
     fileInputRef.current?.click();
-  }, []);
+  }, [armPickerDismissReset]);
 
   const openFolderPicker = useCallback((targetPath = '') => {
     pendingUploadTargetRef.current = targetPath;
+    armPickerDismissReset();
     folderInputRef.current?.click();
-  }, []);
+  }, [armPickerDismissReset]);
 
   const handleFileSelect = useCallback(
     async (fileList: FileList | File[]) => {
       const target = pendingUploadTargetRef.current;
-      pendingUploadTargetRef.current = '';
+      resetPendingUploadTarget();
       await uploadFiles(Array.from(fileList), target);
     },
-    [uploadFiles],
+    [resetPendingUploadTarget, uploadFiles],
   );
 
   // A webkitdirectory pick gives one root folder; every file carries
@@ -432,15 +467,15 @@ export const useFileTreeUpload = ({
   const handleFolderSelect = useCallback(
     async (fileList: FileList | File[]) => {
       const target = pendingUploadTargetRef.current;
-      pendingUploadTargetRef.current = '';
-      const files = Array.from(fileList).filter((f) => {
-        const rel = (f as File & { webkitRelativePath?: string }).webkitRelativePath || '';
-        const base = rel.split('/')[0] || '';
-        return !['.DS_Store', 'Thumbs.db', 'desktop.ini'].includes(base);
-      });
+      resetPendingUploadTarget();
+      // Drop OS junk at ANY depth — match the drop path, which filters every
+      // file by basename (a root-only check would let 'sub/.DS_Store' through).
+      const files = Array.from(fileList).filter(
+        (f) => !['.DS_Store', 'Thumbs.db', 'desktop.ini'].includes(f.name),
+      );
       await uploadFiles(files, target);
     },
-    [uploadFiles],
+    [resetPendingUploadTarget, uploadFiles],
   );
 
   const handleDragEnter = useCallback((e: DragEvent) => {
