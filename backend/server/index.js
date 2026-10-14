@@ -126,7 +126,7 @@ import { createSkillSyncRouter } from './modules/skill-sync/skill-sync.routes.js
 import { skillSyncAuditDb } from './modules/skill-sync/skill-sync.db.js';
 import { createLlmProxyManager } from './modules/llm-proxy/manager.js';
 import { createCompleteMessage } from './shared/utils.js';
-import { planMoves } from './shared/file-move-planner.js';
+import { planMoves, collectMoveConflicts } from './shared/file-move-planner.js';
 
 const __dirname = getModuleDir(import.meta.url);
 // The server source runs from /server, while the compiled output runs from /dist-server/server.
@@ -1490,19 +1490,28 @@ app.post('/api/projects/:projectId/files/move', authenticateToken, async (req, r
             if (plan.code === 'INTO_ITSELF') {
                 return res.status(403).json({ error: 'Cannot move a folder into itself' });
             }
-            // Same basename twice in one batch would rename over itself.
-            return res.status(409).json({
-                error: `Multiple items would land on the same name: ${plan.path.split('/').pop() ?? plan.path}`,
-                conflicts: [plan.path.split('/').pop() ?? plan.path],
-            });
+            if (plan.code === 'DUPLICATE_TARGET') {
+                // Same basename twice in one batch would rename over itself.
+                const name = plan.path.split('/').pop() ?? plan.path;
+                return res.status(409).json({
+                    error: `Multiple items would land on the same name: ${name}`,
+                    conflicts: [name],
+                });
+            }
+            return res.status(400).json({ error: 'The move batch could not be planned' });
         }
 
         const hostId = lookupRemoteHost(projectRoot);
         if (hostId) {
-            // Lite builds predate fs/move; fail loudly rather than move a
-            // partial batch. Capability list comes from the host's registration.
+            // Capability gate: an old lite would answer `unknown rpc method` and
+            // could not finish the batch. A host that is merely offline has no
+            // capabilities at all — that is a different failure, not a stale
+            // agent, so the two must not collapse into one 501.
             const capabilities = getRemoteAgentsRuntime().registry.getCapabilities(hostId);
-            if (!capabilities || !capabilities.includes('fs/move')) {
+            if (!capabilities) {
+                return res.status(503).json({ error: 'Remote host is offline' });
+            }
+            if (!capabilities.includes('fs/move')) {
                 return res.status(501).json({
                     error: 'Remote host agent is outdated and does not support moving files. Upgrade the agent on that host.',
                 });
@@ -1520,13 +1529,25 @@ app.post('/api/projects/:projectId/files/move', authenticateToken, async (req, r
                 // The RPC drops error.code, so classify off the message prefix.
                 const code = resolveErrorCode(error);
                 if (code === 'EEXIST') {
-                    return res.status(409).json({ error: error.message });
+                    // Shape the payload like the local branch's 409 so the UI can
+                    // render conflicts the same way. The lite packs names after
+                    // the last colon ("EEXIST: Target already exists: a, b").
+                    const names = error.message.includes(': ')
+                        ? error.message.slice(error.message.lastIndexOf(': ') + 2).split(', ').filter(Boolean)
+                        : [];
+                    return res.status(409).json({
+                        error: error.message,
+                        ...(names.length > 0 ? { conflicts: names } : {}),
+                    });
                 }
                 if (code === 'ENOENT') {
                     return res.status(404).json({ error: error.message });
                 }
                 if (code === 'EACCES') {
                     return res.status(403).json({ error: 'Permission denied' });
+                }
+                if (code === 'EXDEV') {
+                    return res.status(400).json({ error: 'Cannot move across different filesystems' });
                 }
                 if (code === 'EINVAL' || code === 'ENOTDIR') {
                     return res.status(400).json({ error: error.message });
@@ -1535,35 +1556,45 @@ app.post('/api/projects/:projectId/files/move', authenticateToken, async (req, r
             }
         }
 
-        // Local project: the target must be an existing directory.
+        // Local project: the target must be an existing directory. Classify the
+        // stat failure instead of swallowing it — an unreadable (EACCES) or
+        // file-shadowed (ENOTDIR) path is not the same as a missing one.
         try {
             const targetStat = await fsPromises.stat(resolvedTargetDir);
             if (!targetStat.isDirectory()) {
                 return res.status(400).json({ error: 'Target is not a directory' });
             }
-        } catch {
-            return res.status(404).json({ error: 'Target directory not found' });
+        } catch (error) {
+            const code = resolveErrorCode(error);
+            if (code === 'ENOENT') {
+                return res.status(404).json({ error: 'Target directory not found' });
+            }
+            if (code === 'EACCES') {
+                return res.status(403).json({ error: 'Permission denied' });
+            }
+            if (code === 'ENOTDIR') {
+                return res.status(400).json({ error: 'Target is not a directory' });
+            }
+            throw error;
         }
 
         // Pre-flight the WHOLE batch: source presence then destination
         // conflicts. Nothing is renamed until every item is clear, so a
         // rejected batch leaves the tree untouched.
-        for (const m of plan.moves) {
+        const pathExists = async (p) => {
             try {
-                await fsPromises.access(m.from);
+                await fsPromises.access(p);
+                return true;
             } catch {
+                return false;
+            }
+        };
+        for (const m of plan.moves) {
+            if (!(await pathExists(m.from))) {
                 return res.status(404).json({ error: `Source no longer exists: ${m.name}` });
             }
         }
-        const conflicts = [];
-        for (const m of plan.moves) {
-            try {
-                await fsPromises.access(m.to);
-                conflicts.push(m.name);
-            } catch {
-                // free to move
-            }
-        }
+        const conflicts = await collectMoveConflicts(plan.moves, pathExists);
         if (conflicts.length > 0) {
             return res.status(409).json({
                 error: `Target already contains: ${conflicts.join(', ')}`,
@@ -1578,6 +1609,16 @@ app.post('/api/projects/:projectId/files/move', authenticateToken, async (req, r
                 await fsPromises.rename(m.from, m.to);
             } catch (error) {
                 console.error('Error moving file:', m.from, '->', m.to, error);
+                const code = resolveErrorCode(error);
+                if (code === 'EXDEV') {
+                    return res.status(400).json({ error: 'Cannot move across different filesystems' });
+                }
+                if (code === 'EACCES') {
+                    return res.status(403).json({ error: 'Permission denied' });
+                }
+                if (code === 'ENOENT') {
+                    return res.status(404).json({ error: `Source no longer exists: ${m.name}` });
+                }
                 return res.status(500).json({
                     error: `Failed to move ${m.name}: ${error.message}`,
                     failedName: m.name,
@@ -1593,8 +1634,11 @@ app.post('/api/projects/:projectId/files/move', authenticateToken, async (req, r
         });
     } catch (error) {
         console.error('Error moving files:', error);
-        if (resolveErrorCode(error) === 'EACCES') {
+        const code = resolveErrorCode(error);
+        if (code === 'EACCES') {
             res.status(403).json({ error: 'Permission denied' });
+        } else if (code === 'EXDEV') {
+            res.status(400).json({ error: 'Cannot move across different filesystems' });
         } else {
             res.status(500).json({ error: error.message });
         }
