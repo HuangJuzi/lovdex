@@ -45,21 +45,29 @@ export function useFileTreeSelection({ visibleItems, expandedDirs }: UseFileTree
 
   const applyClick = useCallback((result: SelectionClickResult, item: FileTreeNode) => {
     if (result.kind === 'toggle') {
-      setAnchorPath(result.path);
       setSelected((prev) => {
         const next = new Map(prev);
-        if (next.has(result.path)) next.delete(result.path);
+        const deselecting = next.has(result.path);
+        if (deselecting) next.delete(result.path);
         else next.set(result.path, item.type);
+        // Ctrl-clicking the LAST selected row empties the set; leaving the
+        // anchor behind would let the next Shift-click start a range from a
+        // path the user no longer has anchored anywhere.
+        setAnchorPath(deselecting && next.size === 0 ? null : result.path);
         return next;
       });
     } else if (result.kind === 'range') {
+      // Resolve row types once, before the updater — the updater must stay
+      // side-effect free (StrictMode double-invokes it in dev).
+      const types = new Map<string, 'file' | 'directory'>();
+      for (const p of result.paths) {
+        types.set(p, findNodeByPath(visibleItems, p)?.type ?? 'file');
+      }
       setSelected((prev) => {
         const next = new Map(prev);
         for (const p of result.paths) {
           if (next.has(p)) continue;
-          // Range rows carry no type; resolve from the visible tree.
-          const found = findNodeByPath(visibleItems, p);
-          next.set(p, found?.type ?? 'file');
+          next.set(p, types.get(p) ?? 'file');
         }
         return next;
       });
