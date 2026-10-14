@@ -18,6 +18,8 @@ export type ToastMessage = {
 export type DeleteConfirmation = {
   isOpen: boolean;
   item: FileTreeNode | null;
+  // 多选批量删除：非空时 item 为 null
+  items: FileTreeNode[] | null;
 };
 
 export type UseFileTreeOperationsOptions = {
@@ -38,6 +40,7 @@ export type UseFileTreeOperationsResult = {
   // Delete operations
   deleteConfirmation: DeleteConfirmation;
   handleStartDelete: (item: FileTreeNode) => void;
+  handleStartDeleteMany: (items: FileTreeNode[]) => void;
   handleCancelDelete: () => void;
   handleConfirmDelete: () => Promise<void>;
 
@@ -54,6 +57,7 @@ export type UseFileTreeOperationsResult = {
   // Other operations
   handleCopyPath: (item: FileTreeNode) => void;
   handleDownload: (item: FileTreeNode) => Promise<void>;
+  downloadItemsAsZip: (items: FileTreeNode[], zipName: string) => Promise<void>;
 
   // Loading state
   operationLoading: boolean;
@@ -75,6 +79,7 @@ export function useFileTreeOperations({
   const [deleteConfirmation, setDeleteConfirmation] = useState<DeleteConfirmation>({
     isOpen: false,
     item: null,
+    items: null,
   });
   const [isCreating, setIsCreating] = useState(false);
   const [newItemParent, setNewItemParent] = useState('');
@@ -149,39 +154,68 @@ export function useFileTreeOperations({
 
   // Delete operations
   const handleStartDelete = useCallback((item: FileTreeNode) => {
-    setDeleteConfirmation({ isOpen: true, item });
+    setDeleteConfirmation({ isOpen: true, item, items: null });
+  }, []);
+
+  // Multi-select delete: the confirmation dialog lists the batch instead of a
+  // single item. Each entry is deleted with its own request so one failure
+  // cannot mask the rest — the spec keeps this deliberately un-batched.
+  const handleStartDeleteMany = useCallback((items: FileTreeNode[]) => {
+    if (items.length === 0) return;
+    setDeleteConfirmation({ isOpen: true, item: null, items });
   }, []);
 
   const handleCancelDelete = useCallback(() => {
-    setDeleteConfirmation({ isOpen: false, item: null });
+    setDeleteConfirmation({ isOpen: false, item: null, items: null });
   }, []);
 
   const handleConfirmDelete = useCallback(async () => {
-    const { item } = deleteConfirmation;
-    if (!item || !selectedProject) return;
+    const { item, items } = deleteConfirmation;
+    if (!selectedProject) return;
+    if (!item && (!items || items.length === 0)) return;
 
     setOperationLoading(true);
     try {
-      const response = await api.deleteFile(selectedProject.projectId, {
-        path: item.path,
-        type: item.type,
-      });
-
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || 'Failed to delete');
+      const targets = item ? [item] : items ?? [];
+      const failed: string[] = [];
+      for (const target of targets) {
+        try {
+          const response = await api.deleteFile(selectedProject.projectId, {
+            path: target.path,
+            type: target.type,
+          });
+          if (!response.ok) {
+            const data = await response.json().catch(() => ({}));
+            throw new Error(data.error || 'Failed to delete');
+          }
+        } catch (err) {
+          console.error('Delete failed for', target.path, err);
+          failed.push(target.name);
+        }
       }
 
-      showToast(
-        item.type === 'directory'
-          ? t('fileTree.toast.folderDeleted', 'Folder deleted')
-          : t('fileTree.toast.fileDeleted', 'File deleted'),
-        'success'
-      );
+      if (failed.length === 0) {
+        showToast(
+          targets.length === 1
+            ? t('fileTree.toast.deleted', 'Deleted successfully')
+            : t('fileTree.toast.deletedMany', 'Deleted {{count}} items', { count: targets.length }),
+          'success',
+        );
+      } else if (failed.length === targets.length) {
+        showToast(t('fileTree.toast.deleteFailed', 'Failed to delete'), 'error');
+      } else {
+        showToast(
+          t('fileTree.toast.deletePartial', 'Deleted {{ok}} of {{count}}; failed: {{failed}}', {
+            ok: targets.length - failed.length,
+            count: targets.length,
+            failed: failed.join(', '),
+          }),
+          'error',
+        );
+      }
+
       onRefresh();
       handleCancelDelete();
-    } catch (err) {
-      showToast((err as Error).message, 'error');
     } finally {
       setOperationLoading(false);
     }
@@ -303,46 +337,79 @@ export function useFileTreeOperations({
     triggerBrowserDownload(blob, item.name);
   }, [selectedProject, triggerBrowserDownload]);
 
-  // Download folder as ZIP
-  const downloadFolderAsZip = useCallback(async (folder: FileTreeNode) => {
-    if (!selectedProject) return;
-
-    const zip = new JSZip();
-
-    // Recursively get all files in the folder
-    const collectFiles = async (node: FileTreeNode, currentPath: string) => {
-      const fullPath = currentPath ? `${currentPath}/${node.name}` : node.name;
-
+  // Download items as a single ZIP. Zip-internal paths keep the top-level
+  // entry's name as the root (choice (b) in the task): flattening folders
+  // straight into the archive root would collide when several selected
+  // folders contain a file of the same name, and the root segment makes it
+  // obvious which selection each entry came from.
+  const collectNodeIntoZip = useCallback(
+    async (zip: JSZip, node: FileTreeNode, zipPath: string, skipped: string[]) => {
       if (node.type === 'file') {
-        const response = await api.readFileBlob(selectedProject.projectId, node.path);
+        const response = await api.readFileBlob(selectedProject!.projectId, node.path);
         if (!response.ok) {
-          throw new Error(`Failed to download "${node.name}" for ZIP export`);
+          // Remote 413 (>32MB) and missing files skip with a report rather
+          // than failing the whole archive.
+          skipped.push(node.path);
+          return;
         }
-
-        // Store raw bytes in the archive so binary files stay intact.
+        // Store raw bytes so binary files stay intact.
         const fileBytes = await response.arrayBuffer();
-        zip.file(fullPath, fileBytes);
-      } else if (node.type === 'directory' && node.children) {
-        // Recursively process children
-        for (const child of node.children) {
-          await collectFiles(child, fullPath);
+        zip.file(zipPath, fileBytes);
+        return;
+      }
+      for (const child of node.children ?? []) {
+        await collectNodeIntoZip(
+          zip,
+          child,
+          zipPath ? `${zipPath}/${child.name}` : child.name,
+          skipped,
+        );
+      }
+    },
+    [selectedProject],
+  );
+
+  const downloadItemsAsZip = useCallback(
+    async (items: FileTreeNode[], zipName: string) => {
+      if (!selectedProject || items.length === 0) return;
+
+      setOperationLoading(true);
+      try {
+        const zip = new JSZip();
+        const skipped: string[] = [];
+        for (const item of items) {
+          await collectNodeIntoZip(zip, item, item.name, skipped);
         }
+
+        const zipBlob = await zip.generateAsync({ type: 'blob' });
+        triggerBrowserDownload(zipBlob, zipName);
+
+        if (skipped.length > 0) {
+          showToast(
+            t('fileTree.toast.zipSkipped', 'Skipped (too large or unreadable): {{names}}', {
+              names: skipped.join(', '),
+            }),
+            'error',
+          );
+        } else {
+          showToast(t('fileTree.toast.folderDownloaded', 'Folder downloaded as ZIP'), 'success');
+        }
+      } catch (err) {
+        showToast((err as Error).message, 'error');
+      } finally {
+        setOperationLoading(false);
       }
-    };
+    },
+    [selectedProject, showToast, t, triggerBrowserDownload, collectNodeIntoZip],
+  );
 
-    // If the folder has children, process them
-    if (folder.children && folder.children.length > 0) {
-      for (const child of folder.children) {
-        await collectFiles(child, '');
-      }
-    }
-
-    // Generate ZIP file
-    const zipBlob = await zip.generateAsync({ type: 'blob' });
-    triggerBrowserDownload(zipBlob, `${folder.name}.zip`);
-
-    showToast(t('fileTree.toast.folderDownloaded', 'Folder downloaded as ZIP'), 'success');
-  }, [selectedProject, showToast, t, triggerBrowserDownload]);
+  // Download a single folder as ZIP (context-menu entry point).
+  const downloadFolderAsZip = useCallback(
+    async (folder: FileTreeNode) => {
+      await downloadItemsAsZip([folder], `${folder.name}.zip`);
+    },
+    [downloadItemsAsZip],
+  );
 
   return {
     // Rename operations
@@ -356,6 +423,7 @@ export function useFileTreeOperations({
     // Delete operations
     deleteConfirmation,
     handleStartDelete,
+    handleStartDeleteMany,
     handleCancelDelete,
     handleConfirmDelete,
 
@@ -372,6 +440,7 @@ export function useFileTreeOperations({
     // Other operations
     handleCopyPath,
     handleDownload,
+    downloadItemsAsZip,
 
     // Loading state
     operationLoading,
