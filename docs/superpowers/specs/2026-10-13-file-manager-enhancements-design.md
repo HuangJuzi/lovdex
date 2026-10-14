@@ -70,8 +70,9 @@
 - 树节点 `draggable`；`dragStart` 写自定义类型 `application/x-lovdex-tree-items`（内容 = 选中集合或被拖单项 + 内部拖拽标记）
 - 目录节点同时是 drop 目标：`dragOver` 读 `dataTransfer.types` 区分——含自定义类型 = 内部移动（高亮 + `effectAllowed='move'`）；仅 `Files` = 外部上传（现有逻辑）
 - 松手 → `moveFiles` API → 成功刷新树、清空选中；**部分冲突整批不落盘**（后端先检后动）
-- 拖到根容器空白 = 移到项目根
+- **目标只能是严格位于项目根之下的目录**：拖到根容器空白处不触发移动（该目标被判定为项目根自身，前后端都拒绝，toast 提示）。原因见下：`planMoves` 的 `to = targetDir + '/' + name` 约定在整根迁移下会漏判，把该入口封死才能在 planner 契约内保证文件不会离开项目根。
 - 前端拦截：目标是选中项自身或其子孙 → 不高亮、松手 toast「不能移动到自身内部」
+- 选中数 > 100 时移动会被后端 400 拒绝（`Maximum is 100`）；前端在拖动超过 100 项时直接 toast 提示，不发请求
 
 #### 后端 `POST /api/projects/:projectId/files/move`
 
@@ -102,6 +103,9 @@ body：`{ items: [{ path, type }], targetDir }`，一次批量、原子语义（
 | move 父 → 子孙 | 前端拦截 + 后端 403 双保险 |
 | move 到不存在的 targetDir | 404 |
 | 远程 lite 过旧不支持 fs/move | 501 + 升级提示 |
+| 远程主机离线（拿不到 capabilities） | 503「Remote host is offline」（与上一条区分，避免把离线误诊成版本旧） |
+| 目标目录不可读 / 被同名文件占位 | 403 / 400（按 EACCES / ENOTDIR 分类，不吞成 404） |
+| 跨文件系统移动（EXDEV） | 400「Cannot move across different filesystems」（与 rename 路由一致） |
 | 文件夹上传 > 20 文件 | 前端自动分批，串行上传 |
 | 上传仍超 10GB/文件 | 现有校验照常报错 |
 
