@@ -68,11 +68,16 @@ export default function FileTree({ selectedProject, onFileOpen }: FileTreeProps)
     expandDirectories,
   });
 
+  // The operations hook is built before `selection`; this ref lets its
+  // post-delete callback reach the live selection without a cycle.
+  const selectionRef = useRef<{ clearSelection: () => void } | null>(null);
+
   // File operations
   const operations = useFileTreeOperations({
     selectedProject,
     onRefresh: refreshFiles,
     showToast,
+    onBatchDeleted: () => selectionRef.current?.clearSelection(),
   });
 
   // File upload (drag and drop)
@@ -84,6 +89,7 @@ export default function FileTree({ selectedProject, onFileOpen }: FileTreeProps)
 
   // Multi-select over the rows the user can actually see (expansion-aware).
   const selection = useFileTreeSelection({ visibleItems: filteredFiles, expandedDirs });
+  selectionRef.current = selection;
 
   // Drag-move: dragging selected rows onto a folder relocates them.
   const move = useFileTreeMove({

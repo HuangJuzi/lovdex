@@ -26,6 +26,10 @@ export type UseFileTreeOperationsOptions = {
   selectedProject: Project | null;
   onRefresh: () => void;
   showToast: (message: string, type: 'success' | 'error') => void;
+  /** Called after a successful multi-item delete so the caller can drop the
+   *  now-dangling selection (single deletes leave the rest of the selection
+   *  untouched). */
+  onBatchDeleted?: () => void;
 };
 
 export type UseFileTreeOperationsResult = {
@@ -70,6 +74,7 @@ export function useFileTreeOperations({
   selectedProject,
   onRefresh,
   showToast,
+  onBatchDeleted,
 }: UseFileTreeOperationsOptions): UseFileTreeOperationsResult {
   const { t } = useTranslation();
 
@@ -224,11 +229,14 @@ export function useFileTreeOperations({
       }
 
       onRefresh();
+      // The deleted paths no longer exist; a lingering selection would show a
+      // phantom count and make the batch bar's actions no-ops.
+      if (!item) onBatchDeleted?.();
       handleCancelDelete();
     } finally {
       setOperationLoading(false);
     }
-  }, [deleteConfirmation, selectedProject, showToast, t, onRefresh, handleCancelDelete]);
+  }, [deleteConfirmation, selectedProject, showToast, t, onRefresh, handleCancelDelete, onBatchDeleted]);
 
   // Create operations
   const handleStartCreate = useCallback((parentPath: string, type: 'file' | 'directory') => {
