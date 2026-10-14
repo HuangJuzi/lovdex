@@ -34,6 +34,7 @@ export const CONFIRMATION_TITLES: Record<ConfirmActionType, string> = {
   publish: 'Publish Branch',
   revertLocalCommit: 'Revert Local Commit',
   deleteBranch: 'Delete Branch',
+  forceDeleteBranch: 'Force Delete Branch',
 };
 
 export const CONFIRMATION_ACTION_LABELS: Record<ConfirmActionType, string> = {
@@ -45,6 +46,7 @@ export const CONFIRMATION_ACTION_LABELS: Record<ConfirmActionType, string> = {
   publish: 'Publish',
   revertLocalCommit: 'Revert Commit',
   deleteBranch: 'Delete',
+  forceDeleteBranch: 'Force Delete',
 };
 
 export const CONFIRMATION_BUTTON_CLASSES: Record<ConfirmActionType, string> = {
@@ -56,6 +58,7 @@ export const CONFIRMATION_BUTTON_CLASSES: Record<ConfirmActionType, string> = {
   publish: 'bg-primary text-primary-foreground hover:bg-primary/90',
   revertLocalCommit: 'bg-warning text-warning-foreground hover:bg-warning/90',
   deleteBranch: 'bg-destructive text-destructive-foreground hover:bg-destructive/90',
+  forceDeleteBranch: 'bg-destructive text-destructive-foreground hover:bg-destructive/90',
 };
 
 export const CONFIRMATION_ICON_CONTAINER_CLASSES: Record<ConfirmActionType, string> = {
@@ -67,6 +70,7 @@ export const CONFIRMATION_ICON_CONTAINER_CLASSES: Record<ConfirmActionType, stri
   publish: 'bg-warning/10',
   revertLocalCommit: 'bg-warning/10',
   deleteBranch: 'bg-destructive/10',
+  forceDeleteBranch: 'bg-destructive/10',
 };
 
 export const CONFIRMATION_ICON_CLASSES: Record<ConfirmActionType, string> = {
@@ -78,4 +82,5 @@ export const CONFIRMATION_ICON_CLASSES: Record<ConfirmActionType, string> = {
   publish: 'text-warning',
   revertLocalCommit: 'text-warning',
   deleteBranch: 'text-destructive',
+  forceDeleteBranch: 'text-destructive',
 };

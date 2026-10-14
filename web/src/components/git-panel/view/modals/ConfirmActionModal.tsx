@@ -15,7 +15,12 @@ type ConfirmActionModalProps = {
 };
 
 function renderConfirmActionIcon(actionType: ConfirmationRequest['type']) {
-  if (actionType === 'discard' || actionType === 'delete') {
+  if (
+    actionType === 'discard' ||
+    actionType === 'delete' ||
+    actionType === 'deleteBranch' ||
+    actionType === 'forceDeleteBranch'
+  ) {
     return <Trash2 className="h-4 w-4" />;
   }
 

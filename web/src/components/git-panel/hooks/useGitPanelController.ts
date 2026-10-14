@@ -3,6 +3,7 @@ import { authenticatedFetch } from '../../../utils/api';
 import { branchStore } from '../../../stores/branchStore';
 import { DEFAULT_BRANCH, RECENT_COMMITS_LIMIT } from '../constants/constants';
 import type {
+  DeleteBranchResult,
   GitApiErrorResponse,
   GitBranchesResponse,
   GitCommitSummary,
@@ -296,27 +297,40 @@ export function useGitPanelController({
   );
 
   const deleteBranch = useCallback(
-    async (branchName: string) => {
-      if (!selectedProject) return false;
+    async (branchName: string, options?: { force?: boolean }): Promise<DeleteBranchResult> => {
+      if (!selectedProject) {
+        return { status: 'error', message: 'No project selected' };
+      }
 
       try {
         const response = await fetchWithAuth('/api/git/delete-branch', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ project: selectedProject.projectId, branch: branchName }),
+          body: JSON.stringify({
+            project: selectedProject.projectId,
+            branch: branchName,
+            force: options?.force === true,
+          }),
         });
 
         const data = await readJson<GitOperationResponse>(response);
+        // "Not merged" is not an error — it is a recoverable state the caller
+        // turns into a force-delete confirmation, so it must NOT hit the error bar.
+        if (data.code === 'BRANCH_NOT_MERGED') {
+          return { status: 'notMerged' };
+        }
         if (!data.success) {
-          setOperationError(data.error ?? 'Delete branch failed');
-          return false;
+          const message = data.error ?? 'Delete branch failed';
+          setOperationError(message);
+          return { status: 'error', message };
         }
 
         void fetchBranches();
-        return true;
+        return { status: 'success' };
       } catch (error) {
-        setOperationError(error instanceof Error ? error.message : 'Delete branch failed');
-        return false;
+        const message = error instanceof Error ? error.message : 'Delete branch failed';
+        setOperationError(message);
+        return { status: 'error', message };
       }
     },
     [fetchBranches, selectedProject],

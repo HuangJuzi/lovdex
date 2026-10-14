@@ -3,7 +3,7 @@ import type { Project } from '../../../types/app';
 export type GitPanelView = 'changes' | 'history' | 'branches' | 'worktrees';
 export type FileStatusCode = 'M' | 'A' | 'D' | 'U';
 export type GitStatusFileGroup = 'modified' | 'added' | 'deleted' | 'untracked';
-export type ConfirmActionType = 'discard' | 'delete' | 'commit' | 'pull' | 'push' | 'publish' | 'revertLocalCommit' | 'deleteBranch';
+export type ConfirmActionType = 'discard' | 'delete' | 'commit' | 'pull' | 'push' | 'publish' | 'revertLocalCommit' | 'deleteBranch' | 'forceDeleteBranch';
 
 export type FileDiffInfo = {
   old_string: string;
@@ -106,7 +106,7 @@ export type GitPanelController = {
   refreshAll: () => void;
   switchBranch: (branchName: string) => Promise<boolean>;
   createBranch: (branchName: string) => Promise<boolean>;
-  deleteBranch: (branchName: string) => Promise<boolean>;
+  deleteBranch: (branchName: string, options?: { force?: boolean }) => Promise<DeleteBranchResult>;
   handleFetch: () => Promise<void>;
   handlePull: () => Promise<void>;
   handlePush: () => Promise<void>;
@@ -141,9 +141,18 @@ export type GitCommitsResponse = GitApiErrorResponse & {
   commits?: GitCommitSummary[];
 };
 
+/** Outcome of a branch-delete attempt, richer than a boolean so the UI can
+ * distinguish "needs force" from a real error. */
+export type DeleteBranchResult =
+  | { status: 'success' }
+  | { status: 'notMerged' }
+  | { status: 'error'; message: string };
+
 export type GitOperationResponse = GitApiErrorResponse & {
   success?: boolean;
   output?: string;
+  /** Machine-readable failure code, e.g. 'BRANCH_NOT_MERGED'. */
+  code?: string;
 };
 
 export type GitFileWithDiffResponse = GitApiErrorResponse & {

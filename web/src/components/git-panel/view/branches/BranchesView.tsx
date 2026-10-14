@@ -1,6 +1,6 @@
 import { Check, GitBranch, Globe, Plus, RefreshCw, Search, Trash2, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import type { ConfirmationRequest, GitRemoteStatus } from '../../types/types';
+import type { ConfirmationRequest, DeleteBranchResult, GitRemoteStatus } from '../../types/types';
 import NewBranchModal from '../modals/NewBranchModal';
 
 type BranchesViewProps = {
@@ -13,7 +13,7 @@ type BranchesViewProps = {
   isCreatingBranch: boolean;
   onSwitchBranch: (branchName: string) => Promise<boolean>;
   onCreateBranch: (branchName: string) => Promise<boolean>;
-  onDeleteBranch: (branchName: string) => Promise<boolean>;
+  onDeleteBranch: (branchName: string, options?: { force?: boolean }) => Promise<DeleteBranchResult>;
   onRequestConfirmation: (request: ConfirmationRequest) => void;
 };
 
@@ -165,7 +165,18 @@ export default function BranchesView({
     onRequestConfirmation({
       type: 'deleteBranch',
       message: `Delete branch "${branch}"? This cannot be undone.`,
-      onConfirm: () => void onDeleteBranch(branch),
+      onConfirm: async () => {
+        const result = await onDeleteBranch(branch);
+        // The safe delete only fails this way when the branch has unmerged
+        // commits — offer the irreversible `-D` escalation as a second prompt.
+        if (result.status === 'notMerged') {
+          onRequestConfirmation({
+            type: 'forceDeleteBranch',
+            message: `Branch "${branch}" has commits that are not merged. Force delete it? This cannot be undone and those commits may be lost.`,
+            onConfirm: () => void onDeleteBranch(branch, { force: true }),
+          });
+        }
+      },
     });
   };
 
