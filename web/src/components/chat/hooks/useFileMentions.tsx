@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Dispatch, KeyboardEvent, RefObject, SetStateAction } from 'react';
+
 import { api } from '../../../utils/api';
 import { escapeRegExp } from '../utils/chatFormatting';
+import { matchFiles } from '../utils/fileMentionMatching';
 import type { Project } from '../../../types/app';
 
 interface ProjectFileNode {
@@ -113,15 +115,7 @@ export function useFileMentions({ selectedProject, input, setInput, textareaRef 
     setShowFileDropdown(true);
     setSelectedFileIndex(-1);
 
-    const matchingFiles = fileList
-      .filter(
-        (file) =>
-          file.name.toLowerCase().includes(textAfterAt.toLowerCase()) ||
-          file.path.toLowerCase().includes(textAfterAt.toLowerCase()),
-      )
-      .slice(0, 10);
-
-    setFilteredFiles(matchingFiles);
+    setFilteredFiles(matchFiles(fileList, textAfterAt));
   }, [input, cursorPosition, fileList]);
 
   const activeFileMentions = useMemo(() => {
