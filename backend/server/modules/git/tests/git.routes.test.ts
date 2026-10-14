@@ -140,3 +140,50 @@ test('git routes smoke test over a real temp repository', async (t) => {
     }
   });
 });
+
+test('delete-branch reports BRANCH_NOT_MERGED for an unmerged branch and force-deletes it', async (t) => {
+  const repoDir = await makeTempRepo(t);
+  const run = (args: string[]) => execFileSync('git', args, { cwd: repoDir, stdio: 'pipe' });
+
+  // A branch whose commit is NOT reachable from main → `git branch -d` refuses.
+  run(['checkout', '-b', 'feat/unmerged']);
+  await fs.writeFile(path.join(repoDir, 'feature.txt'), 'work\n', 'utf8');
+  run(['add', '.']);
+  run(['commit', '-m', 'unmerged work']);
+  run(['checkout', 'main']);
+
+  await withServer(repoDir, async (base) => {
+    // Plain delete (-d) must refuse with the structured code.
+    const plainRes = await fetch(`${base}/api/git/delete-branch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project: 'repo', branch: 'feat/unmerged' }),
+    });
+    assert.equal(plainRes.status, 409);
+    const plainBody = (await plainRes.json()) as { code?: string; error?: string };
+    assert.equal(plainBody.code, 'BRANCH_NOT_MERGED');
+
+    // The branch must survive the refused delete.
+    const afterPlain = execFileSync('git', ['branch', '--list', 'feat/unmerged'], {
+      cwd: repoDir,
+      stdio: 'pipe',
+    }).toString();
+    assert.ok(afterPlain.includes('feat/unmerged'));
+
+    // Force delete (-D) succeeds and removes the branch.
+    const forceRes = await fetch(`${base}/api/git/delete-branch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project: 'repo', branch: 'feat/unmerged', force: true }),
+    });
+    assert.equal(forceRes.status, 200);
+    const forceBody = (await forceRes.json()) as { success?: boolean };
+    assert.equal(forceBody.success, true);
+
+    const afterForce = execFileSync('git', ['branch', '--list', 'feat/unmerged'], {
+      cwd: repoDir,
+      stdio: 'pipe',
+    }).toString();
+    assert.equal(afterForce.trim(), '');
+  });
+});

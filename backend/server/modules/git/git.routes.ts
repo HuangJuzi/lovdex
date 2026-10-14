@@ -75,6 +75,17 @@ function validateBranchName(branch) {
   return branch;
 }
 
+/**
+ * True when `git branch -d` refused because the branch has commits that are
+ * not merged into HEAD. git writes this to stderr as:
+ *   error: The branch '<name>' is not fully merged.
+ * and exits non-zero. spawnAsync attaches stdout/stderr to the thrown error.
+ */
+function isNotFullyMergedError(error) {
+  const text = `${error?.stderr ?? ''}${error?.stdout ?? ''}${error?.message ?? ''}`;
+  return text.includes(' is not fully merged');
+}
+
 function validateFilePath(file, projectPath) {
   if (!file || file.includes('\0')) {
     throw new Error('Invalid file path');
@@ -832,9 +843,11 @@ router.post('/create-branch', async (req, res) => {
   }
 });
 
-// Delete a local branch
+// Delete a local branch. `-d` (safe) by default; `force:true` uses `-D`,
+// which discards unmerged commits — the caller must confirm with the user first.
 router.post('/delete-branch', async (req, res) => {
-  const { project, branch } = req.body;
+  const { project, branch, force } = req.body;
+  const shouldForce = force === true;
 
   if (!project || !branch) {
     return res.status(400).json({ error: 'Project id and branch name are required' });
@@ -844,16 +857,25 @@ router.post('/delete-branch', async (req, res) => {
     const projectPath = await getActualProjectPath(project);
     await validateGitRepository(projectPath);
 
-    // Safety: cannot delete the currently checked-out branch
+    // Safety: cannot delete the currently checked-out branch (applies to -D too).
     const { stdout: currentBranch } = await spawnAsync('git', ['branch', '--show-current'], { cwd: projectPath });
     if (currentBranch.trim() === branch) {
       return res.status(400).json({ error: 'Cannot delete the currently checked-out branch' });
     }
 
-    const { stdout } = await spawnAsync('git', ['branch', '-d', branch], { cwd: projectPath });
+    const { stdout } = await spawnAsync('git', ['branch', shouldForce ? '-D' : '-d', branch], { cwd: projectPath });
     res.json({ success: true, output: stdout });
   } catch (error) {
     console.error('Git delete branch error:', error);
+    // Only the safe (`-d`) path can fail because the branch is unmerged, and
+    // only that failure is recoverable by retrying with `-D`. Everything else
+    // stays a generic 500 so the UI does not offer a force-delete that cannot help.
+    if (!shouldForce && isNotFullyMergedError(error)) {
+      return res.status(409).json({
+        error: `The branch '${branch}' is not fully merged`,
+        code: 'BRANCH_NOT_MERGED',
+      });
+    }
     res.status(500).json({ error: error.message });
   }
 });
