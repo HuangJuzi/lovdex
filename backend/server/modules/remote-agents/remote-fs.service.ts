@@ -73,6 +73,11 @@ export type RemoteFsClient = {
     name: string,
   ): Promise<{ success: boolean; path: string }>;
   rename(hostId: string, oldPath: string, newName: string): Promise<{ success: boolean; newPath: string }>;
+  move(
+    hostId: string,
+    targetDir: string,
+    items: Array<{ path: string; type: 'file' | 'directory' }>,
+  ): Promise<{ success: boolean; movedCount: number; skippedCount: number }>;
   delete(hostId: string, pathText: string, type: 'file' | 'directory'): Promise<{ success: boolean }>;
 };
 
@@ -107,6 +112,9 @@ export function createRemoteFsClient(getRegistry: () => RemoteAgentsRegistry): R
     },
     rename(h, oldPath, newName) {
       return reg().rpc(h, 'fs/rename', { oldPath, newName });
+    },
+    move(h, targetDir, items) {
+      return reg().rpc(h, 'fs/move', { targetDir, items });
     },
     delete(h, p, type) {
       return reg().rpc(h, 'fs/delete', { path: p, type });

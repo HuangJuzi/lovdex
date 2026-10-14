@@ -126,6 +126,7 @@ import { createSkillSyncRouter } from './modules/skill-sync/skill-sync.routes.js
 import { skillSyncAuditDb } from './modules/skill-sync/skill-sync.db.js';
 import { createLlmProxyManager } from './modules/llm-proxy/manager.js';
 import { createCompleteMessage } from './shared/utils.js';
+import { planMoves } from './shared/file-move-planner.js';
 
 const __dirname = getModuleDir(import.meta.url);
 // The server source runs from /server, while the compiled output runs from /dist-server/server.
@@ -1433,6 +1434,167 @@ app.put('/api/projects/:projectId/files/rename', authenticateToken, async (req, 
             res.status(404).json({ error: 'File or directory not found' });
         } else if (resolveErrorCode(error) === 'EXDEV') {
             res.status(400).json({ error: 'Cannot move across different filesystems' });
+        } else {
+            res.status(500).json({ error: error.message });
+        }
+    }
+});
+
+// POST /api/projects/:projectId/files/move - Move files/directories into a
+// target directory. The batch is pre-flight checked END TO END: a duplicate
+// destination name inside the batch, or ANY destination that already exists,
+// aborts the whole batch (409) with nothing moved.
+app.post('/api/projects/:projectId/files/move', authenticateToken, async (req, res) => {
+    try {
+        const { projectId } = req.params;
+        const { items, targetDir } = req.body;
+
+        if (!Array.isArray(items) || items.length === 0) {
+            return res.status(400).json({ error: 'items must be a non-empty array' });
+        }
+        if (items.length > 100) {
+            return res.status(400).json({ error: 'Too many items. Maximum is 100.' });
+        }
+        for (const item of items) {
+            if (!item || typeof item.path !== 'string' || !item.path) {
+                return res.status(400).json({ error: 'Each item needs a non-empty path' });
+            }
+            if (item.type !== 'file' && item.type !== 'directory') {
+                return res.status(400).json({ error: 'Each item type must be "file" or "directory"' });
+            }
+        }
+
+        const projectRoot = await projectsDb.getProjectPathById(projectId);
+        if (!projectRoot) {
+            return res.status(404).json({ error: 'Project not found' });
+        }
+
+        // Resolve + validate every source and the target BEFORE planning: the
+        // planner's contract is "already normalized, strictly below the root".
+        const resolvedItems = [];
+        for (const item of items) {
+            const v = validatePathInProject(projectRoot, item.path);
+            if (!v.valid) {
+                return res.status(403).json({ error: v.error });
+            }
+            resolvedItems.push({ path: v.resolved, type: item.type });
+        }
+        const targetValidation = validatePathInProject(projectRoot, targetDir || '');
+        if (!targetValidation.valid) {
+            return res.status(403).json({ error: targetValidation.error });
+        }
+        const resolvedTargetDir = targetValidation.resolved;
+
+        const plan = planMoves(resolvedItems, resolvedTargetDir);
+        if (!plan.ok) {
+            if (plan.code === 'INTO_ITSELF') {
+                return res.status(403).json({ error: 'Cannot move a folder into itself' });
+            }
+            // Same basename twice in one batch would rename over itself.
+            return res.status(409).json({
+                error: `Multiple items would land on the same name: ${plan.path.split('/').pop() ?? plan.path}`,
+                conflicts: [plan.path.split('/').pop() ?? plan.path],
+            });
+        }
+
+        const hostId = lookupRemoteHost(projectRoot);
+        if (hostId) {
+            // Lite builds predate fs/move; fail loudly rather than move a
+            // partial batch. Capability list comes from the host's registration.
+            const capabilities = getRemoteAgentsRuntime().registry.getCapabilities(hostId);
+            if (!capabilities || !capabilities.includes('fs/move')) {
+                return res.status(501).json({
+                    error: 'Remote host agent is outdated and does not support moving files. Upgrade the agent on that host.',
+                });
+            }
+            try {
+                const { fsClient } = getRemoteAgentsRuntime();
+                const r = await fsClient.move(hostId, resolvedTargetDir, resolvedItems);
+                return res.json({
+                    success: true,
+                    movedCount: r.movedCount,
+                    skippedCount: r.skippedCount,
+                    targetDir: resolvedTargetDir,
+                });
+            } catch (error) {
+                // The RPC drops error.code, so classify off the message prefix.
+                const code = resolveErrorCode(error);
+                if (code === 'EEXIST') {
+                    return res.status(409).json({ error: error.message });
+                }
+                if (code === 'ENOENT') {
+                    return res.status(404).json({ error: error.message });
+                }
+                if (code === 'EACCES') {
+                    return res.status(403).json({ error: 'Permission denied' });
+                }
+                if (code === 'EINVAL' || code === 'ENOTDIR') {
+                    return res.status(400).json({ error: error.message });
+                }
+                throw error;
+            }
+        }
+
+        // Local project: the target must be an existing directory.
+        try {
+            const targetStat = await fsPromises.stat(resolvedTargetDir);
+            if (!targetStat.isDirectory()) {
+                return res.status(400).json({ error: 'Target is not a directory' });
+            }
+        } catch {
+            return res.status(404).json({ error: 'Target directory not found' });
+        }
+
+        // Pre-flight the WHOLE batch: source presence then destination
+        // conflicts. Nothing is renamed until every item is clear, so a
+        // rejected batch leaves the tree untouched.
+        for (const m of plan.moves) {
+            try {
+                await fsPromises.access(m.from);
+            } catch {
+                return res.status(404).json({ error: `Source no longer exists: ${m.name}` });
+            }
+        }
+        const conflicts = [];
+        for (const m of plan.moves) {
+            try {
+                await fsPromises.access(m.to);
+                conflicts.push(m.name);
+            } catch {
+                // free to move
+            }
+        }
+        if (conflicts.length > 0) {
+            return res.status(409).json({
+                error: `Target already contains: ${conflicts.join(', ')}`,
+                conflicts,
+            });
+        }
+
+        // Execute sequentially; a failure here stops at the first error (no
+        // rollback) and names the item that failed.
+        for (const m of plan.moves) {
+            try {
+                await fsPromises.rename(m.from, m.to);
+            } catch (error) {
+                console.error('Error moving file:', m.from, '->', m.to, error);
+                return res.status(500).json({
+                    error: `Failed to move ${m.name}: ${error.message}`,
+                    failedName: m.name,
+                });
+            }
+        }
+
+        res.json({
+            success: true,
+            movedCount: plan.moves.length,
+            skippedCount: plan.skippedNoOp.length,
+            targetDir: resolvedTargetDir,
+        });
+    } catch (error) {
+        console.error('Error moving files:', error);
+        if (resolveErrorCode(error) === 'EACCES') {
+            res.status(403).json({ error: 'Permission denied' });
         } else {
             res.status(500).json({ error: error.message });
         }

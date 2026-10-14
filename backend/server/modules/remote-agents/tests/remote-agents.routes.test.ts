@@ -117,6 +117,9 @@ function stubFsClient(dirs: { name: string; type: 'dir' | 'file' | 'symlink'; si
     async rename() {
       throw new Error('not used');
     },
+    async move() {
+      throw new Error('not used');
+    },
     async delete() {
       throw new Error('not used');
     },
@@ -715,6 +718,9 @@ test('GET /:id/dirs RPC failure → 502 REMOTE_FS_ERROR', async () => {
       throw new Error('not used');
     },
     async rename() {
+      throw new Error('not used');
+    },
+    async move() {
       throw new Error('not used');
     },
     async delete() {
