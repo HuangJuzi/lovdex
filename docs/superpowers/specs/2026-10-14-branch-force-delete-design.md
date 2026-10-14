@@ -1,7 +1,7 @@
 # 分支删除失败时提供「强制删除」
 
 **日期**：2026-10-14
-**状态**：已确认（方案：控制器返回结构化结果 + 复用确认弹窗）
+**状态**：已实现（方案：控制器返回结构化结果 + 复用确认弹窗）
 **范围**：Git 面板 → Branches 页删除**本地**分支的路径。远程分支只读不可删，无关；Worktrees 目录下 `RemoveWorktreeModal` 自带的 `deleteBranch` 勾选（已走 `-D`）**不改**。
 
 ## 背景
@@ -125,3 +125,21 @@ props 类型 `onDeleteBranch` 相应改为新签名（`BranchesView.tsx:16`）�
 - 不改远程分支（只读）。
 - 不改 Worktrees 目录下 `RemoveWorktreeModal` 的删除分支流程。
 - 前端不新增独立的专用弹窗组件，复用现有 `ConfirmActionModal`。
+
+---
+
+## 实现与验证记录（2026-10-14）
+
+**提交**
+- `5eec8e5` — 后端 `/delete-branch` 支持 `force` + 结构化 `409 BRANCH_NOT_MERGED`，含真实仓库集成测试。
+- `b821f35` — 前端：`DeleteBranchResult` 类型、控制器结构化返回、`forceDeleteBranch` 弹窗文案/图标、`BranchesView` 二次确认流程。
+- 注：后端的两处评审补强（`validateBranchName` 守卫 + 反例测试）因共享工作区并发提交，实际落在了 `1694405`（另一个 session 的 file-tree 提交）里，非本特性的独立提交。内容正确、已在 main 上。
+
+**验证（全部通过）**
+- 后端集成测试：`git.routes.test.ts` 2/2、`git-parsing.test.ts` 5/5。
+- 前端 `tsc --noEmit` 绿；`eslint src/components/git-panel` 无新增错误。
+- 后端真实 HTTP E2E（新代码独立实例，端口 3199）：未合并安全删除 → `409 BRANCH_NOT_MERGED`（分支保留）；已合并 → 200；当前分支 → 400；未知分支 → 500 无 code；非法分支名 → 500；`force:true` → 200 且分支消失。
+- 浏览器 E2E（puppeteer，前端指向 3199）：
+  - 强制删除路径：模态1「Delete Branch」→ 确认 → 模态2「Force Delete Branch」（文案含 "not merged … may be lost"）→ 确认 → 弹窗关闭、分支从列表与 git 中消失。PASS
+  - 取消路径：模态2 点 Cancel → 弹窗关闭、分支仍在、无错误条。PASS
+  - 已合并分支：模态1 确认即删除，**不**出现模态2。PASS
