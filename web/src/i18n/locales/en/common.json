@@ -122,6 +122,41 @@
     "refresh": "Refresh",
     "collapseAll": "Collapse All",
     "loadFailed": "Could not load file tree. Please try again.",
+    "dropToUpload": "Drop files to upload",
+    "uploadFiles": "Upload files (max {{size}} each)",
+    "uploadingFiles": "Uploading files",
+    "uploadFolder": "Upload folder (max {{size}} each)",
+    "uploadComplete": "Upload complete",
+    "uploadFailed": "Upload failed",
+    "uploadedCount": "Uploaded {{uploaded}} of {{total}} {{label}}",
+    "selection": {
+      "selected": "{{count}} selected",
+      "downloadZip": "Download as ZIP",
+      "delete": "Delete selected",
+      "clear": "Clear selection"
+    },
+    "toast": {
+      "renamed": "Renamed successfully",
+      "deleted": "Deleted successfully",
+      "deletedMany": "Deleted {{count}} items",
+      "deleteFailed": "Failed to delete",
+      "deleteFailedReason": "Failed to delete: {{reason}}",
+      "deletePartial": "Deleted {{ok}} of {{count}}; failed: {{failed}}",
+      "fileCreated": "File created successfully",
+      "folderCreated": "Folder created successfully",
+      "pathCopied": "Path copied to clipboard",
+      "copyFailed": "Failed to copy path",
+      "folderDownloaded": "Folder downloaded as ZIP",
+      "zipSkipped": "Downloaded, but skipped (too large or unreadable): {{names}}"
+    },
+    "delete": {
+      "title": "Delete {{type}}",
+      "titleMany": "Delete {{count}} items",
+      "fileWarning": "This file will be permanently deleted.",
+      "folderWarning": "This folder and all its contents will be permanently deleted.",
+      "manyWarning": "These items (and folder contents) will be permanently deleted.",
+      "confirm": "Delete"
+    },
     "context": {
       "rename": "Rename",
       "delete": "Delete",
@@ -129,6 +164,7 @@
       "download": "Download",
       "newFile": "New File",
       "newFolder": "New Folder",
+      "uploadHere": "Upload to this folder",
       "refresh": "Refresh",
       "menuLabel": "File context menu",
       "loading": "Loading..."

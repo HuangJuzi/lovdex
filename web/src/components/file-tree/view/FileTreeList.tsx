@@ -1,6 +1,7 @@
 import type { ReactNode, RefObject } from 'react';
 import type { FileTreeNode as FileTreeNodeType, FileTreeViewMode } from '../types/types';
 import FileTreeNode from './FileTreeNode';
+import type { FileTreeInteractions } from './FileTreeNode';
 
 type FileTreeListProps = {
   items: FileTreeNodeType[];
@@ -17,6 +18,7 @@ type FileTreeListProps = {
   onCopyPath?: (item: FileTreeNodeType) => void;
   onDownload?: (item: FileTreeNodeType) => void;
   onRefresh?: () => void;
+  treeInteractions?: FileTreeInteractions;
   // Rename state for inline editing
   renamingItem?: FileTreeNodeType | null;
   renameValue?: string;
@@ -42,6 +44,7 @@ export default function FileTreeList({
   onCopyPath,
   onDownload,
   onRefresh,
+  treeInteractions,
   renamingItem,
   renameValue,
   setRenameValue,
@@ -70,6 +73,7 @@ export default function FileTreeList({
           onCopyPath={onCopyPath}
           onDownload={onDownload}
           onRefresh={onRefresh}
+          treeInteractions={treeInteractions}
           renamingItem={renamingItem}
           renameValue={renameValue}
           setRenameValue={setRenameValue}

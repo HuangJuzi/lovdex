@@ -1,5 +1,3 @@
-import { useRef } from 'react';
-import type { ChangeEvent } from 'react';
 import { ChevronDown, Eye, FileText, FolderPlus, FolderUp, List, Loader2, RefreshCw, Search, TableProperties, Terminal, Upload, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
@@ -18,10 +16,12 @@ type FileTreeHeaderProps = {
   onNewFolder?: () => void;
   onUploadFiles?: (files: FileList) => void;
   onUploadFolder?: (files: FileList) => void;
-  /** When provided, the Upload button opens this picker instead of clicking the
-   *  local hidden input — lets the owner route the selection through its own
-   *  pending-target bookkeeping. */
+  /** When provided, the Upload button opens this picker instead of clicking a
+   *  local hidden input — the owner routes the selection through its own
+   *  pending-target bookkeeping and renders the inputs itself. */
   onOpenFilePicker?: (targetPath?: string) => void;
+  /** Folder-picker counterpart of onOpenFilePicker. */
+  onOpenFolderPicker?: (targetPath?: string) => void;
   onRefresh?: () => void;
   onCollapseAll?: () => void;
   // Loading state
@@ -44,6 +44,7 @@ export default function FileTreeHeader({
   onUploadFiles,
   onUploadFolder,
   onOpenFilePicker,
+  onOpenFolderPicker,
   onRefresh,
   onCollapseAll,
   loading,
@@ -54,24 +55,12 @@ export default function FileTreeHeader({
   onToggleTerminal,
 }: FileTreeHeaderProps) {
   const { t } = useTranslation();
-  const uploadInputRef = useRef<HTMLInputElement>(null);
-  const folderUploadInputRef = useRef<HTMLInputElement>(null);
 
-  const handleUploadInputChange = (event: ChangeEvent<HTMLInputElement>) => {
-    const { files } = event.target;
-    if (files && files.length > 0) {
-      onUploadFiles?.(files);
-    }
-    event.target.value = '';
-  };
-
-  const handleFolderInputChange = (event: ChangeEvent<HTMLInputElement>) => {
-    const { files } = event.target;
-    if (files && files.length > 0) {
-      onUploadFolder?.(files);
-    }
-    event.target.value = '';
-  };
+  const uploadTitle = isUploading
+    ? t('fileTree.uploadingFiles', 'Uploading files')
+    : t('fileTree.uploadFiles', 'Upload files (max {{size}} each)', {
+        size: MAX_FILE_UPLOAD_SIZE_LABEL,
+      });
 
   return (
     <div className="space-y-2 border-b border-border px-3 pb-2 pt-3">
@@ -82,45 +71,13 @@ export default function FileTreeHeader({
           {/* Action buttons */}
           {onUploadFiles && (
             <>
-              <input
-                ref={uploadInputRef}
-                type="file"
-                multiple
-                className="hidden"
-                onChange={handleUploadInputChange}
-                tabIndex={-1}
-                aria-hidden="true"
-              />
-              {onUploadFolder && (
-                // `webkitdirectory`/`directory` are non-standard but universally
-                // supported by Chromium-based browsers; the spread keeps TS from
-                // rejecting the unknown attribute.
-                <input
-                  ref={folderUploadInputRef}
-                  type="file"
-                  multiple
-                  {...{ webkitdirectory: '', directory: '' }}
-                  className="hidden"
-                  onChange={handleFolderInputChange}
-                  tabIndex={-1}
-                  aria-hidden="true"
-                />
-              )}
               <Button
                 variant="ghost"
                 size="sm"
                 className="relative h-7 w-7 p-0"
-                onClick={onOpenFilePicker ? () => onOpenFilePicker() : () => uploadInputRef.current?.click()}
-                title={
-                  isUploading
-                    ? t('fileTree.uploadingFiles', 'Uploading files')
-                    : t('fileTree.uploadFiles', 'Upload files (max {{size}} each)', {
-                        size: MAX_FILE_UPLOAD_SIZE_LABEL,
-                      })
-                }
-                aria-label={t('fileTree.uploadFiles', 'Upload files (max {{size}} each)', {
-                  size: MAX_FILE_UPLOAD_SIZE_LABEL,
-                })}
+                onClick={() => onOpenFilePicker?.()}
+                title={uploadTitle}
+                aria-label={uploadTitle}
                 disabled={operationLoading}
               >
                 {isUploading ? (
@@ -142,7 +99,7 @@ export default function FileTreeHeader({
                   variant="ghost"
                   size="sm"
                   className="h-7 w-7 p-0"
-                  onClick={() => folderUploadInputRef.current?.click()}
+                  onClick={() => onOpenFolderPicker?.()}
                   title={t('fileTree.uploadFolder', 'Upload folder (max {{size}} each)', {
                     size: MAX_FILE_UPLOAD_SIZE_LABEL,
                   })}

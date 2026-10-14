@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import type { FileTreeNode, FileTreeViewMode } from '../types/types';
 import FileTreeEmptyState from './FileTreeEmptyState';
 import FileTreeList from './FileTreeList';
+import type { FileTreeInteractions } from './FileTreeNode';
 
 type FileTreeBodyProps = {
   files: FileTreeNode[];
@@ -23,6 +24,7 @@ type FileTreeBodyProps = {
   onCopyPath?: (item: FileTreeNode) => void;
   onDownload?: (item: FileTreeNode) => void;
   onRefresh?: () => void;
+  treeInteractions?: FileTreeInteractions;
   // Rename state for inline editing
   renamingItem?: FileTreeNode | null;
   renameValue?: string;
@@ -51,6 +53,7 @@ export default function FileTreeBody({
   onCopyPath,
   onDownload,
   onRefresh,
+  treeInteractions,
   renamingItem,
   renameValue,
   setRenameValue,
@@ -97,6 +100,7 @@ export default function FileTreeBody({
           onCopyPath={onCopyPath}
           onDownload={onDownload}
           onRefresh={onRefresh}
+          treeInteractions={treeInteractions}
           renamingItem={renamingItem}
           renameValue={renameValue}
           setRenameValue={setRenameValue}

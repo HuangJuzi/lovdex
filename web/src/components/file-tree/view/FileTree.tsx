@@ -1,4 +1,5 @@
-import { useCallback, useState, useEffect, useRef } from 'react';
+import { useCallback, useMemo, useState, useEffect, useRef } from 'react';
+import type { DragEvent, MouseEvent as ReactMouseEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AlertTriangle, Check, X, Loader2, Folder, Upload } from 'lucide-react';
 
@@ -6,13 +7,16 @@ import { cn } from '../../../lib/utils';
 import { ICON_SIZE_CLASS, getFileIconData } from '../constants/fileIcons';
 import { useExpandedDirectories } from '../hooks/useExpandedDirectories';
 import { useFileTreeData } from '../hooks/useFileTreeData';
+import { useFileTreeMove } from '../hooks/useFileTreeMove';
 import { useFileTreeOperations } from '../hooks/useFileTreeOperations';
 import { useFileTreeSearch } from '../hooks/useFileTreeSearch';
+import { useFileTreeSelection } from '../hooks/useFileTreeSelection';
 import { useFileTreeViewMode } from '../hooks/useFileTreeViewMode';
 import { useFileTreeUpload } from '../hooks/useFileTreeUpload';
 import { useTerminalResize } from '../hooks/useTerminalResize';
 import type { FileTreeImageSelection, FileTreeNode } from '../types/types';
 import { formatFileSize, formatRelativeTime, isImageFile } from '../utils/fileTreeUtils';
+import { isDescendantOfAny } from '../utils/fileTreeSelection';
 import { Project } from '../../../types/app';
 import { ScrollArea, Input } from '../../../shared/view/ui';
 import { TerminalPanel } from '../../terminal/TerminalPanel';
@@ -22,6 +26,7 @@ import FileTreeBody from './FileTreeBody';
 import FileTreeDetailedColumns from './FileTreeDetailedColumns';
 import FileTreeHeader from './FileTreeHeader';
 import FileTreeLoadingState from './FileTreeLoadingState';
+import FileTreeSelectionBar from './FileTreeSelectionBar';
 import FileTreeUploadProgress from './FileTreeUploadProgress';
 import ImageViewer from './ImageViewer';
 
@@ -76,7 +81,29 @@ export default function FileTree({ selectedProject, onFileOpen }: FileTreeProps)
     onRefresh: refreshFiles,
     showToast,
   });
-  const operationLoading = operations.operationLoading || upload.operationLoading;
+
+  // Multi-select over the rows the user can actually see (expansion-aware).
+  const selection = useFileTreeSelection({ visibleItems: filteredFiles, expandedDirs });
+
+  // Drag-move: dragging selected rows onto a folder relocates them.
+  const move = useFileTreeMove({
+    selectedProject,
+    onRefresh: refreshFiles,
+    showToast,
+  });
+
+  const operationLoading =
+    operations.operationLoading || upload.operationLoading || move.operationLoading;
+
+  // Escape clears the selection, same as clicking empty space.
+  useEffect(() => {
+    if (selection.selectedCount === 0) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') selection.clearSelection();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [selection]);
 
   // Focus input when creating new item
   useEffect(() => {
@@ -129,6 +156,90 @@ export default function FileTree({ selectedProject, onFileOpen }: FileTreeProps)
     [t],
   );
 
+  // A row click only runs its default action (open / expand) unless the click
+  // was a modifier click meant for the selection.
+  const handleRowClick = useCallback(
+    (item: FileTreeNode, e: ReactMouseEvent) => {
+      const result = selection.classifyClick(item, e);
+      if (result.kind === 'default' || result.kind === 'clear') {
+        handleItemClick(item);
+      }
+      selection.applyClick(result, item);
+    },
+    [selection, handleItemClick],
+  );
+
+  // Selected nodes, in tree order (drives the batch bar's delete / zip).
+  const topMostNodes = useMemo(() => {
+    const top = new Set(selection.topMostSelected);
+    if (top.size === 0) return [];
+    const found: FileTreeNode[] = [];
+    const walk = (nodes: FileTreeNode[]) => {
+      for (const node of nodes) {
+        if (top.has(node.path)) found.push(node);
+        if (node.children && node.children.length > 0) walk(node.children);
+      }
+    };
+    walk(filteredFiles);
+    return found;
+  }, [filteredFiles, selection.topMostSelected]);
+
+  // Dropping onto a selected row (or inside a selected folder) is rejected by
+  // the backend too — this is the front-end half of that guard.
+  const isBlockedMoveTarget = useCallback(
+    (path: string) => selection.isSelected(path) || isDescendantOfAny(path, selection.selectedPaths),
+    [selection],
+  );
+
+  const treeInteractions = useMemo(
+    () => ({
+      isSelected: selection.isSelected,
+      isMoveTarget: (path: string) => move.moveTarget === path,
+      onRowClick: handleRowClick,
+      onDragStart: (e: DragEvent, item: FileTreeNode) => {
+        move.beginItemDrag(e, { path: item.path, type: item.type }, selection.isSelected, selection.selectedEntries);
+      },
+      onDragOver: (e: DragEvent, item: FileTreeNode) => {
+        // Only directories are drop targets, and only for internal drags —
+        // each hook filters on its own dataTransfer type.
+        if (item.type === 'directory') {
+          move.handleItemDragOver(e, item.path, isBlockedMoveTarget);
+        }
+        upload.handleItemDragOver(e, item.path);
+      },
+      onDragLeave: (e: DragEvent) => {
+        move.handleItemDragLeave(e);
+      },
+      onDrop: (e: DragEvent, item: FileTreeNode) => {
+        if (item.type === 'directory') {
+          move.handleItemDrop(e, item.path, isBlockedMoveTarget);
+        }
+        upload.handleItemDrop(e, item.path);
+      },
+      onUploadHere: (path: string) => upload.openFilePicker(path),
+    }),
+    [selection, move, upload, handleRowClick, isBlockedMoveTarget],
+  );
+
+  const handleTreeDrop = useCallback(
+    (e: DragEvent) => {
+      // Dragging out to blank space under the tree has no legal destination
+      // (the project root itself is not a valid move target).
+      if (e.dataTransfer.types.includes('application/x-lovdex-tree-items')) return;
+      void upload.handleDrop(e);
+    },
+    [upload],
+  );
+
+  // Clicking anywhere that is not a row clears the selection.
+  const handleBackgroundClick = useCallback(
+    (e: ReactMouseEvent) => {
+      if ((e.target as HTMLElement).closest('[data-file-row]')) return;
+      selection.clearSelection();
+    },
+    [selection],
+  );
+
   if (loading) {
     return <FileTreeLoadingState />;
   }
@@ -140,7 +251,7 @@ export default function FileTree({ selectedProject, onFileOpen }: FileTreeProps)
       onDragEnter={upload.handleDragEnter}
       onDragOver={upload.handleDragOver}
       onDragLeave={upload.handleDragLeave}
-      onDrop={upload.handleDrop}
+      onDrop={handleTreeDrop}
     >
       {/* Drag overlay */}
       {upload.isDragOver && (
@@ -158,6 +269,9 @@ export default function FileTree({ selectedProject, onFileOpen }: FileTreeProps)
         searchQuery={searchQuery}
         onSearchQueryChange={setSearchQuery}
         onUploadFiles={upload.handleFileSelect}
+        onUploadFolder={upload.handleFolderSelect}
+        onOpenFilePicker={(targetPath) => upload.openFilePicker(targetPath ?? '')}
+        onOpenFolderPicker={(targetPath) => upload.openFolderPicker(targetPath ?? '')}
         onNewFile={() => operations.handleStartCreate('', 'file')}
         onNewFolder={() => operations.handleStartCreate('', 'directory')}
         onRefresh={refreshFiles}
@@ -170,11 +284,51 @@ export default function FileTree({ selectedProject, onFileOpen }: FileTreeProps)
         onToggleTerminal={() => setTerminalOpen((prev) => !prev)}
       />
 
+      {/* Hidden picker inputs the header's buttons drive. */}
+      <input
+        ref={upload.fileInputRef}
+        type="file"
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          void upload.handleFileSelect(e.target.files ?? []);
+          e.target.value = '';
+        }}
+        tabIndex={-1}
+        aria-hidden="true"
+      />
+      <input
+        ref={upload.folderInputRef}
+        type="file"
+        multiple
+        {...{ webkitdirectory: '', directory: '' }}
+        className="hidden"
+        onChange={(e) => {
+          void upload.handleFolderSelect(e.target.files ?? []);
+          e.target.value = '';
+        }}
+        tabIndex={-1}
+        aria-hidden="true"
+      />
+
+      <FileTreeSelectionBar
+        count={selection.selectedCount}
+        operationLoading={operationLoading}
+        onDelete={() => operations.handleStartDeleteMany(topMostNodes)}
+        onDownloadZip={() =>
+          void operations.downloadItemsAsZip(
+            topMostNodes,
+            `selection-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.zip`,
+          )
+        }
+        onClear={selection.clearSelection}
+      />
+
       <FileTreeUploadProgress upload={upload.uploadProgress} />
 
       {viewMode === 'detailed' && filteredFiles.length > 0 && <FileTreeDetailedColumns />}
 
-      <ScrollArea className="min-h-0 flex-1 px-2 py-1">
+      <ScrollArea className="min-h-0 flex-1 px-2 py-1" data-file-tree-background onClick={handleBackgroundClick}>
         {/* New item input */}
         {operations.isCreating && (
           <div
@@ -225,6 +379,7 @@ export default function FileTree({ selectedProject, onFileOpen }: FileTreeProps)
           onCopyPath={operations.handleCopyPath}
           onDownload={operations.handleDownload}
           onRefresh={refreshFiles}
+          treeInteractions={treeInteractions}
           // Pass rename state and handlers for inline editing
           renamingItem={operations.renamingItem}
           renameValue={operations.renameValue}
@@ -256,7 +411,8 @@ export default function FileTree({ selectedProject, onFileOpen }: FileTreeProps)
       )}
 
       {/* Delete Confirmation Dialog */}
-      {operations.deleteConfirmation.isOpen && operations.deleteConfirmation.item && (
+      {operations.deleteConfirmation.isOpen &&
+        (operations.deleteConfirmation.item || (operations.deleteConfirmation.items?.length ?? 0) > 0) && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50">
           <div className="mx-4 max-w-sm rounded-lg border border-border bg-background p-4 shadow-lg">
             <div className="mb-4 flex items-center gap-3">
@@ -265,19 +421,31 @@ export default function FileTree({ selectedProject, onFileOpen }: FileTreeProps)
               </div>
               <div>
                 <h3 className="font-medium text-foreground">
-                  {t('fileTree.delete.title', 'Delete {{type}}', {
-                    type: operations.deleteConfirmation.item.type === 'directory' ? 'Folder' : 'File'
-                  })}
+                  {operations.deleteConfirmation.item
+                    ? t('fileTree.delete.title', 'Delete {{type}}', {
+                        type: operations.deleteConfirmation.item.type === 'directory' ? 'Folder' : 'File'
+                      })
+                    : t('fileTree.delete.titleMany', 'Delete {{count}} items', {
+                        count: operations.deleteConfirmation.items?.length ?? 0,
+                      })}
                 </h3>
                 <p className="text-sm text-muted-foreground">
-                  {operations.deleteConfirmation.item.name}
+                  {operations.deleteConfirmation.item
+                    ? operations.deleteConfirmation.item.name
+                    : (() => {
+                        const names = (operations.deleteConfirmation.items ?? []).map((n) => n.name);
+                        const shown = names.slice(0, 5).join(', ');
+                        return names.length > 5 ? `${shown} … +${names.length - 5}` : shown;
+                      })()}
                 </p>
               </div>
             </div>
             <p className="mb-4 text-sm text-muted-foreground">
-              {operations.deleteConfirmation.item.type === 'directory'
-                ? t('fileTree.delete.folderWarning', 'This folder and all its contents will be permanently deleted.')
-                : t('fileTree.delete.fileWarning', 'This file will be permanently deleted.')}
+              {operations.deleteConfirmation.item
+                ? operations.deleteConfirmation.item.type === 'directory'
+                  ? t('fileTree.delete.folderWarning', 'This folder and all its contents will be permanently deleted.')
+                  : t('fileTree.delete.fileWarning', 'This file will be permanently deleted.')
+                : t('fileTree.delete.manyWarning', 'These items (and folder contents) will be permanently deleted.')}
             </p>
             <div className="flex justify-end gap-2">
               <button

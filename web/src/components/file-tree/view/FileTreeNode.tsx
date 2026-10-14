@@ -1,9 +1,25 @@
-import type { ReactNode, RefObject } from 'react';
+import type { DragEvent, MouseEvent as ReactMouseEvent, ReactNode, RefObject } from 'react';
 import { ChevronRight, Folder, FolderOpen } from 'lucide-react';
 import { cn } from '../../../lib/utils';
 import type { FileTreeNode as FileTreeNodeType, FileTreeViewMode } from '../types/types';
 import { Input } from '../../../shared/view/ui';
 import FileContextMenu from './FileContextMenu';
+
+/**
+ * Row-level interaction bundle threaded down the tree. Kept as ONE prop so the
+ * five levels of manual prop drilling stay readable; every member is optional
+ * — without it the row falls back to plain click-to-open behaviour.
+ */
+export type FileTreeInteractions = {
+  isSelected: (path: string) => boolean;
+  isMoveTarget: (path: string) => boolean;
+  onRowClick: (item: FileTreeNodeType, e: ReactMouseEvent) => void;
+  onDragStart: (e: DragEvent, item: FileTreeNodeType) => void;
+  onDragOver: (e: DragEvent, item: FileTreeNodeType) => void;
+  onDragLeave: (e: DragEvent, item: FileTreeNodeType) => void;
+  onDrop: (e: DragEvent, item: FileTreeNodeType) => void;
+  onUploadHere?: (path: string) => void;
+};
 
 type FileTreeNodeProps = {
   item: FileTreeNodeType;
@@ -21,6 +37,8 @@ type FileTreeNodeProps = {
   onCopyPath?: (item: FileTreeNodeType) => void;
   onDownload?: (item: FileTreeNodeType) => void;
   onRefresh?: () => void;
+  // Multi-select + drag-move wiring (absent in read-only renderings)
+  treeInteractions?: FileTreeInteractions;
   // Rename state for inline editing
   renamingItem?: FileTreeNodeType | null;
   renameValue?: string;
@@ -75,6 +93,7 @@ export default function FileTreeNode({
   onCopyPath,
   onDownload,
   onRefresh,
+  treeInteractions,
   renamingItem,
   renameValue,
   setRenameValue,
@@ -137,9 +156,19 @@ export default function FileTreeNode({
 
   const rowContent = (
     <div
-      className={rowClassName}
+      className={cn(
+        rowClassName,
+        treeInteractions?.isSelected(item.path) && 'bg-primary/15 hover:bg-primary/20',
+        treeInteractions?.isMoveTarget(item.path) && 'ring-1 ring-inset ring-primary/60 bg-primary/10',
+      )}
       style={{ paddingLeft: `${level * 16 + 4}px` }}
-      onClick={() => onItemClick(item)}
+      data-file-row={treeInteractions ? '' : undefined}
+      onClick={(e) => (treeInteractions ? treeInteractions.onRowClick(item, e) : onItemClick(item))}
+      draggable={Boolean(treeInteractions)}
+      onDragStart={(e) => treeInteractions?.onDragStart(e, item)}
+      onDragOver={(e) => treeInteractions?.onDragOver(e, item)}
+      onDragLeave={(e) => treeInteractions?.onDragLeave(e, item)}
+      onDrop={(e) => treeInteractions?.onDrop(e, item)}
     >
       {viewMode === 'detailed' ? (
         <>
@@ -192,6 +221,7 @@ export default function FileTreeNode({
           onCopyPath={onCopyPath}
           onDownload={onDownload}
           onRefresh={onRefresh}
+          onUploadHere={treeInteractions?.onUploadHere}
         >
           {rowContent}
         </FileContextMenu>
@@ -224,6 +254,7 @@ export default function FileTreeNode({
               onCopyPath={onCopyPath}
               onDownload={onDownload}
               onRefresh={onRefresh}
+              treeInteractions={treeInteractions}
               renamingItem={renamingItem}
               renameValue={renameValue}
               setRenameValue={setRenameValue}
