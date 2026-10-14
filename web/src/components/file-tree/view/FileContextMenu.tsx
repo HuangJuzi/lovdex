@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Copy, Download, FileText, FolderPlus, Pencil, RefreshCw, Trash2, type LucideIcon } from 'lucide-react';
+import { Copy, Download, FileText, FolderPlus, Pencil, RefreshCw, Trash2, Upload, type LucideIcon } from 'lucide-react';
 import { cn } from '../../../lib/utils';
 
 type FileContextItem = {
@@ -50,6 +50,7 @@ export default function FileContextMenu({
   onDelete,
   onNewFile,
   onNewFolder,
+  onUploadHere,
   onRefresh,
   onCopyPath,
   onDownload,
@@ -62,6 +63,7 @@ export default function FileContextMenu({
   onDelete?: (item: FileContextItem) => void;
   onNewFile?: (path: string) => void;
   onNewFolder?: (path: string) => void;
+  onUploadHere?: (path: string) => void;
   onRefresh?: () => void;
   onCopyPath?: (item: FileContextItem) => void;
   onDownload?: (item: FileContextItem) => void;
@@ -136,6 +138,16 @@ export default function FileContextMenu({
           label: t('fileTree.context.newFolder', 'New Folder'),
           onSelect: () => onNewFolder?.(item.path),
         },
+        ...(onUploadHere
+          ? [
+              {
+                key: 'uploadHere',
+                icon: Upload,
+                label: t('fileTree.context.uploadHere', 'Upload to this folder'),
+                onSelect: () => onUploadHere(item.path),
+              },
+            ]
+          : []),
         {
           key: 'rename',
           icon: Pencil,
@@ -187,7 +199,7 @@ export default function FileContextMenu({
         showDividerBefore: true,
       },
     ];
-  }, [item, onCopyPath, onDelete, onDownload, onNewFile, onNewFolder, onRefresh, onRename, t]);
+  }, [item, onCopyPath, onDelete, onDownload, onNewFile, onNewFolder, onRefresh, onRename, onUploadHere, t]);
 
   useEffect(() => {
     if (!isMenuOpen) {
