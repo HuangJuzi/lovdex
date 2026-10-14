@@ -96,6 +96,7 @@ export default function FileTree({ selectedProject, onFileOpen }: FileTreeProps)
     selectedProject,
     onRefresh: refreshFiles,
     showToast,
+    onMoved: () => selectionRef.current?.clearSelection(),
   });
 
   const operationLoading =
@@ -210,7 +211,13 @@ export default function FileTree({ selectedProject, onFileOpen }: FileTreeProps)
       isMoveTarget: (path: string) => move.moveTarget === path,
       onRowClick: handleRowClick,
       onDragStart: (e: DragEvent, item: FileTreeNode) => {
-        move.beginItemDrag(e, { path: item.path, type: item.type }, selection.isSelected, selection.selectedEntries);
+        // Carry the ancestor-deduped set: dragging a folder must move the
+        // folder, not it plus every child the user also happened to select.
+        const dragged = { path: item.path, type: item.type };
+        const items = selection.isSelected(item.path)
+          ? topMostNodes.map((n) => ({ path: n.path, type: n.type }))
+          : [dragged];
+        move.beginItemDrag(e, items);
       },
       onDragOver: (e: DragEvent, item: FileTreeNode) => {
         // Only directories accept anything: internal drags (move) and OS file
@@ -221,6 +228,9 @@ export default function FileTree({ selectedProject, onFileOpen }: FileTreeProps)
       },
       onDragLeave: (e: DragEvent) => {
         move.handleItemDragLeave(e);
+        // Also drop the upload target: without this, wandering off a directory
+        // row leaves it armed, and a later drop on blank space uploads there.
+        upload.handleItemDragLeave();
       },
       onDrop: (e: DragEvent, item: FileTreeNode) => {
         if (item.type !== 'directory') return;
@@ -229,7 +239,7 @@ export default function FileTree({ selectedProject, onFileOpen }: FileTreeProps)
       },
       onUploadHere: (path: string) => upload.openFilePicker(path),
     }),
-    [selection, move, upload, handleRowClick, isBlockedMoveTarget],
+    [selection, move, upload, handleRowClick, isBlockedMoveTarget, topMostNodes],
   );
 
   const handleTreeDrop = useCallback(

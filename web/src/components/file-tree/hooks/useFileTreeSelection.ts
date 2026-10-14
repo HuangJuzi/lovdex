@@ -79,12 +79,6 @@ export function useFileTreeSelection({ visibleItems, expandedDirs }: UseFileTree
 
   const isSelected = useCallback((path: string) => selected.has(path), [selected]);
 
-  /** Selected entries in insertion order, for the move payload. */
-  const selectedEntries = useMemo(
-    () => [...selected].map(([path, type]) => ({ path, type })),
-    [selected],
-  );
-
   /** Selection with descendants-of-selected stripped (for batch ops). */
   const selectedPaths = useMemo(() => [...selected.keys()], [selected]);
   const topMostSelected = useMemo(() => topMostSelectedPaths(selectedPaths), [selectedPaths]);
@@ -95,9 +89,7 @@ export function useFileTreeSelection({ visibleItems, expandedDirs }: UseFileTree
   }, []);
 
   return {
-    selected,
     selectedPaths,
-    selectedEntries,
     selectedCount: selected.size,
     topMostSelected,
     isSelected,

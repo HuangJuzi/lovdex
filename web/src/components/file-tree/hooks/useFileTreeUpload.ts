@@ -540,6 +540,12 @@ export const useFileTreeUpload = ({
     setDropTarget(itemPath);
   }, []);
 
+  /** Leaving a directory row resets its upload target, so a drag that wanders
+   *  off the row does not still upload into it on a later drop elsewhere. */
+  const handleItemDragLeave = useCallback(() => {
+    setDropTarget(null);
+  }, []);
+
   // A row drop uploads into THAT row's directory. It stops propagation, so it
   // must perform the upload itself — the tree-level handler would never see
   // the event (and its `dropTarget` state is set asynchronously anyway).
@@ -581,6 +587,7 @@ export const useFileTreeUpload = ({
     handleDragLeave,
     handleDrop,
     handleItemDragOver,
+    handleItemDragLeave,
     handleItemDrop,
     setDropTarget,
   };

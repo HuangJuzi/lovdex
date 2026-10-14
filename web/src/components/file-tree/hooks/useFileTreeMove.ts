@@ -15,22 +15,20 @@ type UseFileTreeMoveArgs = {
   selectedProject: Project | null;
   onRefresh: () => void;
   showToast: (message: string, type: 'success' | 'error') => void;
+  /** Called after a successful move so the caller can drop the now-dangling
+   *  selection (the moved paths no longer exist). */
+  onMoved?: () => void;
 };
 
-export function useFileTreeMove({ selectedProject, onRefresh, showToast }: UseFileTreeMoveArgs) {
+export function useFileTreeMove({ selectedProject, onRefresh, showToast, onMoved }: UseFileTreeMoveArgs) {
   const [moveTarget, setMoveTarget] = useState<string | null>(null);
   const [operationLoading, setOperationLoading] = useState(false);
 
-  /** Start an internal drag. When the dragged row is part of the current
-   *  selection the whole selection travels; otherwise just the row itself.
-   *  `isSelected`/`selectedEntries` are injected by the caller so this hook
-   *  stays decoupled from the selection hook. */
+  /** Start an internal drag with an explicit payload. The caller decides what
+   *  travels (a single row, or the ancestor-deduped selection) — this hook
+   *  stays decoupled from the selection model. */
   const beginItemDrag = useCallback(
-    (e: DragEvent, dragged: { path: string; type: 'file' | 'directory' },
-     isSelected: (p: string) => boolean,
-     selectedEntries: Array<{ path: string; type: 'file' | 'directory' }>) => {
-      const items =
-        isSelected(dragged.path) && selectedEntries.length > 0 ? selectedEntries : [dragged];
+    (e: DragEvent, items: Array<{ path: string; type: 'file' | 'directory' }>) => {
       e.dataTransfer.setData(TREE_DRAG_MIME, JSON.stringify({ items }));
       e.dataTransfer.effectAllowed = 'move';
       // A drag abandoned outside the tree (Esc, drop on the desktop) fires no
@@ -88,13 +86,16 @@ export function useFileTreeMove({ selectedProject, onRefresh, showToast }: UseFi
         const moved = typeof data.movedCount === 'number' ? data.movedCount : items.length;
         showToast(`Moved ${moved} item${moved === 1 ? '' : 's'}`, 'success');
         onRefresh();
+        // The moved paths no longer exist; a lingering selection would show a
+        // phantom count whose batch actions are no-ops.
+        onMoved?.();
       } catch (err) {
         showToast((err as Error).message, 'error');
       } finally {
         setOperationLoading(false);
       }
     },
-    [selectedProject, showToast, onRefresh],
+    [selectedProject, showToast, onRefresh, onMoved],
   );
 
   const handleItemDrop = useCallback(
