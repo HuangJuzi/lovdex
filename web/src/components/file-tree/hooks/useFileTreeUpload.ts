@@ -540,12 +540,29 @@ export const useFileTreeUpload = ({
     setDropTarget(itemPath);
   }, []);
 
-  const handleItemDrop = useCallback((e: DragEvent, itemPath: string) => {
-    if (!isFileDrag(e)) return;
-    e.preventDefault();
-    e.stopPropagation();
-    setDropTarget(itemPath);
-  }, []);
+  // A row drop uploads into THAT row's directory. It stops propagation, so it
+  // must perform the upload itself — the tree-level handler would never see
+  // the event (and its `dropTarget` state is set asynchronously anyway).
+  const handleItemDrop = useCallback(
+    async (e: DragEvent, itemPath: string) => {
+      if (!isFileDrag(e)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setDropTarget(itemPath);
+
+      try {
+        const files = await collectDroppedFiles(e.dataTransfer);
+        await uploadFiles(files, itemPath);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Could not read dropped files';
+        console.error('Upload error:', err);
+        showToast(message, 'error');
+        setUploadError(message, 0, itemPath);
+        setDropTarget(null);
+      }
+    },
+    [setUploadError, showToast, uploadFiles],
+  );
 
   return {
     isDragOver,

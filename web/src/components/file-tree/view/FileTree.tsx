@@ -7,7 +7,7 @@ import { cn } from '../../../lib/utils';
 import { ICON_SIZE_CLASS, getFileIconData } from '../constants/fileIcons';
 import { useExpandedDirectories } from '../hooks/useExpandedDirectories';
 import { useFileTreeData } from '../hooks/useFileTreeData';
-import { useFileTreeMove } from '../hooks/useFileTreeMove';
+import { useFileTreeMove, TREE_DRAG_MIME } from '../hooks/useFileTreeMove';
 import { useFileTreeOperations } from '../hooks/useFileTreeOperations';
 import { useFileTreeSearch } from '../hooks/useFileTreeSearch';
 import { useFileTreeSelection } from '../hooks/useFileTreeSelection';
@@ -105,6 +105,13 @@ export default function FileTree({ selectedProject, onFileOpen }: FileTreeProps)
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [selection]);
 
+  // Paths are project-relative, so a selection left over from another project
+  // would be a phantom count pointing at rows that no longer exist.
+  const { clearSelection } = selection;
+  useEffect(() => {
+    clearSelection();
+  }, [selectedProject?.projectId, clearSelection]);
+
   // Focus input when creating new item
   useEffect(() => {
     if (operations.isCreating && newItemInputRef.current) {
@@ -200,20 +207,18 @@ export default function FileTree({ selectedProject, onFileOpen }: FileTreeProps)
         move.beginItemDrag(e, { path: item.path, type: item.type }, selection.isSelected, selection.selectedEntries);
       },
       onDragOver: (e: DragEvent, item: FileTreeNode) => {
-        // Only directories are drop targets, and only for internal drags —
-        // each hook filters on its own dataTransfer type.
-        if (item.type === 'directory') {
-          move.handleItemDragOver(e, item.path, isBlockedMoveTarget);
-        }
+        // Only directories accept anything: internal drags (move) and OS file
+        // drags (upload). Each hook then filters on its own dataTransfer type.
+        if (item.type !== 'directory') return;
+        move.handleItemDragOver(e, item.path, isBlockedMoveTarget);
         upload.handleItemDragOver(e, item.path);
       },
       onDragLeave: (e: DragEvent) => {
         move.handleItemDragLeave(e);
       },
       onDrop: (e: DragEvent, item: FileTreeNode) => {
-        if (item.type === 'directory') {
-          move.handleItemDrop(e, item.path, isBlockedMoveTarget);
-        }
+        if (item.type !== 'directory') return;
+        move.handleItemDrop(e, item.path, isBlockedMoveTarget);
         upload.handleItemDrop(e, item.path);
       },
       onUploadHere: (path: string) => upload.openFilePicker(path),
@@ -223,9 +228,10 @@ export default function FileTree({ selectedProject, onFileOpen }: FileTreeProps)
 
   const handleTreeDrop = useCallback(
     (e: DragEvent) => {
-      // Dragging out to blank space under the tree has no legal destination
-      // (the project root itself is not a valid move target).
-      if (e.dataTransfer.types.includes('application/x-lovdex-tree-items')) return;
+      // Blank space under the tree is not a legal move destination (the
+      // project root is not a valid target), and the upload hook ignores
+      // internal drags anyway.
+      if (e.dataTransfer.types.includes(TREE_DRAG_MIME)) return;
       void upload.handleDrop(e);
     },
     [upload],
@@ -254,8 +260,11 @@ export default function FileTree({ selectedProject, onFileOpen }: FileTreeProps)
       onDrop={handleTreeDrop}
     >
       {/* Drag overlay */}
+      {/* Drag overlay — pointer-events-none so directory rows underneath stay
+          hoverable; otherwise this z-50 layer swallows the row's dragover and
+          the drop can never target a subfolder. */}
       {upload.isDragOver && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center border-2 border-dashed border-primary bg-primary/10">
+        <div className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center border-2 border-dashed border-primary bg-primary/10">
           <div className="flex items-center gap-3 rounded-lg bg-background/95 px-6 py-4 shadow-lg">
             <Upload className="h-6 w-6 text-primary" />
             <span className="text-sm font-medium">{t('fileTree.dropToUpload', 'Drop files to upload')}</span>
