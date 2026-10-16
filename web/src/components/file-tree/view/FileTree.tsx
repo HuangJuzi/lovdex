@@ -170,17 +170,26 @@ export default function FileTree({ selectedProject, onFileOpen }: FileTreeProps)
     [t],
   );
 
-  // A row click only runs its default action (open / expand) unless the click
-  // was a modifier click meant for the selection.
+  // A row click never opens anything: it only feeds the selection model
+  // (plain = select, Ctrl/Cmd = toggle, Shift = range). Opening happens on
+  // double click, in handleRowDoubleClick.
   const handleRowClick = useCallback(
     (item: FileTreeNode, e: ReactMouseEvent) => {
       const result = selection.classifyClick(item, e);
-      if (result.kind === 'default' || result.kind === 'clear') {
-        handleItemClick(item);
-      }
       selection.applyClick(result, item);
     },
-    [selection, handleItemClick],
+    [selection],
+  );
+
+  // Double click opens the item. Both single clicks that form the double
+  // click already went through handleRowClick, so the selection is already
+  // on the row being opened — no re-selection needed (re-selecting here
+  // would clobber a Ctrl/Shift multi-selection made right before opening).
+  const handleRowDoubleClick = useCallback(
+    (item: FileTreeNode) => {
+      handleItemClick(item);
+    },
+    [handleItemClick],
   );
 
   // Selected nodes, in tree order (drives the batch bar's delete / zip).
@@ -210,6 +219,7 @@ export default function FileTree({ selectedProject, onFileOpen }: FileTreeProps)
       isSelected: selection.isSelected,
       isMoveTarget: (path: string) => move.moveTarget === path,
       onRowClick: handleRowClick,
+      onRowDoubleClick: handleRowDoubleClick,
       onDragStart: (e: DragEvent, item: FileTreeNode) => {
         // Carry the ancestor-deduped set: dragging a folder must move the
         // folder, not it plus every child the user also happened to select.
@@ -239,7 +249,7 @@ export default function FileTree({ selectedProject, onFileOpen }: FileTreeProps)
       },
       onUploadHere: (path: string) => upload.openFilePicker(path),
     }),
-    [selection, move, upload, handleRowClick, isBlockedMoveTarget, topMostNodes],
+    [selection, move, upload, handleRowClick, handleRowDoubleClick, isBlockedMoveTarget, topMostNodes],
   );
 
   const handleTreeDrop = useCallback(

@@ -836,10 +836,9 @@ type UseFileTreeSelectionArgs = {
 };
 
 export type SelectionClickResult =
-  | { kind: 'default' }
+  | { kind: 'select'; path: string; type: 'file' | 'directory' }
   | { kind: 'toggle'; path: string }
-  | { kind: 'range'; paths: string[] }
-  | { kind: 'clear' };
+  | { kind: 'range'; paths: string[] };
 
 export function useFileTreeSelection({ visibleItems }: UseFileTreeSelectionArgs) {
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
@@ -847,8 +846,8 @@ export function useFileTreeSelection({ visibleItems }: UseFileTreeSelectionArgs)
 
   const visibleOrder = useMemo(() => flattenVisiblePaths(visibleItems), [visibleItems]);
 
-  /** Decide what a row click means. The caller (FileTreeNode) runs the default
-   *  open/expand behavior only for `default`/`clear` results. */
+  /** Decide what a row click means. A plain click always selects the row
+   *  (opening moved to double click); Ctrl/Cmd toggles, Shift ranges. */
   const classifyClick = useCallback(
     (item: FileTreeNode, e: MouseEvent): SelectionClickResult => {
       if (e.shiftKey) {
@@ -858,12 +857,9 @@ export function useFileTreeSelection({ visibleItems }: UseFileTreeSelectionArgs)
       if (e.ctrlKey || e.metaKey) {
         return { kind: 'toggle', path: item.path };
       }
-      if (selectedPaths.size > 0) {
-        return { kind: 'clear' };
-      }
-      return { kind: 'default' };
+      return { kind: 'select', path: item.path, type: item.type };
     },
-    [anchorPath, selectedPaths, visibleOrder],
+    [anchorPath, visibleOrder],
   );
 
   const applyClick = useCallback((result: SelectionClickResult) => {
@@ -879,8 +875,8 @@ export function useFileTreeSelection({ visibleItems }: UseFileTreeSelectionArgs)
       setAnchorPath((prev) => prev);
       setSelectedPaths(new Set(result.paths));
     } else {
-      setAnchorPath(null);
-      setSelectedPaths(new Set());
+      setAnchorPath(result.path);
+      setSelectedPaths(new Set([result.path]));
     }
   }, []);
 
@@ -1752,9 +1748,10 @@ import 行加 `type DragEvent, type MouseEvent as ReactMouseEvent`（react）。
 
 ```ts
   treeInteractions?: {
-    isSelected: boolean;
-    isMoveTarget: boolean;
+    isSelected: (path: string) => boolean;
+    isMoveTarget: (path: string) => boolean;
     onRowClick: (item: FileTreeNodeType, e: ReactMouseEvent) => void;
+    onRowDoubleClick: (item: FileTreeNodeType) => void; // 双击打开/展开
     onDragStart: (e: DragEvent, item: FileTreeNodeType) => void;
     onDragOver: (e: DragEvent, item: FileTreeNodeType) => void;
     onDragLeave: (e: DragEvent, item: FileTreeNodeType) => void;
@@ -1773,6 +1770,11 @@ import 行加 `type DragEvent, type MouseEvent as ReactMouseEvent`（react）。
       )}
       style={{ paddingLeft: `${level * 16 + 4}px` }}
       onClick={(e) => (treeInteractions ? treeInteractions.onRowClick(item, e) : onItemClick(item))}
+      onDoubleClick={(e) => {
+        e.stopPropagation();
+        if (treeInteractions) treeInteractions.onRowDoubleClick(item);
+        else onItemClick(item);
+      }}
       draggable={Boolean(treeInteractions)}
       onDragStart={(e) => treeInteractions?.onDragStart(e, item)}
       onDragOver={(e) => treeInteractions?.onDragOver(e, item)}
@@ -1844,22 +1846,26 @@ import type { FileTreeNode as FileTreeNodeType } from '../types/types';
   }, [selectedNodes, selection.topMostSelected]);
 ```
 
-`handleItemClick` 保持原样（default 行为），新增分类入口：
+`handleItemClick` 保持原样（default 行为），单击只走选中、双击才打开：
 
 ```tsx
   const handleRowClick = useCallback(
     (item: FileTreeNodeType, e: ReactMouseEvent) => {
       const result = selection.classifyClick(item, e);
-      if (result.kind === 'default' || result.kind === 'clear') {
-        handleItemClick(item);
-      }
       selection.applyClick(result);
     },
-    [selection, handleItemClick],
+    [selection],
+  );
+
+  const handleRowDoubleClick = useCallback(
+    (item: FileTreeNodeType) => {
+      handleItemClick(item); // open / expand
+    },
+    [handleItemClick],
   );
 ```
 
-（import `type MouseEvent as ReactMouseEvent` from react。）
+（import `type MouseEvent as ReactMouseEvent` from react。）双击前已先触发两次单击（已把行选中），打开时不再重复做选中处理，避免覆盖双击前刚用 Ctrl/Shift 建好的多选。
 
 per-item interactions 对象：
 
@@ -1869,6 +1875,7 @@ per-item interactions 对象：
       isSelected: (path: string) => selection.isSelected(path),
       isMoveTarget: (path: string) => move.moveTarget === path,
       onRowClick: handleRowClick,
+      onRowDoubleClick: handleRowDoubleClick,
       onDragStart: (e: DragEvent, item: FileTreeNodeType) => {
         move.beginItemDrag(e, { path: item.path, type: item.type }, selection.selected);
       },
@@ -1886,7 +1893,7 @@ per-item interactions 对象：
         upload.handleItemDrop(e, item.path);
       },
     }),
-    [selection, move, upload, handleRowClick],
+    [selection, move, upload, handleRowClick, handleRowDoubleClick],
   );
 ```
 
@@ -1907,6 +1914,7 @@ per-item interactions 对象：
     isSelected: (path: string) => boolean;
     isMoveTarget: (path: string) => boolean;
     onRowClick: (item: FileTreeNodeType, e: ReactMouseEvent) => void;
+    onRowDoubleClick: (item: FileTreeNodeType) => void; // 双击打开/展开
     onDragStart: (e: DragEvent, item: FileTreeNodeType) => void;
     onDragOver: (e: DragEvent, item: FileTreeNodeType) => void;
     onDragLeave: (e: DragEvent, item: FileTreeNodeType) => void;
@@ -2079,6 +2087,7 @@ Expected: 全 PASS；typecheck 零新增错误（对照执行前 baseline）。
 **重启后端前必须逐次征得用户同意**（重启=杀所有活跃会话）。验收清单：
 
 1. 多选：Ctrl+点击 3 个文件 → 批量条出现「3 selected」；Shift 范围选；点空白清除；Esc 清除
+2. 单击只选中、双击打开：单击文件 → 只选中不高亮编辑器；双击同一文件 → 编辑器打开；双击目录 → 展开/收起
 2. 批量删除：选中 2 文件 1 文件夹 → 删除 → 确认弹窗列名 → 树刷新
 3. 批量 ZIP：选中混合 → 下载 → zip 内容路径结构正确
 4. 拖拽移动：拖文件到文件夹上（高亮）→ 松手 → 移动成功；拖文件夹到自己的子文件夹 → 拒绝 toast

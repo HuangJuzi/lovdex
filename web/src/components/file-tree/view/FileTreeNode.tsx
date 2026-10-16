@@ -14,6 +14,8 @@ export type FileTreeInteractions = {
   isSelected: (path: string) => boolean;
   isMoveTarget: (path: string) => boolean;
   onRowClick: (item: FileTreeNodeType, e: ReactMouseEvent) => void;
+  /** Double click opens the item (file → editor / image viewer, directory → expand). */
+  onRowDoubleClick: (item: FileTreeNodeType) => void;
   onDragStart: (e: DragEvent, item: FileTreeNodeType) => void;
   onDragOver: (e: DragEvent, item: FileTreeNodeType) => void;
   onDragLeave: (e: DragEvent, item: FileTreeNodeType) => void;
@@ -115,10 +117,10 @@ export default function FileTreeNode({
   // View mode only changes the row layout; selection, expansion, and recursion stay shared.
   const rowClassName = cn(
     viewMode === 'detailed'
-      ? 'group grid grid-cols-12 gap-2 py-[3px] pr-2 hover:bg-accent/60 cursor-pointer items-center rounded-sm transition-colors duration-100'
+      ? 'group grid grid-cols-12 gap-2 py-[3px] pr-2 hover:bg-accent/60 rounded-sm transition-colors duration-100'
       : viewMode === 'compact'
-      ? 'group flex items-center justify-between py-[3px] pr-2 hover:bg-accent/60 cursor-pointer rounded-sm transition-colors duration-100'
-      : 'group flex items-center gap-1.5 py-[3px] pr-2 cursor-pointer rounded-sm hover:bg-accent/60 transition-colors duration-100',
+      ? 'group flex items-center justify-between py-[3px] pr-2 hover:bg-accent/60 rounded-sm transition-colors duration-100'
+      : 'group flex items-center gap-1.5 py-[3px] pr-2 rounded-sm hover:bg-accent/60 transition-colors duration-100',
     isDirectory && isOpen && 'border-l-2 border-primary/30',
     (isDirectory && !isOpen) || !isDirectory ? 'border-l-2 border-transparent' : '',
   );
@@ -164,6 +166,15 @@ export default function FileTreeNode({
       style={{ paddingLeft: `${level * 16 + 4}px` }}
       data-file-row={treeInteractions ? '' : undefined}
       onClick={(e) => (treeInteractions ? treeInteractions.onRowClick(item, e) : onItemClick(item))}
+      onDoubleClick={(e) => {
+        // A double click on a row fires two clicks first; those already
+        // selected the row. Opening on double click must not re-run the
+        // single-click selection (which would replace a multi-selection made
+        // with modifier keys right before the open).
+        e.stopPropagation();
+        if (treeInteractions) treeInteractions.onRowDoubleClick(item);
+        else onItemClick(item);
+      }}
       draggable={Boolean(treeInteractions)}
       onDragStart={(e) => treeInteractions?.onDragStart(e, item)}
       onDragOver={(e) => treeInteractions?.onDragOver(e, item)}
