@@ -5,10 +5,13 @@ import { SkillsProvider } from '@/modules/providers/shared/skills/skills.provide
 import type { ProviderSkillSource } from '@/shared/types.js';
 import { addUniqueProviderSkillSource, findTopmostGitRoot } from '@/shared/utils.js';
 
-// dsh skill discovery scans a project root and a user root; the manifest is a
-// `SKILL.md` directory bundle or a flat `<name>.md`, both under `.dsh/skills`.
-const DSH_PROJECT_SKILL_DIRS = [['.dsh', 'skills']];
-const DSH_USER_SKILL_DIRS = [['.dsh', 'skills']];
+// dsh skill discovery (dsh-skill-filesystem) scans four default roots:
+// `<projectRoot>/.dsh/skills` and `<projectRoot>/.agents/skills` (project,
+// projectRoot = nearest `.git` ancestor), then `~/.dsh/skills` and
+// `~/.agents/skills` (user; agentsHome defaults to ~/.agents). The manifest is
+// a `SKILL.md` directory bundle or a flat `<name>.md` at the top level.
+const DSH_PROJECT_SKILL_DIRS = [['.dsh', 'skills'], ['.agents', 'skills']];
+const DSH_USER_SKILL_DIRS = [['.dsh', 'skills'], ['.agents', 'skills']];
 
 export class DshSkillsProvider extends SkillsProvider {
   constructor() {

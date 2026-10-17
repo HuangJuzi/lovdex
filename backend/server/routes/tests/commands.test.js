@@ -82,6 +82,44 @@ test('models command returns available models only for the active provider', asy
   }
 });
 
+test('models command resolves dsh as its own provider with a DeepSeek label', async () => {
+  const originalGetProviderModels = providerModelsService.getProviderModels;
+  const originalGetCurrentActiveModel = providerModelsService.getCurrentActiveModel;
+
+  providerModelsService.getProviderModels = async () => ({
+    models: {
+      OPTIONS: [
+        { value: 'default', label: 'Default', description: 'DeepSeek Harness' },
+        { value: '["deepseek-official","deepseek-v4-flash"]', label: 'DeepSeek V4 Flash' },
+      ],
+      DEFAULT: 'default',
+    },
+    cache: {
+      updatedAt: '2026-01-01T00:00:00.000Z',
+      expiresAt: '2026-01-04T00:00:00.000Z',
+      source: 'fresh',
+    },
+  });
+  providerModelsService.getCurrentActiveModel = async () => ({ model: 'default' });
+
+  try {
+    const result = await executeModelsCommand([], {
+      provider: 'dsh',
+      model: 'default',
+    });
+
+    assert.equal(result.data.current.provider, 'dsh');
+    assert.equal(result.data.current.providerLabel, 'DeepSeek');
+    assert.deepEqual(Object.keys(result.data.available), ['dsh']);
+    assert.ok(
+      result.data.availableModels.includes('["deepseek-official","deepseek-v4-flash"]'),
+    );
+  } finally {
+    providerModelsService.getProviderModels = originalGetProviderModels;
+    providerModelsService.getCurrentActiveModel = originalGetCurrentActiveModel;
+  }
+});
+
 test('models command falls back to claude for unsupported providers', async () => {
   const originalGetProviderModels = providerModelsService.getProviderModels;
   const originalGetCurrentActiveModel = providerModelsService.getCurrentActiveModel;

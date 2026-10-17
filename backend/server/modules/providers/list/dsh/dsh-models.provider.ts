@@ -19,11 +19,12 @@ import {
  * `session/set_config_option` switches between them. This facet has no runtime
  * handle, so it ships a static list for the picker's cold path.
  *
- * PROVENANCE: the `deepseek-v4-flash` / `deepseek-v4-pro` values were read back
- * from a real `dsh --profile acp` session's `configOptions[model]`. The wire
- * format is a JSON-encoded `[provider, model]` route pair, so the runner sends
- * exactly this string as the ACP config-option value; the adapter passes the
- * model through to whatever endpoint the route resolves to.
+ * PROVENANCE: the `deepseek-v4-flash` / `deepseek-flash` / `deepseek-v4-pro`
+ * values were read back from a real `dsh --profile acp` session's
+ * `configOptions[model]` (re-probed 2026-10-16). The wire format is a
+ * JSON-encoded `[provider, model]` route pair, so the runner sends exactly
+ * this string as the ACP config-option value; the adapter passes the model
+ * through to whatever endpoint the route resolves to.
  *
  * The `deepseek-official` route name is the Messages adapter's own, and the
  * shipped acp profile mounts it with no fixed model, so any id the endpoint
@@ -55,6 +56,7 @@ export const DSH_PREDEFINED_MODELS: ProviderModelsDefinition = {
   OPTIONS: [
     { value: 'default', label: 'Default', description: 'DeepSeek Harness', effort: DSH_EFFORT },
     { value: '["deepseek-official","deepseek-v4-flash"]', label: 'DeepSeek V4 Flash', description: 'deepseek-official', effort: DSH_EFFORT },
+    { value: '["deepseek-official","deepseek-flash"]', label: 'DeepSeek V41 Flash', description: 'deepseek-official', effort: DSH_EFFORT },
     { value: '["deepseek-official","deepseek-v4-pro"]', label: 'DeepSeek V4 Pro', description: 'deepseek-official', effort: DSH_EFFORT },
   ],
   DEFAULT: 'default',

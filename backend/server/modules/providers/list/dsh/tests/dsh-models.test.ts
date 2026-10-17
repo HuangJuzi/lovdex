@@ -15,6 +15,22 @@ test('getSupportedModels returns at least a DEFAULT and options', async () => {
   assert.ok(def.OPTIONS.some((o) => o.value === def.DEFAULT));
 });
 
+test('the catalog carries the live-verified deepseek-official routes', async () => {
+  // 2026-10-16 probe of a real `dsh --profile acp` session/new configOptions:
+  // the deepseek-official group serves deepseek-v4-flash, deepseek-flash
+  // (DeepSeek V41 Flash), and deepseek-v4-pro. The cold-path picker must be
+  // able to select all three.
+  const def = await new DshProviderModels().getSupportedModels();
+  const values = def.OPTIONS.map((o) => o.value);
+  for (const route of [
+    '["deepseek-official","deepseek-v4-flash"]',
+    '["deepseek-official","deepseek-flash"]',
+    '["deepseek-official","deepseek-v4-pro"]',
+  ]) {
+    assert.ok(values.includes(route), `catalog must include ${route}`);
+  }
+});
+
 test('getCurrentActiveModel returns the catalog default', async () => {
   const current = await new DshProviderModels().getCurrentActiveModel();
   assert.equal(current.model, DSH_PREDEFINED_MODELS.DEFAULT);
