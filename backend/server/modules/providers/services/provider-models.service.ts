@@ -18,7 +18,10 @@ import { readProviderSessionActiveModelChange } from '@/shared/utils.js';
 
 export const PROVIDER_MODELS_CACHE_TTL_MS = 3 * 24 * 60 * 60 * 1000;
 const PROVIDER_MODELS_CACHE_VERSION = 2;
-const UNCACHED_PROVIDERS = new Set<LLMProvider>(['claude']);
+// claude/dsh 的列表是从 app.config 每次重算的廉价本地计算（槽位/customModels），
+// 缓存反而会让保存后的新列表 72h 不生效（TTL 见 PROVIDER_MODELS_CACHE_TTL_MS）。
+// 其余 provider 的列表要 spawn CLI 探测，缓存才是收益。
+const UNCACHED_PROVIDERS = new Set<LLMProvider>(['claude', 'dsh']);
 
 type ProviderModelsServiceDependencies = {
   resolveProvider?: (provider: LLMProvider) => Pick<IProvider, 'models'>;
