@@ -48,7 +48,7 @@ type ProvidersConfig = {
   codex?: { binPath?: string; apiKey?: string };
   opencode?: { binPath?: string };
   qoder?: { personalAccessToken?: string };
-  dsh?: { baseUrl?: string; apiKey?: string };
+  dsh?: { baseUrl?: string; apiKey?: string; customModels?: string[] };
 };
 type ServerConfig = { port?: number; host?: string; corsOrigin?: string };
 type LlmProxyConfig = { enabled?: boolean; anthropicUrl?: string };
@@ -238,7 +238,7 @@ export function ProviderSettingsForm() {
   }, []);
 
   // Patch a nested provider field, cloning along the way so state stays immutable.
-  function patchProvider(provider: ProviderKey, field: string, value: string) {
+  function patchProvider(provider: ProviderKey, field: string, value: string | string[]) {
     setSavedMsg(null);
     setDraft((prev) => {
       if (!prev) return prev;
@@ -616,6 +616,23 @@ export function ProviderSettingsForm() {
           placeholder="留空 = llm-proxy 开启时走代理（推荐）、未开启回落官方端点；仅指向代理不代理的上游时填写"
           onChange={(v) => patchProvider('dsh', 'baseUrl', v)}
         />
+        <div>
+          <label className="mb-1 block text-xs text-muted-foreground">
+            自定义模型（customModels，每行一条 route|model[|label]）
+          </label>
+          <textarea
+            className="min-h-[72px] w-full rounded-md border border-border bg-muted px-2 py-1.5 text-sm text-foreground"
+            value={(dsh.customModels ?? []).join('\n')}
+            placeholder={'deepseek-official|glm-5.3\nsophnet|kimi-k2|Kimi K2'}
+            onChange={(e) =>
+              patchProvider('dsh', 'customModels', e.target.value.split('\n'))
+            }
+          />
+          <p className="mt-1 text-xs text-muted-foreground">
+            追加到内置列表之后；route 如 deepseek-official，model 填端点实际服务的
+            模型名。格式不对的行保存后会被忽略。
+          </p>
+        </div>
         <p className="text-xs text-muted-foreground">
           两个字段留空都不是「清除」：apiKey 留空继承 llm-proxy 的凭据（与 claude
           provider 同一把，代理未开启时回落 DEEPSEEK_API_KEY 环境变量），baseUrl 留空
