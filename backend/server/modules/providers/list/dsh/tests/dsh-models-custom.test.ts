@@ -51,6 +51,13 @@ test('customModels entries are appended after the predefined list', async () => 
     [{ value: '["route","m"]', label: 'm', description: 'route', effort: DSH_PREDEFINED_MODELS.OPTIONS[0].effort }],
   );
 
+  // 与预定义条目撞 value 的自定义条目被丢弃：pickers 按 value 做 React key，
+  // 重复项会炸渲染且选中语义等价（选哪个都是同一条路由）
+  assert.deepStrictEqual(
+    buildDshCustomModelOptions(['deepseek-official|deepseek-v4-pro', 'deepseek-official|own-model']),
+    [{ value: '["deepseek-official","own-model"]', label: 'own-model', description: 'deepseek-official', effort: DSH_PREDEFINED_MODELS.OPTIONS[0].effort }],
+  );
+
   // DEFAULT 不受 customModels 影响
   assert.strictEqual(def.DEFAULT, 'default');
 });

@@ -61,6 +61,23 @@ test('profileFormEntries returns only the form fields the profile carries as str
   assert.deepStrictEqual(profileFormEntries(opencode, FORM_FIELDS.opencode), [['binPath', '/usr/bin/opencode']]);
 });
 
+test('profileFormEntries also carries string-array fields (dsh customModels)', () => {
+  // 选档回填必须带上 customModels：数组不回填的话，随后的保存会被 body 侧
+  // 旧值压过档值，档里的模型列表永远应用不出来。
+  const dsh = {
+    name: 'd',
+    values: {
+      baseUrl: 'https://x',
+      customModels: ['deepseek-official|glm-5.3'],
+      apiKeys: { not: 'a string array' },
+    },
+  };
+  assert.deepStrictEqual(profileFormEntries(dsh, FORM_FIELDS.dsh), [
+    ['baseUrl', 'https://x'],
+    ['customModels', ['deepseek-official|glm-5.3']],
+  ]);
+});
+
 test('isProfileModified compares only the form fields (masked values compare fine)', () => {
   const form = { apiKey: 'sk-ant****abcdef', baseUrl: 'https://a.example', defaultModel: 'm1' };
   assert.strictEqual(isProfileModified(form, CLIENT_PROFILE, FORM_FIELDS.claude), false);

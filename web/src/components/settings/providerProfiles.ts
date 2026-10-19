@@ -60,15 +60,21 @@ export function readSelections(cfg: Record<string, unknown>): Record<ProviderKey
   };
 }
 
-/** 选档时要填进表单的 (字段, 值) 对：只含表单渲染的字段、且档里是字符串的。 */
+/**
+ * 选档时要填进表单的 (字段, 值) 对：只含表单渲染的字段、且档里是字符串或
+ * 字符串数组的（customModels 走 textarea 的行数组；数组不回填会让"选档 →
+ * 保存"被 body 侧旧值压过档值，档里的列表永远应用不出来）。
+ */
 export function profileFormEntries(
   profile: ProviderProfile,
   fields: readonly string[],
-): Array<[string, string]> {
-  const out: Array<[string, string]> = [];
+): Array<[string, string | string[]]> {
+  const out: Array<[string, string | string[]]> = [];
   for (const field of fields) {
     const value = profile.values[field];
-    if (typeof value === 'string') out.push([field, value]);
+    if (typeof value === 'string' || (Array.isArray(value) && value.every((v) => typeof v === 'string'))) {
+      out.push([field, value]);
+    }
   }
   return out;
 }

@@ -73,15 +73,23 @@ export const DSH_PREDEFINED_MODELS: ProviderModelsDefinition = {
  * settings textarea must not take the whole list down.
  * Segments beyond the third are ignored; ids containing | are not
  * representable (dsh route names and model ids never contain it).
+ * Entries whose wire value collides with a predefined one are dropped: the
+ * pickers key options by value, so a duplicate would break React keys without
+ * adding anything (selecting either entry is equivalent).
  */
-export function buildDshCustomModelOptions(customModels: readonly string[] | undefined): ProviderModelOption[] {
+export function buildDshCustomModelOptions(
+  customModels: readonly string[] | undefined,
+  predefinedValues: ReadonlySet<string> = new Set(DSH_PREDEFINED_MODELS.OPTIONS.map((o) => o.value)),
+): ProviderModelOption[] {
   const out: ProviderModelOption[] = [];
   for (const raw of customModels ?? []) {
     const parts = raw.split('|').map((p) => p.trim());
     const [route, model, label] = parts;
     if (!route || !model) continue;
+    const value = JSON.stringify([route, model]);
+    if (predefinedValues.has(value)) continue;
     out.push({
-      value: JSON.stringify([route, model]),
+      value,
       label: label || model,
       description: route,
       effort: DSH_EFFORT,
