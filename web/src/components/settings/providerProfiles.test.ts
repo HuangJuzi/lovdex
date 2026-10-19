@@ -120,9 +120,9 @@ test('findNewProfileId picks the id that was not there before', () => {
 });
 
 test('FORM_FIELDS.dsh matches the backend PROFILE_FIELDS whitelist', () => {
-  // 后端 provider-profiles.ts: PROFILE_FIELDS.dsh = ['baseUrl', 'apiKey']。
+  // 后端 provider-profiles.ts: PROFILE_FIELDS.dsh = ['baseUrl', 'apiKey', 'customModels']。
   // 前端必须 ⊆ 后端（多一个 = 存档时后端丢弃该字段，静默失能）。
   // 注意：这里断言的是「与后端清单的内联拷贝一致」，不是跨模块 import 后端
   // 导出 —— web 测试不引 backend 代码，跨模块不变式靠两处白名单一起改的纪律。
-  assert.deepStrictEqual(FORM_FIELDS.dsh, ['baseUrl', 'apiKey']);
+  assert.deepStrictEqual(FORM_FIELDS.dsh, ['baseUrl', 'apiKey', 'customModels']);
 });
