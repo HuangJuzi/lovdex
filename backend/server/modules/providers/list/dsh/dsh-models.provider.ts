@@ -1,3 +1,4 @@
+import { appConfig } from '@/modules/config/config.js';
 import type { IProviderModels } from '@/shared/interfaces.js';
 import type {
   ProviderChangeActiveModelInput,
@@ -62,10 +63,37 @@ export const DSH_PREDEFINED_MODELS: ProviderModelsDefinition = {
   DEFAULT: 'default',
 };
 
+/**
+ * Parse a `route|model[|label]` customModels entry into a picker option whose
+ * value is the same `["route","model"]` wire format the predefined entries
+ * use, so the runner forwards it unchanged. Malformed entries (fewer than two
+ * segments, empty route/model) are skipped silently — dropping one line in the
+ * settings textarea must not take the whole list down.
+ */
+export function buildDshCustomModelOptions(customModels: readonly string[] | undefined): ProviderModelOption[] {
+  const out: ProviderModelOption[] = [];
+  for (const raw of customModels ?? []) {
+    const parts = raw.split('|').map((p) => p.trim());
+    const [route, model, label] = parts;
+    if (!route || !model) continue;
+    out.push({
+      value: JSON.stringify([route, model]),
+      label: label || model,
+      description: route,
+      effort: DSH_EFFORT,
+    });
+  }
+  return out;
+}
+
 export class DshProviderModels implements IProviderModels {
   async getSupportedModels(): Promise<ProviderModelsDefinition> {
+    const custom = appConfig().get().providers.dsh.customModels;
     return {
-      OPTIONS: [...DSH_PREDEFINED_MODELS.OPTIONS],
+      OPTIONS: [
+        ...DSH_PREDEFINED_MODELS.OPTIONS,
+        ...buildDshCustomModelOptions(custom),
+      ],
       DEFAULT: DSH_PREDEFINED_MODELS.DEFAULT,
     };
   }
