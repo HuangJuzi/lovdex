@@ -11,13 +11,13 @@ const dataDir = mkdtempSync(path.join(tmpdir(), 'lovdex-dsh-cfg-'));
 process.env.LOVDEX_DATA_DIR = dataDir;
 
 const { appConfig } = await import('@/modules/config/config.js');
-const { DshProviderModels, DSH_PREDEFINED_MODELS } = await import('../dsh-models.provider.js');
+const { DshProviderModels, DSH_PREDEFINED_MODELS, buildDshCustomModelOptions } = await import('../dsh-models.provider.js');
 
 test('customModels entries are appended after the predefined list', async () => {
   const cfg = appConfig();
   cfg.update({
     providers: {
-      dsh: { customModels: ['deepseek-official|glm-5.3', 'sophnet|kimi-k2|Kimi K2'] },
+      dsh: { customModels: ['deepseek-official|glm-5.3', 'sophnet|kimi-k2|Kimi K2', ' deepseek-official | spaced-model '] },
     },
   });
 
@@ -32,6 +32,7 @@ test('customModels entries are appended after the predefined list', async () => 
   // 自定义条目用同款线格式，runner 原样下发
   assert.ok(values.includes('["deepseek-official","glm-5.3"]'));
   assert.ok(values.includes('["sophnet","kimi-k2"]'));
+  assert.ok(values.includes('["deepseek-official","spaced-model"]'), 'segments must be trimmed');
 
   const glm = def.OPTIONS.find((o) => o.value === '["deepseek-official","glm-5.3"]');
   assert.ok(glm, 'expected the glm-5.3 option');
@@ -43,6 +44,12 @@ test('customModels entries are appended after the predefined list', async () => 
   assert.ok(kimi, 'expected the kimi-k2 option');
   assert.strictEqual(kimi.label, 'Kimi K2'); // 第三段 → 自定义 label
   assert.strictEqual(kimi.description, 'sophnet');
+
+  // label 段纯空格 → 回退用 model 名
+  assert.deepStrictEqual(
+    buildDshCustomModelOptions(['route|m|   ']),
+    [{ value: '["route","m"]', label: 'm', description: 'route', effort: DSH_PREDEFINED_MODELS.OPTIONS[0].effort }],
+  );
 
   // DEFAULT 不受 customModels 影响
   assert.strictEqual(def.DEFAULT, 'default');
@@ -95,4 +102,6 @@ test('an empty or absent customModels leaves exactly the predefined list', async
     def.OPTIONS.map((o) => o.value),
     DSH_PREDEFINED_MODELS.OPTIONS.map((o) => o.value),
   );
+  // absent（undefined）分支直测
+  assert.deepStrictEqual(buildDshCustomModelOptions(undefined), []);
 });

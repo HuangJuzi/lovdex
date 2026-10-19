@@ -18,7 +18,9 @@ import {
  * The live catalog is only reachable from a started ACP runtime: `session/new`
  * returns `configOptions` whose `model` entry groups real route ids, and
  * `session/set_config_option` switches between them. This facet has no runtime
- * handle, so it ships a static list for the picker's cold path.
+ * handle, so it ships a static list for the picker's cold path, plus
+ * config-driven `customModels` entries appended by `getSupportedModels` (read
+ * fresh from app.config on every call, like the claude provider).
  *
  * PROVENANCE: the `deepseek-v4-flash` / `deepseek-flash` / `deepseek-v4-pro`
  * values were read back from a real `dsh --profile acp` session's
@@ -69,6 +71,8 @@ export const DSH_PREDEFINED_MODELS: ProviderModelsDefinition = {
  * use, so the runner forwards it unchanged. Malformed entries (fewer than two
  * segments, empty route/model) are skipped silently — dropping one line in the
  * settings textarea must not take the whole list down.
+ * Segments beyond the third are ignored; ids containing | are not
+ * representable (dsh route names and model ids never contain it).
  */
 export function buildDshCustomModelOptions(customModels: readonly string[] | undefined): ProviderModelOption[] {
   const out: ProviderModelOption[] = [];
