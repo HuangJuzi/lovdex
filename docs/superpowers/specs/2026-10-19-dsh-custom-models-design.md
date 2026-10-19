@@ -1,7 +1,7 @@
 # DSH 自定义模型（customModels）设计
 
 - 日期：2026-10-19
-- 状态：已批准（用户 2026-10-19 确认）
+- 状态：已实现（4b21185..bd80e9f，2026-10-19；后端 69 + dsh 目录 39 + 前端 11 测试全过，typecheck 零新增。实现期补充：自定义条目与预定义 value 撞车时丢弃后者（pickers 按 value 做 React key）；profileFormEntries 放行 string[] 使选档回填 customModels）
 - 范围：backend/server（config、providers/dsh）、web 设置页；llm-proxy 零改动
 
 ## 1. 背景与问题
