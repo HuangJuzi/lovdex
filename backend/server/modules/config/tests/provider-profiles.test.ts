@@ -54,6 +54,27 @@ test('snapshotProviderFields deep-copies (mutating the snapshot does not touch c
   assert.strictEqual(cfg.get().providers.opencode.apiKeys.OPENAI_API_KEY, 'sk-o');
 });
 
+test('dsh PROFILE_FIELDS includes customModels (dropping it would silently lose the list per-profile)', () => {
+  assert.deepStrictEqual(PROFILE_FIELDS.dsh, ['baseUrl', 'apiKey', 'customModels']);
+});
+
+test('snapshotProviderFields carries dsh customModels by value', () => {
+  const cfg = tmpCfg();
+  cfg.update({
+    providers: { dsh: { baseUrl: 'https://x', customModels: ['deepseek-official|glm-5.3'] } },
+  });
+
+  const snap = snapshotProviderFields(cfg.get(), 'dsh');
+  assert.deepStrictEqual(snap.customModels, ['deepseek-official|glm-5.3']);
+
+  (snap.customModels as string[]).push('mutated');
+  assert.deepStrictEqual(
+    cfg.get().providers.dsh.customModels,
+    ['deepseek-official|glm-5.3'],
+    'snapshot must be a copy, not a reference',
+  );
+});
+
 test('validateProfileName rejects empty/whitespace/too-long names', () => {
   assert.strictEqual(validateProfileName('  主账号  '), null);
   assert.strictEqual(validateProfileName(''), 'name is required');

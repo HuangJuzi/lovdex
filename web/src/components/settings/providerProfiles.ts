@@ -34,7 +34,7 @@ export const FORM_FIELDS: Record<ProviderKey, readonly string[]> = {
   codex: ['binPath', 'apiKey'],
   opencode: ['binPath'],
   qoder: ['personalAccessToken'],
-  dsh: ['baseUrl', 'apiKey'],
+  dsh: ['baseUrl', 'apiKey', 'customModels'],
 };
 
 /**

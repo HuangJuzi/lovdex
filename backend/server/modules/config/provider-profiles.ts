@@ -29,7 +29,8 @@ export const PROFILE_FIELDS: Record<string, readonly string[]> = {
   qoder: ['personalAccessToken'],
   // dsh（DeepSeek Harness）在设置页有自己的凭据区块（2026-10-12 加入，
   // 见 web/src/components/settings/ProviderSettingsPage.tsx 的 DeepSeek Section）。
-  dsh: ['baseUrl', 'apiKey'],
+  // customModels（2026-10-19）跟 baseUrl 一样随供应商走，属于一组凭据。
+  dsh: ['baseUrl', 'apiKey', 'customModels'],
 };
 
 export const PROFILE_NAME_MAX = 40;
