@@ -277,4 +277,19 @@ test('PUT rejects providers.dsh.customModels that is not a string array', async 
   }
   // 被拒绝的写不得落盘
   assert.deepStrictEqual(cfg.get().providers.dsh.customModels, []);
+
+  // null = 未提供（仓库约定 deepMerge `override ?? base`）：不 400，且保住已存值。
+  const seed = await fetch(`http://127.0.0.1:${port}/api/config`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ providers: { dsh: { customModels: ['deepseek-official|glm-5.3'] } } }),
+  });
+  assert.strictEqual(seed.status, 200);
+  const resNull = await fetch(`http://127.0.0.1:${port}/api/config`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ providers: { dsh: { customModels: null } } }),
+  });
+  assert.strictEqual(resNull.status, 200);
+  assert.deepStrictEqual(cfg.get().providers.dsh.customModels, ['deepseek-official|glm-5.3']);
 });

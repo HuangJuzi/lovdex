@@ -104,7 +104,7 @@ export const DEFAULT_APP_CONFIG = {
       // `route|model|label`; parsed into a `["route","model"]` wire-format
       // option by DshProviderModels (see dsh-models.provider.ts). APPENDED to
       // the predefined list, never replacing it.
-      customModels: [],
+      customModels: [] as string[],
     },
   },
   operator: {

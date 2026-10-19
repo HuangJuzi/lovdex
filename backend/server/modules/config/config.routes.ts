@@ -37,7 +37,7 @@ export function buildConfigWriteRouter(deps: { cfg: AppConfigApi; onWrite?: () =
     }
     const custom = (body as { providers?: { dsh?: { customModels?: unknown } } })
       ?.providers?.dsh?.customModels;
-    if (custom !== undefined
+    if (custom != null
       && (!Array.isArray(custom) || custom.some((v) => typeof v !== 'string'))) {
       return res.status(400).json({ error: 'providers.dsh.customModels must be an array of strings' });
     }
