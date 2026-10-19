@@ -35,6 +35,12 @@ export function buildConfigWriteRouter(deps: { cfg: AppConfigApi; onWrite?: () =
     if (typeof body !== 'object' || body === null || Array.isArray(body)) {
       return res.status(400).json({ error: 'config body must be a JSON object' });
     }
+    const custom = (body as { providers?: { dsh?: { customModels?: unknown } } })
+      ?.providers?.dsh?.customModels;
+    if (custom !== undefined
+      && (!Array.isArray(custom) || custom.some((v) => typeof v !== 'string'))) {
+      return res.status(400).json({ error: 'providers.dsh.customModels must be an array of strings' });
+    }
     try {
       // 先解析档选择再合并：被选中的档提供客户端表达不出来的真凭据值，body 自己的
       // 字段再覆盖它（打码字段已被 strip 成 undefined，deepMerge 会保住档里的值）。

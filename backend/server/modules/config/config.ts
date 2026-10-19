@@ -99,6 +99,12 @@ export const DEFAULT_APP_CONFIG = {
       patchPath: '',
       // Bound for a pending tool-approval popup before the runner auto-denies.
       toolApprovalTimeoutMs: 60000,
+      // Extra picker entries for deployments whose endpoint serves model ids
+      // that differ from DeepSeek's own. Each entry is `route|model` or
+      // `route|model|label`; parsed into a `["route","model"]` wire-format
+      // option by DshProviderModels (see dsh-models.provider.ts). APPENDED to
+      // the predefined list, never replacing it.
+      customModels: [],
     },
   },
   operator: {

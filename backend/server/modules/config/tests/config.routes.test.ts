@@ -231,3 +231,50 @@ test('PUT with a null selection keeps the existing marker (deepMerge treats null
   assert.strictEqual(res.status, 200);
   assert.strictEqual(cfg.get().activeProviderProfiles.claude, 'p_a');
 });
+
+test('PUT accepts providers.dsh.customModels as a string array', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lovdex-route-'));
+  const cfg = createAppConfig({ dataDir: dir });
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  const { port } = listen(t, cfg);
+
+  const res = await fetch(`http://127.0.0.1:${port}/api/config`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      providers: { dsh: { customModels: ['deepseek-official|glm-5.3', '  ', 'x'] } },
+    }),
+  });
+  assert.strictEqual(res.status, 200);
+  assert.deepStrictEqual(cfg.get().providers.dsh.customModels, [
+    'deepseek-official|glm-5.3', '  ', 'x',
+  ]);
+  // 数组必须整体替换而非逐元素合并：deepMerge 对数组是 override ?? base。
+  const res2 = await fetch(`http://127.0.0.1:${port}/api/config`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ providers: { dsh: { customModels: [] } } }),
+  });
+  assert.strictEqual(res2.status, 200);
+  assert.deepStrictEqual(cfg.get().providers.dsh.customModels, []);
+});
+
+test('PUT rejects providers.dsh.customModels that is not a string array', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lovdex-route-'));
+  const cfg = createAppConfig({ dataDir: dir });
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  const { port } = listen(t, cfg);
+
+  for (const bad of ['a|b', ['a|b', 42], { '0': 'a|b' }]) {
+    const res = await fetch(`http://127.0.0.1:${port}/api/config`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ providers: { dsh: { customModels: bad } } }),
+    });
+    assert.strictEqual(res.status, 400, `expected 400 for ${JSON.stringify(bad)}`);
+  }
+  // 被拒绝的写不得落盘
+  assert.deepStrictEqual(cfg.get().providers.dsh.customModels, []);
+});
