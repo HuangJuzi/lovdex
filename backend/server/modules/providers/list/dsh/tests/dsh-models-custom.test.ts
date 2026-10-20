@@ -13,7 +13,7 @@ process.env.LOVDEX_DATA_DIR = dataDir;
 const { appConfig } = await import('@/modules/config/config.js');
 const { DshProviderModels, DSH_PREDEFINED_MODELS, buildDshCustomModelOptions } = await import('../dsh-models.provider.js');
 
-test('customModels entries are appended after the predefined list', async () => {
+test('non-empty customModels replaces the DeepSeek entries, keeping the default slot', async () => {
   const cfg = appConfig();
   cfg.update({
     providers: {
@@ -24,15 +24,13 @@ test('customModels entries are appended after the predefined list', async () => 
   const def = await new DshProviderModels().getSupportedModels();
   const values = def.OPTIONS.map((o) => o.value);
 
-  // 预定义 4 项在前、顺序不变
-  assert.deepStrictEqual(
-    values.slice(0, DSH_PREDEFINED_MODELS.OPTIONS.length),
-    DSH_PREDEFINED_MODELS.OPTIONS.map((o) => o.value),
-  );
-  // 自定义条目用同款线格式，runner 原样下发
-  assert.ok(values.includes('["deepseek-official","glm-5.3"]'));
-  assert.ok(values.includes('["sophnet","kimi-k2"]'));
-  assert.ok(values.includes('["deepseek-official","spaced-model"]'), 'segments must be trimmed');
+  // 替换语义：default 槽位 + 该档自己的条目，DeepSeek 预定义 3 项不再混入
+  assert.deepStrictEqual(values, [
+    'default',
+    '["deepseek-official","glm-5.3"]',
+    '["sophnet","kimi-k2"]',
+    '["deepseek-official","spaced-model"]',
+  ]);
 
   const glm = def.OPTIONS.find((o) => o.value === '["deepseek-official","glm-5.3"]');
   assert.ok(glm, 'expected the glm-5.3 option');
@@ -45,17 +43,13 @@ test('customModels entries are appended after the predefined list', async () => 
   assert.strictEqual(kimi.label, 'Kimi K2'); // 第三段 → 自定义 label
   assert.strictEqual(kimi.description, 'sophnet');
 
-  // label 段纯空格 → 回退用 model 名
+  // label 段纯空格 → 回退用 model 名；同 [route, model] 两条（有无 label）只出一条
   assert.deepStrictEqual(
-    buildDshCustomModelOptions(['route|m|   ']),
-    [{ value: '["route","m"]', label: 'm', description: 'route', effort: DSH_PREDEFINED_MODELS.OPTIONS[0].effort }],
-  );
-
-  // 与预定义条目撞 value 的自定义条目被丢弃：pickers 按 value 做 React key，
-  // 重复项会炸渲染且选中语义等价（选哪个都是同一条路由）
-  assert.deepStrictEqual(
-    buildDshCustomModelOptions(['deepseek-official|deepseek-v4-pro', 'deepseek-official|own-model']),
-    [{ value: '["deepseek-official","own-model"]', label: 'own-model', description: 'deepseek-official', effort: DSH_PREDEFINED_MODELS.OPTIONS[0].effort }],
+    buildDshCustomModelOptions(['route|m|   ', 'route|m', 'other|x']),
+    [
+      { value: '["route","m"]', label: 'm', description: 'route', effort: DSH_PREDEFINED_MODELS.OPTIONS[0].effort },
+      { value: '["other","x"]', label: 'x', description: 'other', effort: DSH_PREDEFINED_MODELS.OPTIONS[0].effort },
+    ],
   );
 
   // DEFAULT 不受 customModels 影响
@@ -81,12 +75,8 @@ test('malformed customModels entries are skipped, not fatal', async () => {
   const def = await new DshProviderModels().getSupportedModels();
   const values = def.OPTIONS.map((o) => o.value);
 
-  assert.ok(values.includes('["deepseek-official","fine-model"]'));
-  assert.ok(!values.some((v) => v.includes('only-one-segment')));
-  assert.ok(!values.some((v) => v.includes('model-no-route')));
-  assert.ok(!values.some((v) => v.includes('route-no-model')));
-  // 垃圾条目不改变预定义列表
-  assert.ok(values.includes('["deepseek-official","deepseek-v4-pro"]'));
+  // 垃圾条目不拖垮合法条目：替换模式下列表 = default + 合法条目
+  assert.deepStrictEqual(values, ['default', '["deepseek-official","fine-model"]']);
 });
 
 test('config save changes the list immediately — no restart', async () => {

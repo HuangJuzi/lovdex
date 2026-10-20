@@ -73,21 +73,20 @@ export const DSH_PREDEFINED_MODELS: ProviderModelsDefinition = {
  * settings textarea must not take the whole list down.
  * Segments beyond the third are ignored; ids containing | are not
  * representable (dsh route names and model ids never contain it).
- * Entries whose wire value collides with a predefined one are dropped: the
- * pickers key options by value, so a duplicate would break React keys without
- * adding anything (selecting either entry is equivalent).
+ * Duplicate [route, model] pairs (e.g. the same entry with and without a
+ * label) yield one option: the pickers key options by value, so a repeated
+ * value would break React keys without adding anything.
  */
-export function buildDshCustomModelOptions(
-  customModels: readonly string[] | undefined,
-  predefinedValues: ReadonlySet<string> = new Set(DSH_PREDEFINED_MODELS.OPTIONS.map((o) => o.value)),
-): ProviderModelOption[] {
+export function buildDshCustomModelOptions(customModels: readonly string[] | undefined): ProviderModelOption[] {
   const out: ProviderModelOption[] = [];
+  const seen = new Set<string>();
   for (const raw of customModels ?? []) {
     const parts = raw.split('|').map((p) => p.trim());
     const [route, model, label] = parts;
     if (!route || !model) continue;
     const value = JSON.stringify([route, model]);
-    if (predefinedValues.has(value)) continue;
+    if (seen.has(value)) continue;
+    seen.add(value);
     out.push({
       value,
       label: label || model,
@@ -100,12 +99,16 @@ export function buildDshCustomModelOptions(
 
 export class DshProviderModels implements IProviderModels {
   async getSupportedModels(): Promise<ProviderModelsDefinition> {
-    const custom = appConfig().get().providers.dsh.customModels;
+    const customOptions = buildDshCustomModelOptions(appConfig().get().providers.dsh.customModels);
     return {
-      OPTIONS: [
-        ...DSH_PREDEFINED_MODELS.OPTIONS,
-        ...buildDshCustomModelOptions(custom),
-      ],
+      // Replace semantics: a non-empty customModels list IS the catalog for
+      // the active profile's vendor — mixing it with DeepSeek's own entries
+      // made the picker unreadable and forced users to mentally filter. Only
+      // the provider-agnostic `default` slot survives a replacement; an
+      // empty/absent list falls back to the built-in DeepSeek entries.
+      OPTIONS: customOptions.length > 0
+        ? [DSH_PREDEFINED_MODELS.OPTIONS[0], ...customOptions]
+        : [...DSH_PREDEFINED_MODELS.OPTIONS],
       DEFAULT: DSH_PREDEFINED_MODELS.DEFAULT,
     };
   }
