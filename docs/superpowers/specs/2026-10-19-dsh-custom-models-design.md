@@ -2,6 +2,7 @@
 
 - 日期：2026-10-19
 - 状态：已实现（4b21185..bd80e9f，2026-10-19；后端 69 + dsh 目录 39 + 前端 11 测试全过，typecheck 零新增。实现期补充：自定义条目与预定义 value 撞车时丢弃后者（pickers 按 value 做 React key）；profileFormEntries 放行 string[] 使选档回填 customModels）
+- **修订 2026-10-20（用户反馈，ea4b998）**：§2"追加不覆盖"语义改为**非空即替换**——非空 customModels 是当前档的完整目录（default 槽位保留，DeepSeek 预定义 3 项不再混入），空则回落内置列表。理由：不同配置档对应不同供应商，混在一个下拉里不直观也难配置。"与预定义撞车丢弃"随之作废（替换模式不可能撞车），改为自定义条目内部按 value 去重。
 - 范围：backend/server（config、providers/dsh）、web 设置页；llm-proxy 零改动
 
 ## 1. 背景与问题
