@@ -99,13 +99,13 @@ export const DEFAULT_APP_CONFIG = {
       patchPath: '',
       // Bound for a pending tool-approval popup before the runner auto-denies.
       toolApprovalTimeoutMs: 60000,
-      // The picker catalog for deployments whose endpoint serves model ids
-      // that differ from DeepSeek's own — typically one list per provider
-      // profile (each vendor its own models). Each entry is `route|model` or
-      // `route|model|label`; parsed into a `["route","model"]` wire-format
-      // option by DshProviderModels (see dsh-models.provider.ts). NON-EMPTY
-      // REPLACES the predefined list (the `default` slot stays); empty falls
-      // back to the built-in DeepSeek entries.
+      // The model picker catalog: one model id per line/entry, exactly what the
+      // dropdown shows (plus the always-present `default` slot). There is no
+      // built-in list — model ids belong to whatever endpoint the active
+      // provider profile points at, so each profile carries its own list and
+      // switching profiles switches the picker. Entries are bare model ids
+      // (wrapped in the deepseek-official route pair by DshProviderModels) or a
+      // legacy `route|model[|label]`.
       customModels: [] as string[],
     },
   },

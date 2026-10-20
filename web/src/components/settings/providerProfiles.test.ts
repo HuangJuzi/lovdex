@@ -78,6 +78,17 @@ test('profileFormEntries also carries string-array fields (dsh customModels)', (
   ]);
 });
 
+test('a profile without customModels clears the model list on selection', () => {
+  // 旧档（字段加入白名单前建的）没有 customModels 键：选它时必须回填空列表，
+  // 否则上一档另一家供应商的模型会残留并被整份 PUT 打回去。
+  const legacyDsh = { name: 'old', values: { baseUrl: 'https://x', apiKey: 'sk' } };
+  assert.deepStrictEqual(profileFormEntries(legacyDsh, FORM_FIELDS.dsh), [
+    ['baseUrl', 'https://x'],
+    ['apiKey', 'sk'],
+    ['customModels', []],
+  ]);
+});
+
 test('isProfileModified compares only the form fields (masked values compare fine)', () => {
   const form = { apiKey: 'sk-ant****abcdef', baseUrl: 'https://a.example', defaultModel: 'm1' };
   assert.strictEqual(isProfileModified(form, CLIENT_PROFILE, FORM_FIELDS.claude), false);

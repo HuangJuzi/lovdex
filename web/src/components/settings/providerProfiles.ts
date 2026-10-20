@@ -61,6 +61,13 @@ export function readSelections(cfg: Record<string, unknown>): Record<ProviderKey
 }
 
 /**
+ * 表单里以数组承载的字段。档里缺这个键时要回填**空列表**而不是"保留当前值"：
+ * 否则切到没配过该字段的档时，上一档（另一家供应商）的模型列表会残留在表单里
+ * 被整份 PUT 打回去，"切换配置档"看起来像没生效。
+ */
+const ARRAY_FORM_FIELDS = new Set(['customModels']);
+
+/**
  * 选档时要填进表单的 (字段, 值) 对：只含表单渲染的字段、且档里是字符串或
  * 字符串数组的（customModels 走 textarea 的行数组；数组不回填会让"选档 →
  * 保存"被 body 侧旧值压过档值，档里的列表永远应用不出来）。
@@ -74,6 +81,8 @@ export function profileFormEntries(
     const value = profile.values[field];
     if (typeof value === 'string' || (Array.isArray(value) && value.every((v) => typeof v === 'string'))) {
       out.push([field, value]);
+    } else if (ARRAY_FORM_FIELDS.has(field) && value == null) {
+      out.push([field, []]);
     }
   }
   return out;

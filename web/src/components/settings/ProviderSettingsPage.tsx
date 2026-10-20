@@ -618,20 +618,20 @@ export function ProviderSettingsForm() {
         />
         <div>
           <label className="mb-1 block text-xs text-muted-foreground">
-            模型列表（customModels，每行一条 route|model[|label]）
+            模型列表（customModels，每行一个模型名）
           </label>
           <textarea
             className="min-h-[72px] w-full rounded-md border border-border bg-muted px-2 py-1.5 text-sm text-foreground"
             value={(dsh.customModels ?? []).join('\n')}
-            placeholder={'deepseek-official|deepseek-v4-flash|DeepSeek V4 Flash\ndeepseek-official|glm-5.3'}
+            placeholder={'deepseek-v4-flash\nglm-5.3'}
             onChange={(e) =>
               patchProvider('dsh', 'customModels', e.target.value.split('\n'))
             }
           />
           <p className="mt-1 text-xs text-muted-foreground">
-            配了就整表替换内置列表（不同配置档各配各家供应商的模型，切换即切换列表），
-            只保留 Default 槽位；留空则用内置 DeepSeek 列表。route 如
-            deepseek-official，model 填端点实际服务的模型名，格式不对的行会被忽略。
+            列表即所见：这里填什么，模型下拉就是什么（不含任何内置模型，只保留
+            Default 槽位）。每个配置档配自己供应商的模型，切换档即切换列表；
+            留空则只剩 Default。
           </p>
         </div>
         <p className="text-xs text-muted-foreground">

@@ -13,29 +13,26 @@ import {
 } from '@/shared/utils.js';
 
 /**
- * Catalog fallback for dsh.
+ * Model catalog for dsh.
  *
  * The live catalog is only reachable from a started ACP runtime: `session/new`
  * returns `configOptions` whose `model` entry groups real route ids, and
  * `session/set_config_option` switches between them. This facet has no runtime
- * handle, so it ships a static list for the picker's cold path, plus
- * config-driven `customModels` entries appended by `getSupportedModels` (read
- * fresh from app.config on every call, like the claude provider).
+ * handle, so the picker is built from app.config on every call (like the
+ * claude provider): the `default` slot plus one option per
+ * `providers.dsh.customModels` line.
  *
- * PROVENANCE: the `deepseek-v4-flash` / `deepseek-flash` / `deepseek-v4-pro`
- * values were read back from a real `dsh --profile acp` session's
- * `configOptions[model]` (re-probed 2026-10-16). The wire format is a
- * JSON-encoded `[provider, model]` route pair, so the runner sends exactly
- * this string as the ACP config-option value; the adapter passes the model
- * through to whatever endpoint the route resolves to.
+ * There is deliberately NO built-in model list. Model ids belong to whatever
+ * endpoint the active provider profile points at (DeepSeek official, an
+ * llm-proxy upstream, a vendor gateway, ...); serving one vendor's ids to a
+ * deployment configured for another made the picker misleading. Each profile
+ * carries its own list, and switching profiles switches the list.
  *
- * The `deepseek-official` route name is the Messages adapter's own, and the
- * shipped acp profile mounts it with no fixed model, so any id the endpoint
- * serves works — including the ones the llm-proxy fronts for the claude
- * provider (its upstream answers `DeepSeek-Flash`, `DeepSeek-V4-Pro-0813`,
- * `glm-5.3-flash`, `claude-opus-4-8`, `GLM-5.3`; all verified reachable).
- * Only the two dsh-native ids are listed here to keep the cold-path picker
- * honest; the live catalog supersedes this list once a runtime is up.
+ * Wire format: the ACP config-option value is a JSON-encoded `[route, model]`
+ * pair (read back from a real `dsh --profile acp` session, re-probed
+ * 2026-10-16). The `deepseek-official` route name is the Messages adapter's
+ * own; the shipped acp profile mounts it with no fixed model, so any id the
+ * endpoint serves works. Bare `customModels` lines are wrapped with that route.
  */
 
 /**
@@ -55,34 +52,39 @@ const DSH_EFFORT: NonNullable<ProviderModelOption['effort']> = {
   ],
 };
 
-export const DSH_PREDEFINED_MODELS: ProviderModelsDefinition = {
-  OPTIONS: [
-    { value: 'default', label: 'Default', description: 'DeepSeek Harness', effort: DSH_EFFORT },
-    { value: '["deepseek-official","deepseek-v4-flash"]', label: 'DeepSeek V4 Flash', description: 'deepseek-official', effort: DSH_EFFORT },
-    { value: '["deepseek-official","deepseek-flash"]', label: 'DeepSeek V41 Flash', description: 'deepseek-official', effort: DSH_EFFORT },
-    { value: '["deepseek-official","deepseek-v4-pro"]', label: 'DeepSeek V4 Pro', description: 'deepseek-official', effort: DSH_EFFORT },
-  ],
-  DEFAULT: 'default',
+/** The only always-present option: let dsh use its own default model. */
+const DSH_DEFAULT_MODEL = 'default';
+const DSH_DEFAULT_OPTION: ProviderModelOption = {
+  value: DSH_DEFAULT_MODEL,
+  label: 'Default',
+  description: 'dsh default',
+  effort: DSH_EFFORT,
+};
+
+export const DSH_BUILTIN_MODELS: ProviderModelsDefinition = {
+  OPTIONS: [DSH_DEFAULT_OPTION],
+  DEFAULT: DSH_DEFAULT_MODEL,
 };
 
 /**
- * Parse a `route|model[|label]` customModels entry into a picker option whose
- * value is the same `["route","model"]` wire format the predefined entries
- * use, so the runner forwards it unchanged. Malformed entries (fewer than two
- * segments, empty route/model) are skipped silently — dropping one line in the
- * settings textarea must not take the whole list down.
- * Segments beyond the third are ignored; ids containing | are not
- * representable (dsh route names and model ids never contain it).
- * Duplicate [route, model] pairs (e.g. the same entry with and without a
- * label) yield one option: the pickers key options by value, so a repeated
- * value would break React keys without adding anything.
+ * Turn `customModels` lines into picker options. The documented form is one
+ * bare model id per line (`glm-5.3`); it is wrapped in the `deepseek-official`
+ * route pair the runner forwards unchanged. A `route|model[|label]` line is
+ * still accepted for lists saved by the earlier format. Empty lines are
+ * skipped silently — a stray blank line must not take the whole list down.
+ * Duplicate `[route, model]` pairs yield one option: the pickers key options
+ * by value, so a repeated value would break React keys.
  */
 export function buildDshCustomModelOptions(customModels: readonly string[] | undefined): ProviderModelOption[] {
   const out: ProviderModelOption[] = [];
   const seen = new Set<string>();
   for (const raw of customModels ?? []) {
-    const parts = raw.split('|').map((p) => p.trim());
-    const [route, model, label] = parts;
+    const line = raw.trim();
+    if (!line) continue;
+    const parts = line.includes('|') ? line.split('|').map((p) => p.trim()) : null;
+    const route = parts ? parts[0] : 'deepseek-official';
+    const model = parts ? parts[1] : line;
+    const label = parts ? parts[2] : '';
     if (!route || !model) continue;
     const value = JSON.stringify([route, model]);
     if (seen.has(value)) continue;
@@ -99,23 +101,18 @@ export function buildDshCustomModelOptions(customModels: readonly string[] | und
 
 export class DshProviderModels implements IProviderModels {
   async getSupportedModels(): Promise<ProviderModelsDefinition> {
-    const customOptions = buildDshCustomModelOptions(appConfig().get().providers.dsh.customModels);
     return {
-      // Replace semantics: a non-empty customModels list IS the catalog for
-      // the active profile's vendor — mixing it with DeepSeek's own entries
-      // made the picker unreadable and forced users to mentally filter. Only
-      // the provider-agnostic `default` slot survives a replacement; an
-      // empty/absent list falls back to the built-in DeepSeek entries.
-      OPTIONS: customOptions.length > 0
-        ? [DSH_PREDEFINED_MODELS.OPTIONS[0], ...customOptions]
-        : [...DSH_PREDEFINED_MODELS.OPTIONS],
-      DEFAULT: DSH_PREDEFINED_MODELS.DEFAULT,
+      OPTIONS: [
+        DSH_DEFAULT_OPTION,
+        ...buildDshCustomModelOptions(appConfig().get().providers.dsh.customModels),
+      ],
+      DEFAULT: DSH_DEFAULT_MODEL,
     };
   }
 
   async getCurrentActiveModel(sessionId?: string): Promise<ProviderCurrentActiveModel> {
     void sessionId;
-    return buildDefaultProviderCurrentActiveModel(DSH_PREDEFINED_MODELS);
+    return buildDefaultProviderCurrentActiveModel(DSH_BUILTIN_MODELS);
   }
 
   async changeActiveModel(
