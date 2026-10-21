@@ -391,3 +391,106 @@ test('the neutral "default" model slot is left to the runtime', async () => {
 
   assert.deepEqual(applied, [], 'the neutral slot must not be sent as a route');
 });
+
+test('a persisted session-scoped model selection overrides the browser model (dsh resolveResumeModel path)', async () => {
+  const ws = makeWs();
+  const applied = [];
+  const fake = agent({ name: 'fake-dsh' })
+    .onRequest('initialize', async () => ({ protocolVersion: PROTOCOL_VERSION, agentCapabilities: {} }))
+    .onRequest('session/new', async () => ({ sessionId: SESSION_ID }))
+    .onRequest('session/set_config_option', async (ctx) => {
+      applied.push([ctx.params.configId, ctx.params.value]);
+      return { configOptions: [] };
+    })
+    .onRequest('session/prompt', async () => ({ stopReason: 'end_turn' }));
+
+  // The /model modal persists a session-scoped pick keyed by the APP session id;
+  // the runner gets the PROVIDER session id and resolveResumeModel translates.
+  // Stub sessionsDb so the provider-native id maps to an app session id, and
+  // seed the provider-session active-model file for that app id (same contract
+  // the existing resolve-resume-model test exercises for claude/codex).
+  const dir = await mkdtemp(path.join(tmpdir(), 'dsh-runner-model-'));
+  const changesPath = path.join(dir, 'provider-session-active-model-changes.json');
+  const APP_ID = 'app-session-dsh';
+  const PROV_ID = 'provider-dsh-session';
+  await writeFile(
+    changesPath,
+    JSON.stringify({
+      version: 1,
+      entries: {
+        [`dsh:${APP_ID}`]: {
+          provider: 'dsh',
+          sessionId: APP_ID,
+          supported: true,
+          changed: true,
+          model: '["deepseek-official","glm-5.3"]',
+          updatedAt: new Date().toISOString(),
+        },
+      },
+    }, null, 2),
+    'utf8',
+  );
+
+  const activeModelChangesPath = process.env.DSH_ACTIVE_MODEL_CHANGES_PATH;
+  process.env.DSH_ACTIVE_MODEL_CHANGES_PATH = changesPath;
+
+  // The service reads sessionsDb.getSessionByProviderSessionId to translate the
+  // provider-native id; stub it to the app id so the seeded override applies.
+  // (getSessionByProviderSessionId never runs SQL here because the stub replaces
+  // the method entirely — the real DB connection is never opened.)
+  const { sessionsDb } = await import('../../../../../modules/database/index.js');
+  const originalGet = sessionsDb.getSessionByProviderSessionId;
+  sessionsDb.getSessionByProviderSessionId = () =>
+    ({
+      session_id: APP_ID,
+      provider: 'dsh',
+      provider_session_id: PROV_ID,
+      project_path: '/tmp',
+      jsonl_path: '/tmp/none.jsonl',
+      custom_name: null,
+      summary: null,
+      isArchived: 0,
+      created_at: '2026-08-01T00:00:00.000Z',
+      updated_at: '2026-08-01T00:00:00.000Z',
+    });
+
+  // The runner imported the singleton `providerModelsService` at module load and
+  // holds a live reference to that SAME object (both this test and the runner
+  // load the same module instance). Its dependency-bearing methods were created
+  // with the default ~/.cloudcli active-model path, so patch the shared object's
+  // resolveResumeModel in place to a service built against our seeded file —
+  // mutating the object is what actually affects the runner's captured reference
+  // (re-exporting a replacement binding would not reach a CJS-style import).
+  const serviceModule = await import(
+    '../../../../../modules/providers/services/provider-models.service.js'
+  );
+  const seededService = serviceModule.createProviderModelsService({ activeModelChangesPath: changesPath });
+  const originalResolve = serviceModule.providerModelsService.resolveResumeModel;
+  serviceModule.providerModelsService.resolveResumeModel =
+    seededService.resolveResumeModel.bind(seededService);
+
+  try {
+    // The browser passes a concrete-but-stale model (it has one in localStorage);
+    // the persisted session-scoped pick must win over it.
+    await drive(fake, {
+      cwd: CWD,
+      sessionId: PROV_ID,
+      prompt: 'go',
+      model: '["deepseek-official","deepseek-v4-flash"]',
+    }, ws);
+
+    assert.deepEqual(applied, [
+      ['model', '["deepseek-official","glm-5.3"]'],
+    ]);
+    assert.equal(ws.messages.filter((m) => m.kind === 'complete').length, 1);
+  } finally {
+    sessionsDb.getSessionByProviderSessionId = originalGet;
+    serviceModule.providerModelsService.resolveResumeModel = originalResolve;
+    if (activeModelChangesPath === undefined) {
+      delete process.env.DSH_ACTIVE_MODEL_CHANGES_PATH;
+    } else {
+      process.env.DSH_ACTIVE_MODEL_CHANGES_PATH = activeModelChangesPath;
+    }
+    await rm(dir, { recursive: true, force: true });
+  }
+});

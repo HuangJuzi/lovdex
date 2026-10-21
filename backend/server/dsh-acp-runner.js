@@ -42,6 +42,7 @@ import { resolveDshProviderEnv } from './modules/config/env-sync.js';
 import { decideAutoApproval } from './modules/permissions/auto-approve-policy.js';
 import { DshSessionsProvider } from './modules/providers/list/dsh/dsh-sessions.provider.js';
 import { resolveDshSessionTokenUsage } from './modules/providers/list/dsh/dsh-token-usage.js';
+import { providerModelsService } from './modules/providers/services/provider-models.service.js';
 import { createCompleteMessage, createNormalizedMessage } from './shared/utils.js';
 import { notifyRunFailed, notifyRunStopped } from './services/notification-orchestrator.js';
 
@@ -598,7 +599,18 @@ export async function runDshTurn(context, options = {}, ws, entry) {
       acpSessionId = session && typeof session.sessionId === 'string' ? session.sessionId : null;
     }
     registerSession(run, ws, acpSessionId);
-    await applySessionConfig(context, acpSessionId, options);
+    // Session-scoped model pick（/model 弹窗选了模型）持久化在 provider-session
+    // active-model 文件里、按 **app 会话 id** 键控，与 claude/codex 同一套。
+    // claude/codex 在各自 runner 里用 resolveResumeModel 把持久化选择盖到
+    // `options.model` 上；dsh 走到这里时 options.model 还是浏览器原始值，所以
+    // 会话级选择从未真正下发 —— 这就是「模型下拉选了 X、回答却是默认模型」的
+    // 另一条静默失效路径。这里与 claude/codex 对齐：有持久化选择则优先。
+    const resolvedModel = await providerModelsService.resolveResumeModel(
+      PROVIDER,
+      run.sessionId,
+      options.model,
+    );
+    await applySessionConfig(context, acpSessionId, { ...options, model: resolvedModel });
 
     await context.request(AGENT_METHODS.session_prompt, {
       sessionId: acpSessionId,

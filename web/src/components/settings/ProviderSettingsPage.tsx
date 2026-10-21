@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 import { api } from '../../utils/api';
 import { Button } from '../../shared/view/ui';
@@ -227,6 +227,7 @@ export function ProviderSettingsForm() {
         if (!cancelled) {
           setDraft(cfg);
           setSelections(readSelections(cfg));
+          resetTouchedFields();
         }
       })
       .catch(() => {
@@ -248,6 +249,24 @@ export function ProviderSettingsForm() {
     });
   }
 
+  /**
+   * 记录一个字段“用户是否已手动编辑过”。选档回填（selectProfile）需要区分：
+   * 字段刚被用户改过 → 选档不得覆盖（否则老档缺 customModels 键时会把刚填的
+   * 模型列表清成 []，保存后配置静默丢失）；字段没动过 → 正常用档内容回填。
+   * key 是 `${provider}:${field}`，不存在 = 未编辑。数组字段（textarea）每次
+   * onChange 都更新，字符串字段同理。
+   */
+  const touchedFieldsRef = useRef<Set<string>>(new Set());
+
+  function markFieldTouched(provider: ProviderKey, field: string) {
+    touchedFieldsRef.current.add(`${provider}:${field}`);
+  }
+
+  /** 页面初始加载 / 服务端返回新配置后，重置“已编辑”标记：档内容才是基准。 */
+  function resetTouchedFields() {
+    touchedFieldsRef.current = new Set();
+  }
+
   function patchServer(field: keyof ServerConfig, value: string | number) {
     setSavedMsg(null);
     setDraft((prev) => {
@@ -256,15 +275,24 @@ export function ProviderSettingsForm() {
     });
   }
 
-  /** 选档：只填表单，不写盘（保存时才生效）。 */
+  /**
+   * 选档：只填表单，不写盘（保存时才生效）。
+   *
+   * 只回填“用户没编辑过”的字段。字段被手动改过（touchedFieldsRef 有标记）时
+   * 保留当前编辑值，避免老档缺 customModels 键 → 回填空数组 → 把刚填的模型
+   * 列表清掉再整份 PUT 回去（保存后配置静默丢失的根因）。选档本身始终生效。
+   */
   function selectProfile(provider: ProviderKey, id: string) {
     setSavedMsg(null);
     setSelections((prev) => ({ ...prev, [provider]: id }));
     if (!id || !draft) return;
     const profile = draft.providerProfiles?.[provider]?.[id];
     if (!profile) return;
-    // 复用 patchProvider：它已经是这份文件里唯一经过类型检查的"改一个表单字段"写法。
+    // 复用 patchProvider：它已经是这份文件里唯一经过类型检查的“改一个表单字段”写法。
     for (const [field, value] of profileFormEntries(profile, FORM_FIELDS[provider])) {
+      if (touchedFieldsRef.current.has(`${provider}:${field}`)) {
+        continue;
+      }
       patchProvider(provider, field, value);
     }
   }
@@ -301,6 +329,7 @@ export function ProviderSettingsForm() {
       const newId = findNewProfileId(beforeIds, Object.keys(cfg.providerProfiles?.[provider] ?? {}));
       setDraft((prev) => (prev ? withProfileBuckets(prev, cfg) : cfg));
       setSelections((prev) => ({ ...prev, [provider]: newId || prev[provider] }));
+      resetTouchedFields();
       setSavedMsg(`已存为配置档「${name}」`);
     } catch (err) {
       setSaveError((err as Error).message ?? '新建配置档失败');
@@ -334,6 +363,7 @@ export function ProviderSettingsForm() {
       }
       const cfg = (await res.json()) as AppConfig;
       setDraft((prev) => (prev ? withProfileBuckets(prev, cfg) : cfg));
+      resetTouchedFields();
       setSavedMsg(`已重命名为「${name}」`);
     } catch (err) {
       setSaveError((err as Error).message ?? '重命名失败');
@@ -360,6 +390,7 @@ export function ProviderSettingsForm() {
       // 只换配置档两个键 → 表单里未保存的编辑与生效字段都原样保留。
       setDraft((prev) => (prev ? withProfileBuckets(prev, cfg) : cfg));
       setSelections((prev) => (prev[provider] === id ? { ...prev, [provider]: '' } : prev));
+      resetTouchedFields();
       setSavedMsg(`已删除配置档「${name}」`);
     } catch (err) {
       setSaveError((err as Error).message ?? '删除失败');
@@ -394,6 +425,7 @@ export function ProviderSettingsForm() {
       }
       const cfg = (await res.json()) as AppConfig;
       setDraft((prev) => (prev ? withProfileBuckets(prev, cfg) : cfg));
+      resetTouchedFields();
       setSavedMsg(`已把当前配置保存到「${name}」`);
     } catch (err) {
       setSaveError((err as Error).message ?? '保存到配置档失败');
@@ -451,6 +483,7 @@ export function ProviderSettingsForm() {
       }
       const cfg = (await res.json()) as AppConfig;
       setDraft(cfg);
+      resetTouchedFields();
       setSavedMsg('已保存。模型 / Base URL / 凭据对新会话立即生效；端口 / 数据库路径 / host 修改需重启后端生效。');
     } catch (err) {
       setSaveError((err as Error).message ?? '保存失败');
@@ -624,9 +657,10 @@ export function ProviderSettingsForm() {
             className="min-h-[72px] w-full rounded-md border border-border bg-muted px-2 py-1.5 text-sm text-foreground"
             value={(dsh.customModels ?? []).join('\n')}
             placeholder={'deepseek-v4-flash\nglm-5.3'}
-            onChange={(e) =>
-              patchProvider('dsh', 'customModels', e.target.value.split('\n'))
-            }
+            onChange={(e) => {
+              markFieldTouched('dsh', 'customModels');
+              patchProvider('dsh', 'customModels', e.target.value.split('\n'));
+            }}
           />
           <p className="mt-1 text-xs text-muted-foreground">
             列表即所见：这里填什么，模型下拉就是什么（不含任何内置模型，只保留
