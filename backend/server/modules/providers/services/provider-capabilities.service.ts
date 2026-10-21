@@ -78,11 +78,11 @@ const PROVIDER_CAPABILITIES: Record<LLMProvider, ProviderCapabilities> = {
   // declared supported. The mode set is deliberately narrow: ACP has no
   // Claude-specific mode concepts, and the runner maps the Lovdex gateway's
   // normalized modes onto ACP itself, so only the gateway-normalized
-  // 'autoApprove' is offered alongside the default. Images and the token-usage
-  // endpoint are NOT wired yet (ACP image prompts need a durable attachment
-  // store, and no usage ledger is read), so both stay false rather than
-  // advertising a capability the runner cannot honour. `supportsEffort` is
-  // honest ahead of the runner: ACP exposes `reasoning_effort` through
+  // 'autoApprove' is offered alongside the default. Images are NOT wired yet
+  // (ACP image prompts need a durable attachment store). Token usage IS wired:
+  // the endpoint (and the runner's per-step `token_budget` frames) read dsh's
+  // `session_projcache` snapshot / session log. `supportsEffort` is honest
+  // ahead of the runner: ACP exposes `reasoning_effort` through
   // `session/set_config_option`, which needs no new infrastructure.
   dsh: {
     provider: 'dsh',
@@ -91,7 +91,7 @@ const PROVIDER_CAPABILITIES: Record<LLMProvider, ProviderCapabilities> = {
     supportsImages: false,
     supportsAbort: true,
     supportsPermissionRequests: true,
-    supportsTokenUsage: false,
+    supportsTokenUsage: true,
     supportsEffort: true,
   },
 };

@@ -365,7 +365,14 @@ export function useChatRealtimeHandlers({
 
         case 'status': {
           if (msg.text === 'token_budget' && msg.tokenBudget) {
-            setTokenBudget(msg.tokenBudget as Record<string, unknown>);
+            // The badge belongs to the session on screen. Sockets stay
+            // subscribed to every session opened in this tab (there is no
+            // unsubscribe), so a background task/operator run keeps delivering
+            // its budget frames — applying those overwrote the visible
+            // session's number with another session's usage.
+            if (sid === activeViewSessionId) {
+              setTokenBudget(msg.tokenBudget as Record<string, unknown>);
+            }
           } else if (msg.text && sid) {
             onSessionProcessing?.(sid, {
               statusText: msg.text as string,

@@ -706,21 +706,32 @@ export function useChatSessionState({
       setTokenBudget(null);
       return;
     }
+    // Drop the previous session's number right away and make any in-flight
+    // read for it a no-op: otherwise the badge briefly (or, with a slow read,
+    // persistently) shows another session's usage after a switch.
+    setTokenBudget(null);
+    let cancelled = false;
     const fetchInitialTokenUsage = async () => {
       try {
         // The backend resolves the provider from the indexed session row.
         const url = `/api/projects/${selectedProject.projectId}/sessions/${selectedSession.id}/token-usage`;
         const response = await authenticatedFetch(url);
+        if (cancelled) return;
         if (response.ok) {
           setTokenBudget(await response.json());
         } else {
           setTokenBudget(null);
         }
       } catch (error) {
-        console.error('Failed to fetch initial token usage:', error);
+        if (!cancelled) {
+          console.error('Failed to fetch initial token usage:', error);
+        }
       }
     };
     fetchInitialTokenUsage();
+    return () => {
+      cancelled = true;
+    };
   }, [selectedProject, selectedSession?.id]);
 
   const visibleMessages = useMemo(() => {

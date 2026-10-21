@@ -22,6 +22,7 @@ import { createSdkMcpServer, query } from '@anthropic-ai/claude-agent-sdk';
 import { buildClaudeUserContent, normalizeImageDescriptors } from './shared/image-attachments.js';
 import { getClaudeFallbackModels } from './modules/providers/list/claude/claude-models.provider.js';
 import { providerModelsService } from './modules/providers/services/provider-models.service.js';
+import { buildClaudeTokenBudget } from './modules/providers/list/claude/claude-token-usage.js';
 import { resolveClaudeCodeExecutablePath } from './shared/claude-cli-path.js';
 import {
   createNotificationEvent,
@@ -511,9 +512,16 @@ function describeSdkError(error) {
 }
 
 /**
- * Extracts token usage from SDK messages.
- * Prefers per-step `message.usage` (Claude message payload), then falls back
- * to result-level usage/modelUsage for compatibility across SDK versions.
+ * Extracts the CURRENT context budget from an SDK message.
+ *
+ * Only per-step assistant usage qualifies. The terminal `result` message's
+ * usage / modelUsage are the run's CUMULATIVE totals across every tool round
+ * and are rejected outright, so the badge cannot jump to millions at the end
+ * of a turn.
+ *
+ * The shape is checked before reading config: `appConfig().get()`
+ * structuredClones the whole config, and most streamed messages carry no
+ * usage at all (hot path).
  * @param {Object} sdkMessage - SDK stream message
  * @returns {Object|null} Token budget object or null
  */
@@ -521,72 +529,20 @@ function extractTokenBudget(sdkMessage) {
   if (!sdkMessage || typeof sdkMessage !== 'object') {
     return null;
   }
-
+  if (sdkMessage.type === 'result') {
+    return null;
+  }
   const messageUsage = sdkMessage.message?.usage || sdkMessage.usage;
-  if (messageUsage && typeof messageUsage === 'object') {
-    // Context window budget comes from app.config (server.contextWindow). The read
-    // is done only inside budget-building branches so the `appConfig().get()`
-    // structuredClone isn't performed for the many streamed messages that return
-    // null before reaching here (hot path). Non-number values — a hand-edited `0` /
-    // `"abc"`, or the old unset `null` default — still fall back to 160000, matching
-    // the old `parseInt(process.env.CONTEXT_WINDOW, 10) || 160000` default.
-    const serverCfg = appConfig().get().server;
-    const contextWindow = typeof serverCfg.contextWindow === 'number' ? serverCfg.contextWindow : 160000;
-
-    const directInputTokens = readNumber(messageUsage.input_tokens ?? messageUsage.inputTokens);
-    const cacheCreationTokens = readNumber(messageUsage.cache_creation_input_tokens ?? messageUsage.cacheCreationInputTokens ?? messageUsage.cacheCreationTokens);
-    const cacheReadTokens = readNumber(messageUsage.cache_read_input_tokens ?? messageUsage.cacheReadInputTokens ?? messageUsage.cacheReadTokens);
-    const cacheTokens = cacheCreationTokens + cacheReadTokens;
-    const inputTokens = directInputTokens + cacheTokens;
-    const outputTokens = readNumber(messageUsage.output_tokens ?? messageUsage.outputTokens);
-    const totalUsed = inputTokens + outputTokens;
-
-    return {
-      used: totalUsed,
-      total: contextWindow,
-      inputTokens,
-      outputTokens,
-      cacheReadTokens,
-      cacheCreationTokens,
-      cacheTokens,
-      breakdown: {
-        input: inputTokens,
-        output: outputTokens,
-      },
-    };
-  }
-
-  if (!sdkMessage.modelUsage || typeof sdkMessage.modelUsage !== 'object') {
+  if (!messageUsage || typeof messageUsage !== 'object') {
     return null;
   }
 
-  // Fallback for older SDK messages with only modelUsage
-  const modelKey = Object.keys(sdkMessage.modelUsage)[0];
-  const modelData = sdkMessage.modelUsage[modelKey];
-
-  if (!modelData || typeof modelData !== 'object') {
-    return null;
-  }
-
-  // Same off-hot-path config read as the messageUsage branch above; only reached
-  // for legacy modelUsage messages that actually build a budget object.
   const serverCfg = appConfig().get().server;
-  const contextWindow = typeof serverCfg.contextWindow === 'number' ? serverCfg.contextWindow : 160000;
+  const contextWindow = typeof serverCfg.contextWindow === 'number' && serverCfg.contextWindow > 0
+    ? serverCfg.contextWindow
+    : 160000;
 
-  const inputTokens = readNumber(modelData.cumulativeInputTokens ?? modelData.inputTokens);
-  const outputTokens = readNumber(modelData.cumulativeOutputTokens ?? modelData.outputTokens);
-  const totalUsed = inputTokens + outputTokens;
-
-  return {
-    used: totalUsed,
-    total: contextWindow,
-    inputTokens,
-    outputTokens,
-    breakdown: {
-      input: inputTokens,
-      output: outputTokens,
-    },
-  };
+  return buildClaudeTokenBudget(sdkMessage, contextWindow);
 }
 
 /**

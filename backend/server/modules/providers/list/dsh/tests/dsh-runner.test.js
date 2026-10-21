@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import test, { after } from 'node:test';
 
 import { agent, client, PROTOCOL_VERSION } from '@agentclientprotocol/sdk';
@@ -119,6 +122,67 @@ test('runDshTurn streams a normalized text message and emits session_created + o
   assert.equal(completes.length, 1, 'exactly one terminal complete per run');
   assert.equal(completes[0].aborted, false);
   assert.equal(completes[0].provider, 'dsh');
+});
+
+test('runDshTurn emits the current context budget before the terminal complete', async () => {
+  const dshHome = await mkdtemp(path.join(tmpdir(), 'dsh-runner-token-'));
+  const projCacheDir = path.join(dshHome, 'storages', 'session_projcache', 'sessions');
+  await mkdir(projCacheDir, { recursive: true });
+  await writeFile(
+    path.join(projCacheDir, `${SESSION_ID}.json`),
+    JSON.stringify({
+      version: 7,
+      record: {
+        rows: {
+          tokenUsage: {
+            val: {
+              last: {
+                turn: 1,
+                step: 1,
+                buckets: { uncachedInputTokens: 100, outputTokens: 50, cacheReadTokens: 900, cacheWriteTokens: 0 },
+              },
+            },
+          },
+          contextPressure: { val: { contextWindow: 12345 } },
+        },
+      },
+    }),
+  );
+
+  const previousHome = process.env.DSH_HOME;
+  process.env.DSH_HOME = dshHome;
+  try {
+    const ws = makeWs();
+    const fake = buildFakeAgent(async ({ notify }) => {
+      await notify({
+        sessionUpdate: 'tool_call_update',
+        toolCallId: 'tc-1',
+        status: 'completed',
+        rawOutput: 'ok',
+      });
+      await notify({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'done' } });
+    });
+
+    await drive(fake, { cwd: CWD, sessionId: null, prompt: 'go' }, ws);
+
+    const budget = ws.messages.find((m) => m.kind === 'status' && m.text === 'token_budget');
+    assert.ok(budget, 'expected a token_budget status frame from the dsh runner');
+    assert.equal(budget.provider, 'dsh');
+    // 100 fresh + 900 cache-read + 50 output, with dsh's own window.
+    assert.equal(budget.tokenBudget.used, 1050);
+    assert.equal(budget.tokenBudget.total, 12345);
+    assert.ok(
+      ws.messages.indexOf(budget) < ws.messages.findIndex((m) => m.kind === 'complete'),
+      'the budget must be delivered before the terminal complete',
+    );
+  } finally {
+    if (previousHome === undefined) {
+      delete process.env.DSH_HOME;
+    } else {
+      process.env.DSH_HOME = previousHome;
+    }
+    await rm(dshHome, { recursive: true, force: true });
+  }
 });
 
 test('approval round-trip: allow selects an offered allow_* option', async () => {

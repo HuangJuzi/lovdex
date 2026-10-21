@@ -41,6 +41,7 @@ import { appConfig } from './modules/config/config.js';
 import { resolveDshProviderEnv } from './modules/config/env-sync.js';
 import { decideAutoApproval } from './modules/permissions/auto-approve-policy.js';
 import { DshSessionsProvider } from './modules/providers/list/dsh/dsh-sessions.provider.js';
+import { resolveDshSessionTokenUsage } from './modules/providers/list/dsh/dsh-token-usage.js';
 import { createCompleteMessage, createNormalizedMessage } from './shared/utils.js';
 import { notifyRunFailed, notifyRunStopped } from './services/notification-orchestrator.js';
 
@@ -128,6 +129,47 @@ async function respondToPermission(responder, result) {
   }
 }
 
+/** Minimum gap between mid-turn token-budget reads (one JSON snapshot each). */
+const TOKEN_USAGE_EMIT_INTERVAL_MS = 1000;
+
+/**
+ * Pushes the session's CURRENT context usage to the composer badge.
+ *
+ * dsh's ACP stream carries no usage, so it is read from the same on-disk
+ * sources the REST endpoint uses (projcache first, session log fallback).
+ * Mid-turn calls are throttled: each read parses the session's projcache
+ * snapshot, and a tool-heavy turn finishes many steps per second.
+ */
+async function emitDshTokenBudget(run, ws, { force = false } = {}) {
+  if (!run.acpSessionId) {
+    return;
+  }
+  const now = Date.now();
+  if (!force && now - run.lastUsageEmitAt < TOKEN_USAGE_EMIT_INTERVAL_MS) {
+    return;
+  }
+  run.lastUsageEmitAt = now;
+
+  try {
+    const usage = await resolveDshSessionTokenUsage({
+      sessionId: run.acpSessionId,
+      projectPath: run.workingDir || null,
+    });
+    if (!usage) {
+      return;
+    }
+    sendMessage(ws, createNormalizedMessage({
+      kind: 'status',
+      text: 'token_budget',
+      tokenBudget: usage,
+      sessionId: finalSessionId(run),
+      provider: PROVIDER,
+    }));
+  } catch (error) {
+    console.error('[dsh-runner] failed to read token usage:', error?.message || error);
+  }
+}
+
 /**
  * Applies the caller's model / reasoning-effort selection to an ACP session.
  *
@@ -198,6 +240,10 @@ function createRunEntry({ ws, sessionId, key }) {
     sessionSummary: null,
     pendingRequestIds: new Set(),
     userId: ws?.userId ?? null,
+    // The cwd dsh runs in — used to locate the session log for token usage.
+    workingDir: null,
+    // Last mid-turn usage read (epoch ms); see emitDshTokenBudget.
+    lastUsageEmitAt: 0,
   };
 
   entry.emitComplete = (opts = {}) => {
@@ -385,6 +431,7 @@ export async function runDshTurn(context, options = {}, ws, entry) {
   const promptText = typeof options.prompt === 'string'
     ? options.prompt
     : (typeof options.command === 'string' ? options.command : '');
+  run.workingDir = workingDir;
 
   const onUpdate = (message) => {
     // ACP passes the whole `{ sessionId, update }` notification; the provider
@@ -392,6 +439,14 @@ export async function runDshTurn(context, options = {}, ws, entry) {
     const normalized = dshSessions.normalizeMessage(message.params, finalSessionId(run));
     for (const msg of normalized) {
       sendMessage(ws, msg);
+    }
+
+    // A finished tool step is the point dsh flushes its usage snapshot, so it
+    // is also the natural cadence for refreshing the composer badge.
+    const update = message.params?.update;
+    if (update?.sessionUpdate === 'tool_call_update'
+      && (update.status === 'completed' || update.status === 'failed')) {
+      void emitDshTokenBudget(run, ws);
     }
   };
 
@@ -553,6 +608,9 @@ export async function runDshTurn(context, options = {}, ws, entry) {
     // The ACP turn resolved: emit the single terminal complete. Aborted runs
     // are completed by the abort path, so they must not emit their own.
     if (!run.aborted) {
+      // Force the final read: the last step may have landed inside the
+      // throttle window, and this frame is the badge's post-turn value.
+      await emitDshTokenBudget(run, ws, { force: true });
       run.emitComplete({ exitCode: 0 });
       run.notifyTerminal({ exitCode: 0 });
     }

@@ -60,6 +60,8 @@ import projectModuleRoutes from './modules/projects/projects.routes.js';
 import userRoutes from './routes/user.js';
 import authRoutes from './modules/auth/auth.routes.js';
 import providerRoutes from './modules/providers/provider.routes.js';
+import { parseClaudeTranscriptTokenUsage } from './modules/providers/list/claude/claude-token-usage.js';
+import { resolveDshSessionTokenUsage } from './modules/providers/list/dsh/dsh-token-usage.js';
 import { assetsRoutes } from './modules/assets/index.js';
 import { MAX_FILE_UPLOAD_COUNT, MAX_FILE_UPLOAD_SIZE_BYTES, MAX_FILE_UPLOAD_SIZE_MB } from './modules/uploads/upload-limits.js';
 import {
@@ -162,11 +164,6 @@ const llmProxyManager = createLlmProxyManager();
 llmProxyManager.reconcile();
 
 console.log('SERVER_PORT from config:', cfg.server.port);
-
-function readUsageNumber(value) {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : 0;
-}
 
 const app = express();
 const server = http.createServer(app);
@@ -2106,6 +2103,40 @@ app.get('/api/projects/:projectId/sessions/:sessionId/token-usage', authenticate
             }
         }
 
+        // Handle dsh sessions. dsh has no claude-style transcript: per-step
+        // usage lives in the session log's `assistant/message` records and in
+        // its `session_projcache` snapshot. Both report the LATEST step, which
+        // is what the composer badge (current context / window) wants — the
+        // snapshot also knows the model's real context window.
+        if (provider === 'dsh') {
+            const usage = await resolveDshSessionTokenUsage({
+                sessionId: providerNativeSessionId,
+                projectPath: sessionRow?.project_path || null,
+                logPath: sessionRow?.jsonl_path || null,
+            });
+            if (usage) {
+                return res.json(usage);
+            }
+            // Brand-new session with no step recorded yet: a zeroed budget
+            // keeps the response shape the frontend expects.
+            const emptyWindow = typeof cfg.server.contextWindow === 'number' && cfg.server.contextWindow > 0
+                ? cfg.server.contextWindow
+                : 160000;
+            return res.json({
+                used: 0,
+                total: emptyWindow,
+                inputTokens: 0,
+                outputTokens: 0,
+                cacheReadTokens: 0,
+                cacheCreationTokens: 0,
+                cacheTokens: 0,
+                breakdown: {
+                    input: 0,
+                    output: 0
+                }
+            });
+        }
+
         // Handle Qoder sessions: qoder has no local sqlite token ledger — usage
         // (credits/costUsd) is reported by the runtime's terminal `result`
         // event, not a queryable store. Historical browsing returns a zeroed
@@ -2165,55 +2196,13 @@ app.get('/api/projects/:projectId/sessions/:sessionId/token-usage', authenticate
             }
             throw error; // Re-throw other errors to be caught by outer try-catch
         }
-        const lines = fileContent.trim().split('\n');
-
         const parsedContextWindow = typeof cfg.server.contextWindow === 'number' ? cfg.server.contextWindow : undefined;
         const contextWindow = Number.isFinite(parsedContextWindow) ? parsedContextWindow : 160000;
-        let inputTokens = 0;
-        let outputTokens = 0;
-        let cacheReadTokens = 0;
-        let cacheCreationTokens = 0;
 
-        // Find the latest assistant message with usage data (scan from end)
-        for (let i = lines.length - 1; i >= 0; i--) {
-            try {
-                const entry = JSON.parse(lines[i]);
-
-                // Only count assistant messages which have usage data
-                if (entry.type === 'assistant' && entry.message?.usage) {
-                    const usage = entry.message.usage;
-
-                    // Use token counts from latest assistant message only
-                    const directInputTokens = readUsageNumber(usage.input_tokens ?? usage.inputTokens);
-                    cacheReadTokens = readUsageNumber(usage.cache_read_input_tokens ?? usage.cacheReadInputTokens ?? usage.cacheReadTokens);
-                    cacheCreationTokens = readUsageNumber(usage.cache_creation_input_tokens ?? usage.cacheCreationInputTokens ?? usage.cacheCreationTokens);
-                    inputTokens = directInputTokens + cacheReadTokens + cacheCreationTokens;
-                    outputTokens = readUsageNumber(usage.output_tokens ?? usage.outputTokens);
-
-                    break; // Stop after finding the latest assistant message
-                }
-            } catch (parseError) {
-                // Skip lines that can't be parsed
-                continue;
-            }
-        }
-
-        const totalUsed = inputTokens + outputTokens;
-        const cacheTokens = cacheReadTokens + cacheCreationTokens;
-
-        res.json({
-            used: totalUsed,
-            total: contextWindow,
-            inputTokens,
-            outputTokens,
-            cacheReadTokens,
-            cacheCreationTokens,
-            cacheTokens,
-            breakdown: {
-                input: inputTokens,
-                output: outputTokens
-            }
-        });
+        // Current context = the newest real assistant step. The parser skips
+        // `<synthetic>` entries (a failed turn's zero-usage API-error message
+        // used to shadow the real previous step and report 0 tokens).
+        res.json(parseClaudeTranscriptTokenUsage(fileContent, contextWindow));
     } catch (error) {
         console.error('Error reading session token usage:', error);
         res.status(500).json({ error: 'Failed to read session token usage' });
