@@ -42,7 +42,8 @@
 
 **修复点**：新增 `server/modules/operators/run-guard.ts`（纯逻辑，可单测），由 `claude-sdk.js` 的流式循环每帧驱动：
 - 轮次熔断：`assistant` 消息计数。
-- 墙钟熔断：`startedAtMs` 起算。
+- 墙钟熔断：**空档感知**——以 `lastActivityAtMs`（最后一次真实进度事件：assistant 帧 / tool_result / 终态 result）为锚点起算。会话在两轮之间空等（等人工回复、等审批、`继续` 续跑的空档、单条长工具调用无 assistant 帧）不累计墙钟，避免复杂任务跨小时合法运行被误杀。
+- 审批超时熔断：**权限审批连续超时**（`canUseTool` 发 `permission_request` 后无人应答、`waitForToolApproval` 超时）——原始事故正是无人值守 `default` 权限反复请求同一权限直到 402；连续 `maxApprovalTimeouts` 次（默认 5）无人应答即终止，并给模型明确「停止请求确认」的拒绝文案。任何真实应答（allow/deny/cancelled）清零计数，交互式审批不误杀。
 - token/成本熔断：`assistant.message.usage` 累计（input+output+cache），`result.total_cost_usd` 累计成本。
 - 任一触顶 → `break` 出循环 → `interrupt()` CLI 子进程 → 发 `error` + `complete{exitCode:1}` → `onSessionStatus('failed')` 落 `sub_status='failed'`，熔断原因写进会话末条错误文本（verdict 读取的 final output 可见）。
 
@@ -50,7 +51,8 @@
 | 键 | 默认 | 说明 |
 |---|---|---|
 | `maxTurns` | 300 | 轮次上限（2500 条事故量级在此拦下） |
-| `maxDurationMs` | 3600000 (1h) | 墙钟上限 |
+| `maxDurationMs` | 3600000 (1h) | 墙钟上限（自最后一次真实进度事件起算；两轮间空等不计时） |
+| `maxApprovalTimeouts` | 5 | 权限审批连续超时上限（0=禁用）；交互应答即清零 |
 | `maxTotalTokens` | 0（关） | 累计 token 上限，需要时可开 |
 | `maxBudgetUsd` | 0（关） | 估算成本上限（USD），需要时可开 |
 

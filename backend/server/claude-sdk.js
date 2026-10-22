@@ -906,9 +906,27 @@ async function queryClaudeSDK(command, options = {}, ws) {
           ws.send(createNormalizedMessage({ kind: 'permission_cancelled', requestId, reason, sessionId: capturedSessionId || sessionId || null, provider: 'claude' }));
         }
       });
+      // ── approval-timeout fuse ──────────────────────────────────────────
+      // A timeout means NO human answered within the approval budget — the
+      // original runaway signature (unattended default-permission run, the
+      // model re-rolling the same permission forever). A real answer (allow /
+      // deny / cancelled) resets the streak, so interactive approvals never
+      // count. When the streak reaches the configured cap, flag the run for
+      // guarded termination (the loop picks it up next frame) and tell the
+      // model to STOP asking — without this, it would just re-roll again.
       if (!decision) {
+        counters.consecutiveApprovalTimeouts += 1;
+        if (runGuardConfig.maxApprovalTimeouts > 0
+            && counters.consecutiveApprovalTimeouts >= runGuardConfig.maxApprovalTimeouts) {
+          approvalTimeoutGuardTripped = true;
+          console.warn(`[claude-sdk] approval-timeout fuse tripped for session ${capturedSessionId || sessionId || null}: ${counters.consecutiveApprovalTimeouts} consecutive unanswered approvals`);
+          return { behavior: 'deny', message: 'Permission request timed out — 审批连续超时，会话即将终止，请停止请求权限确认并基于现有信息完成。' };
+        }
         return { behavior: 'deny', message: 'Permission request timed out' };
       }
+
+      // Any human answer breaks the unanswered-approval streak.
+      counters.consecutiveApprovalTimeouts = 0;
 
       if (decision.cancelled) {
         return { behavior: 'deny', message: 'Permission request cancelled' };
@@ -976,11 +994,38 @@ async function queryClaudeSDK(command, options = {}, ws) {
       turns: 0,
       totalTokens: 0,
       totalCostUsd: 0,
-      startedAtMs: Date.now(),
+      // Activity-aware wall-clock anchor: re-stamped on every REAL progress
+      // event below (assistant frame / tool result / terminal result). Idle
+      // time between turns — waiting for a human reply, a pending approval, a
+      // replayed `Continue` resume, a long tool turn with no assistant frames —
+      // must NOT accumulate against the duration fuse, or a complex task that
+      // legitimately spans hours of wall time gets killed the moment it
+      // resumes. A runaway still trips it: it streams continuously, so the
+      // anchor keeps advancing and the fuse fires on the gap.
+      lastActivityAtMs: Date.now(),
+      // Consecutive permission approvals that timed out with NO human answer.
+      // The original runaway shape: an unattended `default`-permission run kept
+      // requesting a tool permission, each wait hit the 60s approval timeout,
+      // and the model retried forever. Incremented in canUseTool on timeout,
+      // reset to 0 whenever a human actually answers (allow/deny/cancelled).
+      consecutiveApprovalTimeouts: 0,
     };
     const repeatedErrors = createRepeatedErrorTracker(runGuardConfig.maxRepeatedErrors);
     let guardReason = null;
     let guardDetail = '';
+    // Toggled by canUseTool (runs inside the SDK generator) so a mid-run
+    // approval-timeout streak can end the run through the same guarded-terminate
+    // path as the other fuses, not by a raw exception.
+    let approvalTimeoutGuardTripped = false;
+    // SDK-internal frames that prove nothing about runaway behavior must not
+    // advance the activity anchor. The "thinking-only" nudge / "No response
+    // requested" / API-error fallback arrive as `model: '<synthetic>'`
+    // assistant messages and as `isMeta: true` user "Continue from where you
+    // left off." replays — both are resume bookkeeping, not real work.
+    const isProgressEvent = (m) =>
+      m.type === 'assistant' && m.message?.model !== '<synthetic>'
+      || m.type === 'user'
+      || m.type === 'result';
 
     // Process streaming messages
     console.log('Starting async generator loop for session:', capturedSessionId || 'NEW');
@@ -1035,7 +1080,6 @@ async function queryClaudeSDK(command, options = {}, ws) {
             + readNumber(usage.cache_read_input_tokens ?? usage.cacheReadInputTokens);
         }
       }
-      // Terminal result: estimated cost + fatal-error detection on the run error.
       if (message.type === 'result') {
         counters.totalCostUsd += readNumber(message.total_cost_usd);
         if (message.is_error) {
@@ -1074,6 +1118,22 @@ async function queryClaudeSDK(command, options = {}, ws) {
             repeatedErrors.reset();
           }
         }
+      }
+
+      // Any REAL progress event re-arms the activity-aware wall-clock anchor
+      // before the fuses are evaluated. Synthetic/nudges were already excluded
+      // by isProgressEvent above, so idle gaps between turns never count.
+      if (isProgressEvent(message)) {
+        counters.lastActivityAtMs = Date.now();
+      }
+
+      // The approval-timeout streak is evaluated through the same fuse path.
+      // canUseTool set the flag mid-turn (it runs inside the SDK generator);
+      // the check here re-derives it from the counter so the fused counters
+      // stay the single source of truth.
+      if (!guardReason && approvalTimeoutGuardTripped) {
+        guardReason = 'repeated_approval_timeout';
+        guardDetail = `${counters.consecutiveApprovalTimeouts}/${runGuardConfig.maxApprovalTimeouts}`;
       }
 
       // Turn / wall-clock / token / cost fuses.

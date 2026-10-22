@@ -56,6 +56,10 @@ export const DEFAULT_APP_CONFIG = {
         maxTotalTokens: 0,
         maxBudgetUsd: 0,
         maxRepeatedErrors: 5,
+        // Consecutive unanswered permission approvals before the run is
+        // killed (the original runaway: an unattended default-permission run
+        // kept re-requesting the same tool until 402). 0 = disabled.
+        maxApprovalTimeouts: 5,
         // Cheap slot for auto-dispatched sub-tasks with no explicit model.
         defaultTaskModel: 'haiku',
       },
@@ -135,8 +139,6 @@ export const DEFAULT_APP_CONFIG = {
     port: 8088,
     anthropicUrl: '',
     openaiUrl: 'https://www.sophnet.com/api/open-apis/openai',
-    vlmModel: 'MiniMax-M3',
-    vlmMaxTokens: 8000,
     routing: {} as Record<string, string | { model: string; upstream?: string }>,
   },
   /**
@@ -345,8 +347,6 @@ export type LlmProxyResolved = {
   port: number;
   anthropicUrl: string;
   openaiUrl: string;
-  vlmModel: string;
-  vlmMaxTokens: number;
   routing: Record<string, string | { model: string; upstream?: string }>;
   apiKey: string;
 };
@@ -360,8 +360,6 @@ export function resolveLlmProxy(cfg: AppConfig): LlmProxyResolved {
     port: p.port || 8088,
     anthropicUrl: p.anthropicUrl || cfg.providers.claude.baseUrl,
     openaiUrl: p.openaiUrl || 'https://www.sophnet.com/api/open-apis/openai',
-    vlmModel: p.vlmModel,
-    vlmMaxTokens: p.vlmMaxTokens || 8000,
     routing: p.routing ?? {},
     apiKey: cfg.providers.claude.apiKey,
   };

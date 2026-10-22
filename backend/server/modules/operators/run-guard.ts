@@ -14,6 +14,20 @@
  * - **Wall-clock fuse** (`maxDurationMs`): terminate the run once it has been
  *   streaming longer than the budget. Covers the "one infinite turn" shape the
  *   turn fuse alone misses.
+ *
+ *   The fuse is **activity-aware**: the clock starts (and resets) at the last
+ *   real progress event — an assistant message, a tool result, or a terminal
+ *   result — NOT at the moment the stream opened. `queryClaudeSDK` hands in a
+ *   `lastActivityAtMs` counter that it updates on every such event; an
+ *   interactive session that idles (waiting for a human reply, a pending
+ *   approval, a replayed `Continue` resume, or a long tool turn with no
+ *   assistant frames) does not accumulate wall-clock time against the fuse.
+ *   This is what keeps a complex multi-hour interactive session from being
+ *   killed because it spent most of its wall time *between* turns. A genuine
+ *   runaway still trips it: the runaway signature is *continuous* streaming —
+ *   assistant/tool frames keep arriving, so `lastActivityAtMs` keeps
+ *   advancing and the fuse still fires once `nowMs - lastActivityAtMs` exceeds
+ *   the budget. Runs with `0` in `maxDurationMs` skip this fuse entirely.
  * - **Token/cost fuse** (`maxTotalTokens` / `maxBudgetUsd`): accumulate the
  *   SDK `result.usage` totals. This is the one fuse with a real cost ceiling —
  *   a 2500-turn run on the most-expensive model is what actually emptied the
@@ -40,6 +54,7 @@ export type RunGuardConfig = {
   maxTotalTokens: number;
   maxBudgetUsd: number;
   maxRepeatedErrors: number;
+  maxApprovalTimeouts: number;
   defaultTaskModel: string;
 };
 
@@ -55,6 +70,15 @@ export const DEFAULT_RUN_GUARD_CONFIG: RunGuardConfig = {
   maxBudgetUsd: 0,
   /** Consecutive same-error tool failures before the run is killed. 0 = disabled. */
   maxRepeatedErrors: 5,
+  /**
+   * Consecutive permission approvals that timed out with NO human answer
+   * before the run is killed. The original runaway signature: an unattended
+   * `default`-permission run kept requesting a tool permission, each wait hit
+   * the 60s approval timeout, and the model retried forever (×21 in the
+   * Oct-12 incident). 5 consecutive unanswered timeouts kill the run long
+   * before the old 300-turn / 1-hour fuses could. 0 = disabled.
+   */
+  maxApprovalTimeouts: 5,
   /**
    * Model slot used for an auto-dispatched sub-task with no explicit
    * `executor_model`. Must be a *cheap* slot: a null model falls through to the
@@ -83,6 +107,7 @@ export type RunGuardReason =
   | 'max_tokens'
   | 'max_budget'
   | 'repeated_tool_error'
+  | 'repeated_approval_timeout'
   | 'fatal_api_error';
 
 /** Human-readable reason for the session/task `sub_status` + transcript. */
@@ -98,6 +123,8 @@ export function describeRunGuardReason(reason: RunGuardReason, detail?: string):
       return `会话熔断：估算成本达到上限${detail ? `（${detail}）` : ''}，已终止。`;
     case 'repeated_tool_error':
       return `会话熔断：同一错误连续失败${detail ? `（${detail}）` : ''}，已终止。`;
+    case 'repeated_approval_timeout':
+      return `会话熔断：权限审批连续超时${detail ? `（${detail}）` : ''}，已终止。`;
     case 'fatal_api_error':
       return `会话已终止：API 返回致命错误${detail ? `（${detail}）` : ''}。`;
   }
@@ -137,7 +164,23 @@ export type RunGuardCounters = {
   turns: number;
   totalTokens: number;
   totalCostUsd: number;
-  startedAtMs: number;
+  /**
+   * Wall-clock anchor for the duration fuse: the timestamp of the most recent
+   * REAL progress event (assistant frame / tool result / terminal result).
+   * `queryClaudeSDK` initializes it when the stream opens and re-stamps it on
+   * every such event. The fuse fires only when `nowMs - lastActivityAtMs >=
+   * maxDurationMs`, so time spent idle between turns does not count.
+   */
+  lastActivityAtMs: number;
+  /**
+   * Consecutive permission approvals that timed out with NO human answer.
+   * The original runaway shape: an unattended `default`-permission run kept
+   * requesting the same tool permission, each wait hit the 60s approval
+   * timeout, and the model retried forever (×21 in the Oct-12 incident).
+   * `queryClaudeSDK` resets it to 0 whenever a human actually answers
+   * (allow/deny/cancelled); only a streak of unanswered timeouts advances it.
+   */
+  consecutiveApprovalTimeouts: number;
 };
 
 export type RunGuardCheck = {
@@ -160,12 +203,20 @@ export function checkRunGuard(
   const maxDurationMs = config.maxDurationMs ?? DEFAULT_RUN_GUARD_CONFIG.maxDurationMs;
   const maxTotalTokens = config.maxTotalTokens ?? DEFAULT_RUN_GUARD_CONFIG.maxTotalTokens;
   const maxBudgetUsd = config.maxBudgetUsd ?? DEFAULT_RUN_GUARD_CONFIG.maxBudgetUsd;
+  const maxApprovalTimeouts = config.maxApprovalTimeouts ?? DEFAULT_RUN_GUARD_CONFIG.maxApprovalTimeouts;
 
+  if (maxApprovalTimeouts > 0 && counters.consecutiveApprovalTimeouts >= maxApprovalTimeouts) {
+    return {
+      ok: false,
+      reason: 'repeated_approval_timeout',
+      detail: `${counters.consecutiveApprovalTimeouts}/${maxApprovalTimeouts}`,
+    };
+  }
   if (maxTurns > 0 && counters.turns >= maxTurns) {
     return { ok: false, reason: 'max_turns', detail: `${counters.turns}/${maxTurns}` };
   }
-  if (maxDurationMs > 0 && nowMs - counters.startedAtMs >= maxDurationMs) {
-    const minutes = Math.round((nowMs - counters.startedAtMs) / 60000);
+  if (maxDurationMs > 0 && nowMs - counters.lastActivityAtMs >= maxDurationMs) {
+    const minutes = Math.round((nowMs - counters.lastActivityAtMs) / 60000);
     return { ok: false, reason: 'max_duration', detail: `${minutes} 分钟` };
   }
   if (maxTotalTokens > 0 && counters.totalTokens >= maxTotalTokens) {
@@ -235,6 +286,7 @@ export function resolveRunGuardConfig(raw: unknown): RunGuardConfig {
     maxTotalTokens: num(cfg.maxTotalTokens, DEFAULT_RUN_GUARD_CONFIG.maxTotalTokens),
     maxBudgetUsd: num(cfg.maxBudgetUsd, DEFAULT_RUN_GUARD_CONFIG.maxBudgetUsd),
     maxRepeatedErrors: num(cfg.maxRepeatedErrors, DEFAULT_RUN_GUARD_CONFIG.maxRepeatedErrors),
+    maxApprovalTimeouts: num(cfg.maxApprovalTimeouts, DEFAULT_RUN_GUARD_CONFIG.maxApprovalTimeouts),
     defaultTaskModel:
       typeof cfg.defaultTaskModel === 'string' && cfg.defaultTaskModel.trim()
         ? cfg.defaultTaskModel.trim()
