@@ -4,12 +4,6 @@
 
 [proxy]
 port = 8088
-# VLM model used to describe image-carrying requests before they are routed to the
-# text model (the description is inserted in place of the image). Routes marked
-# supports_image = true (native image support) skip this entire describe pass.
-vlm_model = "MiniMax-M3"
-# Max output tokens for each image-description call.
-vlm_max_tokens = 8000
 
 [upstream]
 anthropic_url = "https://www.sophnet.com/api/open-apis/anthropic"
@@ -40,8 +34,7 @@ sophnet = ""
 # 别名的请求翻译为 OpenAI 协议转发给 openai_url(适用于 Anthropic 网关不支持
 # 的模型,如 glm-5.3-flash)。upstream 缺省时使用 [upstream] default_upstream
 # (缺省为 claude/anthropic 网关,协议不变,仅换模型)。
-# 表值还可声明 supports_image = true:上游模型原生支持图片输入时,带图请求
-# 直接发给该模型,不经内置 VLM 描述(含 image 400 重试)。
+# 表值只支持 { model, upstream } 两个字段。
 sonnet = "DeepSeek-V4-Flash-0731"
 opus = "DeepSeek-V4-Flash-0731"
 # haiku defaults to sonnet when omitted
@@ -53,8 +46,7 @@ opus = "DeepSeek-V4-Flash-0731"
 # - upstream：缺省 ""/claude/anthropic 走 Anthropic 网关（默认）；"openai" 将请求翻译为
 #   OpenAI 协议转发到 upstream.openai_url，再把回复翻译回 Anthropic 格式。
 #   适合只在 OpenAI 网关注册、Anthropic 网关不支持的模型（如 glm-5.3-flash）。
-# - supports_image：可选布尔值。true 表示该模型原生支持图片，带图请求跳过 VLM
-#   描述直接转给该模型（openai 网关下图片会翻译为 image_url）。
+# 图片一律原样转发给目标模型（openai 网关下翻译为 image_url）；代理不做图片预描述，
+# 也不会因为「模型不支持识图」而改路由到别的模型。
 # plain-string 形式（如上面的 sonnet）等价于 upstream 缺省。
 # flash = { model = "glm-5.3-flash", upstream = "openai" }
-# vision = { model = "gpt-4o", supports_image = true }

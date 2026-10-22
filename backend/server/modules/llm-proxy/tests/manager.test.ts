@@ -11,18 +11,14 @@ function cfg(routing: AppConfig['llmProxy']['routing']): AppConfig {
   c.llmProxy.port = 8088;
   c.llmProxy.anthropicUrl = 'https://upstream.example/anthropic';
   c.llmProxy.openaiUrl = 'https://upstream.example/openai';
-  c.llmProxy.vlmModel = 'VLM-X';
-  c.llmProxy.vlmMaxTokens = 1234;
   c.llmProxy.routing = routing;
   return c as AppConfig;
 }
 
-test('generateToml emits proxy/upstream/vlm sections', () => {
+test('generateToml emits proxy/upstream sections', () => {
   const toml = generateToml(cfg({}));
   assert.match(toml, /port = 8088/);
   assert.match(toml, /anthropic_url = "https:\/\/upstream\.example\/anthropic"/);
-  assert.match(toml, /vlm_model = "VLM-X"/);
-  assert.match(toml, /vlm_max_tokens = 1234/);
 });
 
 test('generateToml emits string routing entries', () => {

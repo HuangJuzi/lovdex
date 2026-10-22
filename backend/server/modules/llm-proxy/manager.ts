@@ -10,7 +10,7 @@ import type { AppConfig } from '@/modules/config/config.js';
 export function generateToml(cfg: AppConfig): string {
   const p = resolveLlmProxy(cfg);
   const lines: string[] = [];
-  lines.push('[proxy]', `port = ${p.port}`, `vlm_model = "${p.vlmModel}"`, `vlm_max_tokens = ${p.vlmMaxTokens}`, '');
+  lines.push('[proxy]', `port = ${p.port}`, '');
   lines.push('[upstream]', `anthropic_url = "${p.anthropicUrl}"`, `openai_url = "${p.openaiUrl}"`, '');
   lines.push('[keys]', 'sophnet = ""', '');
   lines.push('[routing]');

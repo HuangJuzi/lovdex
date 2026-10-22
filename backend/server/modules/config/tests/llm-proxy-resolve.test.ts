@@ -32,8 +32,7 @@ test('resolveLlmProxy prefers explicit anthropicUrl + carries apiKey from claude
   assert.equal(r.apiKey, 'sk-test');
 });
 
-test('resolveLlmProxy applies defaults for empty port/vlmMaxTokens', () => {
-  const r = resolveLlmProxy(cfgWith({ enabled: true, port: 0, vlmMaxTokens: 0 }));
+test('resolveLlmProxy applies defaults for empty port', () => {
+  const r = resolveLlmProxy(cfgWith({ enabled: true, port: 0 }));
   assert.equal(r.port, 8088);
-  assert.equal(r.vlmMaxTokens, 8000);
 });

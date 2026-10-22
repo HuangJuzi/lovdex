@@ -1,6 +1,6 @@
 # llm-proxy (vendored + maintained in Lovdex)
 
-Anthropic 透明代理 sidecar：把 Claude Code 的 `/v1/messages` 请求转发到上游（sophnet），做模型路由、Anthropic↔OpenAI 协议互译、VLM 图片先描述，并修复一组第三方 Anthropic 兼容上游（DeepSeek 系）的流式报错。
+Anthropic 透明代理 sidecar：把 Claude Code 的 `/v1/messages` 请求转发到上游（sophnet），做模型路由、Anthropic↔OpenAI 协议互译，并修复一组第三方 Anthropic 兼容上游（DeepSeek 系）的流式报错。
 
 ## 来源与归属
 
@@ -23,9 +23,11 @@ Lovdex 后端在启动时（`server/modules/llm-proxy/manager.ts`）从 `app.con
 - `LLM_PROXY_CONFIG` → TOML 路径
 - `SOPHNET_API_KEY` → 上游密钥（复用 `providers.claude.apiKey`）
 
-上游 URL、模型路由、VLM 参数都从 `config.example.toml` 的同名结构派生（详见 `generateToml`）。
+上游 URL、模型路由参数都从 `config.example.toml` 的同名结构派生（详见 `generateToml`）。
 
 **模型路由语义**：只做**精确别名匹配**（`sonnet`/`opus`/`haiku`/自定义别名 → 上游模型）；不在 `[routing]` 里的名字**原样透传**，不做子串匹配——Lovdex 由 claude CLI 侧 `ANTHROPIC_DEFAULT_*_MODEL` 解析出具体模型名（如 `claude-opus-4-8`），代理若按子串把它重路由到 `opus` 目标会跑错模型（已修）。
+
+**图片语义**：带图请求原样转发给别名解析出的目标模型（openai 网关下图片翻译为 `image_url`）。代理**不再**做图片预描述，也没有「模型不支持识图就改路由到 MiniMax-M3」的回退——那种静默换模型会让页面明明选的模型被别的模型顶替；现在所有路由模型都原生支持识图。
 
 ## 报错修复能力（本目录职责所在）
 
@@ -33,7 +35,6 @@ Lovdex 后端在启动时（`server/modules/llm-proxy/manager.ts`）从 `app.con
 - 损坏 thinking 块规范化（`thinking` 字段缺失补空串 + `signature` 清空）
 - 空响应发 `error` SSE 事件触发重试
 - thinking 400 "must be passed back" 逐级重试
-- 图片 400 "do not support image" 回退 VLM
 - 禁用 gzip、180s 响应头超时
 
 修复/新增能力时，先在 `main_test.go` / `translation_test.go` 里补用例（它们 mock 上游，纯内存可跑），再改 `main.go`。
