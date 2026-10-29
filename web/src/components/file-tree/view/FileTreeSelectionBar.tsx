@@ -11,9 +11,12 @@ type FileTreeSelectionBarProps = {
   onClear: () => void;
 };
 
-/** Batch actions for the current multi-selection. Rendered only while at
- *  least one row is selected. Moving is deliberately absent: dragging the
- *  selection onto a folder IS the move affordance. */
+/** Batch actions for the current multi-selection. Always rendered so the
+ *  tree below keeps a stable position when the first row is selected —
+ *  mounting the bar on first click used to push every row down and leave the
+ *  pointer over a different file. Actions are disabled while nothing is
+ *  selected. Moving is deliberately absent: dragging the selection onto a
+ *  folder IS the move affordance. */
 export default function FileTreeSelectionBar({
   count,
   operationLoading,
@@ -22,11 +25,11 @@ export default function FileTreeSelectionBar({
   onClear,
 }: FileTreeSelectionBarProps) {
   const { t } = useTranslation();
-  if (count <= 0) return null;
+  const empty = count <= 0;
 
   return (
     <div className="flex items-center justify-between border-b border-border bg-accent/40 px-3 py-1.5">
-      <span className="text-xs font-medium text-foreground">
+      <span className={`text-xs font-medium ${empty ? 'text-muted-foreground' : 'text-foreground'}`}>
         {t('fileTree.selection.selected', '{{count}} selected', { count })}
       </span>
       <div className="flex items-center gap-0.5">
@@ -35,7 +38,7 @@ export default function FileTreeSelectionBar({
           size="sm"
           className="h-6 px-2 text-xs"
           onClick={onDownloadZip}
-          disabled={operationLoading}
+          disabled={empty || operationLoading}
           title={t('fileTree.selection.downloadZip', 'Download as ZIP')}
           aria-label={t('fileTree.selection.downloadZip', 'Download as ZIP')}
         >
@@ -46,7 +49,7 @@ export default function FileTreeSelectionBar({
           size="sm"
           className="h-6 px-2 text-xs text-destructive hover:bg-destructive/10"
           onClick={onDelete}
-          disabled={operationLoading}
+          disabled={empty || operationLoading}
           title={t('fileTree.selection.delete', 'Delete selected')}
           aria-label={t('fileTree.selection.delete', 'Delete selected')}
         >
@@ -57,6 +60,7 @@ export default function FileTreeSelectionBar({
           size="sm"
           className="h-6 px-2 text-xs"
           onClick={onClear}
+          disabled={empty}
           title={t('fileTree.selection.clear', 'Clear selection')}
           aria-label={t('fileTree.selection.clear', 'Clear selection')}
         >
