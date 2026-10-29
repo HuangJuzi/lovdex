@@ -63,6 +63,9 @@ function isScheduledDelivered(task: Task, signal: SubStatus): boolean {
 export function attentionItems(tasks: Task[], now: Date): AttentionItem[] {
   const items: AttentionItem[] = [];
   for (const task of tasks) {
+    // 归档是终态：系统归档（定时 run 被更新一轮取代）与用户「忽略」都会归档，
+    // 但 sub_status 可能来不及清；展开「归档」筛选时也不该再冒出来催人。
+    if (task.status === 'archived') continue;
     const sub = task.sub_status;
     const tone = sub ? SUB_SIGNAL_TONE[sub] : undefined;
     if (sub && tone) {
@@ -70,8 +73,8 @@ export function attentionItems(tasks: Task[], now: Date): AttentionItem[] {
       items.push({ task, signal: sub, label: SUB_STATUS_META[sub].label, tone, action: actionFor(sub, task), since: task.attention_since ?? null });
       continue;
     }
-    // 纯逾期：无子状态信号，但 deadline 已过且未完成/归档。
-    if (task.deadline && task.status !== 'done' && task.status !== 'archived') {
+    // 纯逾期：无子状态信号，但 deadline 已过且未完成（归档已在循环顶部跳过）。
+    if (task.deadline && task.status !== 'done') {
       const info = deadlineInfo(task.deadline, now);
       if (info.overdue) {
         items.push({

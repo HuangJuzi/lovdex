@@ -109,6 +109,90 @@ test('writeSummary folds a done verdict into sub_status and keeps the task in_re
   assert.equal((events[0] as { kind: string }).kind, 'task_upserted');
 });
 
+test('writeSummary archives earlier needs_review runs of the same schedule', () => {
+  // 同一个定时模板每半小时一轮：旧 run 的 needs_review 被新一轮结算结果取代，
+  // 否则收件箱按轮次堆同一条（线上积了 10 条）。
+  const events: Array<Record<string, unknown>> = [];
+  const rows: TaskRow[] = [
+    makeRow({
+      task_id: 'old',
+      status: 'in_progress',
+      sub_status: 'needs_review',
+      source_schedule_id: 'sched-1',
+      created_at: '2026-01-01T00:00:00.000Z',
+    }),
+    makeRow({
+      task_id: 'new',
+      status: 'in_review',
+      source_schedule_id: 'sched-1',
+      created_at: '2026-01-01T01:00:00.000Z',
+    }),
+  ];
+  const svc = createTasksService(makeDb(rows), { broadcast: (e) => events.push(e as unknown as Record<string, unknown>) });
+
+  svc.writeSummary('new', { summary: 'done', verdict: 'done', reason: 'ok' });
+
+  const old = rows.find((r) => r.task_id === 'old')!;
+  assert.equal(old.status, 'archived', 'superseded run is archived');
+  assert.equal(old.sub_status, null, 'archived run drops its attention tag');
+  assert.equal(rows.find((r) => r.task_id === 'new')!.status, 'in_review');
+  assert.equal(events.filter((e) => e.kind === 'task_upserted').length, 2, 'both rows broadcast');
+});
+
+test('writeSummary keeps newer or non-needs_review scheduled runs untouched', () => {
+  const rows: TaskRow[] = [
+    makeRow({
+      task_id: 'failed',
+      status: 'in_progress',
+      sub_status: 'failed',
+      source_schedule_id: 'sched-1',
+      created_at: '2026-01-01T00:00:00.000Z',
+    }),
+    makeRow({
+      task_id: 'newer',
+      status: 'in_progress',
+      sub_status: 'needs_review',
+      source_schedule_id: 'sched-1',
+      created_at: '2026-01-03T00:00:00.000Z',
+    }),
+    makeRow({
+      task_id: 'current',
+      status: 'in_review',
+      source_schedule_id: 'sched-1',
+      created_at: '2026-01-02T00:00:00.000Z',
+    }),
+  ];
+  const svc = createTasksService(makeDb(rows), { broadcast: () => {} });
+
+  svc.writeSummary('current', { summary: 'done', verdict: 'done' });
+
+  assert.equal(rows.find((r) => r.task_id === 'failed')!.status, 'in_progress', 'failed runs stay visible');
+  assert.equal(rows.find((r) => r.task_id === 'newer')!.status, 'in_progress', 'a newer run is not superseded');
+});
+
+test('writeSummary does not touch runs of another schedule', () => {
+  const rows: TaskRow[] = [
+    makeRow({
+      task_id: 'other',
+      status: 'in_progress',
+      sub_status: 'needs_review',
+      source_schedule_id: 'sched-2',
+      created_at: '2026-01-01T00:00:00.000Z',
+    }),
+    makeRow({
+      task_id: 'current',
+      status: 'in_review',
+      source_schedule_id: 'sched-1',
+      created_at: '2026-01-02T00:00:00.000Z',
+    }),
+  ];
+  const svc = createTasksService(makeDb(rows), { broadcast: () => {} });
+
+  svc.writeSummary('current', { summary: 'done', verdict: 'done' });
+
+  assert.equal(rows.find((r) => r.task_id === 'other')!.status, 'in_progress');
+});
+
 test('writeSummary moves a non-done verdict (only_plan) back to in_progress', () => {
   const events: unknown[] = [];
   const rows: TaskRow[] = [makeRow({ task_id: 't1', status: 'in_review' })];

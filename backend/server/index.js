@@ -578,7 +578,11 @@ const tasksService = createTasksService(tasksDb, {
         if (!sessionId) return;
         const sessionRow = sessionsDb.getSessionById(sessionId);
         const isOperator = Boolean(sessionRow?.is_operator);
-        scheduleAutoVerdict(sessionId, taskId, title, isOperator);
+        // Scheduled runs are unattended: their final report often ends with
+        // "please decide X" as a suggestion, which the default verdict criteria
+        // would fold into needs_review and push into the inbox on every fire.
+        const unattended = Boolean(tasksService.getTask(taskId)?.source_schedule_id);
+        scheduleAutoVerdict(sessionId, taskId, title, isOperator, undefined, undefined, undefined, unattended);
     },
     // Task-context compression: createTask 带 sourceSessionId 时后台把来源会话
     // 压成 context_summary（summary 模式）或存原文 context_raw（raw 模式），

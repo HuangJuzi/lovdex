@@ -162,6 +162,43 @@ test('buildVerdictLlmPrompt carries the task id, title, final output and transcr
   assert.match(userPrompt, /\[user\] 修登录/);
 });
 
+test('buildVerdictLlmPrompt narrows the criteria only for unattended scheduled runs', () => {
+  const manual = buildVerdictLlmPrompt({
+    taskId: 't1',
+    title: 'x',
+    transcript: 't',
+    finalOutput: 'f',
+    priorVerdict: null,
+  });
+  assert.doesNotMatch(manual.user, /无人值守/);
+
+  const scheduled = buildVerdictLlmPrompt({
+    taskId: 't1',
+    title: 'x',
+    transcript: 't',
+    finalOutput: 'f',
+    priorVerdict: null,
+    unattended: true,
+  });
+  assert.match(scheduled.user, /无人值守的定时任务/);
+  assert.match(scheduled.user, /不构成本轮未完成/);
+  assert.match(scheduled.user, /写进 summary/);
+});
+
+test('buildVerdictLlmPrompt keeps the unattended guidance even with a criteria override', () => {
+  const { user: userPrompt } = buildVerdictLlmPrompt({
+    taskId: 't1',
+    title: 'x',
+    transcript: 't',
+    finalOutput: 'f',
+    priorVerdict: null,
+    promptOverride: '只看有没有跑 E2E。',
+    unattended: true,
+  });
+  assert.match(userPrompt, /只看有没有跑 E2E/);
+  assert.match(userPrompt, /无人值守的定时任务/);
+});
+
 test('buildVerdictLlmPrompt lists all four verdicts so the model knows the vocabulary', () => {
   const { user: userPrompt } = buildVerdictLlmPrompt({
     taskId: 't1',
@@ -300,6 +337,23 @@ test('runLlmVerdict forwards the override into the prompt it sends', async () =>
 
   assert.match(calls[0].prompt, /只看有没有跑 E2E 冒烟/);
   assert.doesNotMatch(calls[0].prompt, /判定要同时权衡三方面/);
+});
+
+test('runLlmVerdict forwards the unattended flag into the prompt', async () => {
+  const { deps, calls } = makeDeps({ oneShot: async () => VALID_JSON });
+
+  await runLlmVerdict({ sessionId: 's1', taskId: 't1', title: 'x', deps, unattended: true });
+
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].prompt, /无人值守的定时任务/);
+});
+
+test('runLlmVerdict omits the unattended guidance by default', async () => {
+  const { deps, calls } = makeDeps({ oneShot: async () => VALID_JSON });
+
+  await runLlmVerdict({ sessionId: 's1', taskId: 't1', title: 'x', deps });
+
+  assert.doesNotMatch(calls[0].prompt, /无人值守的定时任务/);
 });
 
 test('runLlmVerdict uses the default criteria when no override is supplied', async () => {

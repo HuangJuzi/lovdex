@@ -96,6 +96,13 @@ export type RunLlmVerdictArgs = {
    * included, so an override can never break parsing.
    */
   promptOverride?: string | null;
+  /**
+   * True for a scheduled (unattended) run. Scheduled reports naturally contain
+   * "please decide X" suggestions; without this flag the model folds those into
+   * needs_review and every fire re-floods the inbox. See
+   * UNATTENDED_VERDICT_GUIDANCE.
+   */
+  unattended?: boolean;
 };
 
 let depsRef: VerdictLlmDeps | null = null;
@@ -145,6 +152,26 @@ const VERDICT_OUTPUT_CONTRACT =
   '只输出 JSON：{"summary": "中文≤3句", "verdict": "done|only_plan|needs_review|blocked", "reason": "一句，说明判定依据，含验证结论与剩余事项性质"}。';
 
 /**
+ * Extra guidance for unattended scheduled runs.
+ *
+ * A scheduled run's final report routinely ends with "这个口径要不要改，请你拍板"
+ * — that is report *content*, not unfinished work. The default criteria treat any
+ * "剩余事项需要用户决策" as needs_review, which is right for a manual task whose
+ * agent is waiting on the user but wrong for a cron-style run: it labels the run
+ * unfinished, the task drops back to in_progress, and repeated runs pile the same
+ * standing item into the inbox (one per fire). The block below narrows the
+ * judgement to the run's own goal. It is appended structurally (like the prior
+ * block) so an operator criteria override cannot drop it.
+ */
+const UNATTENDED_VERDICT_GUIDANCE = [
+  '【运行方式】这是一次无人值守的定时任务运行，用户不在会话里，也不会回答追问。',
+  '判定只问「本轮任务自身的目标是否完成并验证」。以下事项不构成本轮未完成：',
+  '- 最终输出里作为建议/后续可选项提出的业务口径调整、方案取舍、下一步做什么；',
+  '- 「这一点需要你拍板」式的收尾说明 —— 它是报告内容，请写进 summary，但不要让 verdict 降级。',
+  '只有当本轮任务自身无法继续（关键步骤失败、权限被拒、缺少完成任务所必需的用户输入）时，才判 needs_review / blocked。',
+].join('\n');
+
+/**
  * Build the judgement prompt. `finalOutput` (the session's newest assistant
  * text) is listed first and untruncated — it is the decisive evidence; the
  * transcript is supporting context.
@@ -162,6 +189,8 @@ export function buildVerdictLlmPrompt(args: {
   finalOutput: string;
   priorVerdict: PriorVerdict | null;
   promptOverride?: string | null;
+  /** Scheduled/unattended run — narrows "unfinished" to the run's own goal. */
+  unattended?: boolean;
 }): { system: string; user: string } {
   const { taskId, title, transcript, finalOutput, priorVerdict } = args;
 
@@ -183,6 +212,7 @@ export function buildVerdictLlmPrompt(args: {
 
   const user = [
     `判断任务 ${taskId}（${title}）在 session 里的实际完成度。`,
+    args.unattended === true ? `\n${UNATTENDED_VERDICT_GUIDANCE}\n` : '',
     priorBlock,
     '【最终输出】最终输出（最后一条 assistant 消息）是第一依据：',
     '<<<FINAL_OUTPUT',
@@ -319,6 +349,7 @@ export async function runLlmVerdict(args: RunLlmVerdictArgs): Promise<VerdictLlm
     finalOutput,
     priorVerdict,
     promptOverride: args.promptOverride,
+    unattended: args.unattended === true,
   });
 
   let raw: string | null = null;

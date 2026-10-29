@@ -46,6 +46,8 @@ export type RunLlmVerdict = (args: {
   title: string;
   /** `operator_config.verdict_llm_prompt_override` at run time. */
   promptOverride?: string | null;
+  /** Scheduled run: the report's "please decide X" suggestions are not blockers. */
+  unattended?: boolean;
 }) => Promise<VerdictLlmOutcome>;
 export type GetOperatorConfig = () => OperatorConfig;
 
@@ -81,6 +83,10 @@ async function pump(getConfig: GetOperatorConfig): Promise<void> {
  * @param runHeadless - injectable seam (defaults to real runOperatorHeadless)
  * @param getConfig   - injectable seam (defaults to real getOperatorConfig)
  * @param runLlm      - injectable seam (defaults to the real LLM channel)
+ * @param unattended  - true when the task was created by a scheduled template
+ *                      (`source_schedule_id` non-empty). Passed through to the
+ *                      LLM criteria so a report suggestion does not downgrade a
+ *                      completed scheduled run to needs_review.
  */
 export function scheduleAutoVerdict(
   sessionId: string,
@@ -90,6 +96,7 @@ export function scheduleAutoVerdict(
   runHeadless: RunHeadless = runOperatorHeadless,
   getConfig: GetOperatorConfig = getOperatorConfig,
   runLlm: RunLlmVerdict = runLlmVerdict,
+  unattended = false,
 ): void {
   const cfg = getConfig();
   if (!cfg.enabled || !cfg.auto_verdict_enabled) return;
@@ -109,6 +116,7 @@ export function scheduleAutoVerdict(
             taskId,
             title,
             promptOverride: cfgAtRun.verdict_llm_prompt_override,
+            unattended,
           });
         } catch (e) {
           // The real channel resolves 'failed' rather than rejecting; a

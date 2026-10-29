@@ -326,6 +326,59 @@ export function createTasksService(
   }
 
   /**
+   * 同一个定时模板的后一次运行结算后，前一次还挂在 `needs_review` 的提醒就被
+   * 新结果取代了 —— 归档掉，别让收件箱按「每半小时一轮」堆同一条。
+   *
+   * 为什么必须在这里做：`needs_review` 会把任务压回 `in_progress`
+   * (`writeSummary` 的非 done 分支)，而删除守卫 `isUndeletable` 把
+   * `in_progress` + 非 failed 视为「还在等人工」，24h 清理定时任务又明确跳过
+   * `in_progress` —— 一旦留下就人工不处理就永远清不掉。线上曾因此积了 10 条
+   * 同一模板、同一诉求的条目。
+   *
+   * 只归档「更早的」运行（created_at 不晚于本轮）；本轮以及未来运行不动。
+   * 归档同时清掉 sub_status、隐藏关联会话，与用户点「忽略」的归档语义一致。
+   * 失败不影响 verdict 写入（尽力而为）。
+   */
+  function archiveSupersededScheduledRuns(
+    current: Pick<TaskRow, 'task_id' | 'source_schedule_id' | 'created_at'>,
+  ): void {
+    if (!current.source_schedule_id) return;
+    let runs: TaskRow[];
+    try {
+      runs = resolveDb.listTasks({ sourceScheduleId: current.source_schedule_id });
+    } catch (e) {
+      console.warn('[tasks] list scheduled runs for supersede failed', { taskId: current.task_id, e });
+      return;
+    }
+    const currentAt = current.created_at ? String(current.created_at) : '';
+    const sessionDb = opts.deps?.sessionsDb ?? sessionsDb;
+    for (const row of runs) {
+      if (row.task_id === current.task_id) continue;
+      // listTasks 已经按 source_schedule_id 过滤；这里再确认一次，避免注入的
+      // db 实现忽略过滤条件时误伤别的模板（防御性，不改变生产路径）。
+      if (row.source_schedule_id !== current.source_schedule_id) continue;
+      if (row.status !== 'in_progress' || row.sub_status !== 'needs_review') continue;
+      // 只由「更晚的一轮」取代更早的；时间相同（同一秒）时按 task_id 排除自己即可。
+      if (currentAt && row.created_at && String(row.created_at) > currentAt) continue;
+      try {
+        resolveDb.updateTaskStatus(row.task_id, 'archived');
+        resolveDb.updateTaskSubStatus(row.task_id, null);
+        if (row.session_id) {
+          try {
+            sessionDb.updateSessionIsArchived(row.session_id, true);
+          } catch (e) {
+            console.warn('[tasks] supersede: session archive skipped', { taskId: row.task_id, e });
+          }
+        }
+        const updated = resolveDb.getTask(row.task_id);
+        if (updated) emit({ kind: 'task_upserted', task: updated, actor: 'engine' });
+      } catch (e) {
+        console.warn('[tasks] supersede scheduled run failed', { taskId: row.task_id, e });
+      }
+    }
+  }
+
+  /**
    * Background write-back for a title that arrived after the blocking window.
    *
    * CAS on the placeholder we actually wrote (see shouldApplyGeneratedTitle): if
@@ -1005,6 +1058,8 @@ export function createTasksService(
           // 非 done 判定移回进行中列；done 判定留评审列（人 gate）。
           applyStatusChange(taskId, 'in_progress', 'engine');
         }
+        // 定时模板的旧 run 由这一轮结算结果取代（见函数注释）。
+        archiveSupersededScheduledRuns(row);
         return decorate(resolveDb.getTask(taskId) ?? row);
       }
       return row ? decorate(row) : null;
@@ -1023,11 +1078,20 @@ export function createTasksService(
       let changed = 0;
       for (const row of resolveDb.listTasks({})) {
         if (row.status === 'in_progress' && row.session_id && !running.has(row.session_id)) {
-          // A task paused at an AskUserQuestion / ExitPlanMode gate ended its
-          // run cleanly (a terminal `complete` was delivered) and is legitimately
-          // waiting for a human decision — it is NOT an orphaned/crashed run.
-          // Reconcile must not overwrite that with 'failed'.
-          if (row.sub_status === 'waiting_answer' || row.sub_status === 'waiting_plan') {
+          // 已经是「已结算、在等人」的任务不是崩溃/孤儿运行，reconcile 不得把它
+          // 改写成 failed：
+          // - waiting_answer / waiting_plan：AskUserQuestion / ExitPlanMode 暂停；
+          // - needs_review / only_plan / blocked：自动判定已经写入了 verdict，
+          //   任务被有意压回 in_progress 等人工处理。
+          // 只豁免这五类；sub_status 为空或只剩陈旧 done 的才是真正没交接的 run。
+          // 线上曾因每次重启都覆盖 needs_review，把「待你决策」洗成「执行失败」。
+          if (
+            row.sub_status === 'waiting_answer'
+            || row.sub_status === 'waiting_plan'
+            || row.sub_status === 'needs_review'
+            || row.sub_status === 'only_plan'
+            || row.sub_status === 'blocked'
+          ) {
             continue;
           }
           resolveDb.updateTaskSubStatus(row.task_id, 'failed');

@@ -313,6 +313,37 @@ test('llm mode calls runLlm and does NOT spawn a headless provider run when a ve
   assert.equal(headless, 0, 'a written LLM verdict must not also run the provider');
 });
 
+test('llm mode forwards the unattended flag for scheduled runs', async () => {
+  __resetAutoVerdictQueue();
+  const seen: Array<boolean | undefined> = [];
+
+  scheduleAutoVerdict(
+    's1', 't1', 'x', false,
+    async () => {},
+    () => cfgWith(),
+    async (args) => { seen.push(args.unattended); return 'written'; },
+    true,
+  );
+  await flush();
+
+  assert.deepEqual(seen, [true]);
+});
+
+test('llm mode omits the unattended flag for manual runs', async () => {
+  __resetAutoVerdictQueue();
+  const seen: Array<boolean | undefined> = [];
+
+  scheduleAutoVerdict(
+    's1', 't1', 'x', false,
+    async () => {},
+    () => cfgWith(),
+    async (args) => { seen.push(args.unattended); return 'written'; },
+  );
+  await flush();
+
+  assert.deepEqual(seen, [false]);
+});
+
 test('llm mode does NOT fall back when the LLM path deliberately skipped', async () => {
   __resetAutoVerdictQueue();
   let headless = 0;

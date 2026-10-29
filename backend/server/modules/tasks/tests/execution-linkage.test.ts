@@ -345,6 +345,25 @@ test('reconcileFailedTasks skips a task paused waiting for a human decision (not
   assert.equal(rows[0].sub_status, 'waiting_answer');
 });
 
+test('reconcileFailedTasks skips settled AI verdicts waiting for the human', () => {
+  // needs_review / only_plan / blocked 都是 writeSummary 写入的「已结算」状态，
+  // 不是没交接就断掉的 run。重启时的 reconcile 不能把它们洗成 failed。
+  for (const sub of ['needs_review', 'only_plan', 'blocked'] as const) {
+    const rows = [makeRow({ status: 'in_progress', session_id: 's1', sub_status: sub })];
+    const svc = createTasksService(makeDb(rows), { broadcast: () => {} });
+    const changed = svc.reconcileFailedTasks(() => new Set());
+    assert.equal(changed, 0, `${sub} is a settled human-wait state, not an orphan`);
+    assert.equal(rows[0].sub_status, sub);
+  }
+});
+
+test('reconcileFailedTasks still marks a run with no verdict failed', () => {
+  const rows = [makeRow({ status: 'in_progress', session_id: 's1', sub_status: null })];
+  const svc = createTasksService(makeDb(rows), { broadcast: () => {} });
+  assert.equal(svc.reconcileFailedTasks(() => new Set()), 1);
+  assert.equal(rows[0].sub_status, 'failed');
+});
+
 test('completed with no pending approval still moves to in_review and fires onTaskCompleted (regression)', () => {
   const rows = [makeRow({ status: 'in_progress', session_id: 's1' })];
   let completedCalls = 0;

@@ -90,6 +90,14 @@ test('failed + overdue counts once, preferring the sub_status signal', () => {
 
 // —— 定时任务跑出来的条目：只有「出问题」的信号才打扰人 ——
 
+test('归档的任务即使 sub_status 还在也不进收件箱', () => {
+  const items = attentionItems(
+    [mkTask({ task_id: 'a1', status: 'archived', sub_status: 'needs_review' })],
+    NOW,
+  );
+  assert.equal(items.length, 0);
+});
+
 test('定时任务跑完的「待你验收」不进收件箱', () => {
   // 无人值守的调度每天跑几十次，每次都停在评审列等验收；整条推给收件箱就是
   // 每半小时一次的噪音。它的结果去「定时 → 运行记录」里翻，不在这里催人。
