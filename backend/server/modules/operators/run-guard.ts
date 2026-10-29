@@ -11,6 +11,14 @@
  *   `maxTurns` option is not usable for this — it aborts the *CLI process* at
  *   the option level and cannot surface a Lovdex-side reason into the session's
  *   terminal `complete`, which is what `onSessionStatus('failed')` keys off.
+ *
+ *   **Disabled by default** (`maxTurns: 0`). An assistant-frame count is not a
+ *   reliable runaway signal: a legitimate long autonomous task (research,
+ *   multi-step OA/browser workflows, large refactors) can exceed 300 frames in
+ *   minutes while making steady progress. The runaway shapes from the original
+ *   incident are bounded by the activity-aware wall-clock fuse and the
+ *   consecutive-approval-timeout fuse instead. The turn fuse stays as an
+ *   opt-in hard ceiling for deployments that want one.
  * - **Wall-clock fuse** (`maxDurationMs`): terminate the run once it has been
  *   streaming longer than the budget. Covers the "one infinite turn" shape the
  *   turn fuse alone misses.
@@ -39,6 +47,15 @@
  *   headless run legitimately re-runs a flaky read. It is keyed on "the same
  *   error keeps recurring without clearing".
  *
+ *   **Disabled by default** (`maxRepeatedErrors: 0`). The key is the error text
+ *   alone, so recoverable, self-correctable tool errors — e.g. a batch of
+ *   `File has not been read yet. Read it first before writing to it.` on five
+ *   *different* files — accumulate as if they were one stuck loop and kill an
+ *   otherwise healthy run. The original incident's actual signature
+ *   (unanswered permission approvals) is covered by the dedicated
+ *   approval-timeout fuse; the fatal-API fuse covers 402/billing errors.
+ *   Deployments that want the error-text fuse can re-enable it explicitly.
+ *
  * The reason is surfaced so `queryClaudeSDK` can terminate the loop, emit a
  * terminal `complete` with the failure, and fold the reason into the run's last
  * assistant text (which is what the task verdict reads).
@@ -60,16 +77,21 @@ export type RunGuardConfig = {
 
 /** Default budgets. Overridable via `app.config.json` → `providers.claude.runGuard`. */
 export const DEFAULT_RUN_GUARD_CONFIG: RunGuardConfig = {
-  /** Max completed turns per run. 0 = disabled. */
-  maxTurns: 300,
+  /** Max completed turns per run. 0 = disabled (default: no turn ceiling). */
+  maxTurns: 0,
   /** Max wall-clock streaming time per run, in ms. 0 = disabled. */
   maxDurationMs: 60 * 60 * 1000,
   /** Max cumulative tokens (input+output, across all turns) per run. 0 = disabled. */
   maxTotalTokens: 0,
   /** Max estimated spend in USD (from the SDK `result.total_cost_usd`). 0 = disabled. */
   maxBudgetUsd: 0,
-  /** Consecutive same-error tool failures before the run is killed. 0 = disabled. */
-  maxRepeatedErrors: 5,
+  /**
+   * Consecutive same-error tool failures before the run is killed. 0 =
+   * disabled (default). The error-text-only key misreads batches of
+   * recoverable tool-usage errors as a stuck loop; the incident shapes it was
+   * meant to catch are covered by the approval-timeout and fatal-API fuses.
+   */
+  maxRepeatedErrors: 0,
   /**
    * Consecutive permission approvals that timed out with NO human answer
    * before the run is killed. The original runaway signature: an unattended

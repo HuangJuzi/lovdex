@@ -239,8 +239,8 @@ function matchesToolPermission(entry, toolName, input) {
  * contain ONLY a `thinking` block. Claude Code CLI's agent loop counts such a
  * turn as "no visible output" and repeatedly injects the
  * "[Your previous response had no visible output. Please continue and produce
- * a user-visible response.]" nudge until the run dies on max_turns — the
- * thinking-only loop. `providers.claude.disableThinkingModels` whitelists the
+ * a user-visible response.]" nudge indefinitely (it used to die on the
+ * 300-turn fuse, which is now disabled by default) — the thinking-only loop. `providers.claude.disableThinkingModels` whitelists the
  * ids that must run without extended thinking so they can never produce a
  * thinking-only turn. Slot names ('default'/'opus'/…) resolve to the concrete
  * id via the same config so the session's effective model is judged, since the

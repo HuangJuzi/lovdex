@@ -123,6 +123,28 @@ test('wall-clock fuse is activity-aware: idle time between turns does not count'
   assert.equal(dur.detail, '90 分钟');
 });
 
+test('turn fuse is disabled by default (no 300-turn ceiling)', () => {
+  const started = 1_000_000;
+  assert.equal(DEFAULT_RUN_GUARD_CONFIG.maxTurns, 0);
+  const res = checkRunGuard(
+    { turns: 10_000, totalTokens: 0, totalCostUsd: 0, lastActivityAtMs: started, consecutiveApprovalTimeouts: 0 },
+    {},
+    started,
+  );
+  assert.equal(res.ok, true);
+  assert.equal(res.reason, null);
+});
+
+test('repeated-error fuse is disabled by default', () => {
+  // A batch of recoverable tool errors (different files, identical text) must
+  // not accumulate into a kill when the deployment uses the defaults.
+  assert.equal(DEFAULT_RUN_GUARD_CONFIG.maxRepeatedErrors, 0);
+  const tracker = createRepeatedErrorTracker(DEFAULT_RUN_GUARD_CONFIG.maxRepeatedErrors);
+  for (let i = 0; i < 20; i++) {
+    assert.equal(tracker.record('File has not been read yet. Read it first before writing to it.'), false);
+  }
+});
+
 test('checkRunGuard treats 0 as disabled for every fuse', () => {
   const started = 1_000_000;
   const counters = { turns: 10_000, totalTokens: 9e9, totalCostUsd: 999, lastActivityAtMs: started, consecutiveApprovalTimeouts: 0 };

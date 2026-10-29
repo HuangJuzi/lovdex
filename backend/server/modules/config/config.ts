@@ -51,11 +51,21 @@ export const DEFAULT_APP_CONFIG = {
       // disables a fuse. Deep-merge means a deployment can override any one key
       // without re-specifying the rest. See docs for the rationale on each default.
       runGuard: {
-        maxTurns: 300,
+        // Turn ceiling is OFF by default: assistant-frame count cannot tell a
+        // runaway from a long legitimate autonomous task (it fired at 300 turns
+        // on normal OA-workflow runs). The runaway shapes are still bounded by
+        // the activity-aware wall-clock fuse and the approval-timeout fuse.
+        // Set this to a positive number to re-enable a hard turn ceiling.
+        maxTurns: 0,
         maxDurationMs: 60 * 60 * 1000,
         maxTotalTokens: 0,
         maxBudgetUsd: 0,
-        maxRepeatedErrors: 5,
+        // Same-error fuse is OFF by default: its error-text-only key treats a
+        // batch of recoverable tool-usage errors (e.g. several writes before
+        // their reads) as one stuck loop and kills a healthy run. The original
+        // runaway shape is covered by maxApprovalTimeouts below. Set a positive
+        // number to opt back in.
+        maxRepeatedErrors: 0,
         // Consecutive unanswered permission approvals before the run is
         // killed (the original runaway: an unattended default-permission run
         // kept re-requesting the same tool until 402). 0 = disabled.
