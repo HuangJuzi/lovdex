@@ -162,6 +162,24 @@ test('buildVerdictLlmPrompt carries the task id, title, final output and transcr
   assert.match(userPrompt, /\[user\] 修登录/);
 });
 
+test('default criteria treat static verification and human acceptance as done', () => {
+  // 回归：旧口径把「只过类型检查/lint」「等用户登录验收」判 needs_review，
+  // 收件箱里堆出一批明显已完成、只剩评审门的「待你决策」。
+  const { user: userPrompt } = buildVerdictLlmPrompt({
+    taskId: 't1',
+    title: 'x',
+    transcript: 't',
+    finalOutput: 'f',
+    priorVerdict: null,
+  });
+  assert.match(userPrompt, /类型检查、lint、单测、构建/);
+  assert.match(userPrompt, /E2E \/ 浏览器冒烟不是硬性门槛/);
+  assert.match(userPrompt, /正常的评审门/);
+  assert.match(userPrompt, /不要因此判 needs_review/);
+  assert.match(userPrompt, /代码完全没提交\/推送/);
+  assert.doesNotMatch(userPrompt, /验证尚未真正完成/, 'old "only typecheck => needs_review" rule must be gone');
+});
+
 test('buildVerdictLlmPrompt narrows the criteria only for unattended scheduled runs', () => {
   const manual = buildVerdictLlmPrompt({
     taskId: 't1',

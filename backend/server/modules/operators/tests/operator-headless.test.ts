@@ -570,11 +570,11 @@ test('runOperatorHeadless does not mark when the stream has no session id', asyn
   assert.equal(marked, null);
 });
 
-test('default verdict prompt reserves needs_review for unfinished verification / uncommitted code / user acceptance', async () => {
-  // Regression: the "polite question → done" escape hatch was over-applied, so
-  // unverified work ("要不要我跑验证？"), uncommitted code, and pending user
-  // acceptance were waved through as done. The prompt must explicitly name these
-  // as needs_review, distinct from a routine commit/push tail.
+test('default verdict prompt treats static verification + human acceptance as done', async () => {
+  // 回归：旧口径把「只过了类型检查/lint」「等用户登录验收/人工冒烟」都判
+  // needs_review，导致明显已完成、只剩评审门的任务被标成「待你决策」。
+  // 新口径：静态检查通过即算验证完成，等验收是 in_review 的正常评审门 →
+  // done；needs_review 只留给真正需要用户拍板/补输入的事项。
   let captured: { prompt?: unknown; options?: Record<string, unknown> } = {};
   const queryFn = (params: { prompt: unknown; options: Record<string, unknown> }) => {
     captured = params;
@@ -591,12 +591,15 @@ test('default verdict prompt reserves needs_review for unfinished verification /
   });
 
   const prompt = String(captured.prompt);
-  assert.ok(/验证尚未真正完成|验证未真正完成/.test(prompt), `prompt should name unfinished verification as needs_review: ${prompt}`);
-  assert.ok(/尚未提交|根本没提交/.test(prompt), `prompt should name uncommitted code as needs_review: ${prompt}`);
-  assert.ok(/登录验收|人工冒烟|选方案|拍板分支/.test(prompt), `prompt should name user acceptance/decisions as needs_review: ${prompt}`);
-  assert.ok(/要不要我跑验证/.test(prompt) && /实际未完成/.test(prompt), `prompt should say "要不要我跑验证" is actually-unfinished, not a polite tail: ${prompt}`);
+  assert.ok(/类型检查、lint、单测、构建/.test(prompt), `static checks must count as verification: ${prompt}`);
+  assert.ok(/E2E.*不是硬性门槛/.test(prompt), `E2E must not be a hard gate: ${prompt}`);
+  assert.ok(/正常的评审门/.test(prompt) && /不要因此判 needs_review/.test(prompt), `human acceptance must map to done: ${prompt}`);
+  assert.ok(/完全没提交/.test(prompt), `uncommitted code still counts as unfinished: ${prompt}`);
+  assert.ok(/选方案|确认业务方向|授权外部操作/.test(prompt), `prompt must keep genuine decisions as needs_review: ${prompt}`);
+  assert.doesNotMatch(prompt, /验证尚未真正完成/, 'the old "only typecheck => needs_review" rule must be gone');
 
   const options = captured.options!;
   const sys = String(options.systemPrompt ?? '');
-  assert.ok(/验证未真正完成|尚未提交|登录验收/.test(sys), `systemPrompt should also reserve needs_review for unverified/uncommitted/acceptance: ${sys}`);
+  assert.ok(/E2E 非硬性门槛/.test(sys), `systemPrompt should also treat E2E as optional: ${sys}`);
+  assert.ok(/完全没提交/.test(sys), `systemPrompt should keep uncommitted code as unfinished: ${sys}`);
 });
