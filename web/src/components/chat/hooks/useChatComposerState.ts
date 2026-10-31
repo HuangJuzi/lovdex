@@ -32,6 +32,7 @@ import type {
 import type { Project, ProjectSession, LLMProvider, ProviderModelsCacheInfo } from '../../../types/app';
 import { escapeRegExp } from '../utils/chatFormatting';
 import { buildQuickReplyInput } from '../utils/quickReplyInsert';
+import { createSingleFlight } from '../utils/singleFlight';
 import {
   MAX_FILE_UPLOAD_COUNT,
   buildAttachmentPrefix,
@@ -254,6 +255,11 @@ export function useChatComposerState({
   const handleSubmitRef = useRef<
     ((event: FormEvent<HTMLFormElement> | MouseEvent | TouchEvent | KeyboardEvent<HTMLTextAreaElement>) => Promise<void>) | null
   >(null);
+  // 提交单飞守卫。新会话首条消息要先 await `POST /api/providers/sessions`
+  // 拿 id，这个窗口里 `isLoading` 还是 false、输入框也还没清空 —— 双击发送
+  // （或回车连击）会让两次提交各建一个 session，板上出现两条一模一样的会话。
+  // 并发的第二次提交直接丢弃（不能排队：排队会把同一句话再发一遍）。
+  const submitGateRef = useRef(createSingleFlight());
   const inputValueRef = useRef(input);
   const selectedProjectId = selectedProject?.projectId;
   // Prefer the stable backend-allocated id (selectedSession.id) but fall back
@@ -747,7 +753,7 @@ export function useChatComposerState({
     selectedSession,
   ]);
 
-  const handleSubmit = useCallback(
+  const submitInternal = useCallback(
     async (
       event: FormEvent<HTMLFormElement> | MouseEvent | TouchEvent | KeyboardEvent<HTMLTextAreaElement>,
     ) => {
@@ -1048,6 +1054,18 @@ export function useChatComposerState({
       setIsUserScrolledUp,
       slashCommands,
     ],
+  );
+
+  const handleSubmit = useCallback(
+    async (
+      event: FormEvent<HTMLFormElement> | MouseEvent | TouchEvent | KeyboardEvent<HTMLTextAreaElement>,
+    ) => {
+      const ran = await submitGateRef.current(() => submitInternal(event));
+      if (ran === null) {
+        dbg('bail duplicate submit (gate locked)');
+      }
+    },
+    [submitInternal],
   );
 
   useEffect(() => {
