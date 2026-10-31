@@ -6,6 +6,7 @@ import Sidebar from '../sidebar/view/Sidebar';
 import MainContent from '../main-content/view/MainContent';
 import InboxPage from '../inbox/InboxPage';
 import { Button, Dialog, DialogContent, DialogTitle, ToastStack, useToastStack } from '../../shared/view/ui';
+import { getOpenModalCount, subscribeModalPresence } from '../../shared/view/ui/modalPresence';
 import { refreshInbox, applyInboxEvent, claimUnannouncedImportant, subscribeInbox, getInboxSnapshot, markReadManyLocal } from '../../stores/inboxStore';
 import { inboxTargetPath, severityLabel } from '../inbox/inboxTarget';
 import { useWebSocket } from '../../contexts/WebSocketContext';
@@ -228,6 +229,13 @@ function AppContentInner() {
   // store 的 refetch。不订阅的话"弹窗已经开着"时补进来的条目不会出现在列表里
   // —— setSummaryOpen(true) 在已开时是 no-op，压根不会触发重渲染。
   const inbox = useSyncExternalStore(subscribeInbox, getInboxSnapshot, getInboxSnapshot);
+  // 当前打开着的 Dialog 数（包括侧栏的「新建任务」）。汇总弹窗在用户已经开着
+  // 别的弹窗时要让路，详见下方 announce。
+  const openModalCount = useSyncExternalStore(
+    subscribeModalPresence,
+    getOpenModalCount,
+    getOpenModalCount,
+  );
 
   // 候选集：未读且非 info。`info` 永不进汇总弹窗，这是既有约定（见
   // docs/superpowers/specs/2026-09-20-inbox-notification-design.md §5），不要顺手改掉。
@@ -254,11 +262,18 @@ function AppContentInner() {
       // 弹窗在用户最可能在的地方（收件箱）永远不出现，而且 claim 的副作用
       // 已经把这条记账消费掉，离开收件箱也不会补弹 —— 表现就是「收件箱里有、
       // 就是不给弹窗」。列表是就地更新的，弹窗正是那个「有新东西」的信号。
+      //
+      // 但用户正开着别的弹窗（最典型是「新建任务」）时必须让路：汇总弹窗的
+      // 全屏遮罩会把表单整块盖掉，Esc 还会把两个 Dialog 一起关掉，等于把用户
+      // 正在填的内容"冲掉"。这里先不 claim（无副作用），等对方关闭后本 effect
+      // 随 `openModalCount` 重新运行再补推；否则 claim 会把记账吃掉、通知永远
+      // 不再弹。若汇总弹窗自己已经开着，则不受影响 —— 新条目就地进列表即可。
+      if (!summaryOpen && openModalCount > 0) return;
       if (claimUnannouncedImportant().length > 0) setSummaryOpen(true);
     };
     announce();
     return subscribeInbox(announce);
-  }, []);
+  }, [openModalCount, summaryOpen]);
 
   // 全局实时 toast：新告警（created 且非 info）到达即右上角弹一条，点击跳转。
   useEffect(() => subscribe((event) => {

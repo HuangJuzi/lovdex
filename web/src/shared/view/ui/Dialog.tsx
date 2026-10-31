@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom';
 
 import { cn } from '../../../lib/utils';
 
+import { acquireModal } from './modalPresence';
+
 interface DialogContextValue {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -173,6 +175,13 @@ const DialogContent = React.forwardRef<HTMLDivElement, DialogContentProps>(
         document.body.style.overflow = prev;
       };
     }, [open, onOpenChange, onEscapeKeyDown]);
+
+    // 登记到全局弹窗计数：收件箱汇总弹窗靠它判断「用户正开着别的弹窗」，
+    // 避免叠到新建任务窗口上（并且 Esc 会把两个一起关掉）。
+    React.useEffect(() => {
+      if (!open) return undefined;
+      return acquireModal();
+    }, [open]);
 
     // Auto-focus first focusable element on open
     React.useEffect(() => {
