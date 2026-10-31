@@ -17,6 +17,41 @@ export type AnchorPlacement = {
 export const ANCHOR_GAP = 6;
 export const ANCHOR_MARGIN = 8;
 
+/** 锚点是否还有任何一部分落在视口里（贴边也算可见）。 */
+export function isAnchorWithinViewport(
+  anchor: AnchorRect,
+  viewportWidth: number,
+  viewportHeight: number,
+): boolean {
+  return anchor.right > 0
+    && anchor.left < viewportWidth
+    && anchor.bottom > 0
+    && anchor.top < viewportHeight;
+}
+
+export type ExternalScrollAction = 'ignore' | 'reposition' | 'close';
+
+/**
+ * 外部滚动时弹层的处置。
+ *
+ * 弹层是 `position: fixed` 的：滚动别的容器（后台会话流式输出会自动滚）根本
+ * 不会移动锚点。以前这里一律关闭，导致新建任务浮窗里刚点开的下拉被后台滚动
+ * 秒关，看起来就是"点不中选项"。正确行为是重新量锚点、跟着它走；只有锚点真的
+ * 滚出视口才关闭。弹层自身内部滚动不处理。
+ */
+export function resolveExternalScrollAction(input: {
+  targetInsidePopover: boolean;
+  anchorRect: AnchorRect | null;
+  viewportWidth: number;
+  viewportHeight: number;
+}): ExternalScrollAction {
+  if (input.targetInsidePopover) return 'ignore';
+  if (!input.anchorRect) return 'close';
+  return isAnchorWithinViewport(input.anchorRect, input.viewportWidth, input.viewportHeight)
+    ? 'reposition'
+    : 'close';
+}
+
 /** 夹取下限：视口再挤也留一段可滚动的高度，而不是塌成一条线。 */
 const MIN_PANEL_HEIGHT = 96;
 

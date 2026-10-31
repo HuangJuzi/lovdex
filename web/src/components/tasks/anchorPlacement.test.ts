@@ -1,7 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { ANCHOR_GAP, ANCHOR_MARGIN, computeAnchorPlacement } from './anchorPlacement';
+import {
+  ANCHOR_GAP,
+  ANCHOR_MARGIN,
+  computeAnchorPlacement,
+  isAnchorWithinViewport,
+  resolveExternalScrollAction,
+} from './anchorPlacement';
 
 // 定位辅助：锚定弹层，必须始终完整落在视口内（贴锚点下方，放不下就翻到上方）。
 test('places the panel below the anchor when it fits', () => {
@@ -31,6 +37,51 @@ test('aligns the panel to the anchor right edge', () => {
   const p = computeAnchorPlacement({ top: 100, bottom: 140, left: 900, right: 1000 }, 1200, 800, 200, 'right');
   assert.equal(p.right, 1200 - 1000);
   assert.equal(p.left, undefined);
+});
+
+// 回归测试（BUG2）：新建任务浮层是 fixed 的，后台会话流式输出自动滚动时锚点
+// 根本不动 —— 外部滚动只能重算位置，绝不能把下拉直接关掉。
+test('external scroll repositions a visible anchor instead of closing the popover', () => {
+  assert.equal(
+    resolveExternalScrollAction({
+      targetInsidePopover: false,
+      anchorRect: { top: 200, bottom: 236, left: 40, right: 140 },
+      viewportWidth: 1200,
+      viewportHeight: 800,
+    }),
+    'reposition',
+  );
+});
+
+test('scroll inside the popover itself is ignored', () => {
+  assert.equal(
+    resolveExternalScrollAction({
+      targetInsidePopover: true,
+      anchorRect: { top: 200, bottom: 236, left: 40, right: 140 },
+      viewportWidth: 1200,
+      viewportHeight: 800,
+    }),
+    'ignore',
+  );
+});
+
+test('anchor scrolled out of the viewport closes the popover', () => {
+  assert.equal(
+    resolveExternalScrollAction({
+      targetInsidePopover: false,
+      anchorRect: { top: -80, bottom: -44, left: 40, right: 140 },
+      viewportWidth: 1200,
+      viewportHeight: 800,
+    }),
+    'close',
+  );
+});
+
+test('anchors touching any viewport edge still count as visible', () => {
+  assert.equal(isAnchorWithinViewport({ top: 0, bottom: 36, left: 0, right: 100 }, 1200, 800), true);
+  assert.equal(isAnchorWithinViewport({ top: 764, bottom: 800, left: 1100, right: 1200 }, 1200, 800), true);
+  assert.equal(isAnchorWithinViewport({ top: 800, bottom: 836, left: 40, right: 140 }, 1200, 800), false);
+  assert.equal(isAnchorWithinViewport({ top: 100, bottom: 136, left: 1200, right: 1300 }, 1200, 800), false);
 });
 
 // 回归测试：这条 bug 的判据 —— 无论视口多矮、锚点多靠下，弹层都不能越出视口。

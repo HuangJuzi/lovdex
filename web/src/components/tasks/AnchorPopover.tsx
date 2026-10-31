@@ -1,7 +1,13 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
-import { computeAnchorPlacement, type AnchorPlacement, type AnchorRect } from './anchorPlacement';
+import {
+  computeAnchorPlacement,
+  isAnchorWithinViewport,
+  resolveExternalScrollAction,
+  type AnchorPlacement,
+  type AnchorRect,
+} from './anchorPlacement';
 
 /**
  * 贴锚点定位的弹层原语。为什么必须 portal + fixed：DialogContent 带
@@ -33,21 +39,48 @@ export function AnchorPopover({
   const [panelHeight, setPanelHeight] = useState<number | null>(null);
   const popRef = useRef<HTMLDivElement | null>(null);
 
+  /**
+   * 重新量锚点。滚动不再一律关闭（见下方 onScroll）：只要锚点还在视口里就把
+   * 弹层跟着移到新位置；因为弹层是 fixed 的，后台会话自动滚动时锚点其实没动，
+   * 这次 setState 会命中 sameAnchor 分支、不触发多余渲染。
+   */
+  const syncAnchor = useCallback(() => {
+    const el = anchorRef.current;
+    if (!el) {
+      onOpenChange(false);
+      return;
+    }
+    const r = el.getBoundingClientRect();
+    const rect = { top: r.top, bottom: r.bottom, left: r.left, right: r.right };
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    if (!isAnchorWithinViewport(rect, vw, vh)) {
+      onOpenChange(false);
+      return;
+    }
+    setAnchor((previous) => (
+      previous
+        && previous.rect.top === rect.top
+        && previous.rect.bottom === rect.bottom
+        && previous.rect.left === rect.left
+        && previous.rect.right === rect.right
+        && previous.vw === vw
+        && previous.vh === vh
+        ? previous
+        : { rect, vw, vh }
+    ));
+  }, [anchorRef, onOpenChange]);
+
   // 打开时按锚点 getBoundingClientRect 取矩形与视口尺寸。
   useEffect(() => {
-    if (!open || !anchorRef.current) {
+    if (!open) {
       setAnchor(null);
       setPanelHeight(null);
       return;
     }
-    const r = anchorRef.current.getBoundingClientRect();
-    setAnchor({
-      rect: { top: r.top, bottom: r.bottom, left: r.left, right: r.right },
-      vw: window.innerWidth,
-      vh: window.innerHeight,
-    });
+    syncAnchor();
     setPanelHeight(null);
-  }, [open, anchorRef]);
+  }, [open, syncAnchor]);
 
   // 首帧渲染后量自然高度、定最终位置。用 layout effect：在 paint 前跑完，
   // 用户看不到「先贴下再翻上去」的跳动。窗口缩放会直接关弹层，不必重量。
@@ -63,7 +96,8 @@ export function AnchorPopover({
     ? computeAnchorPlacement(anchor.rect, anchor.vw, anchor.vh, panelHeight ?? 0, align)
     : null;
 
-  // 外点 / Esc / 滚动 / 窗口缩放关闭（滚动发生在弹层内部时不关）。
+  // 外点 / Esc / 窗口缩放关闭；滚动只重算位置，锚点离开视口才关。
+  // （弹层内部滚动不处理，否则下拉自己的长列表滚不动。）
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {
@@ -75,9 +109,37 @@ export function AnchorPopover({
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onOpenChange(false);
     };
+    let scrollFrame = 0;
     const onScroll = (e: Event) => {
-      if (popRef.current?.contains(e.target as Node)) return;
-      onOpenChange(false);
+      const el = anchorRef.current;
+      if (!el) {
+        onOpenChange(false);
+        return;
+      }
+      const target = e.target instanceof Node ? e.target : null;
+      if (target && popRef.current?.contains(target)) return;
+      // fixed 弹层只可能被「包含锚点的容器」的滚动带动（document 滚动也是）。
+      // 后台会话自己的滚动容器与锚点无关，直接跳过 —— 流式输出时它每秒都在滚，
+      // 不做这个过滤就白白 getBoundingClientRect（强制布局）每一帧。
+      if (target && !target.contains(el)) return;
+
+      const r = el.getBoundingClientRect();
+      const action = resolveExternalScrollAction({
+        targetInsidePopover: false,
+        anchorRect: { top: r.top, bottom: r.bottom, left: r.left, right: r.right },
+        viewportWidth: window.innerWidth,
+        viewportHeight: window.innerHeight,
+      });
+      if (action === 'ignore') return;
+      if (action === 'close') {
+        onOpenChange(false);
+        return;
+      }
+      if (scrollFrame) return;
+      scrollFrame = requestAnimationFrame(() => {
+        scrollFrame = 0;
+        syncAnchor();
+      });
     };
     const onResize = () => onOpenChange(false);
     document.addEventListener('mousedown', onDown);
@@ -85,12 +147,13 @@ export function AnchorPopover({
     window.addEventListener('scroll', onScroll, true);
     window.addEventListener('resize', onResize);
     return () => {
+      if (scrollFrame) cancelAnimationFrame(scrollFrame);
       document.removeEventListener('mousedown', onDown);
       document.removeEventListener('keydown', onKey);
       window.removeEventListener('scroll', onScroll, true);
       window.removeEventListener('resize', onResize);
     };
-  }, [open, anchorRef, onOpenChange]);
+  }, [open, anchorRef, onOpenChange, syncAnchor]);
 
   if (!open || !placement) return null;
 
