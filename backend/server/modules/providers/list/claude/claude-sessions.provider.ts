@@ -332,6 +332,19 @@ export class ClaudeSessionsProvider implements IProviderSessions {
       return [];
     }
 
+    // Newer Claude Code CLI builds write a request-payload MIRROR record,
+    //   { type: 'api-request-blob', sessionId, hash, message: { role, content } },
+    // alongside the real incremental turns. It restates the whole request sent
+    // to the model (the user text, every system-reminder, and the step's full
+    // assistant content blocks / tool_results) and carries NO `uuid`. Because
+    // dispatch below keys only on `message.role`, emitting it would duplicate
+    // the user's message and the turn's tool calls — and with no uuid, `baseId`
+    // falls back to a fresh random id every read, so the copy can never dedupe
+    // against the genuine record. Drop it outright; it is never a real turn.
+    if (raw.type === 'api-request-blob') {
+      return [];
+    }
+
     if (raw.type === 'content_block_delta' && raw.delta?.text) {
       return splitLiveStreamDelta(raw.delta.text).map((content) =>
         createNormalizedMessage({ kind: 'stream_delta', content, sessionId, provider: PROVIDER }),
