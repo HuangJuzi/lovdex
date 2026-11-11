@@ -1,16 +1,18 @@
 #!/usr/bin/env node
 /**
- * 归档「已被同一模板更新一轮取代」的定时任务 needs_review 存量。
+ * 归档「已被同一模板更新一轮取代」的定时任务 needs_review / blocked / only_plan 存量。
  *
- * 背景：定时任务每半小时一轮，旧一轮的自动判定写出 needs_review（待你决策）后，
- * 任务被压回 in_progress。删除守卫（in_progress + 非 failed）和 24h 清理任务
- * （跳过 in_progress）都不会碰它，于是同一诉求的 10 条提醒永久挂在收件箱。
- * 运行时的新一轮判定已会在 writeSummary 里自动归档旧 run（services/tasks.service.ts
- * 的 archiveSupersededScheduledRuns），本脚本只处理存量。
+ * 背景：定时任务每半小时一轮，旧一轮的自动判定写出 needs_review / blocked /
+ * only_plan（都压回 in_progress）后，删除守卫（in_progress + 非 failed）和 24h
+ * 清理任务（跳过 in_progress）都不会碰它，于是同一诉求的提醒永久挂在收件箱
+ * （线上一个模板积了 96 条 blocked）。运行时的新一轮判定已会在 writeSummary 里
+ * 自动归档旧 run（services/tasks.service.ts 的 archiveSupersededScheduledRuns），
+ * 本脚本只处理存量。
  *
- * 判定：source_schedule_id 非空 + status=in_progress + sub_status=needs_review，
- * 且同一模板存在 created_at 更晚、verdict_at 非空的运行 —— 说明这轮结果已被更新
- * 一轮取代。归档时清 sub_status 并隐藏关联会话，与用户点「忽略」的归档语义一致。
+ * 判定：source_schedule_id 非空 + status=in_progress + sub_status 属
+ * needs_review/blocked/only_plan，且同一模板存在 created_at 更晚、verdict_at 非空
+ * 的运行 —— 说明这轮结果已被更新一轮取代。归档时清 sub_status 并隐藏关联会话，
+ * 与用户点「忽略」的归档语义一致。
  *
  * 用法：
  *   node scripts/archive-superseded-scheduled-review-runs.mjs --dry-run
@@ -43,11 +45,11 @@ db.pragma('journal_mode = WAL');
 
 const rows = db
   .prepare(
-    `SELECT t.task_id, t.title, t.session_id, t.source_schedule_id, t.created_at
+  `SELECT t.task_id, t.title, t.session_id, t.source_schedule_id, t.sub_status, t.created_at
        FROM tasks t
       WHERE t.source_schedule_id IS NOT NULL
         AND t.status = 'in_progress'
-        AND t.sub_status = 'needs_review'
+        AND t.sub_status IN ('needs_review', 'blocked', 'only_plan')
       ORDER BY t.source_schedule_id, t.created_at`,
   )
   .all();
@@ -65,7 +67,7 @@ const stale = rows.filter((row) => Boolean(hasNewerSettledRun.get(row.source_sch
 
 console.log(`[archive-superseded-scheduled-runs] candidates=${rows.length} superseded=${stale.length}`);
 for (const row of stale) {
-  console.log(`  - ${row.task_id}  ${row.created_at}  ${row.title}`);
+  console.log(`  - ${row.task_id}  ${row.created_at}  [${row.sub_status}]  ${row.title}`);
 }
 
 if (mode !== 'apply') {

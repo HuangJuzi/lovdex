@@ -139,6 +139,43 @@ test('writeSummary archives earlier needs_review runs of the same schedule', () 
   assert.equal(events.filter((e) => e.kind === 'task_upserted').length, 2, 'both rows broadcast');
 });
 
+test('writeSummary archives earlier blocked and only_plan runs of the same schedule', () => {
+  // 定时任务跑完判成 blocked/only_plan 的旧 run 和 needs_review 一样会被压回
+  // in_progress，而删除守卫（in_progress + 非 failed）和 24h 清理（跳过
+  // in_progress）都不碰它 —— 新一轮结算后旧 run 必须一并归档，否则同一诉求按轮次
+  // 堆进收件箱（线上一个模板积了 96 条 blocked）。
+  const rows: TaskRow[] = [
+    makeRow({
+      task_id: 'old-blocked',
+      status: 'in_progress',
+      sub_status: 'blocked',
+      source_schedule_id: 'sched-1',
+      created_at: '2026-01-01T00:00:00.000Z',
+    }),
+    makeRow({
+      task_id: 'old-plan',
+ status: 'in_progress',
+      sub_status: 'only_plan',
+      source_schedule_id: 'sched-1',
+  created_at: '2026-01-01T06:00:00.000Z',
+    }),
+    makeRow({
+      task_id: 'new-run',
+      status: 'in_review',
+      source_schedule_id: 'sched-1',
+      created_at: '2026-01-01T12:00:00.000Z',
+    }),
+  ];
+  const svc = createTasksService(makeDb(rows), { broadcast: () => {} });
+
+  svc.writeSummary('new-run', { summary: 'done', verdict: 'done', reason: 'ok' });
+
+  assert.equal(rows.find((r) => r.task_id === 'old-blocked')!.status, 'archived', 'superseded blocked run is archived');
+  assert.equal(rows.find((r) => r.task_id === 'old-blocked')!.sub_status, null, 'archived blocked run drops its tag');
+  assert.equal(rows.find((r) => r.task_id === 'old-plan')!.status, 'archived', 'superseded only_plan run is archived');
+  assert.equal(rows.find((r) => r.task_id === 'old-plan')!.sub_status, null, 'archived only_plan run drops its tag');
+});
+
 test('writeSummary keeps newer or non-needs_review scheduled runs untouched', () => {
   const rows: TaskRow[] = [
     makeRow({

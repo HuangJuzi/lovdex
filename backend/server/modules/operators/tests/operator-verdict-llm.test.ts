@@ -201,6 +201,8 @@ test('buildVerdictLlmPrompt narrows the criteria only for unattended scheduled r
   assert.match(scheduled.user, /无人值守的定时任务/);
   assert.match(scheduled.user, /不构成本轮未完成/);
   assert.match(scheduled.user, /写进 summary/);
+  // 个别只读校验（读日志/查状态）被拒、但任务主体已有真实结论时，不应判 blocked。
+  assert.match(scheduled.user, /只读/);
 });
 
 test('buildVerdictLlmPrompt keeps the unattended guidance even with a criteria override', () => {

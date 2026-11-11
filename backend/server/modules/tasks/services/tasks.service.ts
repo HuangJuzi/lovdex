@@ -326,14 +326,15 @@ export function createTasksService(
   }
 
   /**
-   * 同一个定时模板的后一次运行结算后，前一次还挂在 `needs_review` 的提醒就被
-   * 新结果取代了 —— 归档掉，别让收件箱按「每半小时一轮」堆同一条。
+   * 同一个定时模板的后一次运行结算后，前一次还挂在 `needs_review` / `blocked` /
+   * `only_plan` 的提醒就被新结果取代了 —— 归档掉，别让收件箱按「每半小时一轮」堆
+   * 同一条。
    *
-   * 为什么必须在这里做：`needs_review` 会把任务压回 `in_progress`
+   * 为什么必须在这里做：这三类非 done 判定都会把任务压回 `in_progress`
    * (`writeSummary` 的非 done 分支)，而删除守卫 `isUndeletable` 把
    * `in_progress` + 非 failed 视为「还在等人工」，24h 清理定时任务又明确跳过
-   * `in_progress` —— 一旦留下就人工不处理就永远清不掉。线上曾因此积了 10 条
-   * 同一模板、同一诉求的条目。
+   * `in_progress` —— 一旦留下就人工不处理就永远清不掉。线上曾因只归档
+   * `needs_review`、漏了 `blocked`，同一模板积了 96 条 blocked。
    *
    * 只归档「更早的」运行（created_at 不晚于本轮）；本轮以及未来运行不动。
    * 归档同时清掉 sub_status、隐藏关联会话，与用户点「忽略」的归档语义一致。
@@ -357,7 +358,17 @@ export function createTasksService(
       // listTasks 已经按 source_schedule_id 过滤；这里再确认一次，避免注入的
       // db 实现忽略过滤条件时误伤别的模板（防御性，不改变生产路径）。
       if (row.source_schedule_id !== current.source_schedule_id) continue;
-      if (row.status !== 'in_progress' || row.sub_status !== 'needs_review') continue;
+  if (row.status !== 'in_progress') continue;
+      // 归档 needs_review / blocked / only_plan 这三类「已结算但压回 in_progress 等
+      // 人工」的旧标签 —— 它们都会被新一轮结果取代，且删除守卫（in_progress + 非
+      // failed）与 24h 清理（跳过 in_progress）都不碰，不归档就永久驻留收件箱。
+  // failed 已是「可删」结算态（isUndeletable / isRunActive 的 `!== 'failed'`
+      // 口径放行），交给删除守卫与清理处理，这里不碰。
+      if (
+        row.sub_status !== 'needs_review'
+    && row.sub_status !== 'blocked'
+        && row.sub_status !== 'only_plan'
+  ) continue;
       // 只由「更晚的一轮」取代更早的；时间相同（同一秒）时按 task_id 排除自己即可。
       if (currentAt && row.created_at && String(row.created_at) > currentAt) continue;
       try {
